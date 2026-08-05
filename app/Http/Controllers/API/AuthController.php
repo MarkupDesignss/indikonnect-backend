@@ -307,7 +307,7 @@ class AuthController extends Controller
             $request->validate([
                 'email'        => 'required|email',
                 'password'     => 'required',
-                'account_type' => 'required|in:user,distributer,warehouse_manager,sales_executive',
+                'account_type' => 'required|in:user,distributer',
             ]);
 
             /*
@@ -393,7 +393,7 @@ class AuthController extends Controller
             | JWT TOKEN CREATE
             |--------------------------------------------------------------------------
             */
-            $token = Auth::login($user);
+            $token = $user->createToken('auth_token')->plainTextToken;
 
             $refreshToken = Str::random(100);
 
@@ -467,7 +467,7 @@ class AuthController extends Controller
             }
 
             $user = User::find($refreshToken->user_id);
-            $newAccessToken = Auth::login($user);
+            $newAccessToken = $user->createToken('auth_token')->plainTextToken;
 
             /*
             * Rotate refresh token
@@ -534,12 +534,10 @@ class AuthController extends Controller
             GET CURRENT TOKEN
             --------------------------------
             */
-            $token = Auth::getToken();
 
             return response()->json([
                 'status' => true,
                 'message' => 'Profile fetched successfully',
-                'token' => $token ? $token->get() : null,
                 'user' => $user,
             ]);
         } catch (\Exception $e) {
@@ -1016,7 +1014,7 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         try {
-            $user = Auth::user();
+            $user = $request->user();
 
             if (!$user) {
                 return response()->json([
@@ -1025,11 +1023,11 @@ class AuthController extends Controller
                 ], 401);
             }
 
-            // Delete refresh tokens
-            RefreshToken::where('user_id', $user->id)->delete();
+            // Delete the current access token
+            $request->user()->currentAccessToken()->delete();
 
-            // Logout
-            Auth::logout();
+            // If you're using custom refresh tokens
+            RefreshToken::where('user_id', $user->id)->delete();
 
             return response()->json([
                 'status' => true,
