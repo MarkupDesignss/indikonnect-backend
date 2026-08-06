@@ -826,6 +826,57 @@ class AuthController extends Controller
         }
     }
 
+    // public function profile()
+    // {
+    //     try {
+    //         $user = Auth::user();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Unauthorized'
+    //             ], 422);
+    //         }
+
+    //         /*
+    //         --------------------------------
+    //         LOAD RELATIONS
+    //         --------------------------------
+    //         */
+    //         $user->load('roles', 'businessProfile');
+
+    //         /*
+    //         --------------------------------
+    //         DOCUMENT FULL URL
+    //         --------------------------------
+    //         */
+    //         if (
+    //             $user->businessProfile &&
+    //             $user->businessProfile->document_path
+    //         ) {
+    //             $user->businessProfile->document_path =
+    //                 url('/storage/' . $user->businessProfile->document_path);
+    //         }
+
+    //         /*
+    //         --------------------------------
+    //         GET CURRENT TOKEN
+    //         --------------------------------
+    //         */
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Profile fetched successfully',
+    //             'user' => $user,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function profile()
     {
         try {
@@ -838,31 +889,22 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            /*
-            --------------------------------
-            LOAD RELATIONS
-            --------------------------------
-            */
             $user->load('roles', 'businessProfile');
 
-            /*
-            --------------------------------
-            DOCUMENT FULL URL
-            --------------------------------
-            */
-            if (
-                $user->businessProfile &&
-                $user->businessProfile->document_path
-            ) {
-                $user->businessProfile->document_path =
-                    url('/storage/' . $user->businessProfile->document_path);
+            // Profile picture full URL
+            if (!empty($user->profile_picture)) {
+                $user->profile_picture = asset('storage/profile_pictures/' . basename($user->profile_picture));
             }
 
-            /*
-            --------------------------------
-            GET CURRENT TOKEN
-            --------------------------------
-            */
+            // Business document full URL
+            if (
+                $user->businessProfile &&
+                !empty($user->businessProfile->document_path)
+            ) {
+                $user->businessProfile->document_path = asset(
+                    'storage/' . $user->businessProfile->document_path
+                );
+            }
 
             return response()->json([
                 'status' => true,
