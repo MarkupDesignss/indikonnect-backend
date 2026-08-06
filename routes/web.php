@@ -22,3 +22,8 @@ Route::get('/admin', function () {
 Route::get('/test/{param}', function ($param) {
     return "Param: $param";
 });
+
+Route::get('/run-storage-link', function () {
+    Artisan::call('storage:link');
+    return 'Storage link created successfully!';
+});
