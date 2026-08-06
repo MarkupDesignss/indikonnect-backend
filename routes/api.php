@@ -93,6 +93,7 @@ Route::group(['prefix' => 'user'], function () {
     // Public routes (no authentication required)
     Route::post('send-otp', [APIAuthController::class, 'sendOtp']);
     Route::post('verify-otp', [APIAuthController::class, 'verifyOtp']);
+    Route::post('confirm_registration', [APIAuthController::class, 'completeRegistration']);
     Route::post('resend-otp', [APIAuthController::class, 'resendOtp']);
 
     Route::post('login', [APIAuthController::class, 'login']);
