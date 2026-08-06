@@ -13,7 +13,8 @@ return new class extends Migration
     {
         Schema::create('rejected_users', function (Blueprint $table) {
             $table->id();
-            $table->string('email')->unique();
+            $table->string('email')->nullable();
+            $table->string('phone')->nullable();
             $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
             $table->text('reason')->nullable();
             $table->timestamp('rejected_at');
