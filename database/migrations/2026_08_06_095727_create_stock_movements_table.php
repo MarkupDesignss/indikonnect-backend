@@ -14,9 +14,9 @@ return new class extends Migration
             $table->integer('quantity'); // positive = receipt, negative = deduction
             $table->integer('available_quantity_after')->nullable();
             $table->string('reason')->nullable();
-            $table->foreignId('order_id')->nullable()->constrained()->onDelete('set null');
+            // $table->foreignId('order_id')->nullable()->constrained()->onDelete('set null');
             $table->foreignId('admin_id')->nullable()->constrained('admins')->onDelete('set null');
-            
+
             $table->timestamps();
 
             $table->index('product_id');
