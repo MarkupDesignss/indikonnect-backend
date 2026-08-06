@@ -27,7 +27,7 @@ return new class extends Migration
             $table->boolean('is_active')->default(1);
             $table->string('business_status')->nullable()->comment('pending, approved, rejected');
             $table->string('profile_picture')->nullable();
-            $table->string('role_id');
+            $table->string('role_id')->nullable();
             $table->rememberToken();
             $table->timestamps();
 

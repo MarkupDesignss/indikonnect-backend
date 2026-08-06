@@ -31,21 +31,25 @@ class AuthController extends Controller
 {
     protected $twilioService;
 
-    // Role constants matching your database
-    const ROLE_CUSTOMER = 1;
-    const ROLE_DISTRIBUTER = 2;
-
     public function __construct(TwilioService $twilioService)
     {
         $this->twilioService = $twilioService;
     }
 
     /**
-     * Get role ID by account type
+     * Get role ID by account type from database
      */
     private function getRoleIdByAccountType($accountType)
     {
-        return $accountType === 'distributer' ? self::ROLE_DISTRIBUTER : self::ROLE_CUSTOMER;
+        $role = Role::where('slug', $accountType)->first();
+
+        if (!$role) {
+            Log::error("Role not found with slug: {$accountType}");
+            // Try to find by name as fallback
+            $role = Role::where('name', $accountType)->first();
+        }
+
+        return $role ? $role->id : null;
     }
 
     /**
@@ -53,7 +57,13 @@ class AuthController extends Controller
      */
     private function getRoleNameByAccountType($accountType)
     {
-        return $accountType === 'distributer' ? 'Distributer' : 'Customer';
+        $role = Role::where('slug', $accountType)->first();
+
+        if (!$role) {
+            $role = Role::where('name', $accountType)->first();
+        }
+
+        return $role ? $role->name : ucfirst($accountType);
     }
 
     /**
@@ -63,6 +73,11 @@ class AuthController extends Controller
     {
         try {
             $roleId = $this->getRoleIdByAccountType($user->account_type);
+
+            if (!$roleId) {
+                Log::error("Role not found for account type: {$user->account_type}");
+                return false;
+            }
 
             // Check if role exists
             $role = Role::find($roleId);
@@ -218,7 +233,7 @@ class AuthController extends Controller
             */
             $validator = Validator::make($request->all(), [
                 'phone' => 'required|min:10|max:15',
-                'otp' => 'required|digits:4',
+                'otp' => 'required|digits:6',
                 'account_type' => 'required|in:customer,distributer',
                 'full_name' => 'required|string|max:255',
                 'email' => [
@@ -409,9 +424,6 @@ class AuthController extends Controller
     }
 
     /**
-     * Login with phone and OTP
-     */
-    /**
      * Login with phone - Auto detect account type
      */
     public function login(Request $request)
@@ -422,9 +434,7 @@ class AuthController extends Controller
                 'phone' => 'required|min:10|max:15',
             ]);
 
-
             $user = User::where('phone', $request->phone)->first();
-
 
             if (!$user) {
                 // Check if user is rejected
@@ -454,7 +464,6 @@ class AuthController extends Controller
                 ], 422);
             }
 
-
             if ($user->is_registered == 0) {
                 return response()->json([
                     'status'  => false,
@@ -462,14 +471,12 @@ class AuthController extends Controller
                 ], 422);
             }
 
-
             if ($user->is_active == 0) {
                 return response()->json([
                     'status'  => false,
                     'message' => 'Your account is blocked by admin. Please contact admin to continue'
                 ], 422);
             }
-
 
             if (
                 $user->account_type === 'distributer' &&
@@ -481,7 +488,6 @@ class AuthController extends Controller
                 ], 422);
             }
 
-
             $otp = rand(100000, 999999);
 
             $user->update([
@@ -491,7 +497,6 @@ class AuthController extends Controller
 
             // Send OTP via Twilio
             $this->twilioService->sendOtp($request->phone, $otp);
-
 
             return response()->json([
                 'status' => true,
@@ -516,7 +521,7 @@ class AuthController extends Controller
         try {
             $request->validate([
                 'phone' => 'required|min:10|max:15',
-                'otp' => 'required|digits:4'
+                'otp' => 'required|digits:6'
             ]);
 
             $user = User::where('phone', $request->phone)->first();
@@ -640,7 +645,7 @@ class AuthController extends Controller
         try {
             $request->validate([
                 'phone' => 'required|min:10|max:15',
-                'otp' => 'required|digits:4'
+                'otp' => 'required|digits:6'
             ]);
 
             $user = User::where('phone', $request->phone)->first();
@@ -753,6 +758,57 @@ class AuthController extends Controller
                 'status' => true,
                 'message' => 'OTP resent successfully',
                 'otp' => $otp // Remove in production
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function profile()
+    {
+        try {
+            $user = Auth::user();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized'
+                ], 422);
+            }
+
+            /*
+            --------------------------------
+            LOAD RELATIONS
+            --------------------------------
+            */
+            $user->load('roles', 'businessProfile');
+
+            /*
+            --------------------------------
+            DOCUMENT FULL URL
+            --------------------------------
+            */
+            if (
+                $user->businessProfile &&
+                $user->businessProfile->document_path
+            ) {
+                $user->businessProfile->document_path =
+                    url('/storage/' . $user->businessProfile->document_path);
+            }
+
+            /*
+            --------------------------------
+            GET CURRENT TOKEN
+            --------------------------------
+            */
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Profile fetched successfully',
+                'user' => $user,
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -875,12 +931,21 @@ class AuthController extends Controller
                 $data['account_type'] = 'distributer';
                 $data['business_status'] = 'pending';
 
-                // Update role to Distributer (ID = 2)
-                RoleUser::updateOrCreate(
-                    ['user_id' => $user->id],
-                    ['role_id' => self::ROLE_DISTRIBUTER]
-                );
-                $user->update(['role_id' => self::ROLE_DISTRIBUTER]);
+                // Update role to Distributer (get role ID from database)
+                $distributerRole = Role::where('slug', 'distributer')->first();
+                if ($distributerRole) {
+                    RoleUser::updateOrCreate(
+                        ['user_id' => $user->id],
+                        ['role_id' => $distributerRole->id]
+                    );
+                    $user->update(['role_id' => $distributerRole->id]);
+                } else {
+                    Log::error("Distributer role not found in database");
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Role configuration error. Please contact admin.'
+                    ], 500);
+                }
 
                 $logoutRequired = true;
             }
