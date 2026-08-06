@@ -13,23 +13,7 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
-    protected $fillable = [
-        'full_name',
-        'email',
-        'phone',
-        'password',
-        'country',
-        'account_type', // user, distributer
-        'terms_condition',
-        'otp',
-        'otp_expires_at',
-        'email_verified_at',
-        'is_registered',
-        'is_active',
-        'business_status',
-        'profile_picture',
-        'role_id',
-    ];
+    protected $guarded = [];
 
     protected $hidden = [
         'password',
@@ -38,6 +22,7 @@ class User extends Authenticatable
 
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'phone_verified_at' => 'datetime',
         'otp_expires_at' => 'datetime',
         'terms_condition' => 'boolean',
         'is_registered' => 'boolean',

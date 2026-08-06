@@ -16,9 +16,9 @@ return new class extends Migration
             $table->string('full_name');
             $table->string('email')->unique();
             $table->string('phone')->nullable();
-            $table->string('password');
+            $table->string('password')->nullable();
             $table->string('country')->nullable();
-            $table->string('account_type')->comment('user,distributer');
+            $table->string('account_type')->comment('customer,distributer');
             $table->boolean('terms_condition')->default(0);
             $table->string('otp')->nullable();
             $table->timestamp('otp_expires_at')->nullable();

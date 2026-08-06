@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\LoginRequest;
 use App\Mail\EmailVerificationMail;
 use App\Mail\MobileVerificationCodeMail;
 use App\Models\User;
@@ -26,55 +25,107 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
+use App\Services\TwilioService;
 
 class AuthController extends Controller
 {
+    protected $twilioService;
+
+    // Role constants matching your database
+    const ROLE_CUSTOMER = 1;
+    const ROLE_DISTRIBUTER = 2;
+
+    public function __construct(TwilioService $twilioService)
+    {
+        $this->twilioService = $twilioService;
+    }
+
+    /**
+     * Get role ID by account type
+     */
+    private function getRoleIdByAccountType($accountType)
+    {
+        return $accountType === 'distributer' ? self::ROLE_DISTRIBUTER : self::ROLE_CUSTOMER;
+    }
+
+    /**
+     * Get role name by account type
+     */
+    private function getRoleNameByAccountType($accountType)
+    {
+        return $accountType === 'distributer' ? 'Distributer' : 'Customer';
+    }
+
+    /**
+     * Assign role to user and update users table
+     */
+    private function assignRoleToUser($user)
+    {
+        try {
+            $roleId = $this->getRoleIdByAccountType($user->account_type);
+
+            // Check if role exists
+            $role = Role::find($roleId);
+            if (!$role) {
+                Log::error("Role not found with ID: {$roleId}");
+                return false;
+            }
+
+            // Assign role to user using RoleUser model
+            RoleUser::updateOrInsert(
+                ['user_id' => $user->id],
+                [
+                    'role_id' => $roleId,
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]
+            );
+
+            // Update role_id in users table
+            $user->update(['role_id' => $roleId]);
+
+            Log::info("Role assigned to user: {$user->id} - Role ID: {$roleId}");
+            return true;
+        } catch (\Exception $e) {
+            Log::error("Role assignment failed: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get user role
+     */
+    private function getUserRole($user)
+    {
+        if ($user->role_id) {
+            return Role::find($user->role_id);
+        }
+
+        $roleUser = RoleUser::where('user_id', $user->id)->first();
+        if ($roleUser) {
+            $role = Role::find($roleUser->role_id);
+            if ($role) {
+                // Sync users table
+                $user->update(['role_id' => $role->id]);
+            }
+            return $role;
+        }
+        return null;
+    }
+
+    /**
+     * STEP 1: Send OTP to phone - Only phone number required
+     */
     public function sendOtp(Request $request)
     {
         try {
             /*
             --------------------------------
-            FIND EXISTING USER FIRST
-            --------------------------------
-            */
-            $existingUser = User::where('email', $request->email)->first();
-
-            /*
-            --------------------------------
-            VALIDATION
+            VALIDATION - Only phone required
             --------------------------------
             */
             $validator = Validator::make($request->all(), [
-                'email' => 'required|email',
-                'account_type' => 'required|in:user,distributer',
-                'full_name' => 'required|string|max:255',
-
-                'phone' => [
-                    'nullable',
-                    'digits_between:10,15',
-                    Rule::unique('users', 'phone')
-                        ->ignore(optional($existingUser)->id)
-                        ->where(function ($query) {
-                            return $query->where('is_registered', 1);
-                        }),
-                ],
-
-                'country' => 'nullable|string|max:255',
-                'terms_condition' => 'required|in:0,1',
-
-                'password' => [
-                    'required',
-                    'string',
-                    Password::min(8)->mixedCase()->numbers()->symbols()
-                ],
-
-                // Distributer fields
-                'company_name' => 'required_if:account_type,distributer',
-                'gst_number' => 'nullable|string|max:255',
-                'billing_address' => 'nullable|string|max:255',
-                'city' => 'nullable|string|max:255',
-                'state' => 'nullable|string|max:255',
-                'pin_code' => 'nullable|string|max:255',
+                'phone' => 'required|min:10|max:15'
             ]);
 
             if ($validator->fails()) {
@@ -86,13 +137,15 @@ class AuthController extends Controller
 
             /*
             --------------------------------
-            BLOCK IF ALREADY REGISTERED
+            CHECK IF USER ALREADY REGISTERED
             --------------------------------
             */
+            $existingUser = User::where('phone', $request->phone)->first();
+
             if ($existingUser && $existingUser->is_registered == 1) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Email is already registered'
+                    'message' => 'Phone number is already registered. Please login.'
                 ], 422);
             }
 
@@ -101,27 +154,171 @@ class AuthController extends Controller
             GENERATE OTP
             --------------------------------
             */
-            $otp = rand(1000, 9999);
+            $otp = rand(100000, 999999);
 
             /*
             --------------------------------
-            CREATE OR UPDATE USER
+            CREATE OR UPDATE USER (Minimal data)
             --------------------------------
             */
             $user = User::updateOrCreate(
-                ['email' => $request->email],
+                ['phone' => $request->phone],
                 [
-                    'full_name' => $request->full_name,
-                    'phone' => $request->phone,
-                    'country' => $request->country,
-                    'account_type' => $request->account_type,
-                    'terms_condition' => $request->terms_condition,
-                    'password' => Hash::make($request->password),
                     'otp' => $otp,
                     'otp_expires_at' => now()->addMinutes(10),
-                    'is_registered' => 0
+                    'is_registered' => 0,
+                    'account_type' => 'customer' // Default role
                 ]
             );
+
+            /*
+            --------------------------------
+            SEND OTP VIA TWILIO
+            --------------------------------
+            */
+            try {
+                $this->twilioService->sendOtp($request->phone, $otp);
+            } catch (\Exception $e) {
+                Log::error('Twilio SMS failed: ' . $e->getMessage());
+                return response()->json([
+                    'status' => false,
+                    'message' => $e->getMessage()
+                ], 500);
+            }
+
+            /*
+            --------------------------------
+            RESPONSE
+            --------------------------------
+            */
+            return response()->json([
+                'status' => true,
+                'message' => 'OTP sent successfully to your phone',
+                'phone' => $request->phone,
+                'otp' => $otp // Remove in production
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * STEP 2: Verify OTP and Complete Registration with all user data
+     */
+    public function verifyOtp(Request $request)
+    {
+        try {
+            /*
+            --------------------------------
+            VALIDATION
+            --------------------------------
+            */
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'otp' => 'required|digits:4',
+                'account_type' => 'required|in:customer,distributer',
+                'full_name' => 'required|string|max:255',
+                'email' => [
+                    'required',
+                    'email',
+                    Rule::unique('users', 'email')->where(function ($query) {
+                        return $query->where('is_registered', 1);
+                    })
+                ],
+                'country' => 'nullable|string|max:255',
+                'terms_condition' => 'required|in:0,1',
+
+                // Distributer fields
+                'company_name' => 'required_if:account_type,distributer|nullable|string|max:255',
+                'gst_number' => 'nullable|string|max:255',
+                'billing_address' => 'nullable|string|max:255',
+                'city' => 'nullable|string|max:255',
+                'state' => 'nullable|string|max:255',
+                'pin_code' => 'nullable|string|max:255',
+
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            /*
+            --------------------------------
+            FIND USER
+            --------------------------------
+            */
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found. Please request OTP first.'
+                ], 422);
+            }
+
+            if ($user->is_registered == 1) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User is already registered. Please login.'
+                ], 422);
+            }
+
+            /*
+            --------------------------------
+            VERIFY OTP
+            --------------------------------
+            */
+            if ($user->otp != $request->otp) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid OTP'
+                ], 422);
+            }
+
+            if (now()->gt($user->otp_expires_at)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'OTP has expired'
+                ], 422);
+            }
+
+            /*
+            --------------------------------
+            COMPLETE REGISTRATION
+            --------------------------------
+            */
+            $updateData = [
+                'full_name' => $request->full_name,
+                'email' => $request->email,
+                'country' => $request->country,
+                'account_type' => $request->account_type,
+                'terms_condition' => $request->terms_condition,
+                'phone_verified_at' => now(),
+                'otp' => null,
+                'otp_expires_at' => null,
+                'is_registered' => 1,
+                'business_status' => $request->account_type === 'distributer' ? 'pending' : null
+            ];
+
+            // Set password if provided (required for customers)
+            if ($request->filled('password')) {
+                $updateData['password'] = Hash::make($request->password);
+            }
+
+            $user->update($updateData);
+
+            /*
+            --------------------------------
+            ASSIGN ROLE
+            --------------------------------
+            */
+            $this->assignRoleToUser($user);
 
             /*
             --------------------------------
@@ -141,122 +338,24 @@ class AuthController extends Controller
                         'country' => $request->country,
                     ]
                 );
-            }
 
-            /*
-            --------------------------------
-            SEND OTP MAIL
-            --------------------------------
-            */
-            Mail::html("
-                <p>Hello,</p>
-
-                <p>Your One-Time Password (OTP) for email verification is:</p>
-
-                <h1 style='color: black; font-weight: 800; letter-spacing: 3px; margin: 0;'>{$otp}</h1>
-
-                <p>This OTP is valid for <strong>10 minutes</strong>. Please do not share it with anyone.</p>
-
-                <p>If you did not request this OTP, you can safely ignore this email.</p>
-
-                <br>
-
-                <p>Regards,<br><strong>" . e(env('APP_NAME')) . " Team</strong></p>
-            ", function ($message) use ($request) {
-                $message->to($request->email)
-                    ->subject('Email Verification OTP');
-            });
-
-            /*
-            --------------------------------
-            RESPONSE
-            --------------------------------
-            */
-            return response()->json([
-                'status' => true,
-                'message' => 'OTP sent successfully',
-                'otp' => $otp
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /* -----------------------------
-    | VerifyOtp Function
-    ----------------------------- */
-    public function verifyOtp(Request $request)
-    {
-        try {
-            $validator = Validator::make($request->all(), [
-                'email' => 'required|email',
-                'otp' => 'required'
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'status' => false,
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            $user = User::where('email', $request->email)->first();
-
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'User not found'
-                ], 422);
-            }
-
-            if ($user->otp != $request->otp) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid OTP'
-                ], 422);
-            }
-
-            if (now()->gt($user->otp_expires_at)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'OTP has expired'
-                ], 422);
-            }
-
-            /*
-            --------------------------------
-            FINAL REGISTRATION HERE
-            --------------------------------
-            */
-            $user->update([
-                'email_verified_at' => now(),
-                'otp' => null,
-                'otp_expires_at' => null,
-                'is_registered' => 1,
-                'business_status' => $user->account_type === 'distributer' ? 'pending' : null
-            ]);
-
-            // Send notification for distributer registration
-            if ($user->account_type === 'distributer') {
+                // Send notification for distributer registration
                 $admin = DB::table('admins')->first();
-
                 if ($admin) {
                     DB::table('admin_notifications')->insert([
-                        'admin_id'       => $admin->id,
+                        'admin_id'       => $admin->id ?? '1',
                         'type'           => 'new_distributer_registration',
                         'title'          => 'New Distributer Registration',
-                        'message'        => "{$user->full_name} has registered as a distributer.",
+                        'message'        => "{$request->full_name} has registered as a distributer.",
                         'reference_type' => 'user',
                         'reference_id'   => $user->id,
                         'priority'       => 'high',
                         'extra_data'     => json_encode([
                             'customer_id'    => $user->id,
-                            'customer_name'  => $user->full_name,
-                            'customer_email' => $user->email,
-                            'phone'          => $user->phone
+                            'customer_name'  => $request->full_name,
+                            'customer_phone' => $request->phone,
+                            'email'          => $request->email,
+                            'company_name'   => $request->company_name
                         ]),
                         'created_at'     => now(),
                         'updated_at'     => now()
@@ -266,27 +365,40 @@ class AuthController extends Controller
 
             /*
             --------------------------------
-            ASSIGN ROLE
+            GENERATE TOKENS
             --------------------------------
             */
-            // Get role based on account type
-            $roleSlug = $user->account_type === 'distributer' ? 'distributer' : 'user';
-            $role = Role::where('slug', $roleSlug)->first();
+            // Generate JWT token
+            $token = $user->createToken('auth_token')->plainTextToken;
 
-            if ($role) {
-                DB::table('role_users')->updateOrInsert(
-                    ['user_id' => $user->id],
-                    [
-                        'role_id' => $role->id,
-                        'created_at' => now(),
-                        'updated_at' => now()
-                    ]
-                );
-            }
+            $refreshToken = Str::random(100);
+
+            RefreshToken::create([
+                'user_id'      => $user->id,
+                'token'        => hash('sha256', $refreshToken),
+                'expires_at'   => now()->addDays(7),
+                'last_used_at' => now()
+            ]);
+
+            // Get the assigned role
+            $role = $this->getUserRole($user);
 
             return response()->json([
                 'status' => true,
-                'message' => 'Account created successfully'
+                'message' => 'Account created successfully',
+                'token' => $token,
+                'expires_in' => 3600,
+                'refresh_token' => $refreshToken,
+                'data' => [
+                    'user' => $user,
+                    'role' => $role ? [
+                        'id' => $role->id,
+                        'name' => $role->name,
+                        'slug' => $role->slug
+                    ] : null,
+                    'business_profile' => $request->account_type === 'distributer' ?
+                        BusinessProfile::where('user_id', $user->id)->first() : null
+                ]
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
@@ -296,37 +408,27 @@ class AuthController extends Controller
         }
     }
 
+    /**
+     * Login with phone and OTP
+     */
+    /**
+     * Login with phone - Auto detect account type
+     */
     public function login(Request $request)
     {
         try {
-            /*
-            |--------------------------------------------------------------------------
-            | VALIDATION
-            |--------------------------------------------------------------------------
-            */
+
             $request->validate([
-                'email'        => 'required|email',
-                'password'     => 'required',
-                'account_type' => 'required|in:user,distributer',
+                'phone' => 'required|min:10|max:15',
             ]);
 
-            /*
-            |--------------------------------------------------------------------------
-            | USER FETCH
-            |--------------------------------------------------------------------------
-            */
-            $user = User::with('roles')
-                ->where('email', $request->email)
-                ->where('account_type', $request->account_type)
-                ->first();
 
-            /*
-            |--------------------------------------------------------------------------
-            | USER NOT FOUND
-            |--------------------------------------------------------------------------
-            */
+            $user = User::where('phone', $request->phone)->first();
+
+
             if (!$user) {
-                $rejectedUser = RejectedUser::where('email', $request->email)->first();
+                // Check if user is rejected
+                $rejectedUser = RejectedUser::where('phone', $request->phone)->first();
 
                 if ($rejectedUser) {
                     $daysPassed = Carbon::parse($rejectedUser->rejected_at)
@@ -348,15 +450,11 @@ class AuthController extends Controller
 
                 return response()->json([
                     'status'  => false,
-                    'message' => 'Invalid email or account type'
+                    'message' => 'Phone number not registered'
                 ], 422);
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | REGISTRATION CHECK
-            |--------------------------------------------------------------------------
-            */
+
             if ($user->is_registered == 0) {
                 return response()->json([
                     'status'  => false,
@@ -364,11 +462,7 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | ACTIVE CHECK
-            |--------------------------------------------------------------------------
-            */
+
             if ($user->is_active == 0) {
                 return response()->json([
                     'status'  => false,
@@ -376,23 +470,85 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | PASSWORD CHECK
-            |--------------------------------------------------------------------------
-            */
-            if (!Hash::check($request->password, $user->password)) {
+
+            if (
+                $user->account_type === 'distributer' &&
+                $user->business_status === 'pending'
+            ) {
                 return response()->json([
                     'status'  => false,
-                    'message' => 'Invalid password'
+                    'message' => 'Your business request is waiting for admin approval'
                 ], 422);
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | JWT TOKEN CREATE
-            |--------------------------------------------------------------------------
-            */
+
+            $otp = rand(100000, 999999);
+
+            $user->update([
+                'otp' => $otp,
+                'otp_expires_at' => now()->addMinutes(10)
+            ]);
+
+            // Send OTP via Twilio
+            $this->twilioService->sendOtp($request->phone, $otp);
+
+
+            return response()->json([
+                'status' => true,
+                'message' => 'OTP sent successfully to your phone',
+                'phone' => $request->phone,
+                'account_type' => $user->account_type, // Return the detected account type
+                'otp' => $otp // Remove in production
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status'  => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Verify Login OTP and generate tokens
+     */
+    public function verifyLoginOtp(Request $request)
+    {
+        try {
+            $request->validate([
+                'phone' => 'required|min:10|max:15',
+                'otp' => 'required|digits:4'
+            ]);
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found'
+                ], 422);
+            }
+
+            if ($user->otp != $request->otp) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid OTP'
+                ], 422);
+            }
+
+            if (Carbon::now()->gt($user->otp_expires_at)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'OTP expired'
+                ], 422);
+            }
+
+            // Clear OTP
+            $user->update([
+                'otp' => null,
+                'otp_expires_at' => null
+            ]);
+
+            // Generate JWT token
             $token = $user->createToken('auth_token')->plainTextToken;
 
             $refreshToken = Str::random(100);
@@ -404,87 +560,21 @@ class AuthController extends Controller
                 'last_used_at' => now()
             ]);
 
-            /*
-            |--------------------------------------------------------------------------
-            | BUSINESS APPROVAL CHECK (Only for distributers)
-            |--------------------------------------------------------------------------
-            */
-            if (
-                $user->account_type === 'distributer' &&
-                $user->business_status === 'pending'
-            ) {
-                return response()->json([
-                    'status'  => false,
-                    'message' => 'Your business request is waiting for admin approval'
-                ], 422);
-            }
+            // Get user role
+            $role = $this->getUserRole($user);
 
-            /*
-            |--------------------------------------------------------------------------
-            | SUCCESS RESPONSE
-            |--------------------------------------------------------------------------
-            */
             return response()->json([
                 'status' => true,
                 'message' => 'Login successfully',
                 'token' => $token,
                 'expires_in' => 3600,
                 'refresh_token' => $refreshToken,
-                'user' => $user
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status'  => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    public function refreshToken(Request $request)
-    {
-        try {
-            $request->validate([
-                'refresh_token' => 'required'
-            ]);
-
-            $hashedToken = hash('sha256', $request->refresh_token);
-
-            $refreshToken = RefreshToken::where('token', $hashedToken)->first();
-
-            if (!$refreshToken) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid refresh token'
-                ], 401);
-            }
-
-            if ($refreshToken->expires_at->isPast()) {
-                $refreshToken->delete();
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Refresh token expired. Please login again.'
-                ], 401);
-            }
-
-            $user = User::find($refreshToken->user_id);
-            $newAccessToken = $user->createToken('auth_token')->plainTextToken;
-
-            /*
-            * Rotate refresh token
-            */
-            $newRefreshToken = Str::random(100);
-
-            $refreshToken->update([
-                'token' => hash('sha256', $newRefreshToken),
-                'expires_at' => now()->addDays(7),
-                'last_used_at' => now()
-            ]);
-
-            return response()->json([
-                'status' => true,
-                'access_token' => $newAccessToken,
-                'expires_in' => 3600,
-                'refresh_token' => $newRefreshToken
+                'user' => $user,
+                'role' => $role ? [
+                    'id' => $role->id,
+                    'name' => $role->name,
+                    'slug' => $role->slug
+                ] : null
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -494,51 +584,45 @@ class AuthController extends Controller
         }
     }
 
-    /* -----------------------------
-    | Profile Function
-    ----------------------------- */
-    public function profile()
+    /**
+     * Forgot Password - Send OTP
+     */
+    public function forgotPassword(Request $request)
     {
         try {
-            $user = Auth::user();
+            $request->validate([
+                'phone' => 'required|min:10|max:15'
+            ]);
+
+            $user = User::where('phone', $request->phone)->first();
 
             if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Unauthorized'
-                ], 401);
+                    'message' => 'Phone number not registered'
+                ], 422);
             }
 
-            /*
-            --------------------------------
-            LOAD RELATIONS
-            --------------------------------
-            */
-            $user->load('roles', 'businessProfile');
-
-            /*
-            --------------------------------
-            DOCUMENT FULL URL
-            --------------------------------
-            */
-            if (
-                $user->businessProfile &&
-                $user->businessProfile->document_path
-            ) {
-                $user->businessProfile->document_path =
-                    url('/storage/' . $user->businessProfile->document_path);
+            if ($user->is_registered == 0) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please complete your registration first'
+                ], 422);
             }
 
-            /*
-            --------------------------------
-            GET CURRENT TOKEN
-            --------------------------------
-            */
+            $otp = rand(100000, 999999);
+
+            $user->update([
+                'otp' => $otp,
+                'otp_expires_at' => Carbon::now()->addMinutes(10)
+            ]);
+
+            // Send OTP via Twilio
+            $this->twilioService->sendOtp($request->phone, $otp);
 
             return response()->json([
                 'status' => true,
-                'message' => 'Profile fetched successfully',
-                'user' => $user,
+                'message' => 'OTP sent to your phone'
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -548,6 +632,139 @@ class AuthController extends Controller
         }
     }
 
+    /**
+     * Verify reset password OTP
+     */
+    public function verifyResetOtp(Request $request)
+    {
+        try {
+            $request->validate([
+                'phone' => 'required|min:10|max:15',
+                'otp' => 'required|digits:4'
+            ]);
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found'
+                ], 422);
+            }
+
+            if ($user->otp != $request->otp) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid OTP'
+                ], 422);
+            }
+
+            if (Carbon::now()->gt($user->otp_expires_at)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'OTP expired'
+                ], 422);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'OTP verified successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Reset password
+     */
+    public function resetPassword(Request $request)
+    {
+        try {
+            $request->validate([
+                'phone' => 'required|min:10|max:15|exists:users,phone',
+                'password' => 'nullable|string|min:8'
+            ]);
+
+            $user = User::where('phone', $request->phone)->first();
+
+            $updateData = [
+                'otp' => null,
+                'otp_expires_at' => null
+            ];
+
+            // If password is provided, update it
+            if ($request->has('password') && !empty($request->password)) {
+                $updateData['password'] = Hash::make($request->password);
+            }
+
+            $user->update($updateData);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Password reset successfully'
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation error',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Resend OTP
+     */
+    public function resendOtp(Request $request)
+    {
+        try {
+            $request->validate([
+                'phone' => 'required|min:10|max:15'
+            ]);
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found'
+                ], 422);
+            }
+
+            $otp = rand(100000, 999999);
+
+            $user->update([
+                'otp' => $otp,
+                'otp_expires_at' => now()->addMinutes(10)
+            ]);
+
+            $this->twilioService->sendOtp($request->phone, $otp);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'OTP resent successfully',
+                'otp' => $otp // Remove in production
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update Profile
+     */
     public function updateProfile(Request $request)
     {
         try {
@@ -565,10 +782,10 @@ class AuthController extends Controller
             PREVENT INVALID SWITCH
             --------------------------------
             */
-            if ($user->account_type === 'distributer' && $request->account_type === 'user') {
+            if ($user->account_type === 'distributer' && $request->account_type === 'customer') {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Distributer account cannot be converted to user'
+                    'message' => 'Distributer account cannot be converted to customer'
                 ], 403);
             }
 
@@ -589,7 +806,7 @@ class AuthController extends Controller
                 ],
                 'country' => 'nullable|string|max:255',
                 'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png',
-                'account_type' => 'nullable|in:user,distributer',
+                'account_type' => 'nullable|in:customer,distributer',
             ];
 
             /*
@@ -607,7 +824,7 @@ class AuthController extends Controller
                         ->symbols()
                 ];
 
-                if ($accountType === 'user') {
+                if ($accountType === 'customer') {
                     $rules['password'][] = 'confirmed';
                 }
             }
@@ -651,23 +868,19 @@ class AuthController extends Controller
 
             /*
             --------------------------------
-            SWITCH user → distributer
+            SWITCH customer → distributer
             --------------------------------
             */
-            if ($user->account_type === 'user' && $accountType === 'distributer') {
+            if ($user->account_type === 'customer' && $accountType === 'distributer') {
                 $data['account_type'] = 'distributer';
                 $data['business_status'] = 'pending';
 
-                // Update role
-                $distributerRole = Role::where('slug', 'distributer')->first();
-
-                if ($distributerRole) {
-                    $data['role_id'] = $distributerRole->id;
-                    RoleUser::updateOrCreate(
-                        ['user_id' => $user->id],
-                        ['role_id' => $distributerRole->id]
-                    );
-                }
+                // Update role to Distributer (ID = 2)
+                RoleUser::updateOrCreate(
+                    ['user_id' => $user->id],
+                    ['role_id' => self::ROLE_DISTRIBUTER]
+                );
+                $user->update(['role_id' => self::ROLE_DISTRIBUTER]);
 
                 $logoutRequired = true;
             }
@@ -730,10 +943,18 @@ class AuthController extends Controller
                 ]);
             }
 
+            // Get user role
+            $role = $this->getUserRole($user);
+
             return response()->json([
                 'status' => true,
                 'message' => 'Profile updated successfully',
                 'user' => $user->fresh(),
+                'role' => $role ? [
+                    'id' => $role->id,
+                    'name' => $role->name,
+                    'slug' => $role->slug
+                ] : null,
                 'business_profile' => $businessProfile
             ]);
         } catch (\Exception $e) {
@@ -744,6 +965,9 @@ class AuthController extends Controller
         }
     }
 
+    /**
+     * Remove Profile Picture
+     */
     public function removeProfilePicture()
     {
         try {
@@ -784,163 +1008,9 @@ class AuthController extends Controller
         }
     }
 
-    /* -----------------------------
-    | Forgot password Function
-    ----------------------------- */
-    public function forgotPassword(Request $request)
-    {
-        try {
-            $request->validate([
-                'email' => 'required|email'
-            ]);
-
-            $user = User::where('email', $request->email)->first();
-
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Email not registered'
-                ], 422);
-            }
-
-            $otp = rand(1000, 9999);
-
-            if ($user->is_registered == 0) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Please complete your registration first'
-                ], 422);
-            }
-
-            $user->update([
-                'otp' => $otp,
-                'otp_expires_at' => Carbon::now()->addMinutes(10)
-            ]);
-
-            Mail::html("
-                <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;'>
-                        <h2 style='color: #333;'>Password Reset Request</h2>
-
-                        <p>Hello,</p>
-
-                        <p>We received a request to reset your password. Please use the OTP below to proceed:</p>
-
-                        <div style='background: #f4f4f4; padding: 15px; text-align: center; border-radius: 5px; margin: 20px 0;'>
-                            <h1 style='margin: 0; color: black; letter-spacing: 5px;'>$otp</h1>
-                        </div>
-
-                        <p>This OTP is valid for <strong>10 minutes</strong>. Please do not share it with anyone.</p>
-
-                        <p>If you did not request a password reset, you can safely ignore this email.</p>
-
-                        <br>
-
-                        <p>Regards,<br><strong>" . env('APP_NAME') . " Team</strong></p>
-                    </div>
-                ", function ($message) use ($user) {
-                $message->to($user->email)
-                    ->subject('Password Reset OTP');
-            });
-
-            return response()->json([
-                'status' => true,
-                'message' => 'OTP sent to your email'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /* -----------------------------
-    | Verify forgot password otp Function
-    ----------------------------- */
-    public function verifyResetOtp(Request $request)
-    {
-        try {
-            $request->validate([
-                'email' => 'required|email',
-                'otp' => 'required'
-            ]);
-
-            $user = User::where('email', $request->email)->first();
-
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'User not found'
-                ], 422);
-            }
-
-            if ($user->otp != $request->otp) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid OTP'
-                ], 422);
-            }
-
-            if (Carbon::now()->gt($user->otp_expires_at)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'OTP expired'
-                ], 422);
-            }
-
-            return response()->json([
-                'status' => true,
-                'message' => 'OTP verified successfully'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
-            ]);
-        }
-    }
-
-    public function resetPassword(Request $request)
-    {
-        try {
-            $request->validate([
-                'email' => 'required|email|exists:users,email',
-                'password' => [
-                    'required',
-                    'confirmed',
-                    Password::min(8)
-                        ->mixedCase()
-                        ->numbers()
-                        ->symbols()
-                ]
-            ]);
-
-            $user = User::where('email', $request->email)->first();
-
-            $user->update([
-                'password' => Hash::make($request->password),
-                'otp' => null,
-                'otp_expires_at' => null
-            ]);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Password reset successfully'
-            ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation error',
-                'errors' => $e->errors()
-            ], 422);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
-
+    /**
+     * Change Password
+     */
     public function changePassword(Request $request)
     {
         try {
@@ -1009,6 +1079,40 @@ class AuthController extends Controller
     }
 
     /**
+     * Get Current User with Role
+     */
+    public function getCurrentUser(Request $request)
+    {
+        try {
+            $user = Auth::user();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized'
+                ], 401);
+            }
+
+            $role = $this->getUserRole($user);
+
+            return response()->json([
+                'status' => true,
+                'user' => $user,
+                'role' => $role ? [
+                    'id' => $role->id,
+                    'name' => $role->name,
+                    'slug' => $role->slug
+                ] : null
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Logout user
      */
     public function logout(Request $request)
@@ -1032,6 +1136,63 @@ class AuthController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Logged out successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Refresh Token
+     */
+    public function refreshToken(Request $request)
+    {
+        try {
+            $request->validate([
+                'refresh_token' => 'required'
+            ]);
+
+            $hashedToken = hash('sha256', $request->refresh_token);
+
+            $refreshToken = RefreshToken::where('token', $hashedToken)->first();
+
+            if (!$refreshToken) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid refresh token'
+                ], 422);
+            }
+
+            if ($refreshToken->expires_at->isPast()) {
+                $refreshToken->delete();
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Refresh token expired. Please login again.'
+                ], 422);
+            }
+
+            $user = User::find($refreshToken->user_id);
+            $newAccessToken = $user->createToken('auth_token')->plainTextToken;
+
+            /*
+            * Rotate refresh token
+            */
+            $newRefreshToken = Str::random(100);
+
+            $refreshToken->update([
+                'token' => hash('sha256', $newRefreshToken),
+                'expires_at' => now()->addDays(7),
+                'last_used_at' => now()
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'access_token' => $newAccessToken,
+                'expires_in' => 3600,
+                'refresh_token' => $newRefreshToken
             ]);
         } catch (\Exception $e) {
             return response()->json([

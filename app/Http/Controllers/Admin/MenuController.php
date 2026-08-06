@@ -27,8 +27,8 @@ class MenuController extends Controller
                     'logo' => $logo ? [
                         'id' => $logo->id,
                         'type' => $logo->type,
-                        'logo' => $logo->logo,
-                        'favicon' => $logo->favicon,
+                        'logo' => $logo->logo_url,        // Changed to logo_url
+                        'favicon' => $logo->favicon_url,  // Changed to favicon_url
                     ] : null,
 
                     'menus' => $menus->map(function ($menu) {
