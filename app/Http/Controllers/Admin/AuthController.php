@@ -68,7 +68,7 @@ class AuthController extends Controller
                 'errors' => [
                     'password' => ['Incorrect password provided']
                 ]
-            ], 401);
+            ], 422);
         }
 
         // Fallback
@@ -78,7 +78,7 @@ class AuthController extends Controller
             'errors' => [
                 'email' => ['Invalid credentials provided']
             ]
-        ], 401);
+        ], 422);
     }
 
     public function logout(Request $request)
@@ -119,7 +119,7 @@ class AuthController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to get user data'
-            ], 401);
+            ], 422);
         }
     }
 
@@ -202,7 +202,7 @@ class AuthController extends Controller
                 'errors' => [
                     'otp' => ['Invalid OTP entered. Please try again']
                 ]
-            ], 401);
+            ], 422);
         }
 
         // Generate a temporary token for password reset
@@ -255,7 +255,7 @@ class AuthController extends Controller
                     'errors' => [
                         'reset_token' => ['Invalid or expired reset token']
                     ]
-                ], 401);
+                ], 422);
             }
 
             // Check if token belongs to the admin
@@ -289,7 +289,7 @@ class AuthController extends Controller
                     'errors' => [
                         'reset_token' => ['Reset token has expired']
                     ]
-                ], 401);
+                ], 422);
             }
         } catch (\Exception $e) {
             return response()->json([
@@ -298,7 +298,7 @@ class AuthController extends Controller
                 'errors' => [
                     'reset_token' => ['Invalid or expired reset token']
                 ]
-            ], 401);
+            ], 422);
         }
 
         // Update password
@@ -357,7 +357,7 @@ class AuthController extends Controller
                 'errors' => [
                     'auth' => ['Failed to update profile']
                 ]
-            ], 401);
+            ], 422);
         }
     }
 }

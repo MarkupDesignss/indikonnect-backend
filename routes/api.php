@@ -12,13 +12,13 @@ use App\Http\Controllers\API\SubscriberController;
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
 })->name('login');
+
 Route::prefix('admin')->group(function () {
     // Public Routes
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/send-reset-otp', [AuthController::class, 'sendResetOtp']);
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
-
     // Protected Routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
@@ -41,11 +41,9 @@ Route::prefix('header')->group(function () {
 
 // Contents (Pages)
 Route::prefix('contents')->group(function () {
-
     // Public routes (No middleware)
     Route::get('/', [ContentController::class, 'index']);
     Route::get('/{slug}', [ContentController::class, 'show']);
-
     // Protected routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/add', [ContentController::class, 'store']);
@@ -57,11 +55,9 @@ Route::prefix('contents')->group(function () {
 
 // Categories
 Route::prefix('categories')->group(function () {
-
     // Public routes (No middleware)
     Route::get('/', [CategoryController::class, 'index']);
     Route::get('/{id}', [CategoryController::class, 'show']);
-
     // Protected routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/add', [CategoryController::class, 'store']);
@@ -95,19 +91,21 @@ Route::prefix('subscribers')->group(function () {
 
 Route::group(['prefix' => 'user'], function () {
     // Public routes (no authentication required)
-    Route::post('send-otp', [APIAuthController::class, 'sendOtp'])->name('send-otp');
-    Route::post('verify-otp', [APIAuthController::class, 'verifyOtp'])->name('verify-otp');
-    Route::post('login', [APIAuthController::class, 'login'])->name('login');
+    Route::post('send-otp', [APIAuthController::class, 'sendOtp']);
+    Route::post('verify-otp', [APIAuthController::class, 'verifyOtp']);
+    Route::post('resend-otp', [APIAuthController::class, 'resendOtp']);
 
-    // Password reset routes
-    Route::post('forgot-password', [APIAuthController::class, 'forgotPassword'])->name('forgot-password');
-    Route::post('verify-reset-otp', [APIAuthController::class, 'verifyResetOtp'])->name('verify-reset-otp');
-    Route::post('reset-password', [APIAuthController::class, 'resetPassword'])->name('reset-password');
+    Route::post('login', [APIAuthController::class, 'login']);
+    Route::post('verify-login-otp', [APIAuthController::class, 'verifyLoginOtp']);
+
+    Route::post('forgot-password', [APIAuthController::class, 'forgotPassword']);
+    Route::post('verify-reset-otp', [APIAuthController::class, 'verifyResetOtp']);
+    Route::post('reset-password', [APIAuthController::class, 'resetPassword']);
 
     // Refresh token route
     Route::post('refresh-token', [APIAuthController::class, 'refreshToken'])->name('refresh-token');
 
-    // Protected routes (authentication required)
+    // Protected routes
     Route::group(['middleware' => 'auth:sanctum'], function () {
         Route::get('profile', [APIAuthController::class, 'profile'])->name('profile');
         Route::post('profile', [APIAuthController::class, 'updateProfile'])->name('update-profile');
