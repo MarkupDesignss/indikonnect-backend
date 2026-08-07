@@ -180,3 +180,14 @@ Route::prefix('cart')->group(function () {
     // Merge guest cart with user cart (after login)
     Route::post('/merge', [CartController::class, 'mergeCart'])->middleware('auth:sanctum');
 });
+
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/checkout/summary', [CheckoutController::class, 'summary']);
+    Route::post('/checkout/apply-coins', [CheckoutController::class, 'applyCoins']);
+    Route::post('/checkout/place-order', [CheckoutController::class, 'placeOrder']);
+    Route::get('/order/history', [OrderController::class, 'history']);
+    Route::get('/order/{id}', [OrderController::class, 'show']);
+});
+
+Route::post('/webhook/payment', [WebhookController::class, 'handle']);
