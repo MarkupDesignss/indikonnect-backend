@@ -273,6 +273,7 @@ class AuthController extends Controller
 
     /**
      * STEP 3: Complete Registration - Save all user details and mark as registered
+     * Updated to use new BusinessProfile fields
      */
     public function completeRegistration(Request $request)
     {
@@ -280,7 +281,7 @@ class AuthController extends Controller
             $validator = Validator::make($request->all(), [
                 'phone' => 'required|min:10|max:15',
                 'temp_token' => 'required|string',
-                'account_type' => 'required|in:customer,distributer',
+                'account_type' => 'required|in:customer,distributor',
                 'full_name' => 'required|string|max:255',
                 'email' => [
                     'required',
@@ -293,13 +294,12 @@ class AuthController extends Controller
                 'terms_condition' => 'required|in:0,1',
                 'password' => 'nullable|string|min:8',
 
-                // Distributer fields
-                'company_name' => 'required_if:account_type,distributer|nullable|string|max:255',
-                'gst_number' => 'nullable|string|max:255',
-                'billing_address' => 'nullable|string|max:255',
-                'city' => 'nullable|string|max:255',
-                'state' => 'nullable|string|max:255',
-                'pin_code' => 'nullable|string|max:255',
+                // Updated distributor fields for BusinessProfile
+                'encrypted_aadhaar' => 'required_if:account_type,distributor|nullable|string',
+                'encrypted_pan' => 'required_if:account_type,distributor|nullable|string',
+                'encrypted_bank_account' => 'required_if:account_type,distributor|nullable|string',
+                'bank_ifsc' => 'required_if:account_type,distributor|nullable|string|max:20',
+                'bank_holder_name' => 'required_if:account_type,distributor|nullable|string|max:255',
             ]);
 
             if ($validator->fails()) {
@@ -370,7 +370,7 @@ class AuthController extends Controller
                 'temp_verification_token' => null,
                 'otp_verified_at' => null,
                 'is_registered' => 1,
-                'business_status' => $request->account_type === 'distributer' ? 'pending' : null
+                'distributor_status' => $request->account_type === 'distributor' ? 'pending' : 'active'
             ];
 
             // Set password if provided
@@ -388,29 +388,29 @@ class AuthController extends Controller
             // Assign role
             $this->assignRoleToUser($user);
 
-            // Store distributer data
-            if ($request->account_type === 'distributer') {
+            // Store distributor data with new fields
+            if ($request->account_type === 'distributor') {
                 BusinessProfile::updateOrCreate(
                     ['user_id' => $user->id],
                     [
-                        'company_name' => $request->company_name,
-                        'gst_number' => $request->gst_number,
-                        'billing_address' => $request->billing_address,
-                        'city' => $request->city,
-                        'state' => $request->state,
-                        'pin_code' => $request->pin_code,
-                        'country' => $request->country,
+                        'user_id' => $user->id,
+                        'encrypted_aadhaar' => $request->encrypted_aadhaar,
+                        'encrypted_pan' => $request->encrypted_pan,
+                        'encrypted_bank_account' => $request->encrypted_bank_account,
+                        'bank_ifsc' => $request->bank_ifsc,
+                        'bank_holder_name' => $request->bank_holder_name,
+                        'kyc_status' => 'pending'
                     ]
                 );
 
-                // Send notification for distributer registration
+                // Send notification for distributor registration
                 $admin = DB::table('admins')->first();
                 if ($admin) {
                     DB::table('admin_notifications')->insert([
                         'admin_id'       => $admin->id ?? '1',
-                        'type'           => 'new_distributer_registration',
-                        'title'          => 'New Distributer Registration',
-                        'message'        => "{$request->full_name} has registered as a distributer.",
+                        'type'           => 'new_distributor_registration',
+                        'title'          => 'New distributor Registration',
+                        'message'        => "{$request->full_name} has registered as a distributor.",
                         'reference_type' => 'user',
                         'reference_id'   => $user->id,
                         'priority'       => 'high',
@@ -419,7 +419,6 @@ class AuthController extends Controller
                             'customer_name'  => $request->full_name,
                             'customer_phone' => $request->phone,
                             'email'          => $request->email,
-                            'company_name'   => $request->company_name
                         ]),
                         'created_at'     => now(),
                         'updated_at'     => now()
@@ -441,7 +440,7 @@ class AuthController extends Controller
                         'name' => $role->name,
                         'slug' => $role->slug
                     ] : null,
-                    'business_profile' => $request->account_type === 'distributer' ?
+                    'business_profile' => $request->account_type === 'distributor' ?
                         BusinessProfile::where('user_id', $user->id)->first() : null
                 ]
             ];
@@ -463,8 +462,8 @@ class AuthController extends Controller
                 $responseData['expires_in'] = 3600;
                 $responseData['refresh_token'] = $refreshToken;
             } else {
-                // For distributers, they might need to wait for approval
-                $responseData['message'] = 'Distributer registration submitted successfully. Please wait for admin approval.';
+                // For distributors, they might need to wait for approval
+                $responseData['message'] = 'distributor registration submitted successfully. Please wait for admin approval.';
             }
 
             return response()->json($responseData, 200);
@@ -532,14 +531,22 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            if (
-                $user->account_type === 'distributer' &&
-                $user->business_status === 'pending'
-            ) {
-                return response()->json([
-                    'status'  => false,
-                    'message' => 'Your business request is waiting for admin approval'
-                ], 422);
+            // Check business approval for distributors
+            if ($user->account_type === 'distributor') {
+                $businessProfile = BusinessProfile::where('user_id', $user->id)->first();
+                if ($user && $user->distributor_status  != 'active') {
+                    return response()->json([
+                        'status'  => false,
+                        'message' => 'Your account is waiting for admin approval'
+                    ], 422);
+                }
+
+                if ($businessProfile && $businessProfile->kyc_status === 'rejected') {
+                    return response()->json([
+                        'status'  => false,
+                        'message' => 'Your KYC has been rejected. Please contact admin.'
+                    ], 422);
+                }
             }
 
             $otp = rand(100000, 999999);
@@ -618,6 +625,12 @@ class AuthController extends Controller
 
             $role = $this->getUserRole($user);
 
+            // Load business profile for distributors
+            $businessProfile = null;
+            if ($user->account_type === 'distributor') {
+                $businessProfile = BusinessProfile::where('user_id', $user->id)->first();
+            }
+
             return response()->json([
                 'status' => true,
                 'message' => 'Login successfully',
@@ -629,7 +642,8 @@ class AuthController extends Controller
                     'id' => $role->id,
                     'name' => $role->name,
                     'slug' => $role->slug
-                ] : null
+                ] : null,
+                'business_profile' => $businessProfile
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -826,57 +840,9 @@ class AuthController extends Controller
         }
     }
 
-    // public function profile()
-    // {
-    //     try {
-    //         $user = Auth::user();
-
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Unauthorized'
-    //             ], 422);
-    //         }
-
-    //         /*
-    //         --------------------------------
-    //         LOAD RELATIONS
-    //         --------------------------------
-    //         */
-    //         $user->load('roles', 'businessProfile');
-
-    //         /*
-    //         --------------------------------
-    //         DOCUMENT FULL URL
-    //         --------------------------------
-    //         */
-    //         if (
-    //             $user->businessProfile &&
-    //             $user->businessProfile->document_path
-    //         ) {
-    //             $user->businessProfile->document_path =
-    //                 url('/storage/' . $user->businessProfile->document_path);
-    //         }
-
-    //         /*
-    //         --------------------------------
-    //         GET CURRENT TOKEN
-    //         --------------------------------
-    //         */
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'message' => 'Profile fetched successfully',
-    //             'user' => $user,
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
-
+    /**
+     * Get user profile
+     */
     public function profile()
     {
         try {
@@ -889,21 +855,16 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            $user->load('roles', 'businessProfile');
+            $user->load('roles');
+
+            // Load business profile if distributor
+            if ($user->account_type === 'distributor') {
+                $user->load('businessProfile');
+            }
 
             // Profile picture full URL
             if (!empty($user->profile_picture)) {
                 $user->profile_picture = asset('storage/profile_pictures/' . basename($user->profile_picture));
-            }
-
-            // Business document full URL
-            if (
-                $user->businessProfile &&
-                !empty($user->businessProfile->document_path)
-            ) {
-                $user->businessProfile->document_path = asset(
-                    'storage/' . $user->businessProfile->document_path
-                );
             }
 
             return response()->json([
@@ -920,7 +881,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Update Profile
+     * Update Profile - Updated with new BusinessProfile fields
      */
     public function updateProfile(Request $request)
     {
@@ -939,10 +900,10 @@ class AuthController extends Controller
             PREVENT INVALID SWITCH
             --------------------------------
             */
-            if ($user->account_type === 'distributer' && $request->account_type === 'customer') {
+            if ($user->account_type === 'distributor' && $request->account_type === 'customer') {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Distributer account cannot be converted to customer'
+                    'message' => 'distributor account cannot be converted to customer'
                 ], 403);
             }
 
@@ -963,7 +924,7 @@ class AuthController extends Controller
                 ],
                 'country' => 'nullable|string|max:255',
                 'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png',
-                'account_type' => 'nullable|in:customer,distributer',
+                'account_type' => 'nullable|in:customer,distributor',
             ];
 
             /*
@@ -988,15 +949,16 @@ class AuthController extends Controller
 
             /*
             --------------------------------
-            DISTRIBUTER VALIDATION
+            distributor VALIDATION - Updated with new fields
             --------------------------------
             */
-            if ($accountType === 'distributer') {
+            if ($accountType === 'distributor') {
                 $rules = array_merge($rules, [
-                    'company_name' => 'nullable|string|max:255',
-                    'gst_number' => 'nullable|string|max:100',
-                    'billing_address' => 'nullable|string',
-                    'document' => 'nullable|file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10240'
+                    'encrypted_aadhaar' => 'nullable|string',
+                    'encrypted_pan' => 'nullable|string',
+                    'encrypted_bank_account' => 'nullable|string',
+                    'bank_ifsc' => 'nullable|string|max:20',
+                    'bank_holder_name' => 'nullable|string|max:255',
                 ]);
             }
 
@@ -1025,23 +987,23 @@ class AuthController extends Controller
 
             /*
             --------------------------------
-            SWITCH customer → distributer
+            SWITCH customer → distributor
             --------------------------------
             */
-            if ($user->account_type === 'customer' && $accountType === 'distributer') {
-                $data['account_type'] = 'distributer';
-                $data['business_status'] = 'pending';
+            if ($user->account_type === 'customer' && $accountType === 'distributor') {
+                $data['account_type'] = 'distributor';
+                $data['distributor_status'] = 'pending';
 
-                // Update role to Distributer (get role ID from database)
-                $distributerRole = Role::where('slug', 'distributer')->first();
-                if ($distributerRole) {
+                // Update role to distributor
+                $distributorRole = Role::where('slug', 'distributor')->first();
+                if ($distributorRole) {
                     RoleUser::updateOrCreate(
                         ['user_id' => $user->id],
-                        ['role_id' => $distributerRole->id]
+                        ['role_id' => $distributorRole->id]
                     );
-                    $user->update(['role_id' => $distributerRole->id]);
+                    $user->update(['role_id' => $distributorRole->id]);
                 } else {
-                    Log::error("Distributer role not found in database");
+                    Log::error("distributor role not found in database");
                     return response()->json([
                         'status' => false,
                         'message' => 'Role configuration error. Please contact admin.'
@@ -1074,19 +1036,29 @@ class AuthController extends Controller
 
             /*
             --------------------------------
-            BUSINESS PROFILE (For distributer)
+            BUSINESS PROFILE - Updated with new fields
             --------------------------------
             */
-            if ($accountType === 'distributer') {
-                $businessData = $request->only(
-                    'company_name',
-                    'gst_number',
-                    'billing_address'
-                );
+            if ($accountType === 'distributor') {
+                $businessData = [
+                    'user_id' => $user->id,
+                ];
 
-                if ($request->hasFile('document')) {
-                    $businessData['document_path'] = $request->file('document')
-                        ->store('business_documents', 'public');
+                // Only update KYC fields if provided
+                if ($request->has('encrypted_aadhaar')) {
+                    $businessData['encrypted_aadhaar'] = $request->encrypted_aadhaar;
+                }
+                if ($request->has('encrypted_pan')) {
+                    $businessData['encrypted_pan'] = $request->encrypted_pan;
+                }
+                if ($request->has('encrypted_bank_account')) {
+                    $businessData['encrypted_bank_account'] = $request->encrypted_bank_account;
+                }
+                if ($request->has('bank_ifsc')) {
+                    $businessData['bank_ifsc'] = $request->bank_ifsc;
+                }
+                if ($request->has('bank_holder_name')) {
+                    $businessData['bank_holder_name'] = $request->bank_holder_name;
                 }
 
                 $businessProfile = BusinessProfile::updateOrCreate(
@@ -1261,6 +1233,12 @@ class AuthController extends Controller
 
             $role = $this->getUserRole($user);
 
+            // Load business profile if distributor
+            $businessProfile = null;
+            if ($user->account_type === 'distributor') {
+                $businessProfile = BusinessProfile::where('user_id', $user->id)->first();
+            }
+
             return response()->json([
                 'status' => true,
                 'user' => $user,
@@ -1268,7 +1246,8 @@ class AuthController extends Controller
                     'id' => $role->id,
                     'name' => $role->name,
                     'slug' => $role->slug
-                ] : null
+                ] : null,
+                'business_profile' => $businessProfile
             ]);
         } catch (\Exception $e) {
             return response()->json([
