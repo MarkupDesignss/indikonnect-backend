@@ -102,16 +102,16 @@ Route::prefix('products')->group(function () {
     // Get all products with filters
     Route::get('/', [ProductController::class, 'index']);
 
-    // Public routes
+    // Public routesvzx
     Route::get('/slug/{slug}', [ProductController::class, 'showBySlug']);
     Route::get('/code/{code}', [ProductController::class, 'showByCode']);
     Route::get('/show/{product}', [ProductController::class, 'show']);
-
     // Protected routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/', [ProductController::class, 'store']);
         Route::post('/update/{product}', [ProductController::class, 'update']);
         Route::delete('/delete/{product}', [ProductController::class, 'destroy']);
+        Route::delete('{productId}/images', [ProductController::class, 'deleteImages']);
 
         // Additional actions
         Route::post('/{product}/stock', [ProductController::class, 'updateStock']);

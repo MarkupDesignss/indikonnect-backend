@@ -10,6 +10,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class ProductController extends Controller
@@ -33,6 +34,15 @@ class ProductController extends Controller
         // Alternative: Filter by single category (backward compatibility)
         if ($request->has('category_id') && $request->category_id && !$request->has('category_ids')) {
             $query->where('category_id', $request->category_id);
+        }
+
+        // Filter by price range (retail_price)
+        if ($request->has('min_price') && is_numeric($request->min_price)) {
+            $query->where('retail_price', '>=', $request->min_price);
+        }
+
+        if ($request->has('max_price') && is_numeric($request->max_price)) {
+            $query->where('retail_price', '<=', $request->max_price);
         }
 
         // Filter by published status
@@ -117,6 +127,9 @@ class ProductController extends Controller
         $perPage = $request->get('per_page', 15);
         $products = $query->paginate($perPage);
 
+        // Get price range for filters
+        $priceRange = $this->getPriceRange();
+
         return response()->json([
             'data' => $this->formatProductCollection($products),
             'pagination' => [
@@ -127,7 +140,24 @@ class ProductController extends Controller
                 'from' => $products->firstItem(),
                 'to' => $products->lastItem(),
             ],
+            'filters' => [
+                'price_range' => $priceRange,
+            ],
         ]);
+    }
+
+    /**
+     * Get min and max price range for products
+     */
+    protected function getPriceRange()
+    {
+        $minPrice = Product::min('retail_price');
+        $maxPrice = Product::max('retail_price');
+
+        return [
+            'min' => $minPrice ? (float) $minPrice : 0,
+            'max' => $maxPrice ? (float) $maxPrice : 0,
+        ];
     }
 
     /**
@@ -186,11 +216,12 @@ class ProductController extends Controller
             'product_images.*.sort_order' => ['nullable', 'integer'],
             'product_images.*.is_primary' => ['nullable', 'boolean'],
         ]);
+
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        // DB::beginTransaction();
+        DB::beginTransaction();
         try {
             $validated = $validator->validated();
 
@@ -210,36 +241,81 @@ class ProductController extends Controller
 
             // Handle images
             $productImages = $request->input('product_images', []);
+            $imageCount = 0;
+            $hasPrimary = false;
+
+            // Debug: Log received images
+            Log::info('Product images received:', [
+                'count' => count($productImages),
+                'images' => $productImages
+            ]);
+
             if (!empty($productImages)) {
                 foreach ($productImages as $index => $imageData) {
                     // Check if image file exists in request
                     $imageFile = $request->file("product_images.{$index}.image");
-                    if ($imageFile) {
+
+                    // Debug: Log each image
+                    Log::info("Processing image {$index}:", [
+                        'has_file' => $imageFile ? 'yes' : 'no',
+                        'is_valid' => $imageFile && $imageFile->isValid() ? 'yes' : 'no',
+                        'file_name' => $imageFile ? $imageFile->getClientOriginalName() : 'null'
+                    ]);
+
+                    if ($imageFile && $imageFile->isValid()) {
                         $path = $imageFile->store('products', 'public');
-                        $sortOrder = isset($imageData['sort_order']) ? (int) $imageData['sort_order'] : $index;
-                        $isPrimary = isset($imageData['is_primary']) ? (bool) $imageData['is_primary'] : ($index === 0);
+                        $sortOrder = isset($imageData['sort_order']) ? (int) $imageData['sort_order'] : $imageCount;
+
+                        // Determine if this should be primary
+                        $isPrimary = false;
+                        if (isset($imageData['is_primary'])) {
+                            $isPrimary = (bool) $imageData['is_primary'];
+                        } elseif (!$hasPrimary && $imageCount === 0) {
+                            $isPrimary = true;
+                        }
+
                         ProductImage::create([
                             'product_id' => $product->id,
                             'image' => $path,
                             'is_primary' => $isPrimary,
                             'sort_order' => $sortOrder,
                         ]);
+
+                        if ($isPrimary) {
+                            $hasPrimary = true;
+                        }
+
+                        $imageCount++;
+                    }
+                }
+
+                // If no primary image was set, set the first image as primary
+                if (!$hasPrimary && $imageCount > 0) {
+                    $firstImage = ProductImage::where('product_id', $product->id)
+                        ->orderBy('sort_order')
+                        ->first();
+                    if ($firstImage) {
+                        $firstImage->update(['is_primary' => true]);
                     }
                 }
             }
-            // DB::commit();
+
+            DB::commit();
             $product->load(['category', 'taxCategory', 'images']);
 
             return response()->json($this->formatProduct($product), 201);
         } catch (\Exception $e) {
             DB::rollBack();
+            Log::error('Product creation failed:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'message' => 'Failed to create product',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
-
     /**
      * Format a single product
      */
@@ -290,8 +366,20 @@ class ProductController extends Controller
     /**
      * Update an existing product
      */
-    public function update(Request $request, Product $product)
+    public function update(Request $request, $id)
     {
+        $product = Product::where('id', $id)->first();
+        if (!$product) {
+            return response()->json([
+                'message' => 'Product not found'
+            ], 422);
+        }
+
+        // DEBUG: Log incoming request
+        Log::info('=== UPDATE REQUEST DEBUG ===');
+        Log::info('All request data:', $request->all());
+        Log::info('All files:', array_keys($_FILES));
+
         $validator = Validator::make($request->all(), [
             'product_code' => ['required', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
             'name' => ['required', 'string', 'max:255'],
@@ -306,7 +394,7 @@ class ProductController extends Controller
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'is_published' => ['nullable', 'boolean'],
             'product_images' => ['nullable', 'array'],
-            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp'],
+            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'product_images.*.sort_order' => ['nullable', 'integer'],
             'product_images.*.is_primary' => ['nullable', 'boolean'],
             'remove_images' => ['nullable', 'array'],
@@ -351,26 +439,77 @@ class ProductController extends Controller
                 }
             }
 
-            // Handle images
+            // Handle images - IMPROVED VERSION
             $productImages = $request->input('product_images', []);
+            Log::info('Product images input:', $productImages);
+
             if (!empty($productImages)) {
                 $existingCount = $product->images()->count();
+                $hasPrimary = $product->images()->where('is_primary', true)->exists();
+                $imageCount = 0;
 
                 foreach ($productImages as $index => $imageData) {
-                    // Check if image file exists in request
+                    // Try multiple ways to get the file
                     $imageFile = $request->file("product_images.{$index}.image");
 
-                    if ($imageFile) {
-                        $path = $imageFile->store('products', 'public');
-                        $sortOrder = isset($imageData['sort_order']) ? (int) $imageData['sort_order'] : ($existingCount + $index);
-                        $isPrimary = isset($imageData['is_primary']) ? (bool) $imageData['is_primary'] : ($existingCount === 0 && $index === 0);
+                    // If not found, try alternative key format
+                    if (!$imageFile) {
+                        $imageFile = $request->file("product_images.{$index}.image");
+                    }
 
-                        ProductImage::create([
+                    Log::info("Processing image {$index}:", [
+                        'has_file' => $imageFile ? 'yes' : 'no',
+                        'is_valid' => $imageFile && $imageFile->isValid() ? 'yes' : 'no',
+                        'file_name' => $imageFile ? $imageFile->getClientOriginalName() : 'null',
+                        'image_data' => $imageData
+                    ]);
+
+                    if ($imageFile && $imageFile->isValid()) {
+                        $path = $imageFile->store('products', 'public');
+
+                        // Get sort order - use provided or auto-increment
+                        $sortOrder = isset($imageData['sort_order'])
+                            ? (int) $imageData['sort_order']
+                            : $existingCount + $imageCount;
+
+                        // Determine primary status
+                        $isPrimary = false;
+                        if (isset($imageData['is_primary'])) {
+                            $isPrimary = (bool) $imageData['is_primary'];
+                        } elseif (!$hasPrimary && $imageCount === 0) {
+                            $isPrimary = true;
+                        }
+
+                        $created = ProductImage::create([
                             'product_id' => $product->id,
                             'image' => $path,
                             'is_primary' => $isPrimary,
                             'sort_order' => $sortOrder,
                         ]);
+
+                        Log::info("Created image:", [
+                            'id' => $created->id,
+                            'path' => $path,
+                            'is_primary' => $isPrimary,
+                            'sort_order' => $sortOrder
+                        ]);
+
+                        if ($isPrimary) {
+                            $hasPrimary = true;
+                        }
+
+                        $imageCount++;
+                    }
+                }
+
+                // If no primary image was set, set the first image as primary
+                if (!$hasPrimary && $imageCount > 0) {
+                    $firstImage = ProductImage::where('product_id', $product->id)
+                        ->orderBy('sort_order')
+                        ->first();
+                    if ($firstImage) {
+                        $firstImage->update(['is_primary' => true]);
+                        Log::info("Set primary image:", ['id' => $firstImage->id]);
                     }
                 }
             }
@@ -378,9 +517,15 @@ class ProductController extends Controller
             DB::commit();
             $product->load(['category', 'taxCategory', 'images']);
 
+            Log::info('Final images count: ' . $product->images->count());
+
             return response()->json($this->formatProduct($product));
         } catch (\Exception $e) {
             DB::rollBack();
+            Log::error('Failed to update product:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'message' => 'Failed to update product',
                 'error' => $e->getMessage()
@@ -626,5 +771,131 @@ class ProductController extends Controller
         if ($product->stock_quantity <= 0) return 'out_of_stock';
         if ($product->stock_quantity <= $product->low_stock_threshold) return 'low_stock';
         return 'active';
+    }
+
+    /**
+     * Delete multiple images from a product
+     */
+    public function deleteImages(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'image_ids' => ['required', 'array'],
+            'image_ids.*' => ['exists:product_images,id'],
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+        $product = Product::where('id', $id)->first();
+
+        if (!$product) {
+            return response()->json([
+                'message' => 'No product found'
+            ], 404);
+        }
+        DB::beginTransaction();
+        try {
+            // Get images that belong to this product
+            $imagesToDelete = ProductImage::whereIn('id', $request->image_ids)
+                ->where('product_id', $product->id)
+                ->get();
+
+            if ($imagesToDelete->isEmpty()) {
+                return response()->json([
+                    'message' => 'No valid images found for this product'
+                ], 404);
+            }
+
+            // Check if we're deleting the primary image
+            $deletedPrimary = $imagesToDelete->contains('is_primary', true);
+
+            // Delete image files and database records
+            foreach ($imagesToDelete as $image) {
+                if (Storage::disk('public')->exists($image->image)) {
+                    Storage::disk('public')->delete($image->image);
+                }
+                $image->delete();
+            }
+
+            // If primary image was deleted, set a new primary image
+            if ($deletedPrimary) {
+                $remainingImage = ProductImage::where('product_id', $product->id)
+                    ->orderBy('sort_order')
+                    ->first();
+
+                if ($remainingImage) {
+                    $remainingImage->update(['is_primary' => true]);
+                }
+            }
+
+            DB::commit();
+
+            // Reload product with images
+            $product->load(['category', 'taxCategory', 'images']);
+
+            return response()->json([
+                'message' => 'Images deleted successfully',
+                'data' => $this->formatProduct($product)
+            ], 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to delete images',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete a single image from a product
+     */
+    public function deleteImage(Request $request, Product $product, $imageId)
+    {
+        $image = ProductImage::where('id', $imageId)
+            ->where('product_id', $product->id)
+            ->first();
+
+        if (!$image) {
+            return response()->json([
+                'message' => 'Image not found for this product'
+            ], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            $wasPrimary = $image->is_primary;
+
+            // Delete the image file
+            if (Storage::disk('public')->exists($image->image)) {
+                Storage::disk('public')->delete($image->image);
+            }
+
+            $image->delete();
+
+            // If deleted image was primary, set a new primary image
+            if ($wasPrimary) {
+                $remainingImage = ProductImage::where('product_id', $product->id)
+                    ->orderBy('sort_order')
+                    ->first();
+
+                if ($remainingImage) {
+                    $remainingImage->update(['is_primary' => true]);
+                }
+            }
+
+            DB::commit();
+
+            $product->load(['category', 'taxCategory', 'images']);
+
+            return response()->json([
+                'message' => 'Image deleted successfully',
+                'data' => $this->formatProduct($product)
+            ], 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to delete image',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }
