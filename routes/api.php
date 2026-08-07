@@ -10,9 +10,12 @@ use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\API\AddressController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
+use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\API\ContactController;
+use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\API\SubscriberController;
 use App\Http\Controllers\API\WishlistController;
+use App\Http\Controllers\Webhook\PaymentWebhookController;
 
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
@@ -195,3 +198,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/{id}', [AddressController::class, 'destroy']);
     });
 });
+
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/checkout/summary', [CheckoutController::class, 'summary']);
+    Route::post('/checkout/apply-coins', [CheckoutController::class, 'applyCoins']);
+    Route::post('/checkout/place-order', [CheckoutController::class, 'placeOrder']);
+    Route::get('/order/history', [OrderController::class, 'history']);
+    Route::get('/order/{id}', [OrderController::class, 'show']);
+});
+
+Route::post('/webhook/payment', [PaymentWebhookController::class, 'handle']);
