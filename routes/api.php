@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\API\SubscriberController;
+use App\Http\Controllers\API\WishlistController;
 
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
@@ -97,23 +98,21 @@ Route::prefix('subscribers')->group(function () {
         Route::delete('/{email}', [SubscriberController::class, 'destroy']);
     });
 });
-
 Route::prefix('products')->group(function () {
-    // Get all products with filters
-    Route::get('/', [ProductController::class, 'index']);
+    // Public routes with optional authentication
+    Route::middleware('optional.auth:sanctum')->group(function () {
+        Route::get('/', [ProductController::class, 'index']);
+        Route::get('/slug/{slug}', [ProductController::class, 'showBySlug']);
+        Route::get('/code/{code}', [ProductController::class, 'showByCode']);
+        Route::get('/{product}', [ProductController::class, 'show']);
+    });
 
-    // Public routesvzx
-    Route::get('/slug/{slug}', [ProductController::class, 'showBySlug']);
-    Route::get('/code/{code}', [ProductController::class, 'showByCode']);
-    Route::get('/show/{product}', [ProductController::class, 'show']);
-    // Protected routes
+    // Admin protected routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/', [ProductController::class, 'store']);
-        Route::post('/update/{product}', [ProductController::class, 'update']);
-        Route::delete('/delete/{product}', [ProductController::class, 'destroy']);
-        Route::delete('{productId}/images', [ProductController::class, 'deleteImages']);
-
-        // Additional actions
+        Route::put('/{product}', [ProductController::class, 'update']);
+        Route::delete('/{product}', [ProductController::class, 'destroy']);
+        Route::delete('/{product}/images', [ProductController::class, 'deleteImages']);
         Route::post('/{product}/stock', [ProductController::class, 'updateStock']);
         Route::post('/{product}/toggle-publish', [ProductController::class, 'togglePublish']);
     });
@@ -157,4 +156,13 @@ Route::group(['prefix' => 'user'], function () {
         Route::post('change-password', [APIAuthController::class, 'changePassword'])->name('change-password');
         Route::post('logout', [APIAuthController::class, 'logout'])->name('logout');
     });
+});
+
+
+Route::prefix('wishlist')->middleware('auth:sanctum')->group(function () {
+    Route::get('/', [WishlistController::class, 'index']);
+    Route::post('/add', [WishlistController::class, 'add']);
+    Route::post('/remove', [WishlistController::class, 'remove']);
+    Route::post('/toggle', [WishlistController::class, 'toggle']);
+    // Route::get('/check/{productId}', [WishlistController::class, 'check']);
 });
