@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class BusinessProfile extends Model
 {
-    protected $table = 'business_profiles';
+    protected $table = 'distributor_profiles';
     protected $fillable = [
         'user_id',
         'company_name',
