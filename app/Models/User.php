@@ -121,4 +121,9 @@ class User extends Authenticatable
     {
         return $this->distributor_status  === 'pending';
     }
+
+    public function orders()
+    {
+        return $this->hasMany(Order::class);
+    }
 }
