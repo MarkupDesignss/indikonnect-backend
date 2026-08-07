@@ -353,9 +353,96 @@ class ProductController extends Controller
             ], 500);
         }
     }
+
+    public function productsByCategory(Request $request, $categoryId)
+    {
+        $limit = $request->get('limit', 20);
+        $excludeId = $request->get('exclude_product_id');
+
+        $query = Product::with(['category', 'images'])
+            ->where('category_id', $categoryId)
+            ->where('is_published', true);
+
+        // Exclude specific product if needed
+        if ($excludeId) {
+            $query->where('id', '!=', $excludeId);
+        }
+
+        // Optional: Exclude out of stock products
+        if ($request->get('exclude_out_of_stock', false)) {
+            $query->where('stock_quantity', '>', 0);
+        }
+
+        // Sort options
+        $sortBy = $request->get('sort_by', 'created_at');
+        $sortDirection = $request->get('sort_direction', 'desc');
+
+        $allowedSortFields = ['id', 'name', 'retail_price', 'stock_quantity', 'created_at', 'updated_at'];
+        if (in_array($sortBy, $allowedSortFields)) {
+            $query->orderBy($sortBy, $sortDirection);
+        }
+
+        $products = $query->limit($limit)->get();
+
+        // Get wishlist IDs for authenticated user
+        $userId = $request->query('user_id');
+        $wishlistIds = $this->getUserWishlistIds($userId);
+
+        return response()->json([
+            'category_id' => (int) $categoryId,
+            'total' => $products->count(),
+            'data' => $this->formatProductCollection($products, $wishlistIds),
+        ]);
+    }
     /**
      * Format a single product
      */
+    // protected function formatProduct($product, $wishlistIds = [])
+    // {
+    //     $isWishlisted = in_array($product->id, $wishlistIds);
+
+    //     $primaryImage = $product->images->where('is_primary', true)->first()
+    //         ?? $product->images->first();
+
+    //     return [
+    //         'id' => $product->id,
+    //         'product_code' => $product->product_code,
+    //         'name' => $product->name,
+    //         'slug' => $product->slug,
+    //         'description' => $product->description,
+    //         'specification' => $product->specification,
+    //         'category_id' => $product->category_id,
+    //         'category' => $product->category ? [
+    //             'id' => $product->category->id,
+    //             'name' => $product->category->name,
+    //             'slug' => $product->category->slug,
+    //             'description' => $product->category->description,
+    //         ] : null,
+    //         'tax_category_id' => $product->tax_category_id,
+    //         'retail_price' => $product->retail_price,
+    //         'retail_price_formatted' => number_format($product->retail_price, 2),
+    //         'distributor_price' => $product->distributor_price,
+    //         'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+    //         'stock_quantity' => (int) $product->stock_quantity,
+    //         'low_stock_threshold' => (int) $product->low_stock_threshold,
+    //         'is_published' => (bool) $product->is_published,
+    //         'status' => $this->getProductStatus($product),
+    //         'is_wishlisted' => $isWishlisted, // Add this field
+    //         'images' => $product->images->map(function ($image) {
+    //             return [
+    //                 'id' => $image->id,
+    //                 'image' => $image->image,
+    //                 'image_url' => asset('storage/' . $image->image),
+    //                 'sort_order' => $image->sort_order,
+    //                 'is_primary' => (bool) $image->is_primary,
+    //             ];
+    //         })->values()->toArray(),
+    //         'primary_image' => $primaryImage ? $primaryImage->image : null,
+    //         'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+    //         'created_at' => $product->created_at?->toISOString(),
+    //         'updated_at' => $product->updated_at?->toISOString(),
+    //     ];
+    // }
     protected function formatProduct($product, $wishlistIds = [])
     {
         $isWishlisted = in_array($product->id, $wishlistIds);
@@ -386,7 +473,7 @@ class ProductController extends Controller
             'low_stock_threshold' => (int) $product->low_stock_threshold,
             'is_published' => (bool) $product->is_published,
             'status' => $this->getProductStatus($product),
-            'is_wishlisted' => $isWishlisted, // Add this field
+            'is_wishlisted' => $isWishlisted,
             'images' => $product->images->map(function ($image) {
                 return [
                     'id' => $image->id,
@@ -753,9 +840,51 @@ class ProductController extends Controller
     /**
      * Format product collection
      */
-    // protected function formatProductCollection($products)
+    // protected function formatProductCollection($products, $wishlistIds = [])
     // {
-    //     return $products->map(fn($product) => $this->formatProduct($product))->values()->toArray();
+    //     return $products->map(function ($product) use ($wishlistIds) {
+    //         $isWishlisted = in_array($product->id, $wishlistIds);
+
+    //         return [
+    //             'id' => $product->id,
+    //             'product_code' => $product->product_code,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'description' => $product->description,
+    //             'specification' => $product->specification,
+    //             'category_id' => $product->category_id,
+    //             'category' => $product->category ? [
+    //                 'id' => $product->category->id,
+    //                 'name' => $product->category->name,
+    //                 'slug' => $product->category->slug,
+    //             ] : null,
+    //             'tax_category_id' => $product->tax_category_id,
+    //             'tax_category' => $product->taxCategory ? [
+    //                 'id' => $product->taxCategory->id,
+    //                 'name' => $product->taxCategory->name,
+    //                 'rate' => $product->taxCategory->rate,
+    //             ] : null,
+    //             'retail_price' => $product->retail_price,
+    //             'distributor_price' => $product->distributor_price,
+    //             'stock_quantity' => $product->stock_quantity,
+    //             'low_stock_threshold' => $product->low_stock_threshold,
+    //             'stock_status' => $product->stock_status,
+    //             'is_published' => $product->is_published,
+    //             'is_wishlisted' => $isWishlisted, // Add this field
+    //             'images' => $product->images->map(function ($image) {
+    //                 return [
+    //                     'id' => $image->id,
+    //                     'image' => asset('storage/' . $image->image),
+    //                     'is_primary' => $image->is_primary,
+    //                     'sort_order' => $image->sort_order,
+    //                 ];
+    //             })->values()->toArray(),
+    //             'primary_image' => $product->primaryImage ? asset('storage/' . $product->primaryImage->image) : null,
+    //             'image_urls' => $product->image_urls,
+    //             'created_at' => $product->created_at,
+    //             'updated_at' => $product->updated_at,
+    //         ];
+    //     })->values()->toArray();
     // }
 
     protected function formatProductCollection($products, $wishlistIds = [])
@@ -783,24 +912,25 @@ class ProductController extends Controller
                     'rate' => $product->taxCategory->rate,
                 ] : null,
                 'retail_price' => $product->retail_price,
+                'retail_price_formatted' => number_format($product->retail_price, 2),
                 'distributor_price' => $product->distributor_price,
-                'stock_quantity' => $product->stock_quantity,
-                'low_stock_threshold' => $product->low_stock_threshold,
-                'stock_status' => $product->stock_status,
-                'is_published' => $product->is_published,
-                'is_wishlisted' => $isWishlisted, // Add this field
+                'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+                'stock_quantity' => (int) $product->stock_quantity,
+                'low_stock_threshold' => (int) $product->low_stock_threshold,
+                'stock_status' => $this->getProductStatus($product),
+                'is_published' => (bool) $product->is_published,
+                'is_wishlisted' => $isWishlisted,
                 'images' => $product->images->map(function ($image) {
                     return [
                         'id' => $image->id,
-                        'image' => asset('storage/' . $image->image),
-                        'is_primary' => $image->is_primary,
+                        'image_url' => asset('storage/' . $image->image),
+                        'is_primary' => (bool) $image->is_primary,
                         'sort_order' => $image->sort_order,
                     ];
                 })->values()->toArray(),
-                'primary_image' => $product->primaryImage ? asset('storage/' . $product->primaryImage->image) : null,
-                'image_urls' => $product->image_urls,
-                'created_at' => $product->created_at,
-                'updated_at' => $product->updated_at,
+                'primary_image_url' => $product->primaryImage ? asset('storage/' . $product->primaryImage->image) : null,
+                'created_at' => $product->created_at?->toISOString(),
+                'updated_at' => $product->updated_at?->toISOString(),
             ];
         })->values()->toArray();
     }
