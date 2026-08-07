@@ -177,10 +177,15 @@ class CartController extends Controller
     /**
      * Update cart item quantity
      */
+    /**
+     * Update cart item quantity
+     * Supports increment, decrement, and set operations
+     */
     public function update(Request $request, $itemId)
     {
         $validator = Validator::make($request->all(), [
-            'quantity' => ['required', 'integer', 'min:0'],
+            'quantity' => ['nullable', 'integer', 'min:1'],
+            'action' => ['nullable', 'in:increment,decrement,set'],
         ]);
 
         if ($validator->fails()) {
@@ -198,12 +203,50 @@ class CartController extends Controller
                 return response()->json(['message' => 'Item not found in cart'], 404);
             }
 
-            // If quantity is 0, remove the item
-            if ($request->quantity <= 0) {
-                $cartItem->delete();
-            } else {
-                // Update quantity only - price is always dynamic
-                $cartItem->quantity = $request->quantity;
+            $action = $request->action ?? 'set';
+            $quantity = $request->quantity ?? 1;
+
+            switch ($action) {
+                case 'increment':
+                    $cartItem->quantity += 1;
+                    break;
+                case 'decrement':
+                    $cartItem->quantity -= 1;
+                    // If quantity becomes 0, remove the item
+                    if ($cartItem->quantity <= 0) {
+                        $cartItem->delete();
+                        DB::commit();
+                        $cart->load('items.product.images');
+                        $user = auth('sanctum')->user();
+                        return response()->json([
+                            'message' => 'Item removed from cart',
+                            'data' => $this->formatCart($cart, $user),
+                            'summary' => $this->getCartSummary($cart, $user),
+                            'user_type' => $this->getUserType(),
+                        ]);
+                    }
+                    break;
+                case 'set':
+                    if ($quantity <= 0) {
+                        $cartItem->delete();
+                        DB::commit();
+                        $cart->load('items.product.images');
+                        $user = auth('sanctum')->user();
+                        return response()->json([
+                            'message' => 'Item removed from cart',
+                            'data' => $this->formatCart($cart, $user),
+                            'summary' => $this->getCartSummary($cart, $user),
+                            'user_type' => $this->getUserType(),
+                        ]);
+                    }
+                    $cartItem->quantity = $quantity;
+                    break;
+                default:
+                    return response()->json(['message' => 'Invalid action'], 400);
+            }
+
+            // Save if not deleted
+            if (isset($cartItem) && $cartItem->exists) {
                 $cartItem->save();
             }
 
@@ -213,7 +256,7 @@ class CartController extends Controller
             $user = auth('sanctum')->user();
 
             return response()->json([
-                'message' => $request->quantity <= 0 ? 'Item removed from cart' : 'Cart updated successfully',
+                'message' => 'Cart updated successfully',
                 'data' => $this->formatCart($cart, $user),
                 'summary' => $this->getCartSummary($cart, $user),
                 'user_type' => $this->getUserType(),
