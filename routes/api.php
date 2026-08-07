@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\ContentController;
 use App\Http\Controllers\Admin\MenuController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\TaxCategoryController;
+use App\Http\Controllers\API\AddressController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
 use App\Http\Controllers\API\ContactController;
@@ -179,4 +180,17 @@ Route::prefix('cart')->group(function () {
 
     // Merge guest cart with user cart (after login)
     Route::post('/merge', [CartController::class, 'mergeCart'])->middleware('auth:sanctum');
+});
+Route::middleware('auth:sanctum')->group(function () {
+    // Address Management
+    Route::prefix('addresses')->group(function () {
+        Route::get('/', [AddressController::class, 'index']);
+        Route::post('/', [AddressController::class, 'store']);
+        // Route::get('/default', [AddressController::class, 'getDefault']);
+        // Route::get('/billing', [AddressController::class, 'getBillingAddresses']);
+        // Route::get('/delivery', [AddressController::class, 'getDeliveryAddresses']);
+        Route::post('/{id}', [AddressController::class, 'update']);
+        Route::post('/{id}/default', [AddressController::class, 'setDefault']);
+        Route::delete('/{id}', [AddressController::class, 'destroy']);
+    });
 });
