@@ -23,11 +23,9 @@ class Product extends Model
         'stock_quantity',
         'low_stock_threshold',
         'is_published',
-        'images',
     ];
 
     protected $casts = [
-        'images' => 'array',
         'retail_price' => 'decimal:2',
         'distributor_price' => 'decimal:2',
         'is_published' => 'boolean',
@@ -53,9 +51,9 @@ class Product extends Model
 
     public function images()
     {
-        return $this->hasMany(ProductImage::class)->orderBy('sort_order');
+        return $this->hasMany(ProductImage::class, 'product_id')
+            ->orderBy('sort_order');
     }
-
     public function primaryImage()
     {
         return $this->hasOne(ProductImage::class)->where('is_primary', true);
@@ -86,5 +84,23 @@ class Product extends Model
     public function scopeLowStock($query)
     {
         return $query->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    }
+
+    public function getStockStatusAttribute()
+    {
+        if ($this->stock_quantity <= 0) {
+            return 'out_of_stock';
+        }
+
+        if ($this->stock_quantity <= $this->low_stock_threshold) {
+            return 'low_stock';
+        }
+
+        return 'in_stock';
+    }
+
+    public function scopeOutOfStock($query)
+    {
+        return $query->where('stock_quantity', '=', 0);
     }
 }

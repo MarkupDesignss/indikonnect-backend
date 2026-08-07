@@ -21,8 +21,17 @@ class ProductController extends Controller
     {
         $query = Product::with(['category', 'taxCategory', 'images']);
 
-        // Filter by category
-        if ($request->has('category_id') && $request->category_id) {
+        // Filter by multiple categories
+        if ($request->has('category_ids') && $request->category_ids) {
+            $categoryIds = is_array($request->category_ids)
+                ? $request->category_ids
+                : explode(',', $request->category_ids);
+
+            $query->whereIn('category_id', $categoryIds);
+        }
+
+        // Alternative: Filter by single category (backward compatibility)
+        if ($request->has('category_id') && $request->category_id && !$request->has('category_ids')) {
             $query->where('category_id', $request->category_id);
         }
 
@@ -32,13 +41,55 @@ class ProductController extends Controller
         }
 
         // Filter by stock status
-        if ($request->has('in_stock') && $request->boolean('in_stock')) {
-            $query->where('stock_quantity', '>', 0);
+        if ($request->has('stock_status')) {
+            $stockStatus = $request->stock_status;
+
+            if (is_array($stockStatus)) {
+                // Handle multiple stock statuses
+                $query->where(function ($q) use ($stockStatus) {
+                    $q->where(function ($sub) use ($stockStatus) {
+                        // In Stock: stock_quantity > low_stock_threshold
+                        if (in_array('in_stock', $stockStatus)) {
+                            $sub->orWhereColumn('stock_quantity', '>', 'low_stock_threshold');
+                        }
+                        // Low Stock: stock_quantity between 1 and low_stock_threshold
+                        if (in_array('low_stock', $stockStatus)) {
+                            $sub->orWhere(function ($q) {
+                                $q->where('stock_quantity', '>', 0)
+                                    ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+                            });
+                        }
+                        // Out of Stock: stock_quantity = 0
+                        if (in_array('out_of_stock', $stockStatus)) {
+                            $sub->orWhere('stock_quantity', '=', 0);
+                        }
+                    });
+                });
+            } else {
+                // Single stock status filter
+                switch ($stockStatus) {
+                    case 'in_stock':
+                        $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+                        break;
+                    case 'low_stock':
+                        $query->where('stock_quantity', '>', 0)
+                            ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+                        break;
+                    case 'out_of_stock':
+                        $query->where('stock_quantity', '=', 0);
+                        break;
+                }
+            }
         }
 
-        // Filter by low stock
+        // Legacy: Backward compatibility for old filters
+        if ($request->has('in_stock') && $request->boolean('in_stock')) {
+            $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+        }
+
         if ($request->has('low_stock') && $request->boolean('low_stock')) {
-            $query->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+            $query->where('stock_quantity', '>', 0)
+                ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
         }
 
         // Search by name or product code
@@ -130,44 +181,53 @@ class ProductController extends Controller
             'stock_quantity' => ['required', 'integer'],
             'low_stock_threshold' => ['nullable', 'integer'],
             'is_published' => ['nullable', 'boolean'],
-            'images' => ['nullable', 'array'],
-            'images.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'product_images' => ['nullable', 'array'],
+            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'product_images.*.sort_order' => ['nullable', 'integer'],
+            'product_images.*.is_primary' => ['nullable', 'boolean'],
         ]);
-
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        DB::beginTransaction();
+        // DB::beginTransaction();
         try {
             $validated = $validator->validated();
-            $images = $request->file('images', []);
+
+            // Extract product data (remove product_images)
+            $productData = collect($validated)->except(['product_images'])->toArray();
 
             // Generate slug if not provided
-            if (empty($validated['slug'])) {
-                $validated['slug'] = Str::slug($validated['name']);
+            if (empty($productData['slug'])) {
+                $productData['slug'] = Str::slug($productData['name']);
             }
-            $validated['slug'] = $this->generateUniqueSlug($validated['slug']);
-            $validated['is_published'] = $validated['is_published'] ?? false;
-            $validated['low_stock_threshold'] = $validated['low_stock_threshold'] ?? 5;
+            $productData['slug'] = $this->generateUniqueSlug($productData['slug']);
+            $productData['is_published'] = $productData['is_published'] ?? false;
+            $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
 
             // Create product
-            $product = Product::create($validated);
+            $product = Product::create($productData);
 
-            // Handle images directly here
-            if (!empty($images)) {
-                foreach ($images as $index => $image) {
-                    $path = $image->store('products', 'public');
-                    ProductImage::create([
-                        'product_id' => $product->id,
-                        'image' => $path,
-                        'is_primary' => $index === 0,
-                        'sort_order' => $index,
-                    ]);
+            // Handle images
+            $productImages = $request->input('product_images', []);
+            if (!empty($productImages)) {
+                foreach ($productImages as $index => $imageData) {
+                    // Check if image file exists in request
+                    $imageFile = $request->file("product_images.{$index}.image");
+                    if ($imageFile) {
+                        $path = $imageFile->store('products', 'public');
+                        $sortOrder = isset($imageData['sort_order']) ? (int) $imageData['sort_order'] : $index;
+                        $isPrimary = isset($imageData['is_primary']) ? (bool) $imageData['is_primary'] : ($index === 0);
+                        ProductImage::create([
+                            'product_id' => $product->id,
+                            'image' => $path,
+                            'is_primary' => $isPrimary,
+                            'sort_order' => $sortOrder,
+                        ]);
+                    }
                 }
             }
-
-            DB::commit();
+            // DB::commit();
             $product->load(['category', 'taxCategory', 'images']);
 
             return response()->json($this->formatProduct($product), 201);
@@ -178,6 +238,53 @@ class ProductController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Format a single product
+     */
+    protected function formatProduct($product)
+    {
+        $primaryImage = $product->images->where('is_primary', true)->first()
+            ?? $product->images->first();
+
+        return [
+            'id' => $product->id,
+            'product_code' => $product->product_code,
+            'name' => $product->name,
+            'slug' => $product->slug,
+            'description' => $product->description,
+            'specification' => $product->specification,
+            'category_id' => $product->category_id,
+            'category' => $product->category ? [
+                'id' => $product->category->id,
+                'name' => $product->category->name,
+                'slug' => $product->category->slug,
+                'description' => $product->category->description,
+            ] : null,
+            'tax_category_id' => $product->tax_category_id,
+            'retail_price' => $product->retail_price,
+            'retail_price_formatted' => number_format($product->retail_price, 2),
+            'distributor_price' => $product->distributor_price,
+            'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+            'stock_quantity' => (int) $product->stock_quantity,
+            'low_stock_threshold' => (int) $product->low_stock_threshold,
+            'is_published' => (bool) $product->is_published,
+            'status' => $this->getProductStatus($product),
+            'images' => $product->images->map(function ($image) {
+                return [
+                    'id' => $image->id,
+                    'image' => $image->image,
+                    'image_url' => asset('storage/' . $image->image),
+                    'sort_order' => $image->sort_order,
+                    'is_primary' => (bool) $image->is_primary,
+                ];
+            })->values()->toArray(),
+            'primary_image' => $primaryImage ? $primaryImage->image : null,
+            'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+            'created_at' => $product->created_at?->toISOString(),
+            'updated_at' => $product->updated_at?->toISOString(),
+        ];
     }
 
     /**
@@ -198,8 +305,10 @@ class ProductController extends Controller
             'stock_quantity' => ['required', 'integer', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'is_published' => ['nullable', 'boolean'],
-            'images' => ['nullable', 'array'],
-            'images.*' => ['image', 'mimes:jpg,jpeg,png,webp'],
+            'product_images' => ['nullable', 'array'],
+            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp'],
+            'product_images.*.sort_order' => ['nullable', 'integer'],
+            'product_images.*.is_primary' => ['nullable', 'boolean'],
             'remove_images' => ['nullable', 'array'],
             'remove_images.*' => ['exists:product_images,id'],
         ]);
@@ -211,22 +320,24 @@ class ProductController extends Controller
         DB::beginTransaction();
         try {
             $validated = $validator->validated();
-            $newImages = $request->file('images', []);
-            $removeImages = $validated['remove_images'] ?? [];
+
+            // Extract product data (remove product_images and remove_images)
+            $productData = collect($validated)->except(['product_images', 'remove_images'])->toArray();
 
             // Handle slug
-            if (empty($validated['slug'])) {
-                $validated['slug'] = Str::slug($validated['name']);
+            if (empty($productData['slug'])) {
+                $productData['slug'] = Str::slug($productData['name']);
             }
-            if ($validated['slug'] !== $product->slug) {
-                $validated['slug'] = $this->generateUniqueSlug($validated['slug'], $product->id);
+            if ($productData['slug'] !== $product->slug) {
+                $productData['slug'] = $this->generateUniqueSlug($productData['slug'], $product->id);
             }
-            $validated['low_stock_threshold'] = $validated['low_stock_threshold'] ?? 5;
+            $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
 
             // Update product
-            $product->update($validated);
+            $product->update($productData);
 
             // Remove specified images
+            $removeImages = $validated['remove_images'] ?? [];
             if (!empty($removeImages)) {
                 $imagesToRemove = ProductImage::whereIn('id', $removeImages)
                     ->where('product_id', $product->id)
@@ -240,17 +351,27 @@ class ProductController extends Controller
                 }
             }
 
-            // Add new images
-            if (!empty($newImages)) {
+            // Handle images
+            $productImages = $request->input('product_images', []);
+            if (!empty($productImages)) {
                 $existingCount = $product->images()->count();
-                foreach ($newImages as $index => $image) {
-                    $path = $image->store('products', 'public');
-                    ProductImage::create([
-                        'product_id' => $product->id,
-                        'image' => $path,
-                        'is_primary' => $existingCount === 0 && $index === 0,
-                        'sort_order' => $existingCount + $index,
-                    ]);
+
+                foreach ($productImages as $index => $imageData) {
+                    // Check if image file exists in request
+                    $imageFile = $request->file("product_images.{$index}.image");
+
+                    if ($imageFile) {
+                        $path = $imageFile->store('products', 'public');
+                        $sortOrder = isset($imageData['sort_order']) ? (int) $imageData['sort_order'] : ($existingCount + $index);
+                        $isPrimary = isset($imageData['is_primary']) ? (bool) $imageData['is_primary'] : ($existingCount === 0 && $index === 0);
+
+                        ProductImage::create([
+                            'product_id' => $product->id,
+                            'image' => $path,
+                            'is_primary' => $isPrimary,
+                            'sort_order' => $sortOrder,
+                        ]);
+                    }
                 }
             }
 
@@ -442,59 +563,58 @@ class ProductController extends Controller
         return $slug;
     }
 
-    /**
-     * Format a single product
-     */
-    protected function formatProduct($product)
-    {
-        $primaryImage = $product->images->where('is_primary', true)->first()
-            ?? $product->images->first();
 
-        return [
-            'id' => $product->id,
-            'product_code' => $product->product_code,
-            'name' => $product->name,
-            'slug' => $product->slug,
-            'description' => $product->description,
-            'specification' => $product->specification,
-            'category_id' => $product->category_id,
-            'category' => $product->category ? [
-                'id' => $product->category->id,
-                'name' => $product->category->name,
-                'slug' => $product->category->slug,
-                'description' => $product->category->description,
-            ] : null,
-            'tax_category_id' => $product->tax_category_id,
-            'retail_price' => $product->retail_price,
-            'retail_price_formatted' => number_format($product->retail_price, 2),
-            'distributor_price' => $product->distributor_price,
-            'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
-            'stock_quantity' => (int) $product->stock_quantity,
-            'low_stock_threshold' => (int) $product->low_stock_threshold,
-            'is_published' => (bool) $product->is_published,
-            'status' => $this->getProductStatus($product),
-            'images' => $product->images->map(function ($image) {
-                return [
-                    'id' => $image->id,
-                    'image' => $image->image,
-                    'image_url' => asset('storage/' . $image->image),
-                    'sort_order' => $image->sort_order,
-                    'is_primary' => (bool) $image->is_primary,
-                ];
-            })->values()->toArray(),
-            'primary_image' => $primaryImage ? $primaryImage->image : null,
-            'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
-            'created_at' => $product->created_at?->toISOString(),
-            'updated_at' => $product->updated_at?->toISOString(),
-        ];
-    }
 
     /**
      * Format product collection
      */
+    // protected function formatProductCollection($products)
+    // {
+    //     return $products->map(fn($product) => $this->formatProduct($product))->values()->toArray();
+    // }
+
     protected function formatProductCollection($products)
     {
-        return $products->map(fn($product) => $this->formatProduct($product))->values()->toArray();
+        return $products->map(function ($product) {
+            return [
+                'id' => $product->id,
+                'product_code' => $product->product_code,
+                'name' => $product->name,
+                'slug' => $product->slug,
+                'description' => $product->description,
+                'specification' => $product->specification,
+                'category_id' => $product->category_id,
+                'category' => $product->category ? [
+                    'id' => $product->category->id,
+                    'name' => $product->category->name,
+                    'slug' => $product->category->slug,
+                ] : null,
+                'tax_category_id' => $product->tax_category_id,
+                'tax_category' => $product->taxCategory ? [
+                    'id' => $product->taxCategory->id,
+                    'name' => $product->taxCategory->name,
+                    'rate' => $product->taxCategory->rate,
+                ] : null,
+                'retail_price' => $product->retail_price,
+                'distributor_price' => $product->distributor_price,
+                'stock_quantity' => $product->stock_quantity,
+                'low_stock_threshold' => $product->low_stock_threshold,
+                'stock_status' => $product->stock_status, // Add stock status
+                'is_published' => $product->is_published,
+                'images' => $product->images->map(function ($image) {
+                    return [
+                        'id' => $image->id,
+                        'image' => asset('storage/' . $image->image),
+                        'is_primary' => $image->is_primary,
+                        'sort_order' => $image->sort_order,
+                    ];
+                })->values()->toArray(),
+                'primary_image' => $product->primaryImage ? asset('storage/' . $product->primaryImage->image) : null,
+                'image_urls' => $product->image_urls, // If you have this accessor
+                'created_at' => $product->created_at,
+                'updated_at' => $product->updated_at,
+            ];
+        })->values()->toArray();
     }
 
     /**
