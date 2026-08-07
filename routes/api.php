@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\MenuController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
+use App\Http\Controllers\API\CartController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\API\SubscriberController;
 use App\Http\Controllers\API\WishlistController;
@@ -165,4 +166,17 @@ Route::prefix('wishlist')->middleware('auth:sanctum')->group(function () {
     Route::post('/remove', [WishlistController::class, 'remove']);
     Route::post('/toggle', [WishlistController::class, 'toggle']);
     // Route::get('/check/{productId}', [WishlistController::class, 'check']);
+});
+
+Route::prefix('cart')->group(function () {
+    // Public routes (for both guest and authenticated users)
+    Route::get('/', [CartController::class, 'index']);
+    Route::get('/count', [CartController::class, 'count']);
+    Route::post('/add', [CartController::class, 'add']);
+    Route::put('/update/{itemId}', [CartController::class, 'update']);
+    Route::delete('/remove/{itemId}', [CartController::class, 'remove']);
+    Route::delete('/clear', [CartController::class, 'clear']);
+
+    // Merge guest cart with user cart (after login)
+    Route::post('/merge', [CartController::class, 'mergeCart'])->middleware('auth:sanctum');
 });
