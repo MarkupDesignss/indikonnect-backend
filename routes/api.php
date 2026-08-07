@@ -5,6 +5,8 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\ContentController;
 use App\Http\Controllers\Admin\MenuController;
+use App\Http\Controllers\Admin\ProductController;
+use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\API\SubscriberController;
@@ -13,13 +15,14 @@ Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
 })->name('login');
 
+// Auth
 Route::prefix('admin')->group(function () {
     // Public Routes
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/send-reset-otp', [AuthController::class, 'sendResetOtp']);
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
-    // Protected Routes
+    // Protected Routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
@@ -27,10 +30,12 @@ Route::prefix('admin')->group(function () {
     });
 });
 
+
+// Header menu
 Route::prefix('header')->group(function () {
-    // Headers
+    // Public routes
     Route::get('/', [MenuController::class, 'index']);
-    // With middleware
+    // Protected routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/add', [MenuController::class, 'store']);
         Route::delete('/delete/{id}', [MenuController::class, 'destroy']);
@@ -44,7 +49,7 @@ Route::prefix('contents')->group(function () {
     // Public routes (No middleware)
     Route::get('/', [ContentController::class, 'index']);
     Route::get('/{slug}', [ContentController::class, 'show']);
-    // Protected routes
+    // Protected routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/add', [ContentController::class, 'store']);
         Route::post('/update/{id}', [ContentController::class, 'update']);
@@ -58,7 +63,7 @@ Route::prefix('categories')->group(function () {
     // Public routes (No middleware)
     Route::get('/', [CategoryController::class, 'index']);
     Route::get('/{id}', [CategoryController::class, 'show']);
-    // Protected routes
+    // Protected routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/add', [CategoryController::class, 'store']);
         Route::post('/update/{id}', [CategoryController::class, 'update']);
@@ -71,7 +76,9 @@ Route::prefix('categories')->group(function () {
 
 // Contact us
 Route::prefix('contact')->group(function () {
+    // Public route
     Route::post('/', [ContactController::class, 'store']);
+    // Protected routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/', [ContactController::class, 'index']);
         Route::get('/{id}', [ContactController::class, 'show']);
@@ -82,10 +89,46 @@ Route::prefix('contact')->group(function () {
 
 // Newsletters
 Route::prefix('subscribers')->group(function () {
+    // Public route
     Route::post('/', [SubscriberController::class, 'store']);
+    // Protected routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/', [SubscriberController::class, 'index']);
         Route::delete('/{email}', [SubscriberController::class, 'destroy']);
+    });
+});
+
+Route::prefix('products')->group(function () {
+    // Get all products with filters
+    Route::get('/', [ProductController::class, 'index']);
+
+    // Public routesvzx
+    Route::get('/slug/{slug}', [ProductController::class, 'showBySlug']);
+    Route::get('/code/{code}', [ProductController::class, 'showByCode']);
+    Route::get('/show/{product}', [ProductController::class, 'show']);
+    // Protected routes
+    Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+        Route::post('/', [ProductController::class, 'store']);
+        Route::post('/update/{product}', [ProductController::class, 'update']);
+        Route::delete('/delete/{product}', [ProductController::class, 'destroy']);
+        Route::delete('{productId}/images', [ProductController::class, 'deleteImages']);
+
+        // Additional actions
+        Route::post('/{product}/stock', [ProductController::class, 'updateStock']);
+        Route::post('/{product}/toggle-publish', [ProductController::class, 'togglePublish']);
+    });
+});
+Route::prefix('tax-categories')->group(function () {
+    Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+        // Tax Category Routes
+        Route::get('/', [TaxCategoryController::class, 'index']);
+        Route::get('/show/{id}', [TaxCategoryController::class, 'show']);
+        // Route::get('/get-all', [TaxCategoryController::class, 'all']);
+        // Route::get('/stats', [TaxCategoryController::class, 'stats']);
+        Route::post('/', [TaxCategoryController::class, 'store']);
+        Route::post('/update/{id}', [TaxCategoryController::class, 'update']);
+        // Route::delete('/delete/{id}', [TaxCategoryController::class, 'destroy']);
+        // Route::post('/bulk-delete', [TaxCategoryController::class, 'bulkDelete']);
     });
 });
 
