@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\ProductImage;
+use App\Models\Wishlist;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -15,6 +16,31 @@ use Illuminate\Support\Facades\Storage;
 
 class ProductController extends Controller
 {
+    /**
+     * Get user's wishlist product IDs
+     */
+    /**
+     * Get user's wishlist product IDs
+     */
+    protected function getUserWishlistIds($userId = null)
+    {
+        // If user ID is provided in the request
+        if ($userId) {
+            return Wishlist::where('user_id', $userId)
+                ->pluck('product_id')
+                ->toArray();
+        }
+
+        // Otherwise check authenticated user
+        if (auth('sanctum')->check()) {
+            return Wishlist::where('user_id', auth('sanctum')->id())
+                ->pluck('product_id')
+                ->toArray();
+        }
+
+        return [];
+    }
+
     /**
      * Get all products with filtering and pagination
      */
@@ -130,8 +156,12 @@ class ProductController extends Controller
         // Get price range for filters
         $priceRange = $this->getPriceRange();
 
+        // Get wishlist IDs for authenticated user
+        $userId = $request->query('user_id');
+        $wishlistIds = $this->getUserWishlistIds();
+
         return response()->json([
-            'data' => $this->formatProductCollection($products),
+            'data' => $this->formatProductCollection($products, $wishlistIds),
             'pagination' => [
                 'total' => $products->total(),
                 'per_page' => $products->perPage(),
@@ -166,7 +196,11 @@ class ProductController extends Controller
     public function show(Product $product)
     {
         $product->load(['category', 'taxCategory', 'images']);
-        return response()->json($this->formatProduct($product));
+
+        $userId = request()->query('user_id');
+        $wishlistIds = $this->getUserWishlistIds($userId);
+
+        return response()->json($this->formatProduct($product, $wishlistIds));
     }
 
     /**
@@ -178,7 +212,10 @@ class ProductController extends Controller
             ->where('slug', $slug)
             ->firstOrFail();
 
-        return response()->json($this->formatProduct($product));
+        $userId = request()->query('user_id');
+        $wishlistIds = $this->getUserWishlistIds($userId);
+
+        return response()->json($this->formatProduct($product, $wishlistIds));
     }
 
     /**
@@ -319,8 +356,10 @@ class ProductController extends Controller
     /**
      * Format a single product
      */
-    protected function formatProduct($product)
+    protected function formatProduct($product, $wishlistIds = [])
     {
+        $isWishlisted = in_array($product->id, $wishlistIds);
+
         $primaryImage = $product->images->where('is_primary', true)->first()
             ?? $product->images->first();
 
@@ -347,6 +386,7 @@ class ProductController extends Controller
             'low_stock_threshold' => (int) $product->low_stock_threshold,
             'is_published' => (bool) $product->is_published,
             'status' => $this->getProductStatus($product),
+            'is_wishlisted' => $isWishlisted, // Add this field
             'images' => $product->images->map(function ($image) {
                 return [
                     'id' => $image->id,
@@ -718,9 +758,11 @@ class ProductController extends Controller
     //     return $products->map(fn($product) => $this->formatProduct($product))->values()->toArray();
     // }
 
-    protected function formatProductCollection($products)
+    protected function formatProductCollection($products, $wishlistIds = [])
     {
-        return $products->map(function ($product) {
+        return $products->map(function ($product) use ($wishlistIds) {
+            $isWishlisted = in_array($product->id, $wishlistIds);
+
             return [
                 'id' => $product->id,
                 'product_code' => $product->product_code,
@@ -744,8 +786,9 @@ class ProductController extends Controller
                 'distributor_price' => $product->distributor_price,
                 'stock_quantity' => $product->stock_quantity,
                 'low_stock_threshold' => $product->low_stock_threshold,
-                'stock_status' => $product->stock_status, // Add stock status
+                'stock_status' => $product->stock_status,
                 'is_published' => $product->is_published,
+                'is_wishlisted' => $isWishlisted, // Add this field
                 'images' => $product->images->map(function ($image) {
                     return [
                         'id' => $image->id,
@@ -755,12 +798,13 @@ class ProductController extends Controller
                     ];
                 })->values()->toArray(),
                 'primary_image' => $product->primaryImage ? asset('storage/' . $product->primaryImage->image) : null,
-                'image_urls' => $product->image_urls, // If you have this accessor
+                'image_urls' => $product->image_urls,
                 'created_at' => $product->created_at,
                 'updated_at' => $product->updated_at,
             ];
         })->values()->toArray();
     }
+
 
     /**
      * Get product status
@@ -772,6 +816,7 @@ class ProductController extends Controller
         if ($product->stock_quantity <= $product->low_stock_threshold) return 'low_stock';
         return 'active';
     }
+
 
     /**
      * Delete multiple images from a product

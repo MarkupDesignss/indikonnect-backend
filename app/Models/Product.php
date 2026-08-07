@@ -103,4 +103,20 @@ class Product extends Model
     {
         return $query->where('stock_quantity', '=', 0);
     }
+
+    // In Product.php, add this relationship
+    public function wishlists()
+    {
+        return $this->hasMany(Wishlist::class);
+    }
+
+    // Add accessor for is_wishlisted
+    protected $appends = ['is_wishlisted'];
+
+    public function getIsWishlistedAttribute()
+    {
+        // This will be set dynamically based on the logged-in user
+        // We'll set it manually in the controller
+        return false;
+    }
 }
