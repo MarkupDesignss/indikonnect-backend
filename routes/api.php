@@ -7,11 +7,15 @@ use App\Http\Controllers\Admin\ContentController;
 use App\Http\Controllers\Admin\MenuController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\TaxCategoryController;
+use App\Http\Controllers\API\AddressController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
+use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\API\ContactController;
+use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\API\SubscriberController;
 use App\Http\Controllers\API\WishlistController;
+use App\Http\Controllers\Webhook\PaymentWebhookController;
 
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
@@ -106,6 +110,7 @@ Route::prefix('products')->group(function () {
         Route::get('/slug/{slug}', [ProductController::class, 'showBySlug']);
         Route::get('/code/{code}', [ProductController::class, 'showByCode']);
         Route::get('/{product}', [ProductController::class, 'show']);
+        Route::get('/category/{categoryId}', [ProductController::class, 'productsByCategory']);
     });
 
     // Admin protected routes
@@ -180,6 +185,19 @@ Route::prefix('cart')->group(function () {
     // Merge guest cart with user cart (after login)
     Route::post('/merge', [CartController::class, 'mergeCart'])->middleware('auth:sanctum');
 });
+Route::middleware('auth:sanctum')->group(function () {
+    // Address Management
+    Route::prefix('addresses')->group(function () {
+        Route::get('/', [AddressController::class, 'index']);
+        Route::post('/', [AddressController::class, 'store']);
+        // Route::get('/default', [AddressController::class, 'getDefault']);
+        // Route::get('/billing', [AddressController::class, 'getBillingAddresses']);
+        // Route::get('/delivery', [AddressController::class, 'getDeliveryAddresses']);
+        Route::post('/{id}', [AddressController::class, 'update']);
+        Route::post('/{id}/default', [AddressController::class, 'setDefault']);
+        Route::delete('/{id}', [AddressController::class, 'destroy']);
+    });
+});
 
 
 Route::middleware('auth:sanctum')->group(function () {
@@ -190,4 +208,4 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/order/{id}', [OrderController::class, 'show']);
 });
 
-Route::post('/webhook/payment', [WebhookController::class, 'handle']);
+Route::post('/webhook/payment', [PaymentWebhookController::class, 'handle']);

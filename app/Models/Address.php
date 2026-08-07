@@ -4,8 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class RoleUser extends Model
+class Address extends Model
 {
-    protected $table = 'role_users';
+    protected $table = 'addresses';
     protected $guarded = [];
 }
