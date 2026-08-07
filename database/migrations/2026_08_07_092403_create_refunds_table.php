@@ -8,45 +8,31 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('returns', function (Blueprint $table) {
+        Schema::create('refunds', function (Blueprint $table) {
             $table->id();
 
-            // FR-CO-011: Links to the order being returned
+            // Links to the original order
             $table->foreignId('order_id')->constrained()->onDelete('cascade');
 
-            // FR-CO-011: Who requested the return
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            // Links back to the return request (if refund came from return)
+            $table->foreignId('return_id')->nullable()->constrained()->onDelete('set null');
 
-            // FR-CO-011: Which products and quantities are being returned
-            // Structure: [{"product_id": 1, "quantity": 2, "reason": "defective"}]
-            $table->json('items');
+            // Amount being refunded (including GST)
+            $table->decimal('amount', 12, 2);
 
-            // FR-CO-011 / FR-AD-008: Status of the return request
-            $table->enum('status', [
-                'pending',
-                'approved',
-                'partially_approved',
-                'rejected',
-                'received',    // goods received back in warehouse
-                'completed'    // refund and reversal done
-            ])->default('pending');
+            // Payment gateway reference (for reconciliation)
+            $table->string('gateway_reference')->nullable();
 
-            // FR-CO-011: Overall reason for return
-            $table->string('reason')->nullable();
+            // Status of the refund transaction
+            $table->enum('status', ['initiated', 'completed', 'failed'])->default('initiated');
 
-            // FR-AD-008: Admin notes (visible to requester on rejection/part-approval)
-            $table->text('admin_notes')->nullable();
-
-            // FR-CO-011 / FR-AD-008: Timestamps for key milestones
-            $table->timestamp('approved_at')->nullable();
-            $table->timestamp('received_at')->nullable();
+            // Timestamp when refund is completed
             $table->timestamp('completed_at')->nullable();
 
-            // FR-AD-008: Who processed the return (admin)
-            $table->foreignId('admin_id')->nullable()->constrained('users')->onDelete('set null');
+            // Reason if refund failed
+            $table->string('failure_reason')->nullable();
 
             $table->timestamps();
-            $table->softDeletes();
 
             // Performance indexes
             $table->index(['order_id', 'status']);
@@ -55,6 +41,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('returns');
+        Schema::dropIfExists('refunds');
     }
 };
