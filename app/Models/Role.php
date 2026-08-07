@@ -24,6 +24,6 @@ class Role extends Model
 
     public function scopeDistributer($query)
     {
-        return $query->where('slug', 'distributer');
+        return $query->where('slug', 'distributor');
     }
 }

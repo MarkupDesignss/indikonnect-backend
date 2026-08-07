@@ -414,7 +414,7 @@ class CartController extends Controller
      */
     protected function formatCart($cart, $user = null)
     {
-        $isDistributor = $user && $user->account_type === 'distributer';
+        $isDistributor = $user && $user->account_type === 'distributor';
 
         // Calculate dynamic totals
         $items = $cart->items->map(function ($item) use ($isDistributor) {

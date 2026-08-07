@@ -67,14 +67,6 @@ class AuthController extends Controller
                     'string',
                     Password::min(8)->mixedCase()->numbers()->symbols()
                 ],
-
-                // Distributer fields
-                'company_name' => 'required_if:account_type,distributer',
-                'gst_number' => 'nullable|string|max:255',
-                'billing_address' => 'nullable|string|max:255',
-                'city' => 'nullable|string|max:255',
-                'state' => 'nullable|string|max:255',
-                'pin_code' => 'nullable|string|max:255',
             ]);
 
             if ($validator->fails()) {
@@ -125,20 +117,15 @@ class AuthController extends Controller
 
             /*
             --------------------------------
-            STORE DISTRIBUTER DATA
+            STORE DISTRIBUTER DATA (Updated - only user_id and kyc_status)
             --------------------------------
             */
             if ($request->account_type === 'distributer') {
                 BusinessProfile::updateOrCreate(
                     ['user_id' => $user->id],
                     [
-                        'company_name' => $request->company_name,
-                        'gst_number' => $request->gst_number,
-                        'billing_address' => $request->billing_address,
-                        'city' => $request->city,
-                        'state' => $request->state,
-                        'pin_code' => $request->pin_code,
-                        'country' => $request->country,
+                        'user_id' => $user->id,
+                        'kyc_status' => 'pending'
                     ]
                 );
             }
@@ -518,16 +505,9 @@ class AuthController extends Controller
 
             /*
             --------------------------------
-            DOCUMENT FULL URL
+            DOCUMENT FULL URL (Removed as document_path no longer exists)
             --------------------------------
             */
-            if (
-                $user->businessProfile &&
-                $user->businessProfile->document_path
-            ) {
-                $user->businessProfile->document_path =
-                    url('/storage/' . $user->businessProfile->document_path);
-            }
 
             /*
             --------------------------------
@@ -590,6 +570,13 @@ class AuthController extends Controller
                 'country' => 'nullable|string|max:255',
                 'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png',
                 'account_type' => 'nullable|in:user,distributer',
+
+                // KYC fields for distributer
+                'encrypted_aadhaar' => 'nullable|string',
+                'encrypted_pan' => 'nullable|string',
+                'encrypted_bank_account' => 'nullable|string',
+                'bank_ifsc' => 'nullable|string|max:20',
+                'bank_holder_name' => 'nullable|string|max:255',
             ];
 
             /*
@@ -610,20 +597,6 @@ class AuthController extends Controller
                 if ($accountType === 'user') {
                     $rules['password'][] = 'confirmed';
                 }
-            }
-
-            /*
-            --------------------------------
-            DISTRIBUTER VALIDATION
-            --------------------------------
-            */
-            if ($accountType === 'distributer') {
-                $rules = array_merge($rules, [
-                    'company_name' => 'nullable|string|max:255',
-                    'gst_number' => 'nullable|string|max:100',
-                    'billing_address' => 'nullable|string',
-                    'document' => 'nullable|file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10240'
-                ]);
             }
 
             $validator = Validator::make($request->all(), $rules);
@@ -695,19 +668,29 @@ class AuthController extends Controller
 
             /*
             --------------------------------
-            BUSINESS PROFILE (For distributer)
+            BUSINESS PROFILE (For distributer) - Updated with new fields
             --------------------------------
             */
             if ($accountType === 'distributer') {
-                $businessData = $request->only(
-                    'company_name',
-                    'gst_number',
-                    'billing_address'
-                );
+                $businessData = [
+                    'user_id' => $user->id,
+                ];
 
-                if ($request->hasFile('document')) {
-                    $businessData['document_path'] = $request->file('document')
-                        ->store('business_documents', 'public');
+                // Only update KYC fields if provided
+                if ($request->has('encrypted_aadhaar')) {
+                    $businessData['encrypted_aadhaar'] = $request->encrypted_aadhaar;
+                }
+                if ($request->has('encrypted_pan')) {
+                    $businessData['encrypted_pan'] = $request->encrypted_pan;
+                }
+                if ($request->has('encrypted_bank_account')) {
+                    $businessData['encrypted_bank_account'] = $request->encrypted_bank_account;
+                }
+                if ($request->has('bank_ifsc')) {
+                    $businessData['bank_ifsc'] = $request->bank_ifsc;
+                }
+                if ($request->has('bank_holder_name')) {
+                    $businessData['bank_holder_name'] = $request->bank_holder_name;
                 }
 
                 $businessProfile = BusinessProfile::updateOrCreate(

@@ -74,7 +74,7 @@ class User extends Authenticatable
 
     public function scopeDistributer($query)
     {
-        return $query->where('account_type', 'distributer');
+        return $query->where('account_type', 'distributor');
     }
 
     public function scopeRegistered($query)
@@ -109,16 +109,16 @@ class User extends Authenticatable
 
     public function isDistributer()
     {
-        return $this->account_type === 'distributer';
+        return $this->account_type === 'distributor';
     }
 
     public function isBusinessApproved()
     {
-        return $this->business_status === 'approved';
+        return $this->distributor_status  === 'approved';
     }
 
     public function isBusinessPending()
     {
-        return $this->business_status === 'pending';
+        return $this->distributor_status  === 'pending';
     }
 }
