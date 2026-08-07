@@ -48,10 +48,10 @@ class CartController extends Controller
                 ->where('user_id', $user->id)
                 ->first();
             if (!$cart) {
-                // $cart = Cart::create([
-                //     'user_id' => $user->id,
-                //     'session_id' => null,
-                // ]);
+                $cart = Cart::create([
+                    'user_id' => $user->id,
+                    'session_id' => null,
+                ]);
             }
 
             return $cart;

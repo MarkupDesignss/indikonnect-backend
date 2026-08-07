@@ -178,7 +178,7 @@ Route::prefix('cart')->group(function () {
     Route::get('/', [CartController::class, 'index']);
     Route::get('/count', [CartController::class, 'count']);
     Route::post('/add', [CartController::class, 'add']);
-    Route::put('/update/{itemId}', [CartController::class, 'update']);
+    Route::post('/update/{itemId}', [CartController::class, 'update']);
     Route::delete('/remove/{itemId}', [CartController::class, 'remove']);
     Route::delete('/clear', [CartController::class, 'clear']);
 
