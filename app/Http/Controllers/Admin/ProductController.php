@@ -414,7 +414,7 @@ class ProductController extends Controller
     //         'category_id' => $product->category_id,
     //         'category' => $product->category ? [
     //             'id' => $product->category->id,
-    //             'name' => $product->category->name,
+    //             'name' => $product->category->title,
     //             'slug' => $product->category->slug,
     //             'description' => $product->category->description,
     //         ] : null,
@@ -460,7 +460,7 @@ class ProductController extends Controller
             'category_id' => $product->category_id,
             'category' => $product->category ? [
                 'id' => $product->category->id,
-                'name' => $product->category->name,
+                'name' => $product->category->title,
                 'slug' => $product->category->slug,
                 'description' => $product->category->description,
             ] : null,
@@ -855,7 +855,7 @@ class ProductController extends Controller
     //             'category_id' => $product->category_id,
     //             'category' => $product->category ? [
     //                 'id' => $product->category->id,
-    //                 'name' => $product->category->name,
+    //                 'name' => $product->category->title,
     //                 'slug' => $product->category->slug,
     //             ] : null,
     //             'tax_category_id' => $product->tax_category_id,
@@ -902,7 +902,7 @@ class ProductController extends Controller
                 'category_id' => $product->category_id,
                 'category' => $product->category ? [
                     'id' => $product->category->id,
-                    'name' => $product->category->name,
+                    'name' => $product->category->title,
                     'slug' => $product->category->slug,
                 ] : null,
                 'tax_category_id' => $product->tax_category_id,

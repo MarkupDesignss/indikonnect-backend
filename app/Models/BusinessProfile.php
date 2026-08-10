@@ -8,18 +8,7 @@ class BusinessProfile extends Model
 {
     protected $table = 'distributor_profiles';
 
-    protected $fillable = [
-        'id',
-        'user_id',
-        'encrypted_aadhaar',
-        'encrypted_pan',
-        'encrypted_bank_account',
-        'bank_ifsc',
-        'bank_holder_name',
-        'kyc_status',
-        'created_at',
-        'updated_at'
-    ];
+    protected $guarded = [];
 
     protected $casts = [
         'kyc_status' => 'string',
