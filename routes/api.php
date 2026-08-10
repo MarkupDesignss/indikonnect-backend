@@ -15,7 +15,7 @@ use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\API\SubscriberController;
 use App\Http\Controllers\API\WishlistController;
-use App\Http\Controllers\Webhook\PaymentWebhookController;
+use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
@@ -211,4 +211,4 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/order/{id}', [OrderController::class, 'show']);
 });
 
-Route::post('/webhook/payment', [PaymentWebhookController::class, 'handle']);
+Route::post('/webhook/razorpay', [RazorpayWebhookController::class, 'handle']);
