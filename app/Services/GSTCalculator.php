@@ -4,16 +4,12 @@ namespace App\Services;
 
 class GSTCalculator
 {
-    /**
-     * Calculate GST for a given amount and rate
-     */
     public function calculate(float $amount, float $rate, string $deliveryState, string $supplierState = null): array
     {
         $supplierState = $supplierState ?? config('app.supplier_state', 'Maharashtra');
         $totalTax = ($amount * $rate) / 100;
 
         if (strtolower($deliveryState) === strtolower($supplierState)) {
-            // Intra-state: CGST + SGST (half each)
             return [
                 'cgst' => round($totalTax / 2, 2),
                 'sgst' => round($totalTax / 2, 2),
@@ -21,7 +17,6 @@ class GSTCalculator
                 'total' => round($totalTax, 2),
             ];
         } else {
-            // Inter-state: IGST
             return [
                 'cgst' => 0,
                 'sgst' => 0,
@@ -31,9 +26,6 @@ class GSTCalculator
         }
     }
 
-    /**
-     * Calculate total GST for all items
-     */
     public function calculateTotal(array $items, string $deliveryState): array
     {
         $totalCgst = 0;
