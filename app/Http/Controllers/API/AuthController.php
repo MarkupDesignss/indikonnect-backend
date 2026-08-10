@@ -646,8 +646,8 @@ class AuthController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'phone' => 'required|min:10|max:15',
-                'sponsor_id' => 'nullable|string|max:255',
-                'placement_leg' => 'required|in:left,right,auto',
+                'sponsor_id' => 'nullable|max:255',
+                'placement_leg' => 'required|in:left,right',
             ]);
 
             if ($validator->fails()) {
@@ -692,12 +692,89 @@ class AuthController extends Controller
     /**
      * DISTRIBUTOR: Step 3 - Send OTP for Email & Mobile Verification
      */
+    // public function distributorStep3SendVerificationOtp(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone' => 'required|min:10|max:15',
+    //             'type' => 'required|in:email,mobile',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $user = User::where('phone', $request->phone)
+    //             ->orWhere('email', $request->phone)
+    //             ->first();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'User not found.'
+    //             ], 422);
+    //         }
+
+    //         if ($request->type === 'email') {
+    //             if (!$user->email) {
+    //                 return response()->json([
+    //                     'status' => false,
+    //                     'message' => 'Email not found. Please complete step 1 first.'
+    //                 ], 422);
+    //             }
+
+    //             $emailOtp = rand(100000, 999999);
+    //             $user->update([
+    //                 'email_otp' => $emailOtp,
+    //                 'email_otp_expires_at' => now()->addMinutes(10)
+    //             ]);
+
+    //             // Send email OTP
+    //             // Mail::to($user->email)->send(new EmailVerificationMail($emailOtp));
+
+    //             return response()->json([
+    //                 'status' => true,
+    //                 'message' => 'Email OTP sent successfully',
+    //                 'email' => $user->email,
+    //                 'otp' => $emailOtp // Remove in production
+    //             ]);
+    //         } else {
+    //             // Mobile OTP (reuse existing phone verification)
+    //             $otp = rand(100000, 999999);
+    //             $user->update([
+    //                 'otp' => $otp,
+    //                 'otp_expires_at' => now()->addMinutes(10),
+    //                 'phone_verified' => 0
+    //             ]);
+
+    //             // Send mobile OTP
+    //             // $this->twilioService->sendOtp($user->phone, $otp);
+
+    //             return response()->json([
+    //                 'status' => true,
+    //                 'message' => 'Mobile OTP sent successfully',
+    //                 'phone' => $user->phone,
+    //                 'otp' => $otp // Remove in production
+    //             ]);
+    //         }
+    //     } catch (\Exception $e) {
+    //         Log::error('Distributor step 3 send OTP error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function distributorStep3SendVerificationOtp(Request $request)
     {
         try {
             $validator = Validator::make($request->all(), [
-                'phone' => 'required|min:10|max:15',
                 'type' => 'required|in:email,mobile',
+                'email' => 'required_if:type,email|nullable|email',
+                'phone' => 'required_if:type,mobile|nullable|min:10|max:15',
             ]);
 
             if ($validator->fails()) {
@@ -707,33 +784,32 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            $user = User::where('phone', $request->phone)
-                ->orWhere('email', $request->phone)
-                ->first();
-
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'User not found.'
-                ], 422);
-            }
-
+            /*
+        |--------------------------------------------------------------------------
+        | EMAIL OTP
+        |--------------------------------------------------------------------------
+        */
             if ($request->type === 'email') {
-                if (!$user->email) {
+
+                $user = User::where('email', $request->email)->first();
+
+                if (!$user) {
                     return response()->json([
                         'status' => false,
-                        'message' => 'Email not found. Please complete step 1 first.'
+                        'message' => 'User not found with this email.'
                     ], 422);
                 }
 
                 $emailOtp = rand(100000, 999999);
+
                 $user->update([
                     'email_otp' => $emailOtp,
-                    'email_otp_expires_at' => now()->addMinutes(10)
+                    'email_otp_expires_at' => now()->addMinutes(10),
                 ]);
 
                 // Send email OTP
-                // Mail::to($user->email)->send(new EmailVerificationMail($emailOtp));
+                // Mail::to($user->email)
+                //     ->send(new EmailVerificationMail($emailOtp));
 
                 return response()->json([
                     'status' => true,
@@ -741,27 +817,43 @@ class AuthController extends Controller
                     'email' => $user->email,
                     'otp' => $emailOtp // Remove in production
                 ]);
-            } else {
-                // Mobile OTP (reuse existing phone verification)
-                $otp = rand(100000, 999999);
-                $user->update([
-                    'otp' => $otp,
-                    'otp_expires_at' => now()->addMinutes(10),
-                    'phone_verified' => 0
-                ]);
-
-                // Send mobile OTP
-                // $this->twilioService->sendOtp($user->phone, $otp);
-
-                return response()->json([
-                    'status' => true,
-                    'message' => 'Mobile OTP sent successfully',
-                    'phone' => $user->phone,
-                    'otp' => $otp // Remove in production
-                ]);
             }
+
+            /*
+        |--------------------------------------------------------------------------
+        | MOBILE OTP
+        |--------------------------------------------------------------------------
+        */
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found with this phone number.'
+                ], 422);
+            }
+
+            $otp = rand(100000, 999999);
+
+            $user->update([
+                'otp' => $otp,
+                'otp_expires_at' => now()->addMinutes(10),
+                'phone_verified' => 0,
+            ]);
+
+            // Send mobile OTP
+            // $this->twilioService->sendOtp($user->phone, $otp);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Mobile OTP sent successfully',
+                'phone' => $user->phone,
+                'otp' => $otp // Remove in production
+            ]);
         } catch (\Exception $e) {
+
             Log::error('Distributor step 3 send OTP error: ' . $e->getMessage());
+
             return response()->json([
                 'status' => false,
                 'message' => $e->getMessage()
