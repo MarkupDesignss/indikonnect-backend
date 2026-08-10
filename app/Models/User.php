@@ -126,4 +126,26 @@ class User extends Authenticatable
     {
         return $this->hasMany(Order::class);
     }
+
+    public function addresses()
+    {
+        return $this->hasMany(Address::class);
+    }
+
+    public function cart()
+    {
+        return $this->hasOne(Cart::class);
+    }
+
+    public function distributorProfile()
+    {
+        return $this->hasOne(DistributorProfile::class);
+    }
+
+    public function coinRedemptions()
+    {
+        return $this->hasMany(CoinRedemption::class);
+    }
+
+
 }

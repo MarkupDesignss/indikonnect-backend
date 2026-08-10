@@ -119,4 +119,14 @@ class Product extends Model
         // We'll set it manually in the controller
         return false;
     }
+
+    public function orderLines()
+    {
+        return $this->hasMany(OrderLine::class);
+    }
+
+    public function stockMovements()
+    {
+        return $this->hasMany(StockMovement::class);
+    }
 }

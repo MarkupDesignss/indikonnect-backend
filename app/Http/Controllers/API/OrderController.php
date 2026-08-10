@@ -18,13 +18,22 @@ class OrderController extends Controller
 
     /**
      * FR-CO-008: Get order history
+     * GET /api/order/history
      */
     public function history(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'status' => 'nullable|in:pending,confirmed,processing,dispatched,delivered,cancelled,returned',
+            'from_date' => 'nullable|date',
+            'to_date' => 'nullable|date|after_or_equal:from_date',
+            'order_type' => 'nullable|in:retail,distributor',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
+
         try {
             $history = $this->checkoutService->getOrderHistory(
                 auth()->id(),
-                $request->only(['status', 'from_date', 'to_date', 'order_type', 'per_page'])
+                $validated
             );
 
             return response()->json([
@@ -41,9 +50,12 @@ class OrderController extends Controller
 
     /**
      * FR-CO-008: Get order detail
+     * GET /api/order/{orderReference}
      */
     public function show(string $orderReference): JsonResponse
     {
+        // No additional validation needed; the service will handle not found
+
         try {
             $order = $this->checkoutService->getOrderDetail(
                 auth()->id(),
@@ -63,7 +75,8 @@ class OrderController extends Controller
     }
 
     /**
-     * FR-CO-010: Cancel order
+     * FR-CO-010: Cancel order (before dispatch)
+     * POST /api/order/{orderReference}/cancel
      */
     public function cancel(string $orderReference): JsonResponse
     {

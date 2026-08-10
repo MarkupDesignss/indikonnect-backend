@@ -22,6 +22,7 @@ class PaymentWebhookController extends Controller
 
     /**
      * FR-CO-006: Handle payment webhook
+     * POST /api/webhook/payment
      */
     public function handle(Request $request): JsonResponse
     {
@@ -48,7 +49,6 @@ class PaymentWebhookController extends Controller
                 return response()->json(['error' => 'Order reference missing'], 400);
             }
 
-            // Handle different events
             switch ($event) {
                 case 'payment.captured':
                     $result = $this->checkoutService->confirmOrder($orderReference, [
