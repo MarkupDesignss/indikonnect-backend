@@ -5,6 +5,8 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Wishlist;
 use App\Models\Product;
+use App\Models\Cart;
+use App\Models\CartItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -313,5 +315,164 @@ class WishlistController extends Controller
         if ($product->stock_quantity <= 0) return 'out_of_stock';
         if ($product->stock_quantity <= $product->low_stock_threshold) return 'low_stock';
         return 'active';
+    }
+
+    /**
+     * Move a product from wishlist to cart – ONLY this endpoint is needed for the move.
+     * It removes from wishlist and adds to cart in one transaction.
+     */
+    public function moveToCart(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'product_id' => ['required', 'exists:products,id'],
+            'quantity'   => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $user = Auth::user();
+        $productId = $request->product_id;
+        $quantity = $request->input('quantity', 1);
+
+        $product = Product::find($productId);
+        if (!$product) {
+            return response()->json(['message' => 'Product not found'], 404);
+        }
+
+        // Optional stock & publication check
+        if (!$product->is_published || $product->stock_quantity < $quantity) {
+            return response()->json([
+                'message' => 'Product is not available in the requested quantity'
+            ], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            // 1. Remove from wishlist (if exists)
+            $wishlistItem = Wishlist::where('user_id', $user->id)
+                ->where('product_id', $productId)
+                ->first();
+            $wasInWishlist = false;
+            if ($wishlistItem) {
+                $wishlistItem->delete();
+                $wasInWishlist = true;
+            }
+
+            // 2. Add to cart
+            $cart = $this->getCart($request);
+            $cartItem = $this->addItemToCart($cart, $productId, $quantity);
+
+            DB::commit();
+
+            // Optional: reload cart with items if you need details, but you can keep it minimal
+            $cart->load('items.product.images');
+
+            // Simple response – only what's necessary
+            return response()->json([
+                'message' => $wasInWishlist
+                    ? 'Product moved to cart successfully'
+                    : 'Product added to cart (was not in wishlist)',
+                'cart_item_id' => $cartItem->id,
+                'product_id'   => $productId,
+                'quantity'     => $cartItem->quantity,
+                'removed_from_wishlist' => $wasInWishlist,
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to move product to cart',
+                'error'   => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // ============================================================
+    //  Helper methods (copied from CartController – essential)
+    // ============================================================
+
+    /**
+     * Get or create cart for the current authenticated user.
+     */
+    protected function getCart(Request $request): Cart
+    {
+        $user = Auth::user();
+        $cart = Cart::with('items.product.images')
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$cart) {
+            $cart = Cart::create([
+                'user_id' => $user->id,
+                'session_id' => null,
+            ]);
+        }
+
+        return $cart;
+    }
+
+    /**
+     * Add a product to the cart (creates or updates quantity).
+     */
+    protected function addItemToCart(Cart $cart, int $productId, int $quantity): CartItem
+    {
+        $product = Product::find($productId);
+        $currentPrice = $this->getCurrentProductPrice($product);
+
+        $cartItem = CartItem::where('cart_id', $cart->id)
+            ->where('product_id', $productId)
+            ->first();
+
+        if ($cartItem) {
+            $cartItem->quantity += $quantity;
+            $cartItem->unit_price = $currentPrice; // ✅ store current price
+            $cartItem->save();
+            return $cartItem;
+        }
+
+        return CartItem::create([
+            'cart_id'    => $cart->id,
+            'product_id' => $productId,
+            'quantity'   => $quantity,
+            'unit_price' => $currentPrice, // ✅ store current price
+        ]);
+    }
+
+    /**
+     * Get current price based on user type (distributor vs retail).
+     */
+    protected function getCurrentProductPrice(Product $product, $user = null): float
+    {
+        if (!$user) {
+            $user = Auth::user();
+        }
+        if ($user && $user->account_type === 'distributor') {
+            return $product->distributor_price ?? $product->retail_price;
+        }
+        return $product->retail_price;
+    }
+
+    /**
+     * Get cart summary (optional – can be removed if not needed).
+     */
+    protected function getCartSummary(Cart $cart, $user = null): array
+    {
+        $total = 0;
+        $totalItems = 0;
+        foreach ($cart->items as $item) {
+            $product = $item->product;
+            if ($product) {
+                $price = $this->getCurrentProductPrice($product, $user);
+                $total += $price * $item->quantity;
+                $totalItems += $item->quantity;
+            }
+        }
+        return [
+            'total_items' => $totalItems,
+            'total'       => $total,
+            'total_formatted' => number_format($total, 2),
+        ];
     }
 }

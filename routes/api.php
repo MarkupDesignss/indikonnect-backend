@@ -16,7 +16,7 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\API\ReviewController;
 use App\Http\Controllers\API\SubscriberController;
 use App\Http\Controllers\API\WishlistController;
-use App\Http\Controllers\Webhook\PaymentWebhookController;
+use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
@@ -190,7 +190,7 @@ Route::prefix('wishlist')->middleware('auth:sanctum')->group(function () {
     Route::post('/add', [WishlistController::class, 'add']);
     Route::post('/remove', [WishlistController::class, 'remove']);
     Route::post('/toggle', [WishlistController::class, 'toggle']);
-    // Route::get('/check/{productId}', [WishlistController::class, 'check']);
+    Route::post('/move-to-cart', [WishlistController::class, 'moveToCart']);
 });
 
 Route::prefix('cart')->group(function () {
@@ -242,3 +242,4 @@ Route::middleware('auth:sanctum')->group(function () {
     // Get user's all reviews
     Route::get('/user/reviews', [ReviewController::class, 'userIndex']);
 });
+Route::post('/webhook/razorpay', [RazorpayWebhookController::class, 'handle']);
