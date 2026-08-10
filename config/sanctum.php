@@ -51,8 +51,7 @@ return [
     */
 
     // 'expiration' => null,
-    'expiration' => env('SANCTUM_EXPIRATION', null),
-
+    'expiration' => env('SANCTUM_EXPIRATION', 60),
     /*
     |--------------------------------------------------------------------------
     | Token Prefix

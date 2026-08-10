@@ -28,6 +28,8 @@ Route::prefix('admin')->group(function () {
     Route::post('/send-reset-otp', [AuthController::class, 'sendResetOtp']);
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+    Route::get('/registered-users', [AuthController::class, 'getRegisteredUsers']);
+    Route::get('/registered-users/{id}', [AuthController::class, 'getUserDetails']);
     // Protected Routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
