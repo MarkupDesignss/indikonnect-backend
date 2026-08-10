@@ -411,4 +411,42 @@ class AuthController extends Controller
             ], 500);
         }
     }
+
+    public function toggleUserStatus($id)
+    {
+        try {
+            $user = User::find($id);
+
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found.',
+                    'errors' => [
+                        'user_id' => ['User not found.']
+                    ]
+                ], 404);
+            }
+            // Toggle status
+            $user->is_active = !$user->is_active;
+            $user->save();
+
+            return response()->json([
+                'success' => true,
+                'message' => $user->is_active
+                    ? 'User activated successfully.'
+                    : 'User deactivated successfully.',
+                'data' => [
+                    'user_id' => $user->id,
+                    'is_active' => (bool) $user->is_active,
+                    'status' => $user->is_active ? 'active' : 'inactive'
+                ]
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update user status.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }
