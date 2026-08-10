@@ -9,7 +9,7 @@ use Illuminate\Http\JsonResponse;
 
 class CheckoutController extends Controller
 {
-    protected $checkoutService;
+    protected CheckoutService $checkoutService;
 
     public function __construct(CheckoutService $checkoutService)
     {
@@ -17,12 +17,10 @@ class CheckoutController extends Controller
     }
 
     /**
-     * FR-CO-003: Get order summary with GST calculation
-     * POST /api/checkout/summary
+     * FR-CO-003: Get order summary with itemized GST
      */
     public function summary(Request $request): JsonResponse
     {
-        // Inline validation
         $validated = $request->validate([
             'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
         ]);
@@ -46,16 +44,14 @@ class CheckoutController extends Controller
     }
 
     /**
-     * FR-CO-004: Apply coin redemption at checkout
-     * POST /api/checkout/apply-coins
+     * FR-CO-004: Apply coin redemption (distributor only)
      */
     public function applyCoins(Request $request): JsonResponse
     {
-        // Only distributors can redeem coins
         if (!auth()->user()->isDistributor()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Coin redemption is only available for distributors.',
+                'message' => 'Only distributors can redeem coins.',
             ], 403);
         }
 
@@ -82,15 +78,14 @@ class CheckoutController extends Controller
     }
 
     /**
-     * FR-CO-005: Place order and initiate payment
-     * POST /api/checkout/place-order
+     * FR-CO-005: Place order and initiate Razorpay payment
      */
     public function placeOrder(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
             'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
-            'payment_gateway' => 'nullable|string|in:razorpay,stripe,payu',
+            'payment_gateway' => 'nullable|in:razorpay',
         ]);
 
         try {
