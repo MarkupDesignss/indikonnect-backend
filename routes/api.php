@@ -173,7 +173,7 @@ Route::prefix('wishlist')->middleware('auth:sanctum')->group(function () {
     Route::post('/add', [WishlistController::class, 'add']);
     Route::post('/remove', [WishlistController::class, 'remove']);
     Route::post('/toggle', [WishlistController::class, 'toggle']);
-    // Route::get('/check/{productId}', [WishlistController::class, 'check']);
+    Route::post('/move-to-cart', [WishlistController::class, 'moveToCart']);
 });
 
 Route::prefix('cart')->group(function () {
