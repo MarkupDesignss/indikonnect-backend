@@ -154,7 +154,7 @@ Route::prefix('distributor')->group(function () {
     Route::post('step6-bank', [APIAuthController::class, 'distributorStep6Bank']);
     Route::post('step7-location', [APIAuthController::class, 'distributorStep7Location']);
     Route::post('step8-submit', [APIAuthController::class, 'distributorStep8Submit']);
-    Route::get('progress', [APIAuthController::class, 'getDistributorProgress']);
+    Route::post('/login', [APIAuthController::class, 'distributorLogin']);
 });
 
 Route::group(['prefix' => 'user'], function () {
