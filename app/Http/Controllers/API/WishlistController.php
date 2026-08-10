@@ -21,16 +21,26 @@ class WishlistController extends Controller
     {
         $user = Auth::user();
 
-        $wishlist = Wishlist::with(['product' => function ($query) {
-            $query->with(['category', 'taxCategory', 'images']);
-        }])
+        $wishlist = Wishlist::with([
+            'product' => function ($query) {
+                $query->with([
+                    'category',
+                    'taxCategory',
+                    'images'
+                ]);
+            }
+        ])
             ->where('user_id', $user->id)
             ->orderBy('created_at', 'desc')
             ->get();
 
-        // Format response with product details
+        // Debug
+        // dd($wishlist->pluck('product.category'));
+
         $formattedWishlist = $wishlist->map(function ($item) {
+
             $product = $item->product;
+
             if ($product) {
                 return [
                     'id' => $item->id,
@@ -39,6 +49,7 @@ class WishlistController extends Controller
                     'added_at' => $item->created_at?->toISOString(),
                 ];
             }
+
             return null;
         })->filter()->values();
 
@@ -47,7 +58,6 @@ class WishlistController extends Controller
             'total' => $formattedWishlist->count()
         ]);
     }
-
     /**
      * Add product to wishlist
      */
@@ -269,7 +279,7 @@ class WishlistController extends Controller
             'category_id' => $product->category_id,
             'category' => $product->category ? [
                 'id' => $product->category->id,
-                'name' => $product->category->name,
+                'name' => $product->category->title,
                 'slug' => $product->category->slug,
             ] : null,
             'tax_category_id' => $product->tax_category_id,

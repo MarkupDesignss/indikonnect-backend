@@ -482,6 +482,97 @@ class AuthController extends Controller
     /**
      * Login with phone - Auto detect account type
      */
+    // public function login(Request $request)
+    // {
+    //     try {
+    //         $request->validate([
+    //             'phone' => 'required|min:10|max:15',
+    //         ]);
+
+    //         $user = User::where('phone', $request->phone)->first();
+
+    //         if (!$user) {
+    //             $rejectedUser = RejectedUser::where('phone', $request->phone)->first();
+
+    //             if ($rejectedUser) {
+    //                 $daysPassed = Carbon::parse($rejectedUser->rejected_at)
+    //                     ->diffInDays(now());
+
+    //                 if ($daysPassed < 30) {
+    //                     $remaining = 30 - $daysPassed;
+    //                     return response()->json([
+    //                         'status'  => false,
+    //                         'message' => "Your business request was rejected. Please try again after {$remaining} days"
+    //                     ], 422);
+    //                 }
+
+    //                 return response()->json([
+    //                     'status'  => false,
+    //                     'message' => 'Your business request was rejected more than 30 days ago. Please contact admin.'
+    //                 ], 422);
+    //             }
+
+    //             return response()->json([
+    //                 'status'  => false,
+    //                 'message' => 'Phone number not registered'
+    //             ], 422);
+    //         }
+
+    //         if ($user->is_registered == 0) {
+    //             return response()->json([
+    //                 'status'  => false,
+    //                 'message' => 'Please complete your registration first'
+    //             ], 422);
+    //         }
+
+    //         if ($user->is_active == 0) {
+    //             return response()->json([
+    //                 'status'  => false,
+    //                 'message' => 'Your account is blocked by admin. Please contact admin to continue'
+    //             ], 422);
+    //         }
+
+    //         // Check business approval for distributors
+    //         if ($user->account_type === 'distributor') {
+    //             $businessProfile = BusinessProfile::where('user_id', $user->id)->first();
+    //             if ($user && $user->distributor_status  != 'active') {
+    //                 return response()->json([
+    //                     'status'  => false,
+    //                     'message' => 'Your account is waiting for admin approval'
+    //                 ], 422);
+    //             }
+
+    //             if ($businessProfile && $businessProfile->kyc_status === 'rejected') {
+    //                 return response()->json([
+    //                     'status'  => false,
+    //                     'message' => 'Your KYC has been rejected. Please contact admin.'
+    //                 ], 422);
+    //             }
+    //         }
+
+    //         $otp = rand(100000, 999999);
+
+    //         $user->update([
+    //             'otp' => $otp,
+    //             'otp_expires_at' => now()->addMinutes(10)
+    //         ]);
+
+    //         // $this->twilioService->sendOtp($request->phone, $otp);
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'OTP sent successfully to your phone',
+    //             'phone' => $request->phone,
+    //             'otp' => $otp,
+    //             'account_type' => $user->account_type,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'status'  => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function login(Request $request)
     {
         try {
@@ -525,10 +616,11 @@ class AuthController extends Controller
                 ], 422);
             }
 
+            // Check if user is inactive - Updated message
             if ($user->is_active == 0) {
                 return response()->json([
                     'status'  => false,
-                    'message' => 'Your account is blocked by admin. Please contact admin to continue'
+                    'message' => 'You are blocked by Admin, please contact him'
                 ], 422);
             }
 
@@ -1347,6 +1439,4 @@ class AuthController extends Controller
             ], 500);
         }
     }
-
-
 }

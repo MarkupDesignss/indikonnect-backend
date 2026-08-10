@@ -32,6 +32,7 @@ Route::prefix('admin')->group(function () {
     Route::get('/registered-users/{id}', [AuthController::class, 'getUserDetails']);
     // Protected Routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+        Route::get('/update-user-status/{id}', [AuthController::class, 'toggleUserStatus']);
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('/update', [AuthController::class, 'update']);
