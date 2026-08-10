@@ -43,6 +43,10 @@ class Product extends Model
     {
         return $this->belongsTo(Category::class);
     }
+    public function review()
+    {
+        return $this->belongsTo(ProductReview::class);
+    }
 
     public function taxCategory()
     {
