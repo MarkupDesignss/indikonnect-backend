@@ -3,8 +3,6 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use App\Mail\EmailVerificationMail;
-use App\Mail\MobileVerificationCodeMail;
 use App\Models\User;
 use App\Models\Role;
 use App\Models\RoleUser;
@@ -16,15 +14,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Rules\Password;
+use Illuminate\Support\Facades\Password;
 use App\Services\TwilioService;
 
 class AuthController extends Controller
@@ -51,21 +48,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Get role name by account type
-     */
-    private function getRoleNameByAccountType($accountType)
-    {
-        $role = Role::where('slug', $accountType)->first();
-
-        if (!$role) {
-            $role = Role::where('name', $accountType)->first();
-        }
-
-        return $role ? $role->name : ucfirst($accountType);
-    }
-
-    /**
-     * Assign role to user and update users table
+     * Assign role to user
      */
     private function assignRoleToUser($user)
     {
@@ -125,7 +108,89 @@ class AuthController extends Controller
     }
 
     /**
-     * STEP 1: Send OTP to phone - Only phone number required
+     * Verify temporary token
+     */
+    private function verifyTempToken($user, $token, $phone)
+    {
+        $dbToken = $user->temp_verification_token;
+        $cachedToken = \Illuminate\Support\Facades\Cache::get('registration_token_' . $phone);
+
+        Log::info('Token verification', [
+            'user_id' => $user->id,
+            'phone' => $phone,
+            'received_token' => $token,
+            'db_token' => $dbToken,
+            'cached_token' => $cachedToken
+        ]);
+
+        if ($dbToken && $dbToken === $token) {
+            return true;
+        } elseif ($cachedToken && $cachedToken === $token) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Generate token for existing user
+     */
+    private function generateTokenForExistingUser($user)
+    {
+        if ($user->is_active == 0) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Your account is blocked by admin. Please contact support.'
+            ], 422);
+        }
+
+        // For distributors, check if active
+        if ($user->account_type === 'distributor' && $user->distributor_status !== 'active') {
+            return response()->json([
+                'status' => false,
+                'message' => 'Your distributor account is not active yet. Please wait for admin approval.'
+            ], 422);
+        }
+
+        $token = $user->createToken('auth_token')->plainTextToken;
+        $refreshToken = Str::random(100);
+
+        RefreshToken::create([
+            'user_id' => $user->id,
+            'token' => hash('sha256', $refreshToken),
+            'expires_at' => now()->addDays(7),
+            'last_used_at' => now()
+        ]);
+
+        $role = $this->getUserRole($user);
+        $distributorProfile = null;
+        if ($user->account_type === 'distributor') {
+            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Login successful',
+            'token' => $token,
+            'expires_in' => 3600,
+            'refresh_token' => $refreshToken,
+            'user' => $user,
+            'role' => $role ? [
+                'id' => $role->id,
+                'name' => $role->name,
+                'slug' => $role->slug
+            ] : null,
+            'distributor_profile' => $distributorProfile
+        ]);
+    }
+
+    // ============ COMMON APIs (Both Customer & Distributor) ============
+
+    /**
+     * STEP 1: Send OTP to phone
+     */
+    /**
+     * STEP 1: Send OTP
      */
     public function sendOtp(Request $request)
     {
@@ -141,58 +206,55 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Check if user already registered
-            $existingUser = User::where('phone', $request->phone)->first();
+            $user = User::where('phone', $request->phone)->first();
 
-            if ($existingUser && $existingUser->is_registered == 1) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Phone number is already registered. Please login.'
-                ], 422);
-            }
-
-            // Generate OTP (6 digits)
+            // Generate 6 digit OTP
             $otp = rand(100000, 999999);
 
-            // Create or update user with minimal data
-            $user = User::updateOrCreate(
-                ['phone' => $request->phone],
-                [
+            if ($user) {
+                // Existing user
+                $user->update([
+                    'otp' => $otp,
+                    'otp_expires_at' => now()->addMinutes(10),
+                ]);
+            } else {
+                // New user
+                $user = User::create([
+                    'phone' => $request->phone,
                     'otp' => $otp,
                     'otp_expires_at' => now()->addMinutes(10),
                     'is_registered' => 0,
-                    'account_type' => 'customer' // Default role
-                ]
-            );
-
-            // Send OTP via Twilio
-            // try {
-            //     $this->twilioService->sendOtp($request->phone, $otp);
-            // } catch (\Exception $e) {
-            //     Log::error('Twilio SMS failed: ' . $e->getMessage());
-            //     return response()->json([
-            //         'status' => false,
-            //         'message' => $e->getMessage()
-            //     ], 500);
-            // }
+                    'account_type' => 'customer',
+                ]);
+            }
 
             return response()->json([
                 'status' => true,
-                'message' => 'OTP sent successfully to your phone',
+                'message' => 'OTP sent successfully',
                 'phone' => $request->phone,
-                'otp' => $otp // Remove in production
+
+                // Remove this in production
+                'otp' => $otp,
             ]);
         } catch (\Exception $e) {
+
             Log::error('Send OTP error: ' . $e->getMessage());
+
             return response()->json([
                 'status' => false,
-                'message' => $e->getMessage()
+                'message' => 'Something went wrong'
             ], 500);
         }
     }
 
     /**
-     * STEP 2: Verify OTP only - Just verify the OTP without saving any other data
+     * STEP 2: Verify OTP
+     */
+    /**
+     * STEP 2: Verify OTP (Handles both new and existing users)
+     */
+    /**
+     * STEP 2: Verify OTP
      */
     public function verifyOtp(Request $request)
     {
@@ -218,14 +280,7 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            if ($user->is_registered == 1) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'User is already registered. Please login.'
-                ], 422);
-            }
-
-            // Verify OTP
+            // Check OTP
             if ($user->otp != $request->otp) {
                 return response()->json([
                     'status' => false,
@@ -233,56 +288,86 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            if (now()->gt($user->otp_expires_at)) {
+            // Check OTP expiry
+            if (!$user->otp_expires_at || now()->gt($user->otp_expires_at)) {
                 return response()->json([
                     'status' => false,
                     'message' => 'OTP has expired. Please request a new OTP.'
                 ], 422);
             }
 
-            // Generate temporary token
-            $tempToken = Str::random(60);
-
-            // Store temp token in database
+            // Clear OTP after successful verification
             $user->update([
-                'temp_verification_token' => $tempToken,
-                'otp_verified_at' => now()
+                'otp' => null,
+                'otp_expires_at' => null,
+                'phone_verified' => 1,
             ]);
 
-            // Also store in cache for redundancy
-            \Illuminate\Support\Facades\Cache::put(
-                'registration_token_' . $request->phone,
-                $tempToken,
-                now()->addMinutes(10)
-            );
+            /*
+        |--------------------------------------------------------------------------
+        | EXISTING REGISTERED CUSTOMER
+        |--------------------------------------------------------------------------
+        */
+            if (
+                $user->is_registered == 1 &&
+                $user->account_type === 'customer'
+            ) {
+                // Generate login token
+                $token = $user->createToken('customer-login')->plainTextToken;
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Login successful',
+                    'token' => $token,
+                    'user' => $user,
+                    'is_registered' => true,
+                    'requires_registration' => false,
+                ]);
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | NEW / NOT REGISTERED USER
+        |--------------------------------------------------------------------------
+        */
+
+            $tempToken = Str::random(60);
+
+            $user->update([
+                'temp_verification_token' => $tempToken,
+                'otp_verified_at' => now(),
+            ]);
 
             return response()->json([
                 'status' => true,
                 'message' => 'OTP verified successfully. Please complete your registration.',
                 'temp_token' => $tempToken,
-                'phone' => $request->phone,
-                'is_registered ' => $user->is_registered
+                'phone' => $user->phone,
+                'is_registered' => false,
+                'requires_registration' => true,
             ]);
         } catch (\Exception $e) {
+
             Log::error('Verify OTP error: ' . $e->getMessage());
+
             return response()->json([
                 'status' => false,
-                'message' => $e->getMessage()
+                'message' => 'Something went wrong'
             ], 500);
         }
     }
 
+    // ============ CUSTOMER REGISTRATION ============
+
     /**
-     * STEP 3: Complete Registration - Save all user details and mark as registered
-     * Updated to use new BusinessProfile fields
+     * CUSTOMER: Complete Registration - Single step
      */
-    public function completeRegistration(Request $request)
+    public function completeCustomerRegistration(Request $request)
     {
         try {
             $validator = Validator::make($request->all(), [
                 'phone' => 'required|min:10|max:15',
                 'temp_token' => 'required|string',
-                'account_type' => 'required|in:customer,distributor',
                 'full_name' => 'required|string|max:255',
                 'email' => [
                     'required',
@@ -292,15 +377,8 @@ class AuthController extends Controller
                     })
                 ],
                 'country' => 'nullable|string|max:255',
-                'terms_condition' => 'required|in:0,1',
                 'password' => 'nullable|string|min:8',
-
-                // Updated distributor fields for BusinessProfile
-                'encrypted_aadhaar' => 'required_if:account_type,distributor|nullable|string',
-                'encrypted_pan' => 'required_if:account_type,distributor|nullable|string',
-                'encrypted_bank_account' => 'required_if:account_type,distributor|nullable|string',
-                'bank_ifsc' => 'required_if:account_type,distributor|nullable|string|max:20',
-                'bank_holder_name' => 'required_if:account_type,distributor|nullable|string|max:255',
+                'terms_condition' => 'required|in:0,1',
             ]);
 
             if ($validator->fails()) {
@@ -310,7 +388,6 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Find user
             $user = User::where('phone', $request->phone)->first();
 
             if (!$user) {
@@ -320,38 +397,12 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Check if already registered
             if ($user->is_registered == 1) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'User is already registered. Please login.'
-                ], 422);
+                return $this->generateTokenForExistingUser($user);
             }
 
-            // Verify temp token - Check both database and cache
-            $dbToken = $user->temp_verification_token;
-            $cachedToken = \Illuminate\Support\Facades\Cache::get('registration_token_' . $request->phone);
-
-            // Log for debugging
-            Log::info('Token verification', [
-                'user_id' => $user->id,
-                'phone' => $request->phone,
-                'received_token' => $request->temp_token,
-                'db_token' => $dbToken,
-                'cached_token' => $cachedToken,
-                'db_match' => $dbToken === $request->temp_token,
-                'cache_match' => $cachedToken === $request->temp_token
-            ]);
-
-            // Check if token matches either database or cache
-            $tokenValid = false;
-            if ($dbToken && $dbToken === $request->temp_token) {
-                $tokenValid = true;
-            } elseif ($cachedToken && $cachedToken === $request->temp_token) {
-                $tokenValid = true;
-            }
-
-            if (!$tokenValid) {
+            // Verify temp token
+            if (!$this->verifyTempToken($user, $request->temp_token, $request->phone)) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Invalid verification token. Please verify OTP again.'
@@ -359,11 +410,11 @@ class AuthController extends Controller
             }
 
             // Complete registration
-            $updateData = [
+            $user->update([
                 'full_name' => $request->full_name,
                 'email' => $request->email,
                 'country' => $request->country,
-                'account_type' => $request->account_type,
+                'account_type' => 'customer',
                 'terms_condition' => $request->terms_condition,
                 'phone_verified_at' => now(),
                 'otp' => null,
@@ -371,362 +422,34 @@ class AuthController extends Controller
                 'temp_verification_token' => null,
                 'otp_verified_at' => null,
                 'is_registered' => 1,
-                'distributor_status' => $request->account_type === 'distributor' ? 'pending' : 'active'
-            ];
+                'distributor_status' => 'active',
+                'password' => $request->filled('password') ? Hash::make($request->password) : null
+            ]);
 
-            // Set password if provided
-            if ($request->filled('password')) {
-                $updateData['password'] = Hash::make($request->password);
-            }
-
-            // Update user
-            $user->update($updateData);
             $user->refresh();
 
-            // Clear cache token
+            // Clear cache
             \Illuminate\Support\Facades\Cache::forget('registration_token_' . $request->phone);
 
             // Assign role
             $this->assignRoleToUser($user);
 
-            // Store distributor data with new fields
-            if ($request->account_type === 'distributor') {
-                BusinessProfile::updateOrCreate(
-                    ['user_id' => $user->id],
-                    [
-                        'user_id' => $user->id,
-                        'encrypted_aadhaar' => $request->encrypted_aadhaar,
-                        'encrypted_pan' => $request->encrypted_pan,
-                        'encrypted_bank_account' => $request->encrypted_bank_account,
-                        'bank_ifsc' => $request->bank_ifsc,
-                        'bank_holder_name' => $request->bank_holder_name,
-                        'kyc_status' => 'pending'
-                    ]
-                );
-
-                // Send notification for distributor registration
-                $admin = DB::table('admins')->first();
-                if ($admin) {
-                    DB::table('admin_notifications')->insert([
-                        'admin_id'       => $admin->id ?? '1',
-                        'type'           => 'new_distributor_registration',
-                        'title'          => 'New distributor Registration',
-                        'message'        => "{$request->full_name} has registered as a distributor.",
-                        'reference_type' => 'user',
-                        'reference_id'   => $user->id,
-                        'priority'       => 'high',
-                        'extra_data'     => json_encode([
-                            'customer_id'    => $user->id,
-                            'customer_name'  => $request->full_name,
-                            'customer_phone' => $request->phone,
-                            'email'          => $request->email,
-                        ]),
-                        'created_at'     => now(),
-                        'updated_at'     => now()
-                    ]);
-                }
-            }
-
-            // Get user role
-            $role = $this->getUserRole($user);
-
-            // Prepare response data
-            $responseData = [
-                'status' => true,
-                'message' => 'Account created successfully',
-                'data' => [
-                    'user' => $user,
-                    'role' => $role ? [
-                        'id' => $role->id,
-                        'name' => $role->name,
-                        'slug' => $role->slug
-                    ] : null,
-                    'business_profile' => $request->account_type === 'distributor' ?
-                        BusinessProfile::where('user_id', $user->id)->first() : null
-                ]
-            ];
-
-            // Generate tokens only for customers
-            if ($request->account_type == 'customer') {
-                $token = $user->createToken('auth_token')->plainTextToken;
-
-                $refreshToken = Str::random(100);
-
-                RefreshToken::create([
-                    'user_id'      => $user->id,
-                    'token'        => hash('sha256', $refreshToken),
-                    'expires_at'   => now()->addDays(7),
-                    'last_used_at' => now()
-                ]);
-
-                $responseData['token'] = $token;
-                $responseData['expires_in'] = 3600;
-                $responseData['refresh_token'] = $refreshToken;
-            } else {
-                // For distributors, they might need to wait for approval
-                $responseData['message'] = 'distributor registration submitted successfully. Please wait for admin approval.';
-            }
-
-            return response()->json($responseData, 200);
-        } catch (\Exception $e) {
-            Log::error('Complete registration error: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString()
-            ]);
-            return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Login with phone - Auto detect account type
-     */
-    // public function login(Request $request)
-    // {
-    //     try {
-    //         $request->validate([
-    //             'phone' => 'required|min:10|max:15',
-    //         ]);
-
-    //         $user = User::where('phone', $request->phone)->first();
-
-    //         if (!$user) {
-    //             $rejectedUser = RejectedUser::where('phone', $request->phone)->first();
-
-    //             if ($rejectedUser) {
-    //                 $daysPassed = Carbon::parse($rejectedUser->rejected_at)
-    //                     ->diffInDays(now());
-
-    //                 if ($daysPassed < 30) {
-    //                     $remaining = 30 - $daysPassed;
-    //                     return response()->json([
-    //                         'status'  => false,
-    //                         'message' => "Your business request was rejected. Please try again after {$remaining} days"
-    //                     ], 422);
-    //                 }
-
-    //                 return response()->json([
-    //                     'status'  => false,
-    //                     'message' => 'Your business request was rejected more than 30 days ago. Please contact admin.'
-    //                 ], 422);
-    //             }
-
-    //             return response()->json([
-    //                 'status'  => false,
-    //                 'message' => 'Phone number not registered'
-    //             ], 422);
-    //         }
-
-    //         if ($user->is_registered == 0) {
-    //             return response()->json([
-    //                 'status'  => false,
-    //                 'message' => 'Please complete your registration first'
-    //             ], 422);
-    //         }
-
-    //         if ($user->is_active == 0) {
-    //             return response()->json([
-    //                 'status'  => false,
-    //                 'message' => 'Your account is blocked by admin. Please contact admin to continue'
-    //             ], 422);
-    //         }
-
-    //         // Check business approval for distributors
-    //         if ($user->account_type === 'distributor') {
-    //             $businessProfile = BusinessProfile::where('user_id', $user->id)->first();
-    //             if ($user && $user->distributor_status  != 'active') {
-    //                 return response()->json([
-    //                     'status'  => false,
-    //                     'message' => 'Your account is waiting for admin approval'
-    //                 ], 422);
-    //             }
-
-    //             if ($businessProfile && $businessProfile->kyc_status === 'rejected') {
-    //                 return response()->json([
-    //                     'status'  => false,
-    //                     'message' => 'Your KYC has been rejected. Please contact admin.'
-    //                 ], 422);
-    //             }
-    //         }
-
-    //         $otp = rand(100000, 999999);
-
-    //         $user->update([
-    //             'otp' => $otp,
-    //             'otp_expires_at' => now()->addMinutes(10)
-    //         ]);
-
-    //         // $this->twilioService->sendOtp($request->phone, $otp);
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'message' => 'OTP sent successfully to your phone',
-    //             'phone' => $request->phone,
-    //             'otp' => $otp,
-    //             'account_type' => $user->account_type,
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'status'  => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
-    public function login(Request $request)
-    {
-        try {
-            $request->validate([
-                'phone' => 'required|min:10|max:15',
-            ]);
-
-            $user = User::where('phone', $request->phone)->first();
-
-            if (!$user) {
-                $rejectedUser = RejectedUser::where('phone', $request->phone)->first();
-
-                if ($rejectedUser) {
-                    $daysPassed = Carbon::parse($rejectedUser->rejected_at)
-                        ->diffInDays(now());
-
-                    if ($daysPassed < 30) {
-                        $remaining = 30 - $daysPassed;
-                        return response()->json([
-                            'status'  => false,
-                            'message' => "Your business request was rejected. Please try again after {$remaining} days"
-                        ], 422);
-                    }
-
-                    return response()->json([
-                        'status'  => false,
-                        'message' => 'Your business request was rejected more than 30 days ago. Please contact admin.'
-                    ], 422);
-                }
-
-                return response()->json([
-                    'status'  => false,
-                    'message' => 'Phone number not registered'
-                ], 422);
-            }
-
-            if ($user->is_registered == 0) {
-                return response()->json([
-                    'status'  => false,
-                    'message' => 'Please complete your registration first'
-                ], 422);
-            }
-
-            // Check if user is inactive - Updated message
-            if ($user->is_active == 0) {
-                return response()->json([
-                    'status'  => false,
-                    'message' => 'You are blocked by Admin, please contact him'
-                ], 422);
-            }
-
-            // Check business approval for distributors
-            if ($user->account_type === 'distributor') {
-                $businessProfile = BusinessProfile::where('user_id', $user->id)->first();
-                if ($user && $user->distributor_status  != 'active') {
-                    return response()->json([
-                        'status'  => false,
-                        'message' => 'Your account is waiting for admin approval'
-                    ], 422);
-                }
-
-                if ($businessProfile && $businessProfile->kyc_status === 'rejected') {
-                    return response()->json([
-                        'status'  => false,
-                        'message' => 'Your KYC has been rejected. Please contact admin.'
-                    ], 422);
-                }
-            }
-
-            $otp = rand(100000, 999999);
-
-            $user->update([
-                'otp' => $otp,
-                'otp_expires_at' => now()->addMinutes(10)
-            ]);
-
-            // $this->twilioService->sendOtp($request->phone, $otp);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'OTP sent successfully to your phone',
-                'phone' => $request->phone,
-                'otp' => $otp,
-                'account_type' => $user->account_type,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status'  => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Verify Login OTP and generate tokens
-     */
-    public function verifyLoginOtp(Request $request)
-    {
-        try {
-            $request->validate([
-                'phone' => 'required|min:10|max:15',
-                'otp' => 'required|digits:6'
-            ]);
-
-            $user = User::where('phone', $request->phone)->first();
-
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'User not found'
-                ], 422);
-            }
-
-            if ($user->otp != $request->otp) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid OTP'
-                ], 422);
-            }
-
-            if (Carbon::now()->gt($user->otp_expires_at)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'OTP expired'
-                ], 422);
-            }
-
-            $user->update([
-                'otp' => null,
-                'otp_expires_at' => null
-            ]);
-
+            // Generate tokens
             $token = $user->createToken('auth_token')->plainTextToken;
-
             $refreshToken = Str::random(100);
 
             RefreshToken::create([
-                'user_id'      => $user->id,
-                'token'        => hash('sha256', $refreshToken),
-                'expires_at'   => now()->addDays(7),
+                'user_id' => $user->id,
+                'token' => hash('sha256', $refreshToken),
+                'expires_at' => now()->addDays(7),
                 'last_used_at' => now()
             ]);
 
             $role = $this->getUserRole($user);
 
-            // Load business profile for distributors
-            $businessProfile = null;
-            if ($user->account_type === 'distributor') {
-                $businessProfile = BusinessProfile::where('user_id', $user->id)->first();
-            }
-
             return response()->json([
                 'status' => true,
-                'message' => 'Login successfully',
+                'message' => 'Customer account created successfully',
                 'token' => $token,
                 'expires_in' => 3600,
                 'refresh_token' => $refreshToken,
@@ -735,10 +458,10 @@ class AuthController extends Controller
                     'id' => $role->id,
                     'name' => $role->name,
                     'slug' => $role->slug
-                ] : null,
-                'business_profile' => $businessProfile
+                ] : null
             ]);
         } catch (\Exception $e) {
+            Log::error('Customer registration error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
                 'message' => $e->getMessage()
@@ -746,49 +469,91 @@ class AuthController extends Controller
         }
     }
 
+    // ============ DISTRIBUTOR REGISTRATION (Multi-step) ============
+
     /**
-     * Resend OTP
+     * DISTRIBUTOR: Step 1 - Personal Information
      */
-    public function resendOtp(Request $request)
+    public function distributorStep1Personal(Request $request)
     {
         try {
-            $request->validate([
-                'phone' => 'required|min:10|max:15'
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'temp_token' => 'required|string',
+                'full_name' => 'required|string|max:255',
+                'email' => [
+                    'required',
+                    'email',
+                    Rule::unique('users', 'email')->where(function ($query) {
+                        return $query->where('is_registered', 1);
+                    })
+                ],
+                'country' => 'nullable|string|max:255',
+                'password' => 'nullable|string|min:8',
+                'date_of_birth' => 'required|date|before:-18 years',
+                'terms_condition' => 'required|in:0,1',
             ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
 
             $user = User::where('phone', $request->phone)->first();
 
             if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'User not found'
+                    'message' => 'User not found. Please request OTP first.'
                 ], 422);
             }
 
             if ($user->is_registered == 1) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'User is already registered. Please login.'
+                    'message' => 'User is already registered.'
                 ], 422);
             }
 
-            $otp = rand(100000, 999999);
+            // Verify temp token
+            if (!$this->verifyTempToken($user, $request->temp_token, $request->phone)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid verification token. Please verify OTP again.'
+                ], 422);
+            }
 
+            // Update user with personal information
             $user->update([
-                'otp' => $otp,
-                'otp_expires_at' => now()->addMinutes(10),
-                'temp_verification_token' => null,
-                'otp_verified_at' => null
+                'full_name' => $request->full_name,
+                'email' => $request->email,
+                'country' => $request->country,
+                'account_type' => 'distributor',
+                'terms_condition' => $request->terms_condition,
+                'date_of_birth' => $request->date_of_birth,
+                'password' => $request->filled('password') ? Hash::make($request->password) : null,
+                'registration_step' => 1
             ]);
 
-            $this->twilioService->sendOtp($request->phone, $otp);
+            $user->refresh();
+
+            // Create distributor profile
+            BusinessProfile::updateOrCreate(
+                ['user_id' => $user->id],
+                ['user_id' => $user->id, 'kyc_status' => 'pending']
+            );
 
             return response()->json([
                 'status' => true,
-                'message' => 'OTP resent successfully',
-                'otp' => $otp // Remove in production
+                'message' => 'Personal information saved successfully',
+                'step' => 1,
+                'next_step' => 2,
+                'user' => $user
             ]);
         } catch (\Exception $e) {
+            Log::error('Distributor step 1 error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
                 'message' => $e->getMessage()
@@ -797,134 +562,773 @@ class AuthController extends Controller
     }
 
     /**
-     * Forgot Password - Send OTP
+     * DISTRIBUTOR: Step 2 - Sponsor & Placement
      */
-    public function forgotPassword(Request $request)
+    public function distributorStep2Sponsor(Request $request)
     {
         try {
-            $request->validate([
-                'phone' => 'required|min:10|max:15'
-            ]);
-
-            $user = User::where('phone', $request->phone)->first();
-
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Phone number not registered'
-                ], 422);
-            }
-
-            if ($user->is_registered == 0) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Please complete your registration first'
-                ], 422);
-            }
-
-            $otp = rand(100000, 999999);
-
-            $user->update([
-                'otp' => $otp,
-                'otp_expires_at' => Carbon::now()->addMinutes(10)
-            ]);
-
-            // Send OTP via Twilio
-            $this->twilioService->sendOtp($request->phone, $otp);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'OTP sent to your phone'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Verify reset password OTP
-     */
-    public function verifyResetOtp(Request $request)
-    {
-        try {
-            $request->validate([
+            $validator = Validator::make($request->all(), [
                 'phone' => 'required|min:10|max:15',
-                'otp' => 'required|digits:6'
+                'sponsor_id' => 'nullable|string|max:255',  
+                'placement_leg' => 'required|in:left,right,auto',
             ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
 
             $user = User::where('phone', $request->phone)->first();
 
             if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'User not found'
+                    'message' => 'User not found.'
+                ], 422);
+            }
+
+            // Update sponsor information
+            $user->update([
+                'sponsor_id' => $request->sponsor_id,
+                'placement_leg' => $request->placement_leg,
+                'registration_step' => 2
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Sponsor information saved successfully',
+                'step' => 2,
+                'next_step' => 3,
+                'user' => $user
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Distributor step 2 error: ' . $e->getMessage());
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * DISTRIBUTOR: Step 3 - Send OTP for Email & Mobile Verification
+     */
+    public function distributorStep3SendVerificationOtp(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'type' => 'required|in:email,mobile',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found.'
+                ], 422);
+            }
+
+            if ($request->type === 'email') {
+                if (!$user->email) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Email not found. Please complete step 1 first.'
+                    ], 422);
+                }
+
+                $emailOtp = rand(100000, 999999);
+                $user->update([
+                    'email_otp' => $emailOtp,
+                    'email_otp_expires_at' => now()->addMinutes(10)
+                ]);
+
+                // Send email OTP
+                // Mail::to($user->email)->send(new EmailVerificationMail($emailOtp));
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Email OTP sent successfully',
+                    'email' => $user->email,
+                    'otp' => $emailOtp // Remove in production
+                ]);
+            } else {
+                // Mobile OTP (reuse existing phone verification)
+                $otp = rand(100000, 999999);
+                $user->update([
+                    'otp' => $otp,
+                    'otp_expires_at' => now()->addMinutes(10),
+                    'phone_verified' => 0
+                ]);
+
+                // Send mobile OTP
+                // $this->twilioService->sendOtp($user->phone, $otp);
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Mobile OTP sent successfully',
+                    'phone' => $user->phone,
+                    'otp' => $otp // Remove in production
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Distributor step 3 send OTP error: ' . $e->getMessage());
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * DISTRIBUTOR: Step 3 - Verify Email OTP
+     */
+    public function distributorStep3VerifyEmailOtp(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'otp' => 'required|digits:6',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found.'
+                ], 422);
+            }
+
+            if ($user->email_otp != $request->otp) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid email OTP'
+                ], 422);
+            }
+
+            if (now()->gt($user->email_otp_expires_at)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Email OTP has expired'
+                ], 422);
+            }
+
+            $user->update([
+                'email_verified_at' => now(),
+                'email_otp' => null,
+                'email_otp_expires_at' => null,
+                'registration_step' => 3
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Email verified successfully',
+                'step' => 3,
+                'next_step' => 4,
+                'email_verified' => true
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Distributor step 3 verify email error: ' . $e->getMessage());
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * DISTRIBUTOR: Step 3 - Verify Mobile OTP
+     */
+    public function distributorStep3VerifyMobileOtp(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'otp' => 'required|digits:6',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found.'
                 ], 422);
             }
 
             if ($user->otp != $request->otp) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Invalid OTP'
+                    'message' => 'Invalid mobile OTP'
                 ], 422);
             }
 
-            if (Carbon::now()->gt($user->otp_expires_at)) {
+            if (now()->gt($user->otp_expires_at)) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'OTP expired'
+                    'message' => 'Mobile OTP has expired'
                 ], 422);
             }
+
+            $user->update([
+                'phone_verified' => 1,
+                'otp' => null,
+                'otp_expires_at' => null,
+                'registration_step' => 3
+            ]);
 
             return response()->json([
                 'status' => true,
-                'message' => 'OTP verified successfully'
+                'message' => 'Mobile verified successfully',
+                'step' => 3,
+                'next_step' => 4,
+                'mobile_verified' => true
             ]);
         } catch (\Exception $e) {
+            Log::error('Distributor step 3 verify mobile error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
                 'message' => $e->getMessage()
-            ]);
+            ], 500);
         }
     }
 
     /**
-     * Reset password
+     * DISTRIBUTOR: Step 4 - Aadhaar Verification
      */
-    public function resetPassword(Request $request)
+    public function distributorStep4Aadhaar(Request $request)
     {
         try {
-            $request->validate([
-                'phone' => 'required|min:10|max:15|exists:users,phone',
-                'password' => 'nullable|string|min:8'
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'encrypted_aadhaar' => 'required|string|size:12',
+                'aadhaar_consent' => 'required|in:0,1',
             ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
 
             $user = User::where('phone', $request->phone)->first();
 
-            $updateData = [
-                'otp' => null,
-                'otp_expires_at' => null
-            ];
-
-            // If password is provided, update it
-            if ($request->has('password') && !empty($request->password)) {
-                $updateData['password'] = Hash::make($request->password);
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found.'
+                ], 422);
             }
 
-            $user->update($updateData);
+            // Check if email and mobile are verified
+            if (!$user->email_verified_at || !$user->phone_verified) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please verify your email and mobile first.'
+                ], 422);
+            }
+
+            // Store Aadhaar (encrypted)
+            $distributorProfile = BusinessProfile::updateOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'encrypted_aadhaar' => encrypt($request->encrypted_aadhaar),
+                    'aadhaar_consent' => $request->aadhaar_consent,
+                    'aadhaar_verified' => 0,
+                    'kyc_status' => 'pending'
+                ]
+            );
+
+            $user->update([
+                'registration_step' => 4,
+                'aadhaar_last4' => substr($request->encrypted_aadhaar, -4) // Store last 4 digits
+            ]);
+
+            // Simulate Aadhaar verification
+            // In production, call KYC provider API here
+            $aadhaarVerified = true; // Simulate success
+
+            if ($aadhaarVerified) {
+                $distributorProfile->update([
+                    'aadhaar_verified' => 1,
+                    'aadhaar_verified_at' => now()
+                ]);
+            }
 
             return response()->json([
                 'status' => true,
-                'message' => 'Password reset successfully'
+                'message' => 'Aadhaar verification ' . ($aadhaarVerified ? 'successful' : 'failed'),
+                'step' => 4,
+                'next_step' => 5,
+                'aadhaar_verified' => $aadhaarVerified,
+                'aadhaar_last4' => '****' . substr($request->encrypted_aadhaar, -4)
             ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (\Exception $e) {
+            Log::error('Distributor step 4 Aadhaar error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
-                'message' => 'Validation error',
-                'errors' => $e->errors()
-            ], 422);
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * DISTRIBUTOR: Step 5 - PAN Verification
+     */
+    public function distributorStep5Pan(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'encrypted_pan' => 'required|string|size:10',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found.'
+                ], 422);
+            }
+
+            // Check if Aadhaar is verified
+            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            if (!$distributorProfile || !$distributorProfile->aadhaar_verified) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please complete Aadhaar verification first.'
+                ], 422);
+            }
+
+            // Store PAN (encrypted)
+            $distributorProfile->update([
+                'encrypted_pan' => encrypt($request->encrypted_pan),
+                'pan_verified' => 0
+            ]);
+
+            $user->update([
+                'registration_step' => 5,
+                'pan_last4' => substr($request->encrypted_pan, -4)
+            ]);
+
+            // Simulate PAN verification
+            // In production, call PAN verification API here
+            $panVerified = true; // Simulate success
+
+            if ($panVerified) {
+                $distributorProfile->update([
+                    'pan_verified' => 1,
+                    'pan_verified_at' => now()
+                ]);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'PAN verification ' . ($panVerified ? 'successful' : 'failed'),
+                'step' => 5,
+                'next_step' => 6,
+                'pan_verified' => $panVerified,
+                'pan_last4' => '****' . substr($request->encrypted_pan, -4)
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Distributor step 5 PAN error: ' . $e->getMessage());
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * DISTRIBUTOR: Step 6 - Bank Account Details
+     */
+    public function distributorStep6Bank(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'bank_holder_name' => 'required|string|max:255',
+                'bank_name' => 'required|string|max:255',
+                'branch_name' => 'required|string|max:255',
+                'encrypted_bank_account' => 'required|string|max:50',
+                'confirm_account_number' => 'required|string|max:50',
+                'bank_ifsc' => 'required|string|max:20',
+                'account_type' => 'required|in:current,savings',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Check if account numbers match
+            if ($request->encrypted_bank_account !== $request->confirm_account_number) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Account numbers do not match.'
+                ], 422);
+            }
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found.'
+                ], 422);
+            }
+
+            // Check if PAN is verified
+            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            if (!$distributorProfile || !$distributorProfile->pan_verified) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please complete PAN verification first.'
+                ], 422);
+            }
+
+            // Store bank details (encrypted)
+            $distributorProfile->update([
+                'encrypted_bank_account' => encrypt($request->encrypted_bank_account),
+                'bank_ifsc' => $request->bank_ifsc,
+                'bank_holder_name' => $request->bank_holder_name,
+                'bank_name' => $request->bank_name,
+                'branch_name' => $request->branch_name,
+                'account_type' => $request->account_type,
+                'bank_verified' => 0
+            ]);
+
+            $user->update([
+                'registration_step' => 6,
+                'account_last4' => substr($request->encrypted_bank_account, -4)
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Bank details saved successfully',
+                'step' => 6,
+                'next_step' => 7,
+                'bank_details' => [
+                    'bank_name' => $request->bank_name,
+                    'bank_holder_name' => $request->bank_holder_name,
+                    'account_last4' => '****' . substr($request->encrypted_bank_account, -4),
+                    'bank_ifsc' => $request->bank_ifsc
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Distributor step 6 bank error: ' . $e->getMessage());
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * DISTRIBUTOR: Step 7 - Location Consent
+     */
+    public function distributorStep7Location(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'location_consent' => 'required|in:0,1',
+                'latitude' => 'nullable|numeric',
+                'longitude' => 'nullable|numeric',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found.'
+                ], 422);
+            }
+
+            // Store location consent
+            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            if ($distributorProfile) {
+                $distributorProfile->update([
+                    'location_consent' => $request->location_consent,
+                    'latitude' => $request->latitude,
+                    'longitude' => $request->longitude,
+                    'location_consent_at' => $request->location_consent == 1 ? now() : null
+                ]);
+            }
+
+            $user->update([
+                'registration_step' => 7,
+                'location_consent_given' => $request->location_consent
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Location consent saved successfully',
+                'step' => 7,
+                'next_step' => 8,
+                'location_consent' => $request->location_consent == 1
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Distributor step 7 location error: ' . $e->getMessage());
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * DISTRIBUTOR: Step 8 - Review & Submit
+     */
+    public function distributorStep8Submit(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'accept_terms' => 'required|in:0,1',
+                'accept_agreement' => 'required|in:0,1',
+                'accept_code_of_conduct' => 'required|in:0,1',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Check all acceptances
+            if ($request->accept_terms != 1 || $request->accept_agreement != 1 || $request->accept_code_of_conduct != 1) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please accept all terms and conditions.'
+                ], 422);
+            }
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found.'
+                ], 422);
+            }
+
+            // Check all previous steps completed
+            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+
+            if (!$distributorProfile) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please complete all previous steps.'
+                ], 422);
+            }
+
+            // Verify all steps are complete
+            if ($user->registration_step != 7) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please complete all previous steps first.'
+                ], 422);
+            }
+
+            // Finalize registration
+            $user->update([
+                'is_registered' => 1,
+                'distributor_status' => 'pending', // Admin will approve
+                'registration_step' => 8,
+                'registration_completed_at' => now(),
+                'otp' => null,
+                'otp_expires_at' => null,
+                'temp_verification_token' => null,
+                'otp_verified_at' => null,
+                'accept_terms' => $request->accept_terms,
+                'accept_agreement' => $request->accept_agreement,
+                'accept_code_of_conduct' => $request->accept_code_of_conduct
+            ]);
+
+            $distributorProfile->update([
+                'registration_completed' => 1,
+                'submitted_at' => now(),
+                'terms_accepted_at' => now(),
+                'kyc_status' => 'pending'
+            ]);
+
+            // Assign role
+            $this->assignRoleToUser($user);
+
+            // Send notification to admin
+            $admin = DB::table('admins')->first();
+            if ($admin) {
+                DB::table('admin_notifications')->insert([
+                    'admin_id' => $admin->id ?? '1',
+                    'type' => 'new_distributor_registration',
+                    'title' => 'New Distributor Registration',
+                    'message' => "{$user->full_name} has completed distributor registration.",
+                    'reference_type' => 'user',
+                    'reference_id' => $user->id,
+                    'priority' => 'high',
+                    'extra_data' => json_encode([
+                        'distributor_id' => $user->id,
+                        'name' => $user->full_name,
+                        'phone' => $user->phone,
+                        'email' => $user->email,
+                        'distributor_profile' => $distributorProfile
+                    ]),
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+            }
+
+            // Clear cache
+            \Illuminate\Support\Facades\Cache::forget('registration_token_' . $request->phone);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Distributor registration submitted successfully. Please wait for admin approval.',
+                'user' => $user,
+                'distributor_profile' => $distributorProfile,
+                'status' => 'pending_approval'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Distributor step 8 submit error: ' . $e->getMessage());
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get distributor registration progress
+     */
+    public function getDistributorProgress(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found.'
+                ], 422);
+            }
+
+            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+
+            return response()->json([
+                'status' => true,
+                'registration_step' => $user->registration_step ?? 0,
+                'completed_steps' => [
+                    'personal_info' => !empty($user->full_name) && !empty($user->email),
+                    'sponsor' => !empty($user->placement_leg),
+                    'email_verified' => !empty($user->email_verified_at),
+                    'phone_verified' => $user->phone_verified ?? false,
+                    'aadhaar_verified' => $distributorProfile && $distributorProfile->aadhaar_verified ?? false,
+                    'pan_verified' => $distributorProfile && $distributorProfile->pan_verified ?? false,
+                    'bank_details' => $distributorProfile && !empty($distributorProfile->encrypted_bank_account),
+                    'location_consent' => $user->location_consent_given ?? false,
+                ],
+                'is_registered' => $user->is_registered,
+                'distributor_status' => $user->distributor_status,
+                'distributor_profile' => $distributorProfile
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Get distributor progress error: ' . $e->getMessage());
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get Current User with Role
+     */
+    public function getCurrentUser(Request $request)
+    {
+        try {
+            $user = Auth::user();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized'
+                ], 401);
+            }
+
+            $role = $this->getUserRole($user);
+
+            $distributorProfile = null;
+            if ($user->account_type === 'distributor') {
+                $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            }
+
+            return response()->json([
+                'status' => true,
+                'user' => $user,
+                'role' => $role ? [
+                    'id' => $role->id,
+                    'name' => $role->name,
+                    'slug' => $role->slug
+                ] : null,
+                'distributor_profile' => $distributorProfile
+            ]);
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -933,6 +1337,159 @@ class AuthController extends Controller
         }
     }
 
+    /**
+     * Logout user
+     */
+    public function logout(Request $request)
+    {
+        try {
+            $user = $request->user();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized'
+                ], 401);
+            }
+
+            $request->user()->currentAccessToken()->delete();
+            RefreshToken::where('user_id', $user->id)->delete();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Logged out successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Refresh Token
+     */
+    public function refreshToken(Request $request)
+    {
+        try {
+            $request->validate([
+                'refresh_token' => 'required'
+            ]);
+
+            $hashedToken = hash('sha256', $request->refresh_token);
+
+            $refreshToken = RefreshToken::where('token', $hashedToken)->first();
+
+            if (!$refreshToken) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid refresh token'
+                ], 422);
+            }
+
+            if ($refreshToken->expires_at->isPast()) {
+                $refreshToken->delete();
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Refresh token expired. Please login again.'
+                ], 422);
+            }
+
+            $user = User::find($refreshToken->user_id);
+            $newAccessToken = $user->createToken('auth_token')->plainTextToken;
+
+            $newRefreshToken = Str::random(100);
+
+            $refreshToken->update([
+                'token' => hash('sha256', $newRefreshToken),
+                'expires_at' => now()->addDays(7),
+                'last_used_at' => now()
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'access_token' => $newAccessToken,
+                'expires_in' => 3600,
+                'refresh_token' => $newRefreshToken
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Change Password
+     */
+    public function changePassword(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'current_password' => ['required', 'string'],
+                'new_password' => [
+                    'required',
+                    'confirmed',
+                    Password::min(8)
+                        ->mixedCase()
+                        ->numbers()
+                        ->symbols()
+                ],
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $user = Auth::user();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized'
+                ], 401);
+            }
+
+            if (!Hash::check($request->current_password, $user->password)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Current password is incorrect'
+                ], 400);
+            }
+
+            if (Hash::check($request->new_password, $user->password)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'New password cannot be same as current password'
+                ], 400);
+            }
+
+            $user->update([
+                'password' => Hash::make($request->new_password)
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Password changed successfully'
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('changePassword error', [
+                'error' => $e->getMessage(),
+                'user_id' => Auth::id()
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
     /**
      * Get user profile
      */
@@ -1240,198 +1797,134 @@ class AuthController extends Controller
     }
 
     /**
-     * Change Password
+     * Forgot Password - Send OTP
      */
-    public function changePassword(Request $request)
-    {
-        try {
-            $validator = Validator::make($request->all(), [
-                'current_password' => ['required', 'string'],
-                'new_password' => [
-                    'required',
-                    'confirmed',
-                    Password::min(8)
-                        ->mixedCase()
-                        ->numbers()
-                        ->symbols()
-                ],
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Validation failed',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            $user = Auth::user();
-
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Unauthorized'
-                ], 401);
-            }
-
-            if (!Hash::check($request->current_password, $user->password)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Current password is incorrect'
-                ], 400);
-            }
-
-            if (Hash::check($request->new_password, $user->password)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'New password cannot be same as current password'
-                ], 400);
-            }
-
-            $user->update([
-                'password' => Hash::make($request->new_password)
-            ]);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Password changed successfully'
-            ], 200);
-        } catch (\Exception $e) {
-            Log::error('changePassword error', [
-                'error' => $e->getMessage(),
-                'user_id' => Auth::id()
-            ]);
-
-            return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Get Current User with Role
-     */
-    public function getCurrentUser(Request $request)
-    {
-        try {
-            $user = Auth::user();
-
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Unauthorized'
-                ], 401);
-            }
-
-            $role = $this->getUserRole($user);
-
-            // Load business profile if distributor
-            $businessProfile = null;
-            if ($user->account_type === 'distributor') {
-                $businessProfile = BusinessProfile::where('user_id', $user->id)->first();
-            }
-
-            return response()->json([
-                'status' => true,
-                'user' => $user,
-                'role' => $role ? [
-                    'id' => $role->id,
-                    'name' => $role->name,
-                    'slug' => $role->slug
-                ] : null,
-                'business_profile' => $businessProfile
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Logout user
-     */
-    public function logout(Request $request)
-    {
-        try {
-            $user = $request->user();
-
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Unauthorized'
-                ], 401);
-            }
-
-            // Delete the current access token
-            $request->user()->currentAccessToken()->delete();
-
-            // If you're using custom refresh tokens
-            RefreshToken::where('user_id', $user->id)->delete();
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Logged out successfully'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Refresh Token
-     */
-    public function refreshToken(Request $request)
+    public function forgotPassword(Request $request)
     {
         try {
             $request->validate([
-                'refresh_token' => 'required'
+                'phone' => 'required|min:10|max:15'
             ]);
 
-            $hashedToken = hash('sha256', $request->refresh_token);
+            $user = User::where('phone', $request->phone)->first();
 
-            $refreshToken = RefreshToken::where('token', $hashedToken)->first();
-
-            if (!$refreshToken) {
+            if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Invalid refresh token'
+                    'message' => 'Phone number not registered'
                 ], 422);
             }
 
-            if ($refreshToken->expires_at->isPast()) {
-                $refreshToken->delete();
+            if ($user->is_registered == 0) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Refresh token expired. Please login again.'
+                    'message' => 'Please complete your registration first'
                 ], 422);
             }
 
-            $user = User::find($refreshToken->user_id);
-            $newAccessToken = $user->createToken('auth_token')->plainTextToken;
+            $otp = rand(100000, 999999);
 
-            /*
-            * Rotate refresh token
-            */
-            $newRefreshToken = Str::random(100);
-
-            $refreshToken->update([
-                'token' => hash('sha256', $newRefreshToken),
-                'expires_at' => now()->addDays(7),
-                'last_used_at' => now()
+            $user->update([
+                'otp' => $otp,
+                'otp_expires_at' => Carbon::now()->addMinutes(10)
             ]);
+
+            // Send OTP via Twilio
+            $this->twilioService->sendOtp($request->phone, $otp);
 
             return response()->json([
                 'status' => true,
-                'access_token' => $newAccessToken,
-                'expires_in' => 3600,
-                'refresh_token' => $newRefreshToken
+                'message' => 'OTP sent to your phone'
             ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Verify reset password OTP
+     */
+    public function verifyResetOtp(Request $request)
+    {
+        try {
+            $request->validate([
+                'phone' => 'required|min:10|max:15',
+                'otp' => 'required|digits:6'
+            ]);
+
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found'
+                ], 422);
+            }
+
+            if ($user->otp != $request->otp) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid OTP'
+                ], 422);
+            }
+
+            if (Carbon::now()->gt($user->otp_expires_at)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'OTP expired'
+                ], 422);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'OTP verified successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Reset password
+     */
+    public function resetPassword(Request $request)
+    {
+        try {
+            $request->validate([
+                'phone' => 'required|min:10|max:15|exists:users,phone',
+                'password' => 'nullable|string|min:8'
+            ]);
+
+            $user = User::where('phone', $request->phone)->first();
+
+            $updateData = [
+                'otp' => null,
+                'otp_expires_at' => null
+            ];
+
+            // If password is provided, update it
+            if ($request->has('password') && !empty($request->password)) {
+                $updateData['password'] = Hash::make($request->password);
+            }
+
+            $user->update($updateData);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Password reset successfully'
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation error',
+                'errors' => $e->errors()
+            ], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,

@@ -13,6 +13,7 @@ use App\Http\Controllers\API\CartController;
 use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\API\ReviewController;
 use App\Http\Controllers\API\SubscriberController;
 use App\Http\Controllers\API\WishlistController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
@@ -140,11 +141,27 @@ Route::prefix('tax-categories')->group(function () {
     });
 });
 
+
+// Distributer and user
+Route::prefix('distributor')->group(function () {
+    Route::post('step1-personal', [APIAuthController::class, 'distributorStep1Personal']);
+    Route::post('step2-sponsor', [APIAuthController::class, 'distributorStep2Sponsor']);
+    Route::post('step3-send-verification-otp', [APIAuthController::class, 'distributorStep3SendVerificationOtp']);
+    Route::post('step3-verify-email', [APIAuthController::class, 'distributorStep3VerifyEmailOtp']);
+    Route::post('step3-verify-mobile', [APIAuthController::class, 'distributorStep3VerifyMobileOtp']);
+    Route::post('step4-aadhaar', [APIAuthController::class, 'distributorStep4Aadhaar']);
+    Route::post('step5-pan', [APIAuthController::class, 'distributorStep5Pan']);
+    Route::post('step6-bank', [APIAuthController::class, 'distributorStep6Bank']);
+    Route::post('step7-location', [APIAuthController::class, 'distributorStep7Location']);
+    Route::post('step8-submit', [APIAuthController::class, 'distributorStep8Submit']);
+    Route::get('progress', [APIAuthController::class, 'getDistributorProgress']);
+});
+
 Route::group(['prefix' => 'user'], function () {
     // Public routes (no authentication required)
     Route::post('send-otp', [APIAuthController::class, 'sendOtp']);
     Route::post('verify-otp', [APIAuthController::class, 'verifyOtp']);
-    Route::post('confirm_registration', [APIAuthController::class, 'completeRegistration']);
+    Route::post('confirm_registration', [APIAuthController::class, 'completeCustomerRegistration']);
     Route::post('resend-otp', [APIAuthController::class, 'resendOtp']);
 
     Route::post('login', [APIAuthController::class, 'login']);
@@ -211,4 +228,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/order/{id}', [OrderController::class, 'show']);
 });
 
+// Public routes
+Route::get('/products/{product}/reviews', [ReviewController::class, 'index']);
+Route::get('/products/{product}/reviews/average', [ReviewController::class, 'getAverageRating']);
+
+// Authenticated user routes
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/user/reviews/{product}', [ReviewController::class, 'showUserReview']);
+    Route::post('/reviews', [ReviewController::class, 'store']);
+    Route::put('/reviews/{review}', [ReviewController::class, 'update']);
+    Route::delete('/reviews/{review}', [ReviewController::class, 'destroy']);
+
+    // Get user's all reviews
+    Route::get('/user/reviews', [ReviewController::class, 'userIndex']);
+});
 Route::post('/webhook/razorpay', [RazorpayWebhookController::class, 'handle']);
