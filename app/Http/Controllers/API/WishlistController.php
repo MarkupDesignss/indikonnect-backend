@@ -418,13 +418,16 @@ class WishlistController extends Controller
      */
     protected function addItemToCart(Cart $cart, int $productId, int $quantity): CartItem
     {
+        $product = Product::find($productId);
+        $currentPrice = $this->getCurrentProductPrice($product);
+
         $cartItem = CartItem::where('cart_id', $cart->id)
             ->where('product_id', $productId)
             ->first();
 
         if ($cartItem) {
             $cartItem->quantity += $quantity;
-            $cartItem->unit_price = 0; // dynamic price, not stored
+            $cartItem->unit_price = $currentPrice; // ✅ store current price
             $cartItem->save();
             return $cartItem;
         }
@@ -433,7 +436,7 @@ class WishlistController extends Controller
             'cart_id'    => $cart->id,
             'product_id' => $productId,
             'quantity'   => $quantity,
-            'unit_price' => 0,
+            'unit_price' => $currentPrice, // ✅ store current price
         ]);
     }
 
