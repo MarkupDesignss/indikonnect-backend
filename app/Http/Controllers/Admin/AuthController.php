@@ -360,4 +360,55 @@ class AuthController extends Controller
             ], 422);
         }
     }
+    public function getRegisteredUsers()
+    {
+        try {
+            $users = User::with('role', 'businessProfile')->where('is_registered', true)
+                ->orderBy('id', 'desc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Registered users fetched successfully.',
+                'data' => $users
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch registered users.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getUserDetails($id)
+    {
+        try {
+            $user = User::with('role', 'businessProfile')->where('is_registered', true)
+                ->where('id', $id)
+                ->get();
+
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found.',
+                    'errors' => [
+                        'user_id' => ['User not found.']
+                    ]
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'User details fetched successfully.',
+                'data' => $user
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch user details.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

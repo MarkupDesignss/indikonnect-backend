@@ -260,7 +260,8 @@ class AuthController extends Controller
                 'status' => true,
                 'message' => 'OTP verified successfully. Please complete your registration.',
                 'temp_token' => $tempToken,
-                'phone' => $request->phone
+                'phone' => $request->phone,
+                'is_registered ' => $user->is_registered
             ]);
         } catch (\Exception $e) {
             Log::error('Verify OTP error: ' . $e->getMessage());
@@ -1346,4 +1347,6 @@ class AuthController extends Controller
             ], 500);
         }
     }
+
+
 }
