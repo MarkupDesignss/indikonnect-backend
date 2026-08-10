@@ -12,6 +12,7 @@ return new class extends Migration
         Schema::table('users', function (Blueprint $table) {
 
             // Registration progress for multi-step
+            $table->timestamp('date_of_birth')->nullable()->after('country');
             $table->integer('registration_step')->default(0)->after('activation_date');
             $table->timestamp('registration_completed_at')->nullable()->after('registration_step');
 
