@@ -234,6 +234,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/checkout/place-order', [CheckoutController::class, 'placeOrder']);
     Route::get('/order/history', [OrderController::class, 'history']);
     Route::get('/order/{id}', [OrderController::class, 'show']);
+    Route::post('/checkout/apply-coupon', [CheckoutController::class, 'applyCoupon']);
+    Route::post('/checkout/apply-shipping', [CheckoutController::class, 'applyShipping']);
+    Route::post('/checkout/remove-coupon', [CheckoutController::class, 'removeCoupon']);
 });
 
 // Public routes
