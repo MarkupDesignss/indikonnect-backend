@@ -71,7 +71,9 @@ class CategoryController extends Controller
                 return [
                     'id' => $category->id,
                     'title' => $category->title,
-                    'image' => $category->image ? asset('storage/' . $category->image) : null,
+                    'image' => $category->image
+                        ? asset('storage/categories/' . $category->image)
+                        : null,
                     'description' => $category->description,
                     'status' => $category->status,
                     'created_at' => $category->created_at,
@@ -84,16 +86,16 @@ class CategoryController extends Controller
                 'success' => true,
                 'message' => 'Categories retrieved successfully',
                 'data' => $data,
-                'most_expensive_product' => $mostExpensiveProduct ? [
-                    'id' => $mostExpensiveProduct->id,
-                    'name' => $mostExpensiveProduct->name,
-                    'product_code' => $mostExpensiveProduct->product_code,
-                    'category_id' => $mostExpensiveProduct->category_id,
-                    'category_name' => $mostExpensiveProduct->category->title ?? null,
-                    'distributor_price' => $mostExpensiveProduct->distributor_price,
-                    'retail_price' => $mostExpensiveProduct->retail_price,
-                    'price' => $mostExpensivePrice,
-                ] : null,
+                // 'most_expensive_product' => $mostExpensiveProduct ? [
+                //     'id' => $mostExpensiveProduct->id,
+                //     'name' => $mostExpensiveProduct->name,
+                //     'product_code' => $mostExpensiveProduct->product_code,
+                //     'category_id' => $mostExpensiveProduct->category_id,
+                //     'category_name' => $mostExpensiveProduct->category->title ?? null,
+                //     'distributor_price' => $mostExpensiveProduct->distributor_price,
+                //     'retail_price' => $mostExpensiveProduct->retail_price,
+                //     'price' => $mostExpensivePrice,
+                // ] : null,
                 'most_expensive_price' => $mostExpensivePrice,
                 'meta' => [
                     'current_page' => $categories->currentPage(),
