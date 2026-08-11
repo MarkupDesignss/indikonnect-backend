@@ -60,7 +60,7 @@ class CategoryController extends Controller
                 ->first();
 
             $mostExpensivePrice = $mostExpensiveProduct ?
-                ($mostExpensiveProduct->distributor_price ?? $mostExpensiveProduct->retail_price ?? 0) :
+                ($mostExpensiveProduct->retail_price ?? $mostExpensiveProduct->distributor_price ?? 0) :
                 0;
 
             // Transform data with product count

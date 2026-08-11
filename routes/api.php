@@ -12,6 +12,7 @@ use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
 use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\API\ContactController;
+use App\Http\Controllers\API\CouponController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\API\ReviewController;
 use App\Http\Controllers\API\ShippingMethodController;
@@ -258,4 +259,13 @@ Route::prefix('shipping-methods')->group(function () {
     Route::get('/{id}', [ShippingMethodController::class, 'show']);
     Route::post('/{id}', [ShippingMethodController::class, 'update']);
     Route::delete('/{id}', [ShippingMethodController::class, 'destroy']);
+});
+
+
+Route::prefix('coupons')->group(function () {
+    Route::get('/', [CouponController::class, 'index']);
+    Route::post('/', [CouponController::class, 'store']);
+    Route::get('/{id}', [CouponController::class, 'show']);
+    Route::put('/{id}', [CouponController::class, 'update']);
+    Route::delete('/{id}', [CouponController::class, 'destroy']);
 });
