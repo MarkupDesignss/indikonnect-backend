@@ -34,6 +34,11 @@ class CategoryController extends Controller
                 $query->where('status', $request->status);
             }
 
+            // Eager load products for efficiency
+            $query->with(['products' => function ($q) {
+                $q->whereNull('deleted_at'); // Only non-deleted products
+            }]);
+
             // Sorting
             $sortField = $request->get('sort_by', 'created_at');
             $sortDirection = $request->get('sort_direction', 'desc');
@@ -43,16 +48,35 @@ class CategoryController extends Controller
             $perPage = $request->get('per_page', 10);
             $categories = $query->paginate($perPage);
 
+            // Find the most expensive product across ALL categories
+            $allProducts = collect();
+            $categories->each(function ($category) use (&$allProducts) {
+                $allProducts = $allProducts->merge($category->products);
+            });
+
+            $mostExpensiveProduct = $allProducts->sortByDesc('distributor_price')
+                ->first() ??
+                $allProducts->sortByDesc('retail_price')
+                ->first();
+
+            $mostExpensivePrice = $mostExpensiveProduct ?
+                ($mostExpensiveProduct->distributor_price ?? $mostExpensiveProduct->retail_price ?? 0) :
+                0;
+
             // Transform data with product count
             $data = $categories->map(function ($category) {
+                $products = $category->products;
+                $productsCount = $products->count();
+
                 return [
                     'id' => $category->id,
                     'title' => $category->title,
+                    'image' => $category->image ? asset('storage/' . $category->image) : null,
                     'description' => $category->description,
                     'status' => $category->status,
                     'created_at' => $category->created_at,
                     'updated_at' => $category->updated_at,
-                    'products_count' => $category->products()->count(),
+                    'products_count' => $productsCount,
                 ];
             });
 
@@ -60,6 +84,17 @@ class CategoryController extends Controller
                 'success' => true,
                 'message' => 'Categories retrieved successfully',
                 'data' => $data,
+                'most_expensive_product' => $mostExpensiveProduct ? [
+                    'id' => $mostExpensiveProduct->id,
+                    'name' => $mostExpensiveProduct->name,
+                    'product_code' => $mostExpensiveProduct->product_code,
+                    'category_id' => $mostExpensiveProduct->category_id,
+                    'category_name' => $mostExpensiveProduct->category->title ?? null,
+                    'distributor_price' => $mostExpensiveProduct->distributor_price,
+                    'retail_price' => $mostExpensiveProduct->retail_price,
+                    'price' => $mostExpensivePrice,
+                ] : null,
+                'most_expensive_price' => $mostExpensivePrice,
                 'meta' => [
                     'current_page' => $categories->currentPage(),
                     'per_page' => $categories->perPage(),

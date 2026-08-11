@@ -662,28 +662,84 @@ class AuthController extends Controller
     /**
      * Get step data for a specific step
      */
-    public function getStepData(Request $request)
+    // public function getStepData(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'step' => 'required|integer|min:1|max:7',
+    //             'phone' => 'nullable|min:10|max:15',
+    //             'email' => 'nullable|email',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         // Find user
+    //         $user = null;
+    //         if ($request->phone) {
+    //             $user = User::where('phone', $request->phone)->first();
+    //         } elseif ($request->email) {
+    //             $user = User::where('email', $request->email)->first();
+    //         }
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'User not found.'
+    //             ], 422);
+    //         }
+
+    //         $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+
+    //         // Check if requested step is allowed
+    //         if ($request->step > $user->registration_step + 1) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please complete previous steps first.',
+    //                 'current_step' => $user->registration_step
+    //             ], 422);
+    //         }
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'step' => $request->step,
+    //             'step_data' => $this->getUserStepData($user, $distributorProfile, $request->step),
+    //             'completed_steps' => $this->getCompletedSteps($user, $distributorProfile)
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Get step data error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+    public function getStepData($step, $identifier, Request $request)
     {
         try {
-            $validator = Validator::make($request->all(), [
-                'step' => 'required|integer|min:1|max:7',
-                'phone' => 'nullable|min:10|max:15',
-                'email' => 'nullable|email',
-            ]);
-
-            if ($validator->fails()) {
+            // Validate step
+            if (!is_numeric($step) || $step < 1 || $step > 7) {
                 return response()->json([
                     'status' => false,
-                    'errors' => $validator->errors()
+                    'message' => 'Step must be between 1 and 7.'
                 ], 422);
             }
 
-            // Find user
+            $step = (int) $step;
+
+            // Find user by phone or email
             $user = null;
-            if ($request->phone) {
-                $user = User::where('phone', $request->phone)->first();
-            } elseif ($request->email) {
-                $user = User::where('email', $request->email)->first();
+
+            // Check if identifier is email or phone
+            if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
+                $user = User::where('email', $identifier)->first();
+            } else {
+                // Treat as phone
+                $user = User::where('phone', $identifier)->first();
             }
 
             if (!$user) {
@@ -696,7 +752,7 @@ class AuthController extends Controller
             $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
 
             // Check if requested step is allowed
-            if ($request->step > $user->registration_step + 1) {
+            if ($step > $user->registration_step + 1) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Please complete previous steps first.',
@@ -706,8 +762,8 @@ class AuthController extends Controller
 
             return response()->json([
                 'status' => true,
-                'step' => $request->step,
-                'step_data' => $this->getUserStepData($user, $distributorProfile, $request->step),
+                'step' => $step,
+                'step_data' => $this->getUserStepData($user, $distributorProfile, $step),
                 'completed_steps' => $this->getCompletedSteps($user, $distributorProfile)
             ]);
         } catch (\Exception $e) {
