@@ -158,7 +158,8 @@ Route::prefix('distributor')->group(function () {
     Route::post('step5-bank', [APIAuthController::class, 'distributorStep5Bank']);
     Route::post('step6-location', [APIAuthController::class, 'distributorStep6Location']);
     Route::post('step7-submit', [APIAuthController::class, 'distributorStep7Submit']);
-    Route::post('step-data', [APIAuthController::class, 'getStepData']);
+    // Route::post('step-data', [APIAuthController::class, 'getStepData']);
+    Route::get('/step-data/{step}/{identifier}', [APIAuthController::class, 'getStepData']);
     Route::post('progress', [APIAuthController::class, 'getDistributorProgress']);
     Route::post('login', [APIAuthController::class, 'distributorLogin']);
 });
