@@ -266,6 +266,6 @@ Route::prefix('coupons')->group(function () {
     Route::get('/', [CouponController::class, 'index']);
     Route::post('/', [CouponController::class, 'store']);
     Route::get('/{id}', [CouponController::class, 'show']);
-    Route::put('/{id}', [CouponController::class, 'update']);
+    Route::post('/{id}', [CouponController::class, 'update']);
     Route::delete('/{id}', [CouponController::class, 'destroy']);
 });
