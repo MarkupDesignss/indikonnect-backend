@@ -1112,6 +1112,7 @@ class AuthController extends Controller
                     })
                 ],
                 'full_name' => 'required|string|max:255',
+                'account_type' => 'nullable',
                 'country' => 'nullable|string|max:255',
                 'password' => 'nullable|string|min:8',
                 'date_of_birth' => 'required|date|before:-18 years',
@@ -1214,7 +1215,7 @@ class AuthController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'phone' => 'required|min:10|max:15',
-                'sponsor_id' => 'nullable|max:255',
+                'sponsor_id' => 'nullable|max:20',
                 'placement_leg' => 'required|in:left,right',
             ]);
 
@@ -1797,7 +1798,7 @@ class AuthController extends Controller
             if (!Hash::check($request->password, $user->password)) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Invalid email or password.'
+                    'message' => 'Invalid password.'
                 ], 422);
             }
 

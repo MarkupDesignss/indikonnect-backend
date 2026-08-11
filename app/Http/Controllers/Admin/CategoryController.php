@@ -43,10 +43,23 @@ class CategoryController extends Controller
             $perPage = $request->get('per_page', 10);
             $categories = $query->paginate($perPage);
 
+            // Transform data with product count
+            $data = $categories->map(function ($category) {
+                return [
+                    'id' => $category->id,
+                    'title' => $category->title,
+                    'description' => $category->description,
+                    'status' => $category->status,
+                    'created_at' => $category->created_at,
+                    'updated_at' => $category->updated_at,
+                    'products_count' => $category->products()->count(),
+                ];
+            });
+
             return response()->json([
                 'success' => true,
                 'message' => 'Categories retrieved successfully',
-                'data' => CategoryResource::collection($categories),
+                'data' => $data,
                 'meta' => [
                     'current_page' => $categories->currentPage(),
                     'per_page' => $categories->perPage(),
@@ -62,6 +75,7 @@ class CategoryController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Store a newly created category.

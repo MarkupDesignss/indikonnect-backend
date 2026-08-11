@@ -62,4 +62,9 @@ class Category extends Model
     {
         return $query->where('status', 'inactive');
     }
+
+    public function products()
+    {
+        return $this->hasMany(Product::class, 'category_id');
+    }
 }
