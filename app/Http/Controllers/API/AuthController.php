@@ -256,6 +256,106 @@ class AuthController extends Controller
     /**
      * STEP 2: Verify OTP
      */
+    // public function verifyOtp(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone' => 'required|min:10|max:15',
+    //             'otp' => 'required|digits:6'
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $user = User::where('phone', $request->phone)->first();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'User not found. Please request OTP first.'
+    //             ], 422);
+    //         }
+
+    //         // Check OTP
+    //         if ($user->otp != $request->otp) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Invalid OTP'
+    //             ], 422);
+    //         }
+
+    //         // Check OTP expiry
+    //         if (!$user->otp_expires_at || now()->gt($user->otp_expires_at)) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'OTP has expired. Please request a new OTP.'
+    //             ], 422);
+    //         }
+
+    //         // Clear OTP after successful verification
+    //         $user->update([
+    //             'otp' => null,
+    //             'otp_expires_at' => null,
+    //             'phone_verified' => 1,
+    //         ]);
+
+    //         /*
+    //         |--------------------------------------------------------------------------
+    //         | EXISTING REGISTERED CUSTOMER
+    //         |--------------------------------------------------------------------------
+    //         */
+    //         if (
+    //             $user->is_registered == 1 &&
+    //             $user->account_type === 'customer'
+    //         ) {
+    //             // Generate login token
+    //             $token = $user->createToken('customer-login')->plainTextToken;
+
+    //             return response()->json([
+    //                 'status' => true,
+    //                 'message' => 'Login successful',
+    //                 'token' => $token,
+    //                 'user' => $user,
+    //                 'is_registered' => true,
+    //                 'requires_registration' => false,
+    //             ]);
+    //         }
+
+    //         /*
+    //         |--------------------------------------------------------------------------
+    //         | NEW / NOT REGISTERED USER
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //         $tempToken = Str::random(60);
+
+    //         $user->update([
+    //             'temp_verification_token' => $tempToken,
+    //             'otp_verified_at' => now(),
+    //         ]);
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'OTP verified successfully. Please complete your registration.',
+    //             'temp_token' => $tempToken,
+    //             'phone' => $user->phone,
+    //             'is_registered' => false,
+    //             'requires_registration' => true,
+    //         ]);
+    //     } catch (\Exception $e) {
+
+    //         Log::error('Verify OTP error: ' . $e->getMessage());
+
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => 'Something went wrong'
+    //         ], 500);
+    //     }
+    // }
     public function verifyOtp(Request $request)
     {
         try {
@@ -315,10 +415,23 @@ class AuthController extends Controller
                 // Generate login token
                 $token = $user->createToken('customer-login')->plainTextToken;
 
+                // Generate refresh token
+                $refreshToken = Str::random(100);
+
+                // Store refresh token
+                RefreshToken::create([
+                    'user_id' => $user->id,
+                    'token' => hash('sha256', $refreshToken),
+                    'expires_at' => now()->addDays(7),
+                    'last_used_at' => now()
+                ]);
+
                 return response()->json([
                     'status' => true,
                     'message' => 'Login successful',
                     'token' => $token,
+                    'expires_in' => 3600,
+                    'refresh_token' => $refreshToken,
                     'user' => $user,
                     'is_registered' => true,
                     'requires_registration' => false,
@@ -356,6 +469,7 @@ class AuthController extends Controller
             ], 500);
         }
     }
+
 
     // ============ CUSTOMER REGISTRATION ============
 
@@ -1343,12 +1457,12 @@ class AuthController extends Controller
             }
 
             // Verify all steps are complete
-            if ($user->registration_step < 7) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Please complete all previous steps first.'
-                ], 422);
-            }
+            // if ($user->registration_step < 7) {
+            //     return response()->json([
+            //         'status' => false,
+            //         'message' => 'Please complete all previous steps first.'
+            //     ], 422);
+            // }
 
             // Finalize registration
             $user->update([
