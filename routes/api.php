@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\API\ReviewController;
+use App\Http\Controllers\API\ShippingMethodController;
 use App\Http\Controllers\API\SubscriberController;
 use App\Http\Controllers\API\WishlistController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
@@ -144,17 +145,22 @@ Route::prefix('tax-categories')->group(function () {
 
 // Distributer and user
 Route::prefix('distributor')->group(function () {
+    Route::post('check-status', [APIAuthController::class, 'checkUserStatus']);
+
+    // OTP endpoints (separate for phone and email)
+    Route::post('send-otp', [APIAuthController::class, 'sendVerificationOtp']);
+    Route::post('verify-phone-otp', [APIAuthController::class, 'verifyPhoneOtp']);
+    Route::post('verify-email-otp', [APIAuthController::class, 'verifyEmailOtp']);
     Route::post('step1-personal', [APIAuthController::class, 'distributorStep1Personal']);
     Route::post('step2-sponsor', [APIAuthController::class, 'distributorStep2Sponsor']);
-    Route::post('step3-send-verification-otp', [APIAuthController::class, 'distributorStep3SendVerificationOtp']);
-    Route::post('step3-verify-email', [APIAuthController::class, 'distributorStep3VerifyEmailOtp']);
-    Route::post('step3-verify-mobile', [APIAuthController::class, 'distributorStep3VerifyMobileOtp']);
-    Route::post('step4-aadhaar', [APIAuthController::class, 'distributorStep4Aadhaar']);
-    Route::post('step5-pan', [APIAuthController::class, 'distributorStep5Pan']);
-    Route::post('step6-bank', [APIAuthController::class, 'distributorStep6Bank']);
-    Route::post('step7-location', [APIAuthController::class, 'distributorStep7Location']);
-    Route::post('step8-submit', [APIAuthController::class, 'distributorStep8Submit']);
-    Route::post('/login', [APIAuthController::class, 'distributorLogin']);
+    Route::post('step3-aadhaar', [APIAuthController::class, 'distributorStep3Aadhaar']);
+    Route::post('step4-pan', [APIAuthController::class, 'distributorStep4Pan']);
+    Route::post('step5-bank', [APIAuthController::class, 'distributorStep5Bank']);
+    Route::post('step6-location', [APIAuthController::class, 'distributorStep6Location']);
+    Route::post('step7-submit', [APIAuthController::class, 'distributorStep7Submit']);
+    Route::post('step-data', [APIAuthController::class, 'getStepData']);
+    Route::post('progress', [APIAuthController::class, 'getDistributorProgress']);
+    Route::post('login', [APIAuthController::class, 'distributorLogin']);
 });
 
 Route::group(['prefix' => 'user'], function () {
