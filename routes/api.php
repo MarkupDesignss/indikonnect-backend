@@ -249,3 +249,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/reviews', [ReviewController::class, 'userIndex']);
 });
 Route::post('/webhook/razorpay', [RazorpayWebhookController::class, 'handle']);
+
+
+Route::prefix('shipping-methods')->group(function () {
+    Route::get('/', [ShippingMethodController::class, 'index']);
+    Route::post('/', [ShippingMethodController::class, 'store']);
+    Route::get('/{id}', [ShippingMethodController::class, 'show']);
+    Route::post('/{id}', [ShippingMethodController::class, 'update']);
+    Route::delete('/{id}', [ShippingMethodController::class, 'destroy']);
+});

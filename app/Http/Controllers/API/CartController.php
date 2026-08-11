@@ -141,7 +141,7 @@ class CartController extends Controller
             if ($cartItem) {
                 // Update quantity only - keep the unit_price as null or 0 since we don't store prices anymore
                 $cartItem->quantity += $quantity;
-                $cartItem->unit_price = 0; // We don't store price anymore
+                $cartItem->unit_price = 0;
                 $cartItem->save();
             } else {
                 // Add new item - store only product_id and quantity
