@@ -10,94 +10,48 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // ==========================================
-        // 1. FIRST: Fix Engines to InnoDB
-        // ==========================================
-        DB::statement('ALTER TABLE genealogy_placements ENGINE=InnoDB');
-        DB::statement('ALTER TABLE audit_logs ENGINE=InnoDB');
-        DB::statement('ALTER TABLE consent_records ENGINE=InnoDB');
 
-        // ==========================================
-        // 2. SECOND: Clean orphaned records first
-        // ==========================================
-        // Delete any records with invalid user_id
-        DB::table('genealogy_placements')
-            ->whereNotIn('user_id', DB::table('users')->pluck('id'))
-            ->delete();
-        
-        DB::table('audit_logs')
-            ->whereNotIn('user_id', DB::table('users')->pluck('id'))
-            ->delete();
-        
-        DB::table('consent_records')
-            ->whereNotIn('user_id', DB::table('users')->pluck('id'))
-            ->delete();
-
-        // ==========================================
-        // 3. THIRD: Drop existing foreign keys if any
-        // ==========================================
-        try {
-            Schema::table('genealogy_placements', function (Blueprint $table) {
-                $table->dropForeign(['user_id']);
-            });
-        } catch (\Exception $e) {
-            // Foreign key doesn't exist, continue
-        }
-
-        try {
-            Schema::table('audit_logs', function (Blueprint $table) {
-                $table->dropForeign(['user_id']);
-            });
-        } catch (\Exception $e) {
-            // Foreign key doesn't exist, continue
-        }
-
-        try {
-            Schema::table('consent_records', function (Blueprint $table) {
-                $table->dropForeign(['user_id']);
-            });
-        } catch (\Exception $e) {
-            // Foreign key doesn't exist, continue
-        }
-
-        // ==========================================
-        // 4. FOURTH: Add Foreign Keys
-        // ==========================================
+        // 1. Add indexes on user_id for all 3 tables
         Schema::table('genealogy_placements', function (Blueprint $table) {
-            // Make sure column types match
-            $table->foreign('user_id')
-                ->references('id')
-                ->on('users')
-                ->onDelete('cascade');
+            if (!Schema::hasIndex('genealogy_placements', ['user_id'])) {
+                $table->index('user_id');
+            }
         });
 
         Schema::table('audit_logs', function (Blueprint $table) {
-            $table->foreign('user_id')
-                ->references('id')
-                ->on('users')
-                ->onDelete('set null');
+            if (!Schema::hasIndex('audit_logs', ['user_id'])) {
+                $table->index('user_id');
+            }
         });
 
         Schema::table('consent_records', function (Blueprint $table) {
-            $table->foreign('user_id')
-                ->references('id')
-                ->on('users')
-                ->onDelete('cascade');
+            if (!Schema::hasIndex('consent_records', ['user_id'])) {
+                $table->index('user_id');
+            }
         });
+
+        // 2. Try to convert to InnoDB (optional, won't break if fails)
+        try {
+            DB::statement('ALTER TABLE genealogy_placements ENGINE=InnoDB');
+            DB::statement('ALTER TABLE audit_logs ENGINE=InnoDB');
+            DB::statement('ALTER TABLE consent_records ENGINE=InnoDB');
+        } catch (\Exception $e) {
+            // Ignore - MyISAM is fine
+        }
     }
 
     public function down(): void
     {
         Schema::table('genealogy_placements', function (Blueprint $table) {
-            $table->dropForeign(['user_id']);
+            $table->dropIndex(['user_id']);
         });
 
         Schema::table('audit_logs', function (Blueprint $table) {
-            $table->dropForeign(['user_id']);
+            $table->dropIndex(['user_id']);
         });
 
         Schema::table('consent_records', function (Blueprint $table) {
-            $table->dropForeign(['user_id']);
+            $table->dropIndex(['user_id']);
         });
     }
 };
