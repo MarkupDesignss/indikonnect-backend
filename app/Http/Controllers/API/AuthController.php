@@ -1272,7 +1272,7 @@ class AuthController extends Controller
             $validator = Validator::make($request->all(), [
                 'phone' => 'required|min:10|max:15',
                 'sponsor_id' => 'nullable|max:20',
-                'placement_leg' => 'required|in:left,right',
+                'placement_leg' => 'nullable|in:left,right',
             ]);
 
             if ($validator->fails()) {
