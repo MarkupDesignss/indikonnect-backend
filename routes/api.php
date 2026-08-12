@@ -13,7 +13,7 @@ use App\Http\Controllers\API\CartController;
 use App\Http\Controllers\API\CheckoutController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\API\CouponController;
-use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\API\OrderController;
 use App\Http\Controllers\API\ReviewController;
 use App\Http\Controllers\API\ShippingMethodController;
 use App\Http\Controllers\API\SubscriberController;
@@ -229,7 +229,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 
 Route::middleware('auth:sanctum')->group(function () {
-    Route::post('/checkout/summary', [CheckoutController::class, 'summary']);
+    Route::get('/checkout/summary', [CheckoutController::class, 'summary']);
     Route::post('/checkout/apply-coins', [CheckoutController::class, 'applyCoins']);
     Route::post('/checkout/place-order', [CheckoutController::class, 'placeOrder']);
     Route::get('/order/history', [OrderController::class, 'history']);
