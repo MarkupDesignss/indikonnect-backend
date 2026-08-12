@@ -274,3 +274,9 @@ Route::prefix('coupons')->group(function () {
     Route::post('/{id}', [CouponController::class, 'update']);
     Route::delete('/{id}', [CouponController::class, 'destroy']);
 });
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/orders/confirmed/{id}', [OrderController::class, 'getConfirmedOrder']);
+    // Or use a more generic route
+    Route::get('/my-orders/{id}', [OrderController::class, 'getOrder']);
+});

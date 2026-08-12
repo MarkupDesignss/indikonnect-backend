@@ -751,6 +751,51 @@ class AuthController extends Controller
 
             $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
 
+            // ============ NEW LOGIC ============
+            // Check if all 7 steps are completed
+            $allStepsCompleted = $user->registration_step >= 7;
+            $isActive = $distributorProfile && $distributorProfile->status === 'active';
+            $isPending = $distributorProfile && $distributorProfile->status === 'pending';
+
+            // Case 1: All steps completed and profile is ACTIVE
+            if ($allStepsCompleted && $isActive) {
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Registration complete. Proceed to login.',
+                    'redirect' => 'login',
+                    'step' => $step,
+                    'step_data' => $this->getUserStepData($user, $distributorProfile, $step),
+                    'completed_steps' => $this->getCompletedSteps($user, $distributorProfile),
+                    'registration_status' => 'active',
+                    'is_complete' => true
+                ]);
+            }
+
+            // Case 2: All steps completed but profile is PENDING (waiting for admin approval)
+            if ($allStepsCompleted && $isPending) {
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Distributor registration submitted successfully. Please wait for admin approval.',
+                    'registration_status' => 'pending',
+                    'is_complete' => true,
+                    'step' => $step,
+                    'step_data' => $this->getUserStepData($user, $distributorProfile, $step),
+                    'completed_steps' => $this->getCompletedSteps($user, $distributorProfile),
+                ]);
+            }
+
+            // Case 3: All steps completed but profile status is something else (rejected, inactive, etc.)
+            // if ($allStepsCompleted && !$isActive && !$isPending) {
+            //     $statusMessage = $distributorProfile ? $distributorProfile->status : 'unknown';
+            //     return response()->json([
+            //         'status' => false,
+            //         'message' => "Your distributor registration is {$statusMessage}. Please contact support.",
+            //         'registration_status' => $statusMessage,
+            //         'is_complete' => true
+            //     ], 422);
+            // }
+
+            // Case 4: Normal flow - steps not completed yet
             // Check if requested step is allowed
             if ($step > $user->registration_step + 1) {
                 return response()->json([
@@ -764,7 +809,9 @@ class AuthController extends Controller
                 'status' => true,
                 'step' => $step,
                 'step_data' => $this->getUserStepData($user, $distributorProfile, $step),
-                'completed_steps' => $this->getCompletedSteps($user, $distributorProfile)
+                'completed_steps' => $this->getCompletedSteps($user, $distributorProfile),
+                'registration_status' => $distributorProfile ? $distributorProfile->status : 'not_started',
+                'is_complete' => false
             ]);
         } catch (\Exception $e) {
             Log::error('Get step data error: ' . $e->getMessage());
