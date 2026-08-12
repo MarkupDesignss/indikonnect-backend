@@ -10,7 +10,7 @@ use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\API\AddressController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
-use App\Http\Controllers\Api\CheckoutController;
+use App\Http\Controllers\API\CheckoutController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\API\CouponController;
 use App\Http\Controllers\Api\OrderController;

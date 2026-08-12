@@ -1501,6 +1501,8 @@ class AuthController extends Controller
                 'phone' => 'required|min:10|max:15',
                 'bank_holder_name' => 'required|string|max:255',
                 'bank_name' => 'required|string|max:255',
+                'title' => 'required|string|max:255',
+                'type_of_entity' => 'required|string|max:255',
                 'branch_name' => 'required|string|max:255',
                 'encrypted_bank_account' => 'required|string|max:50',
                 'confirm_account_number' => 'required|string|max:50',
@@ -1553,6 +1555,8 @@ class AuthController extends Controller
             $distributorProfile->update([
                 'encrypted_bank_account' => encrypt($request->encrypted_bank_account),
                 'bank_ifsc' => $request->bank_ifsc,
+                'title' => $request->title,
+                'type_of_entity' => $request->type_of_entity,
                 'bank_holder_name' => $request->bank_holder_name,
                 'bank_name' => $request->bank_name,
                 'branch_name' => $request->branch_name,
@@ -1572,6 +1576,7 @@ class AuthController extends Controller
                 'next_step' => 6,
                 'bank_details' => [
                     'bank_name' => $request->bank_name,
+                    'title' => $request->title,
                     'bank_holder_name' => $request->bank_holder_name,
                     'account_last4' => '****' . substr($request->encrypted_bank_account, -4),
                     'bank_ifsc' => $request->bank_ifsc
