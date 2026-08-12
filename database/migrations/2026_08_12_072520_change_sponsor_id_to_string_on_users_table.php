@@ -3,37 +3,63 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
+    /**
+     * Run the migrations.
+     */
     public function up(): void
     {
+        // First check if there's any foreign key or index and drop them
         Schema::table('users', function (Blueprint $table) {
-            // 1. अगर Foreign Key है तो drop करें
-            // (नाम जानने के लिए नीचे देखें)
-            $table->dropForeign(['sponsor_id']);    // array में column name
+            // Check and drop foreign key if exists
+            $foreignKeys = DB::select("
+                SELECT CONSTRAINT_NAME 
+                FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'users' 
+                AND COLUMN_NAME = 'sponsor_id' 
+                AND REFERENCED_TABLE_NAME IS NOT NULL
+            ");
 
-            // 2. साधारण Index drop करें (अगर है)
-            // यह auto-generated नाम हो सकता है "users_sponsor_id_index"
-            $table->dropIndex(['sponsor_id']);       // या dropIndex('users_sponsor_id_index')
+            foreach ($foreignKeys as $fk) {
+                $table->dropForeign($fk->CONSTRAINT_NAME);
+            }
 
-            // 3. अब column का type safely बदलें (length 191 दें)
+            // Check and drop index if exists
+            $indexes = DB::select("
+                SELECT INDEX_NAME 
+                FROM INFORMATION_SCHEMA.STATISTICS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'users' 
+                AND COLUMN_NAME = 'sponsor_id'
+            ");
+
+            foreach ($indexes as $index) {
+                try {
+                    $table->dropIndex($index->INDEX_NAME);
+                } catch (\Exception $e) {
+                    // Index might already be dropped
+                }
+            }
+        });
+
+        // Now change the column type
+        Schema::table('users', function (Blueprint $table) {
             $table->string('sponsor_id', 191)->nullable()->change();
-
-            // 4. (Optional) अगर index वापस चाहिए तो add करें
-            // $table->index('sponsor_id');
         });
     }
 
+    /**
+     * Reverse the migrations.
+     */
     public function down(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            // वापस integer में बदलें (मान लें कि पहले integer था)
+            // Revert back to integer
             $table->integer('sponsor_id')->nullable()->change();
-
-            // फिर से index / foreign key वापस add करें
-            // $table->foreign('sponsor_id')->references('id')->on('sponsors');
-            // $table->index('sponsor_id');
         });
     }
 };
