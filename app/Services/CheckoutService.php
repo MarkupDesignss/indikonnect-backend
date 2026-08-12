@@ -535,10 +535,6 @@ class CheckoutService
         // Calculate subtotal after discount
         $subtotalAfterDiscount = $subtotal - $couponDiscount;
 
-        // ============ ADDITIONAL TAX ON DISCOUNTED SUBTOTAL ============
-        $ADDITIONAL_GST_RATE = 18;
-        $additionalGstOnSubtotal = ($subtotalAfterDiscount * $ADDITIONAL_GST_RATE) / 100;
-
         // Apply shipping method
         $shippingCost = 0;
         $shippingData = null;
@@ -575,7 +571,7 @@ class CheckoutService
         $taxBreakdown = [];
         $taxByCategory = [];
 
-        // ============ NEW: INDIVIDUAL PRODUCT TAX BREAKDOWN ============
+        // Individual product tax breakdown
         $productTaxBreakdown = [];
 
         foreach ($productDetails as $index => $product) {
@@ -597,7 +593,7 @@ class CheckoutService
                 $productOtherTaxTotal += $taxAmount;
             }
 
-            // ============ ADD TO INDIVIDUAL PRODUCT TAX BREAKDOWN ============
+            // Add to individual product tax breakdown
             $productName = $product['item']->product->name;
             $productKey = 'product_' . ($index + 1) . '_' . str_replace(' ', '_', strtolower($productName));
 
@@ -675,18 +671,11 @@ class CheckoutService
             $taxByCategory[$categoryKey]['igst'] += $igst;
         }
 
-        // ============ CALCULATE TOTAL TAXES ============
-        // Product taxes (from individual products)
-        $productTaxTotal = $productGstTotal + $productOtherTaxTotal;
+        // Total tax is only from products
+        $totalTax = $productTaxTotal;
 
-        // Additional tax on discounted subtotal
-        $additionalTax = $additionalGstOnSubtotal;
-
-        // Grand total tax
-        $grandTotalTax = $productTaxTotal + $additionalTax;
-
-        // Calculate subtotal after discount and all taxes
-        $subtotalAfterDiscountAndTax = $subtotalAfterDiscount + $grandTotalTax + $shippingCost;
+        // Calculate subtotal after discount and tax
+        $subtotalAfterDiscountAndTax = $subtotalAfterDiscount + $totalTax + $shippingCost;
 
         // Handle coin redemption
         $coinRedemptionData = null;
@@ -730,24 +719,17 @@ class CheckoutService
             'subtotal_after_discount' => round($subtotalAfterDiscount, 2),
 
             // ============ INDIVIDUAL PRODUCT TAX BREAKDOWN ============
-            'product_tax_breakdown' => $productTaxBreakdown, // Dynamic keys: product_1_titan, product_2_shoes, etc.
+            'product_tax_breakdown' => $productTaxBreakdown,
 
             // ============ TAX SUMMARY ============
-            // 'tax_summary' => [
-            //     'gst_18_percent' => round($productGstTotal, 2),        // 18% GST from products
-            //     'other_tax' => round($productOtherTaxTotal, 2),          // Other taxes from products
-            //     'total_product_tax' => round($productTaxTotal, 2),       // Sum of all product taxes
-            // ],
-
-            // Additional tax on discounted subtotal
-            'additional_tax_on_subtotal' => [
-                'description' => '18% GST on discounted subtotal',
-                'rate' => '18%',
-                'amount' => round($additionalGstOnSubtotal, 2),
+            'tax_summary' => [
+                'gst_18_percent' => round($productGstTotal, 2),        // 18% GST from products
+                'other_tax' => round($productOtherTaxTotal, 2),          // Other taxes from products (5%, 12%, 28%)
+                'total_product_tax' => round($productTaxTotal, 2),       // Sum of all product taxes
             ],
 
             // Grand total tax
-            'total_tax' => round($grandTotalTax, 2),
+            'total_tax' => round($totalTax, 2),
 
             // Tax by category (from products only)
             'tax_by_category' => array_values($taxByCategory),
@@ -783,13 +765,9 @@ class CheckoutService
                 'subtotal' => round($subtotal, 2),
                 'less_coupon' => round($couponDiscount, 2),
                 'net_subtotal' => round($subtotalAfterDiscount, 2),
-
-                // Tax details
                 'product_gst_18' => round($productGstTotal, 2),
                 'product_other_tax' => round($productOtherTaxTotal, 2),
-                'additional_gst_on_subtotal' => round($additionalGstOnSubtotal, 2),
-                'total_tax' => round($grandTotalTax, 2),
-
+                'total_tax' => round($totalTax, 2),
                 'plus_shipping' => round($shippingCost, 2),
                 'less_coins' => round($amountRedeemed, 2),
                 'grand_total' => $grandTotal,
@@ -1073,7 +1051,8 @@ class CheckoutService
                     'product_id' => $product->id,
                     'quantity' => $itemData['quantity'],
                     'unit_price' => $itemData['unit_price'],
-                    'gst_rate' => $itemData['tax_rate'], // Fix: use tax_rate instead of gst_rate
+                    'gst_rate' => (float) str_replace('%', '', $itemData['tax_rate']),
+                    // 'gst_rate' => $itemData['tax_rate'],
                     'gst_amount' => $itemData['total_tax'],
                     'line_total' => $itemData['line_total'],
                     'commissionable_volume' => $product->commissionable_volume ?? 0,

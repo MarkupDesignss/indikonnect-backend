@@ -116,6 +116,8 @@ Route::prefix('products')->group(function () {
         Route::get('/slug/{slug}', [ProductController::class, 'showBySlug']);
         Route::get('/code/{code}', [ProductController::class, 'showByCode']);
         Route::get('/{product}', [ProductController::class, 'show']);
+        Route::post('/update/{id}', [ProductController::class, 'update']);
+        Route::delete('/images/{id}', [ProductController::class, 'deleteImages']);
         Route::get('/category/{categoryId}', [ProductController::class, 'productsByCategory']);
     });
 
