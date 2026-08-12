@@ -937,6 +937,85 @@ class CheckoutService
     /**
      * FR-CO-005: Place order and initiate Razorpay payment
      */
+    // public function placeOrder(int $userId, array $data): array
+    // {
+    //     $address = Address::findOrFail($data['address_id']);
+    //     $cart = Cart::with('items.product')->where('user_id', $userId)->firstOrFail();
+    //     $user = User::findOrFail($userId);
+
+    //     // Check stock
+    //     foreach ($cart->items as $item) {
+    //         if ($item->product->stock_quantity < $item->quantity) {
+    //             throw new Exception("Insufficient stock for: {$item->product->name}");
+    //         }
+    //     }
+
+    //     $summary = $this->calculateSummary($userId, $data['address_id']);
+    //     $coinRedemption = null;
+    //     if (isset($data['redemption_id'])) {
+    //         $coinRedemption = CoinRedemption::where('id', $data['redemption_id'])
+    //             ->where('user_id', $userId)
+    //             ->where('status', 'authorized')
+    //             ->first();
+    //         if (!$coinRedemption) {
+    //             throw new Exception('Invalid or expired coin redemption');
+    //         }
+    //     }
+
+    //     return DB::transaction(function () use ($user, $address, $cart, $summary, $coinRedemption, $data) {
+    //         $order = Order::create([
+    //             'order_reference' => 'ORD-' . strtoupper(uniqid()),
+    //             'user_id' => $user->id,
+    //             'billing_address_id' => $data['address_id'],
+    //             'delivery_address_id' => $data['address_id'],
+    //             'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
+    //             'subtotal' => $summary['subtotal'],
+    //             'total_gst' => $summary['total_tax'],
+    //             'shipping_charge' => 0,
+    //             'coin_redeemed' => $coinRedemption ? $coinRedemption->amount_redeemed : 0,
+    //             'total_payable' => $summary['grand_total'] - ($coinRedemption ? $coinRedemption->amount_redeemed : 0),
+    //             'amount_paid' => 0,
+    //             'status' => 'pending',
+    //             'tax_breakdown' => json_encode($summary['tax_breakdown']),
+    //         ]);
+
+    //         // Create order lines
+    //         foreach ($summary['items'] as $itemData) {
+    //             $product = Product::find($itemData['product_id']);
+    //             OrderLine::create([
+    //                 'order_id' => $order->id,
+    //                 'product_id' => $product->id,
+    //                 'quantity' => $itemData['quantity'],
+    //                 'unit_price' => $itemData['unit_price'],
+    //                 'gst_rate' => $itemData['gst_rate'],
+    //                 'gst_amount' => $itemData['total_tax'],
+    //                 'line_total' => $itemData['line_total'],
+    //                 'commissionable_volume' => $product->commissionable_volume ?? 0,
+    //             ]);
+    //         }
+
+    //         // Update coin redemption with order
+    //         if ($coinRedemption) {
+    //             $coinRedemption->update(['order_id' => $order->id]);
+    //         }
+
+    //         // Clear cart
+    //         $cart->items()->delete();
+
+    //         // Create Razorpay order
+    //         $razorpayOrder = $this->razorpayService->createOrder($order);
+
+    //         return [
+    //             'order_id' => $order->id,
+    //             'order_reference' => $order->order_reference,
+    //             'amount' => $order->total_payable,
+    //             'razorpay_order_id' => $razorpayOrder['id'],
+    //             'razorpay_key' => config('services.razorpay.key_id'),
+    //             'status' => 'pending',
+    //         ];
+    //     });
+    // }
+
     public function placeOrder(int $userId, array $data): array
     {
         $address = Address::findOrFail($data['address_id']);
@@ -951,6 +1030,7 @@ class CheckoutService
         }
 
         $summary = $this->calculateSummary($userId, $data['address_id']);
+
         $coinRedemption = null;
         if (isset($data['redemption_id'])) {
             $coinRedemption = CoinRedemption::where('id', $data['redemption_id'])
@@ -959,6 +1039,11 @@ class CheckoutService
                 ->first();
             if (!$coinRedemption) {
                 throw new Exception('Invalid or expired coin redemption');
+            }
+
+            // Verify that the redemption amount matches what's in the summary
+            if ($coinRedemption->amount_redeemed != $summary['amount_redeemed']) {
+                throw new Exception('Coin redemption amount mismatch');
             }
         }
 
@@ -971,23 +1056,24 @@ class CheckoutService
                 'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
                 'subtotal' => $summary['subtotal'],
                 'total_gst' => $summary['total_tax'],
-                'shipping_charge' => 0,
-                'coin_redeemed' => $coinRedemption ? $coinRedemption->amount_redeemed : 0,
-                'total_payable' => $summary['grand_total'] - ($coinRedemption ? $coinRedemption->amount_redeemed : 0),
+                'shipping_charge' => $summary['shipping_cost'], // You had this as 0, should use actual shipping cost
+                'coin_redeemed' => $summary['coins_used'], // Use from summary
+                'coin_redeemed_amount' => $summary['amount_redeemed'], // Add this field to orders table
+                'total_payable' => $summary['grand_total'], // This already includes coin deduction
                 'amount_paid' => 0,
                 'status' => 'pending',
                 'tax_breakdown' => json_encode($summary['tax_breakdown']),
             ]);
-
             // Create order lines
             foreach ($summary['items'] as $itemData) {
                 $product = Product::find($itemData['product_id']);
+                // dd($itemData);
                 OrderLine::create([
                     'order_id' => $order->id,
                     'product_id' => $product->id,
                     'quantity' => $itemData['quantity'],
                     'unit_price' => $itemData['unit_price'],
-                    'gst_rate' => $itemData['gst_rate'],
+                    'gst_rate' => $itemData['tax_rate'], // Fix: use tax_rate instead of gst_rate
                     'gst_amount' => $itemData['total_tax'],
                     'line_total' => $itemData['line_total'],
                     'commissionable_volume' => $product->commissionable_volume ?? 0,
@@ -996,7 +1082,10 @@ class CheckoutService
 
             // Update coin redemption with order
             if ($coinRedemption) {
-                $coinRedemption->update(['order_id' => $order->id]);
+                $coinRedemption->update([
+                    'order_id' => $order->id,
+                    'status' => 'used' // Update status to used
+                ]);
             }
 
             // Clear cart
@@ -1012,6 +1101,7 @@ class CheckoutService
                 'razorpay_order_id' => $razorpayOrder['id'],
                 'razorpay_key' => config('services.razorpay.key_id'),
                 'status' => 'pending',
+                'summary' => $summary, // Optional: return summary for verification
             ];
         });
     }
