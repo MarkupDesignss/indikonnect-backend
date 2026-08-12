@@ -60,7 +60,10 @@ class AddressController extends Controller
                 ], 401);
             }
 
-            $validator = Validator::make($request->all(), [
+            // Determine address type
+            $addressType = $request->address_type ?? 'both'; // billing, delivery, both
+
+            $rules = [
                 'recipient_name' => 'required|string|max:255',
                 'contact_number' => 'required|string|max:20',
                 'address_line_1' => 'required|string|max:255',
@@ -72,7 +75,29 @@ class AddressController extends Controller
                 'is_default' => 'nullable|boolean',
                 'is_billing' => 'nullable|boolean',
                 'is_delivery' => 'nullable|boolean',
-            ]);
+                'address_type' => 'nullable|in:billing,delivery,both',
+                'gst_number' => 'nullable|string|max:20',
+                'pan_number' => 'nullable|string|max:20',
+                'company_name' => 'nullable|string|max:255',
+                'company_contact_person' => 'nullable|string|max:255',
+                'address_label' => 'nullable|string|max:100',
+            ];
+
+            // If both billing and delivery are different, add billing fields
+            if ($request->has('is_billing') && !$request->is_billing) {
+                $rules = array_merge($rules, [
+                    'billing_recipient_name' => 'required|string|max:255',
+                    'billing_contact_number' => 'required|string|max:20',
+                    'billing_address_line_1' => 'required|string|max:255',
+                    'billing_address_line_2' => 'nullable|string|max:255',
+                    'billing_city' => 'required|string|max:255',
+                    'billing_state' => 'required|string|max:255',
+                    'billing_postcode' => 'required|string|max:20',
+                    'billing_country' => 'nullable|string|max:255',
+                ]);
+            }
+
+            $validator = Validator::make($request->all(), $rules);
 
             if ($validator->fails()) {
                 return response()->json([
@@ -95,7 +120,8 @@ class AddressController extends Controller
                 }
             }
 
-            $address = Address::create([
+            // Prepare address data
+            $addressData = [
                 'user_id' => $user->id,
                 'recipient_name' => $request->recipient_name,
                 'contact_number' => $request->contact_number,
@@ -106,9 +132,35 @@ class AddressController extends Controller
                 'postcode' => $request->postcode,
                 'country' => $request->country ?? 'India',
                 'is_default' => $request->is_default ?? false,
-                'is_billing' => $request->is_billing ?? true,
-                'is_delivery' => $request->is_delivery ?? true,
-            ]);
+
+            ];
+
+            // Handle address types using is_billing and is_delivery
+            if ($request->has('is_billing')) {
+                $addressData['is_billing'] = $request->is_billing;
+            } else {
+                $addressData['is_billing'] = $addressType === 'billing' || $addressType === 'both';
+            }
+
+            if ($request->has('is_delivery')) {
+                $addressData['is_delivery'] = $request->is_delivery;
+            } else {
+                $addressData['is_delivery'] = $addressType === 'delivery' || $addressType === 'both';
+            }
+
+            // If billing address is different from delivery, add billing details
+            if (!$addressData['is_billing'] || $request->has('billing_address_line_1')) {
+                $addressData['billing_recipient_name'] = $request->billing_recipient_name ?? $request->recipient_name;
+                $addressData['billing_contact_number'] = $request->billing_contact_number ?? $request->contact_number;
+                $addressData['billing_address_line_1'] = $request->billing_address_line_1 ?? $request->address_line_1;
+                $addressData['billing_address_line_2'] = $request->billing_address_line_2;
+                $addressData['billing_city'] = $request->billing_city ?? $request->city;
+                $addressData['billing_state'] = $request->billing_state ?? $request->state;
+                $addressData['billing_postcode'] = $request->billing_postcode ?? $request->postcode;
+                $addressData['billing_country'] = $request->billing_country ?? $request->country ?? 'India';
+            }
+
+            $address = Address::create($addressData);
 
             return response()->json([
                 'status' => true,
@@ -149,7 +201,7 @@ class AddressController extends Controller
                 ], 404);
             }
 
-            $validator = Validator::make($request->all(), [
+            $rules = [
                 'recipient_name' => 'sometimes|required|string|max:255',
                 'contact_number' => 'sometimes|required|string|max:20',
                 'address_line_1' => 'sometimes|required|string|max:255',
@@ -161,7 +213,29 @@ class AddressController extends Controller
                 'is_default' => 'nullable|boolean',
                 'is_billing' => 'nullable|boolean',
                 'is_delivery' => 'nullable|boolean',
-            ]);
+                'gst_number' => 'nullable|string|max:20',
+                'pan_number' => 'nullable|string|max:20',
+                'company_name' => 'nullable|string|max:255',
+                'company_contact_person' => 'nullable|string|max:255',
+                'address_label' => 'nullable|string|max:100',
+                'use_billing_as_delivery' => 'nullable|boolean',
+            ];
+
+            // If billing is separate, add billing fields
+            if ($request->has('is_billing') && !$request->is_billing) {
+                $rules = array_merge($rules, [
+                    'billing_recipient_name' => 'required|string|max:255',
+                    'billing_contact_number' => 'required|string|max:20',
+                    'billing_address_line_1' => 'required|string|max:255',
+                    'billing_address_line_2' => 'nullable|string|max:255',
+                    'billing_city' => 'required|string|max:255',
+                    'billing_state' => 'required|string|max:255',
+                    'billing_postcode' => 'required|string|max:20',
+                    'billing_country' => 'nullable|string|max:255',
+                ]);
+            }
+
+            $validator = Validator::make($request->all(), $rules);
 
             if ($validator->fails()) {
                 return response()->json([
@@ -177,8 +251,8 @@ class AddressController extends Controller
                     ->update(['is_default' => false]);
             }
 
-            // Update only provided fields
-            $address->fill($request->only([
+            // Prepare update data
+            $updateData = $request->only([
                 'recipient_name',
                 'contact_number',
                 'address_line_1',
@@ -189,14 +263,46 @@ class AddressController extends Controller
                 'country',
                 'is_default',
                 'is_billing',
-                'is_delivery'
-            ]));
+                'is_delivery',
+                'gst_number',
+                'pan_number',
+                'company_name',
+                'company_contact_person',
+                'address_label',
+            ]);
 
-            // Ensure country is set if not provided
-            if ($request->has('country') && empty($request->country)) {
-                $address->country = 'India';
+            // Handle billing fields
+            if ($request->has('billing_address_line_1')) {
+                $updateData['billing_recipient_name'] = $request->billing_recipient_name;
+                $updateData['billing_contact_number'] = $request->billing_contact_number;
+                $updateData['billing_address_line_1'] = $request->billing_address_line_1;
+                $updateData['billing_address_line_2'] = $request->billing_address_line_2;
+                $updateData['billing_city'] = $request->billing_city;
+                $updateData['billing_state'] = $request->billing_state;
+                $updateData['billing_postcode'] = $request->billing_postcode;
+                $updateData['billing_country'] = $request->billing_country ?? 'India';
             }
 
+            // If use_billing_as_delivery is true, copy billing address to delivery
+            if ($request->has('use_billing_as_delivery') && $request->use_billing_as_delivery) {
+                $updateData['address_line_1'] = $updateData['billing_address_line_1'] ?? $address->billing_address_line_1;
+                $updateData['address_line_2'] = $updateData['billing_address_line_2'] ?? $address->billing_address_line_2;
+                $updateData['city'] = $updateData['billing_city'] ?? $address->billing_city;
+                $updateData['state'] = $updateData['billing_state'] ?? $address->billing_state;
+                $updateData['postcode'] = $updateData['billing_postcode'] ?? $address->billing_postcode;
+                $updateData['country'] = $updateData['billing_country'] ?? $address->billing_country ?? 'India';
+                $updateData['recipient_name'] = $updateData['billing_recipient_name'] ?? $address->billing_recipient_name;
+                $updateData['contact_number'] = $updateData['billing_contact_number'] ?? $address->billing_contact_number;
+                $updateData['is_delivery'] = true;
+                $updateData['is_billing'] = true;
+            }
+
+            // Ensure country is set if not provided
+            if (empty($updateData['country'])) {
+                $updateData['country'] = 'India';
+            }
+
+            $address->fill($updateData);
             $address->save();
 
             // Refresh to get updated data
@@ -214,6 +320,7 @@ class AddressController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Set an address as default.
