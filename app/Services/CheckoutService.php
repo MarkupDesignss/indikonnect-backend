@@ -569,13 +569,16 @@ class CheckoutService
 
         // Calculate tax PER PRODUCT based on its tax category
         $productTaxTotal = 0;
-        $productGstTotal = 0; // 18% GST from products
-        $productOtherTaxTotal = 0; // Other tax rates (5%, 12%, 28%, etc.)
+        $productGstTotal = 0;
+        $productOtherTaxTotal = 0;
         $itemsWithTax = [];
         $taxBreakdown = [];
         $taxByCategory = [];
 
-        foreach ($productDetails as $product) {
+        // ============ NEW: INDIVIDUAL PRODUCT TAX BREAKDOWN ============
+        $productTaxBreakdown = [];
+
+        foreach ($productDetails as $index => $product) {
             // Calculate proportion of this product in the discounted subtotal
             $proportion = $subtotal > 0 ? $product['lineTotal'] / $subtotal : 0;
 
@@ -593,6 +596,22 @@ class CheckoutService
             } else {
                 $productOtherTaxTotal += $taxAmount;
             }
+
+            // ============ ADD TO INDIVIDUAL PRODUCT TAX BREAKDOWN ============
+            $productName = $product['item']->product->name;
+            $productKey = 'product_' . ($index + 1) . '_' . str_replace(' ', '_', strtolower($productName));
+
+            $productTaxBreakdown[$productKey] = [
+                'product_name' => $productName,
+                'product_code' => $product['item']->product->product_code,
+                'quantity' => $product['item']->quantity,
+                'unit_price' => round($product['unitPrice'], 2),
+                'tax_category' => $product['taxCategoryName'],
+                'tax_rate' => (string) $taxRate . '%',
+                'taxable_value' => round($discountedLineTotal, 2),
+                'tax_amount' => round($taxAmount, 2),
+                'line_total_after_tax' => round($discountedLineTotal + $taxAmount, 2),
+            ];
 
             // Determine CGST/SGST/IGST based on delivery state
             $supplierState = config('app.supplier_state', 'Maharashtra');
@@ -710,13 +729,15 @@ class CheckoutService
             'coupon' => $couponData,
             'subtotal_after_discount' => round($subtotalAfterDiscount, 2),
 
-            // ============ TAX BREAKDOWN ============
-            // Tax from products
-            'product_tax_breakdown' => [
-                'tax_amount' => round($productGstTotal, 2),
-                'other_tax' => round($productOtherTaxTotal, 2),
-                'total_product_tax' => round($productTaxTotal, 2),
-            ],
+            // ============ INDIVIDUAL PRODUCT TAX BREAKDOWN ============
+            'product_tax_breakdown' => $productTaxBreakdown, // Dynamic keys: product_1_titan, product_2_shoes, etc.
+
+            // ============ TAX SUMMARY ============
+            // 'tax_summary' => [
+            //     'gst_18_percent' => round($productGstTotal, 2),        // 18% GST from products
+            //     'other_tax' => round($productOtherTaxTotal, 2),          // Other taxes from products
+            //     'total_product_tax' => round($productTaxTotal, 2),       // Sum of all product taxes
+            // ],
 
             // Additional tax on discounted subtotal
             'additional_tax_on_subtotal' => [
@@ -726,7 +747,7 @@ class CheckoutService
             ],
 
             // Grand total tax
-            'total_tax' => round($grandTotalTax, 2),                     // All taxes combined
+            'total_tax' => round($grandTotalTax, 2),
 
             // Tax by category (from products only)
             'tax_by_category' => array_values($taxByCategory),
