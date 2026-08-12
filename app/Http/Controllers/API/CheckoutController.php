@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Address;
 use App\Services\CheckoutService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -20,26 +21,120 @@ class CheckoutController extends Controller
     /**
      * Get cart summary
      */
+    // public function summary(Request $request): JsonResponse
+    // {
+    //     try {
+    //         $validated = $request->validate([
+    //             'address_id' => 'nullable|exists:addresses,id,user_id,' . auth()->id(),
+    //             'coupon_code' => 'nullable|string|max:50',
+    //             'shipping_method_id' => 'nullable|exists:shipping_methods,id',
+    //         ]);
+
+    //         // Get or find address
+    //         $addressId = $validated['address_id'] ?? null;
+
+    //         if (!$addressId) {
+    //             $defaultAddress = Address::where('user_id', auth()->id())
+    //                 ->where(function ($query) {
+    //                     $query->where('is_default', true)
+    //                         ->orWhere('is_billing', true);
+    //                 })
+    //                 ->first();
+
+    //             if ($defaultAddress) {
+    //                 $addressId = $defaultAddress->id;
+    //             } else {
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => 'No delivery address found. Please add an address first.',
+    //                     'data' => [
+    //                         'needs_address' => true,
+    //                         'has_coupon' => !empty($validated['coupon_code']),
+    //                         'coupon_applied' => false,
+    //                     ]
+    //                 ], 400);
+    //             }
+    //         }
+
+    //         $summary = $this->checkoutService->calculateSummary(
+    //             auth()->id(),
+    //             $addressId,
+    //             $validated['coupon_code'] ?? null,
+    //             $validated['shipping_method_id'] ?? null
+    //         );
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $summary,
+    //         ]);
+    //     } catch (ValidationException $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Invalid parameters provided',
+    //             'errors' => $e->errors(),
+    //         ], 422);
+    //     } catch (Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
+
     public function summary(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
-            'coupon_code' => 'nullable|string|max:50',
-            'shipping_method_id' => 'nullable|exists:shipping_methods,id',
-        ]);
-
         try {
+            $validated = $request->validate([
+                'address_id' => 'nullable|exists:addresses,id,user_id,' . auth()->id(),
+                'coupon_code' => 'nullable|string|max:50',
+                'shipping_method_id' => 'nullable|exists:shipping_methods,id',
+                'coins' => 'nullable|integer|min:0',
+            ]);
+
+            // Get or find address
+            $addressId = $validated['address_id'] ?? null;
+
+            if (!$addressId) {
+                $defaultAddress = Address::where('user_id', auth()->id())
+                    ->where(function ($query) {
+                        $query->where('is_default', true)
+                            ->orWhere('is_billing', true);
+                    })
+                    ->first();
+
+                if ($defaultAddress) {
+                    $addressId = $defaultAddress->id;
+                } else {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No delivery address found. Please add an address first.',
+                        'data' => [
+                            'needs_address' => true,
+                            'has_coupon' => !empty($validated['coupon_code']),
+                            'coupon_applied' => false,
+                        ]
+                    ], 400);
+                }
+            }
+
             $summary = $this->checkoutService->calculateSummary(
                 auth()->id(),
-                $validated['address_id'],
+                $addressId,
                 $validated['coupon_code'] ?? null,
-                $validated['shipping_method_id'] ?? null
+                $validated['shipping_method_id'] ?? null,
+                $validated['coins'] ?? null // Pass coins parameter
             );
 
             return response()->json([
                 'success' => true,
                 'data' => $summary,
             ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid parameters provided',
+                'errors' => $e->errors(),
+            ], 422);
         } catch (Exception $e) {
             return response()->json([
                 'success' => false,
@@ -56,13 +151,15 @@ class CheckoutController extends Controller
         $validated = $request->validate([
             'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
             'coupon_code' => 'required|string|max:50',
+            'coins' => 'nullable|integer|min:0',
         ]);
 
         try {
             $summary = $this->checkoutService->applyCoupon(
                 auth()->id(),
                 $validated['address_id'],
-                $validated['coupon_code']
+                $validated['coupon_code'],
+                $validated['coins'] ?? null
             );
 
             return response()->json([
@@ -78,6 +175,8 @@ class CheckoutController extends Controller
         }
     }
 
+
+
     /**
      * Apply shipping method
      */
@@ -87,6 +186,7 @@ class CheckoutController extends Controller
             'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
             'shipping_method_id' => 'required|exists:shipping_methods,id',
             'coupon_code' => 'nullable|string|max:50',
+            'coins' => 'nullable|integer|min:0',
         ]);
 
         try {
@@ -94,7 +194,8 @@ class CheckoutController extends Controller
                 auth()->id(),
                 $validated['address_id'],
                 $validated['shipping_method_id'],
-                $validated['coupon_code'] ?? null
+                $validated['coupon_code'] ?? null,
+                $validated['coins'] ?? null
             );
 
             return response()->json([
@@ -118,6 +219,7 @@ class CheckoutController extends Controller
         $validated = $request->validate([
             'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
             'shipping_method_id' => 'nullable|exists:shipping_methods,id',
+            'coins' => 'nullable|integer|min:0',
         ]);
 
         try {
@@ -125,7 +227,8 @@ class CheckoutController extends Controller
                 auth()->id(),
                 $validated['address_id'],
                 null, // Remove coupon
-                $validated['shipping_method_id'] ?? null
+                $validated['shipping_method_id'] ?? null,
+                $validated['coins'] ?? null
             );
 
             return response()->json([

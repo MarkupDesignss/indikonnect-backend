@@ -782,6 +782,183 @@ class AuthController extends Controller
      * Send OTP for Phone or Email (Before Step 1)
      * Simplified version with better user linking
      */
+    // public function sendVerificationOtp(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'type' => 'required|in:phone,email',
+    //             'phone' => 'required_if:type,phone|min:10|max:15',
+    //             'email' => 'required_if:type,email|email',
+    //             'temp_token' => 'nullable|string',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         // Try to find user by temp_token first
+    //         $userByToken = null;
+    //         if ($request->filled('temp_token')) {
+    //             $userByToken = User::where('temp_token', $request->temp_token)
+    //                 ->where('is_registered', 0)
+    //                 ->first();
+    //         }
+
+    //         // For phone OTP
+    //         if ($request->type === 'phone') {
+    //             // Check if phone exists and is registered
+    //             $user = User::where('phone', $request->phone)->first();
+    //             if ($user && $user->is_registered == 1) {
+    //                 return response()->json([
+    //                     'status' => false,
+    //                     'message' => 'This phone number is already registered.'
+    //                 ], 422);
+    //             }
+
+    //             $otp = rand(100000, 999999);
+
+    //             // Case 1: User exists with this phone
+    //             if ($user) {
+    //                 $user->update([
+    //                     'otp' => $otp,
+    //                     'otp_expires_at' => now()->addMinutes(10),
+    //                     'phone_verified' => 0,
+    //                 ]);
+    //                 $foundUser = $user;
+    //             }
+    //             // Case 2: User exists with temp_token
+    //             elseif ($userByToken) {
+    //                 $userByToken->update([
+    //                     'phone' => $request->phone,
+    //                     'otp' => $otp,
+    //                     'otp_expires_at' => now()->addMinutes(10),
+    //                     'phone_verified' => 0,
+    //                 ]);
+    //                 $foundUser = $userByToken;
+    //             }
+    //             // Case 3: Check if phone exists in any unregistered user with email
+    //             else {
+    //                 $existingUser = User::where(function ($query) use ($request) {
+    //                     $query->where('email', $request->email)
+    //                         ->orWhere('phone', $request->phone);
+    //                 })->where('is_registered', 0)->first();
+
+    //                 if ($existingUser) {
+    //                     $existingUser->update([
+    //                         'phone' => $request->phone,
+    //                         'otp' => $otp,
+    //                         'otp_expires_at' => now()->addMinutes(10),
+    //                         'phone_verified' => 0,
+    //                     ]);
+    //                     $foundUser = $existingUser;
+    //                 }
+    //                 // Case 4: Create new user
+    //                 else {
+    //                     $foundUser = User::create([
+    //                         'phone' => $request->phone,
+    //                         'otp' => $otp,
+    //                         'otp_expires_at' => now()->addMinutes(10),
+    //                         'is_registered' => 0,
+    //                         'registration_step' => 0,
+    //                         'temp_token' => Str::random(60),
+    //                     ]);
+    //                 }
+    //             }
+
+    //             // Send SMS OTP
+    //             // $this->twilioService->sendOtp($foundUser->phone, $otp);
+
+    //             return response()->json([
+    //                 'status' => true,
+    //                 'message' => 'Phone OTP sent successfully',
+    //                 'phone' => $foundUser->phone,
+    //                 'otp' => $otp, // Remove in production
+    //                 'expires_in' => 10,
+    //                 'temp_token' => $foundUser->temp_token,
+    //             ]);
+    //         }
+    //         // For email OTP
+    //         else {
+    //             // Check if email exists and is registered
+    //             $user = User::where('email', $request->email)->first();
+    //             if ($user && $user->is_registered == 1) {
+    //                 return response()->json([
+    //                     'status' => false,
+    //                     'message' => 'This email is already registered.'
+    //                 ], 422);
+    //             }
+
+    //             $emailOtp = rand(100000, 999999);
+
+    //             // Case 1: User exists with this email
+    //             if ($user) {
+    //                 $user->update([
+    //                     'email_otp' => $emailOtp,
+    //                     'email_otp_expires_at' => now()->addMinutes(10),
+    //                 ]);
+    //                 $foundUser = $user;
+    //             }
+    //             // Case 2: User exists with temp_token
+    //             elseif ($userByToken) {
+    //                 $userByToken->update([
+    //                     'email' => $request->email,
+    //                     'email_otp' => $emailOtp,
+    //                     'email_otp_expires_at' => now()->addMinutes(10),
+    //                 ]);
+    //                 $foundUser = $userByToken;
+    //             }
+    //             // Case 3: Check if email or phone exists in any unregistered user
+    //             else {
+    //                 $existingUser = User::where(function ($query) use ($request) {
+    //                     $query->where('email', $request->email)
+    //                         ->orWhere('phone', $request->phone);
+    //                 })->where('is_registered', 0)->first();
+
+    //                 if ($existingUser) {
+    //                     $existingUser->update([
+    //                         'email' => $request->email,
+    //                         'email_otp' => $emailOtp,
+    //                         'email_otp_expires_at' => now()->addMinutes(10),
+    //                     ]);
+    //                     $foundUser = $existingUser;
+    //                 }
+    //                 // Case 4: Create new user
+    //                 else {
+    //                     $foundUser = User::create([
+    //                         'email' => $request->email,
+    //                         'email_otp' => $emailOtp,
+    //                         'email_otp_expires_at' => now()->addMinutes(10),
+    //                         'is_registered' => 0,
+    //                         'registration_step' => 0,
+    //                         'temp_token' => Str::random(60),
+    //                     ]);
+    //                 }
+    //             }
+
+    //             // Send email OTP
+    //             // Mail::to($foundUser->email)->send(new EmailVerificationMail($emailOtp));
+
+    //             return response()->json([
+    //                 'status' => true,
+    //                 'message' => 'Email OTP sent successfully',
+    //                 'email' => $foundUser->email,
+    //                 'otp' => $emailOtp,
+    //                 'expires_in' => 10,
+    //                 'temp_token' => $foundUser->temp_token,
+    //             ]);
+    //         }
+    //     } catch (\Exception $e) {
+    //         Log::error('Send verification OTP error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function sendVerificationOtp(Request $request)
     {
         try {
@@ -868,6 +1045,13 @@ class AuthController extends Controller
                     }
                 }
 
+                if (empty($foundUser->temp_token)) {
+                    $foundUser->update([
+                        'temp_token' => Str::random(60)
+                    ]);
+                    $foundUser->refresh(); // Refresh to get the updated data
+                }
+
                 // Send SMS OTP
                 // $this->twilioService->sendOtp($foundUser->phone, $otp);
 
@@ -936,6 +1120,13 @@ class AuthController extends Controller
                             'temp_token' => Str::random(60),
                         ]);
                     }
+                }
+
+                if (empty($foundUser->temp_token)) {
+                    $foundUser->update([
+                        'temp_token' => Str::random(60)
+                    ]);
+                    $foundUser->refresh(); // Refresh to get the updated data
                 }
 
                 // Send email OTP
@@ -1501,6 +1692,8 @@ class AuthController extends Controller
                 'phone' => 'required|min:10|max:15',
                 'bank_holder_name' => 'required|string|max:255',
                 'bank_name' => 'required|string|max:255',
+                'title' => 'required|string|max:255',
+                'type_of_entity' => 'required|string|max:255',
                 'branch_name' => 'required|string|max:255',
                 'encrypted_bank_account' => 'required|string|max:50',
                 'confirm_account_number' => 'required|string|max:50',
@@ -1553,6 +1746,8 @@ class AuthController extends Controller
             $distributorProfile->update([
                 'encrypted_bank_account' => encrypt($request->encrypted_bank_account),
                 'bank_ifsc' => $request->bank_ifsc,
+                'title' => $request->title,
+                'type_of_entity' => $request->type_of_entity,
                 'bank_holder_name' => $request->bank_holder_name,
                 'bank_name' => $request->bank_name,
                 'branch_name' => $request->branch_name,
@@ -1572,6 +1767,7 @@ class AuthController extends Controller
                 'next_step' => 6,
                 'bank_details' => [
                     'bank_name' => $request->bank_name,
+                    'title' => $request->title,
                     'bank_holder_name' => $request->bank_holder_name,
                     'account_last4' => '****' . substr($request->encrypted_bank_account, -4),
                     'bank_ifsc' => $request->bank_ifsc
