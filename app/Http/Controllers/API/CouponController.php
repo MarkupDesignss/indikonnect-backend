@@ -172,7 +172,6 @@ class CouponController extends Controller
         if (isset($data['code'])) {
             $data['code'] = strtoupper($data['code']);
         }
-
         $coupon->update($data);
 
         return response()->json([

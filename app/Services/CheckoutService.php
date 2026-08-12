@@ -16,6 +16,9 @@ use App\Services\PaymentGateway\RazorpayService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Exception;
+use App\Models\Coupon;
+use App\Models\ShippingMethod;
+use App\Models\CouponUsage;
 
 class CheckoutService
 {
@@ -36,7 +39,10 @@ class CheckoutService
     /**
      * FR-CO-003: Calculate order summary
      */
-    public function calculateSummary(int $userId, int $addressId): array
+    /**
+     * Calculate cart summary with coupon and shipping
+     */
+    public function calculateSummary(int $userId, int $addressId, ?string $couponCode = null, ?int $shippingMethodId = null): array
     {
         $cart = Cart::with(['items.product.taxCategory'])->where('user_id', $userId)->firstOrFail();
         $address = Address::findOrFail($addressId);
@@ -46,10 +52,10 @@ class CheckoutService
             throw new Exception('Cart is empty');
         }
 
+        // Calculate base subtotal (without tax)
         $subtotal = 0;
-        $totalTax = 0;
-        $taxBreakdown = [];
         $items = [];
+        $productDetails = [];
 
         foreach ($cart->items as $item) {
             $unitPrice = $user->isDistributor()
@@ -59,10 +65,87 @@ class CheckoutService
             $lineTotal = $unitPrice * $item->quantity;
             $subtotal += $lineTotal;
 
-            $taxRate = $item->product->taxCategory?->rate ?? 0;
-            $gstAmount = ($lineTotal * $taxRate) / 100;
+            // Store product details for tax calculation later
+            $productDetails[] = [
+                'item' => $item,
+                'unitPrice' => $unitPrice,
+                'lineTotal' => $lineTotal,
+                'taxRate' => $item->product->taxCategory?->rate ?? 0,
+            ];
+        }
+
+        // Apply coupon if provided
+        $couponDiscount = 0;
+        $couponData = null;
+        if ($couponCode) {
+            $coupon = Coupon::where('code', strtoupper($couponCode))->first();
+
+            if ($coupon && $coupon->isValid() && $this->validateCouponForUser($coupon, $userId)) {
+                $couponDiscount = $this->calculateCouponDiscount($coupon, $subtotal);
+                $couponData = [
+                    'code' => $coupon->code,
+                    'title' => $coupon->title,
+                    'type' => $coupon->type,
+                    'value' => (string) $coupon->value,
+                    'discount_amount' => round($couponDiscount, 2),
+                ];
+            } else {
+                throw new Exception('Invalid coupon code');
+            }
+        }
+
+        // Calculate subtotal after discount (before tax)
+        $subtotalAfterDiscount = $subtotal - $couponDiscount;
+
+        // Apply shipping method
+        $shippingCost = 0;
+        $shippingData = null;
+        if ($shippingMethodId) {
+            $shippingMethod = ShippingMethod::find($shippingMethodId);
+
+            if ($shippingMethod && $shippingMethod->is_active) {
+                // Check if order amount meets minimum requirement
+                if ($shippingMethod->min_order_amount && $subtotalAfterDiscount < $shippingMethod->min_order_amount) {
+                    throw new Exception("Minimum order amount for this shipping method is ₹" . $shippingMethod->min_order_amount);
+                }
+
+                // Check max order amount
+                if ($shippingMethod->max_order_amount && $subtotalAfterDiscount > $shippingMethod->max_order_amount) {
+                    throw new Exception("Order amount exceeds maximum limit for this shipping method");
+                }
+
+                $shippingCost = $this->calculateShippingCost($shippingMethod, $subtotalAfterDiscount);
+                $shippingData = [
+                    'id' => $shippingMethod->id,
+                    'name' => $shippingMethod->name,
+                    'code' => $shippingMethod->code,
+                    'estimated_days' => $shippingMethod->estimated_days,
+                    'cost' => round($shippingCost, 2),
+                ];
+            } else {
+                throw new Exception('Invalid shipping method');
+            }
+        }
+
+        // Calculate tax on discounted amount (subtotal_after_discount)
+        // Distribute tax proportionally across products
+        $totalTax = 0;
+        $taxBreakdown = [];
+        $itemsWithTax = [];
+
+        foreach ($productDetails as $product) {
+            // Calculate proportion of this product in the discounted subtotal
+            $proportion = $subtotal > 0 ? $product['lineTotal'] / $subtotal : 0;
+
+            // Apply discount proportionally to each product's taxable value
+            $discountedLineTotal = $product['lineTotal'] - ($couponDiscount * $proportion);
+
+            // Calculate tax on discounted amount
+            $taxRate = $product['taxRate'];
+            $gstAmount = ($discountedLineTotal * $taxRate) / 100;
             $totalTax += $gstAmount;
 
+            // Determine CGST/SGST/IGST based on delivery state
             $supplierState = config('app.supplier_state', 'Maharashtra');
             $deliveryState = $address->state;
 
@@ -76,46 +159,53 @@ class CheckoutService
                 $igst = $gstAmount;
             }
 
-            $items[] = [
-                'product_id'      => $item->product_id,
-                'product_name'    => $item->product->name,
-                'product_code'    => $item->product->product_code,
-                'quantity'        => $item->quantity,
-                'unit_price'      => round($unitPrice, 2),
-                'taxable_value'   => round($lineTotal, 2),
-                'gst_rate'        => $taxRate,
+            $itemsWithTax[] = [
+                'product_id'      => $product['item']->product_id,
+                'product_name'    => $product['item']->product->name,
+                'product_code'    => $product['item']->product->product_code,
+                'quantity'        => $product['item']->quantity,
+                'unit_price'      => round($product['unitPrice'], 2),
+                'taxable_value'   => round($discountedLineTotal, 2),
+                'gst_rate'        => (string) $taxRate,
                 'cgst'            => round($cgst, 2),
                 'sgst'            => round($sgst, 2),
                 'igst'            => round($igst, 2),
                 'total_tax'       => round($gstAmount, 2),
-                'line_total'      => round($lineTotal + $gstAmount, 2),
+                'line_total'      => round($discountedLineTotal + $gstAmount, 2),
             ];
 
             $taxBreakdown[] = [
-                'product_name' => $item->product->name,
-                'rate' => $taxRate,
+                'product_name' => $product['item']->product->name,
+                'rate' => (string) $taxRate,
                 'cgst' => round($cgst, 2),
                 'sgst' => round($sgst, 2),
                 'igst' => round($igst, 2),
             ];
         }
 
-        $grandTotal = round($subtotal + $totalTax, 2);
+        // Calculate grand total: subtotal_after_discount + tax + shipping
+        $grandTotal = round($subtotalAfterDiscount + $totalTax + $shippingCost, 2);
 
+        // Coin balance for distributors
         $coinBalance = 0;
         $maxCoinsRedeemable = 0;
         if ($user->isDistributor()) {
             $coinBalance = $this->getCoinBalance($userId);
-            $maxCoinsRedeemable = min($coinBalance, floor($grandTotal / 10)); // 1 coin = ₹10
+            $maxCoinsRedeemable = min($coinBalance, floor($grandTotal / 10));
         }
 
         return [
             'subtotal' => round($subtotal, 2),
+            'coupon_discount' => round($couponDiscount, 2),
+            'coupon' => $couponData,
+            'subtotal_after_discount' => round($subtotalAfterDiscount, 2),
             'total_tax' => round($totalTax, 2),
+            'shipping_cost' => round($shippingCost, 2),
+            'shipping_method' => $shippingData,
             'grand_total' => $grandTotal,
             'coin_balance' => $coinBalance,
             'max_coins_redeemable' => $maxCoinsRedeemable,
-            'items' => $items,
+            'items' => $itemsWithTax,
             'tax_breakdown' => $taxBreakdown,
             'delivery_address' => [
                 'id' => $address->id,
@@ -123,6 +213,94 @@ class CheckoutService
                 'state' => $address->state,
             ],
         ];
+    }
+
+    /**
+     * Calculate coupon discount
+     */
+    private function calculateCouponDiscount(Coupon $coupon, float $subtotal): float
+    {
+        // Check minimum order requirement
+        if ($coupon->min_order && $subtotal < $coupon->min_order) {
+            throw new Exception("Minimum order amount of ₹" . $coupon->min_order . " required for this coupon");
+        }
+
+        $discount = 0;
+
+        if ($coupon->type === 'percentage') {
+            $discount = ($subtotal * $coupon->value) / 100;
+        } else { // fixed
+            $discount = $coupon->value;
+        }
+
+        // Apply maximum discount limit if set
+        if ($coupon->max_order && $discount > $coupon->max_order) {
+            $discount = $coupon->max_order;
+        }
+
+        return $discount;
+    }
+
+    /**
+     * Calculate shipping cost
+     */
+    private function calculateShippingCost(ShippingMethod $shippingMethod, float $orderAmount): float
+    {
+        $cost = 0;
+
+        switch ($shippingMethod->rate_type) {
+            case 'flat':
+                $cost = $shippingMethod->base_rate + $shippingMethod->rate_value;
+                break;
+            case 'percentage':
+                $cost = $shippingMethod->base_rate + ($orderAmount * $shippingMethod->rate_value / 100);
+                break;
+            case 'free':
+                $cost = 0;
+                break;
+            default:
+                $cost = $shippingMethod->base_rate + $shippingMethod->rate_value;
+        }
+
+        return $cost;
+    }
+
+    /**
+     * Validate coupon for user
+     */
+    private function validateCouponForUser(Coupon $coupon, int $userId): bool
+    {
+        // Check if coupon has usage limit
+        if ($coupon->max_uses && $coupon->used_count >= $coupon->max_uses) {
+            throw new Exception('This coupon has reached its usage limit');
+        }
+
+        // Check if user has already used this coupon
+        $userUsage = CouponUsage::where('coupon_id', $coupon->id)
+            ->where('user_id', $userId)
+            ->count();
+
+        if ($userUsage > 0) {
+            throw new Exception('You have already used this coupon');
+        }
+
+        return true;
+    }
+
+    /**
+     * Apply coupon to cart
+     */
+    public function applyCoupon(int $userId, int $addressId, string $couponCode): array
+    {
+        return $this->calculateSummary($userId, $addressId, $couponCode, null);
+    }
+
+    /**
+     * Apply shipping method
+     */
+    public function applyShipping(int $userId, int $addressId, int $shippingMethodId, ?string $couponCode = null): array
+    {
+        return $this->calculateSummary($userId, $addressId, $couponCode, $shippingMethodId);
     }
 
     /**
@@ -317,14 +495,14 @@ class CheckoutService
     // Helper methods
     // ============================================================
 
-    protected function formatAddress(Address $address): string
+    private function formatAddress(Address $address): string
     {
         return implode(', ', array_filter([
-            $address->address_line_1,
-            $address->address_line_2,
+            $address->address_line1,
+            $address->address_line2,
             $address->city,
             $address->state,
-            $address->postcode,
+            $address->postal_code,
             $address->country,
         ]));
     }
