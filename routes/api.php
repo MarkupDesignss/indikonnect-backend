@@ -14,9 +14,11 @@ use App\Http\Controllers\API\CheckoutController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\API\CouponController;
 use App\Http\Controllers\API\OrderController;
+use App\Http\Controllers\API\ProductReviewController;
 use App\Http\Controllers\API\ReviewController;
 use App\Http\Controllers\API\ShippingMethodController;
 use App\Http\Controllers\API\SubscriberController;
+use App\Http\Controllers\API\UserDashboardController;
 use App\Http\Controllers\API\WishlistController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 
@@ -281,3 +283,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/my-orders', [OrderController::class, 'getOrder']);
 });
 Route::get('/orders/statuses', [OrderController::class, 'statuses']);
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/user/dashboard', [UserDashboardController::class, 'dashboard']);
+});
+
+
+// routes/api.php
+Route::prefix('products')->group(function () {
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::get('/{productId}/reviews', [ProductReviewController::class, 'index']);
+        Route::post('/{productId}/reviews', [ProductReviewController::class, 'store']);
+        Route::get('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'show']);
+        Route::put('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'update']);
+        Route::delete('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'destroy']);
+    });
+});
