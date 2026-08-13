@@ -168,7 +168,11 @@ Route::prefix('distributor')->group(function () {
     Route::post('progress', [APIAuthController::class, 'getDistributorProgress']);
     Route::post('login', [APIAuthController::class, 'distributorLogin']);
 });
-
+Route::group(['prefix' => 'distributor'], function () {
+    Route::post('forgot-password', [APIAuthController::class, 'forgotPassword']);
+    Route::post('verify-reset-otp', [APIAuthController::class, 'verifyResetOtp']);
+    Route::post('reset-password', [APIAuthController::class, 'resetPassword']);
+});
 Route::group(['prefix' => 'user'], function () {
     // Public routes (no authentication required)
     Route::post('send-otp', [APIAuthController::class, 'sendOtp']);
@@ -179,9 +183,7 @@ Route::group(['prefix' => 'user'], function () {
     Route::post('login', [APIAuthController::class, 'login']);
     Route::post('verify-login-otp', [APIAuthController::class, 'verifyLoginOtp']);
 
-    Route::post('forgot-password', [APIAuthController::class, 'forgotPassword']);
-    Route::post('verify-reset-otp', [APIAuthController::class, 'verifyResetOtp']);
-    Route::post('reset-password', [APIAuthController::class, 'resetPassword']);
+
 
     // Refresh token route
     Route::post('refresh-token', [APIAuthController::class, 'refreshToken'])->name('refresh-token');
