@@ -1719,16 +1719,31 @@ class CheckoutService
                 ]);
             }
 
-            // Queue commission event
+            // // Queue commission event
+            // CommissionApiEvent::create([
+            //     'event_type' => 'order_post',
+            //     'order_id' => $order->id,
+            //     'payload' => json_encode([
+            //         'order_reference' => $order->order_reference,
+            //         'user_id' => $order->user_id,
+            //         'total' => $order->total_payable,
+            //     ]),
+            //     'status' => 'pending',
+            // ]);
+
+            // Build full payload for commission API
+            $payload = $this->buildCommissionPayload($order);
+
             CommissionApiEvent::create([
                 'event_type' => 'order_post',
                 'order_id' => $order->id,
-                'payload' => json_encode([
-                    'order_reference' => $order->order_reference,
-                    'user_id' => $order->user_id,
-                    'total' => $order->total_payable,
-                ]),
+                'payload' => $payload,
                 'status' => 'pending',
+                'retry_count' => 0,
+                'max_retries' => 5,
+                'last_attempt' => null,
+                'error_message' => null,
+                'response_data' => null,
             ]);
 
             return [
@@ -1739,6 +1754,34 @@ class CheckoutService
                 'invoice_number' => $invoice->invoice_number,
             ];
         });
+    }
+
+    /**
+     * Build payload for Commission API (FR-CM-002)
+     */
+    protected function buildCommissionPayload(Order $order): array
+    {
+        $user = $order->user;
+
+        $lines = $order->lines->map(function ($line) {
+            return [
+                'productIdentifier' => $line->product->product_code,
+                'quantity' => $line->quantity,
+                'unitPriceCharged' => $line->unit_price,
+                'taxCategory' => $line->product->taxCategory?->name ?? 'GST-18',
+            ];
+        })->toArray();
+
+        return [
+            'eventId' => 'evt_' . \Illuminate\Support\Str::random(24),
+            'action' => 'ORDER_PLACED',
+            'orderReference' => $order->order_reference,
+            'purchaserIdentifier' => $user->distributor_id ?? $user->id,
+            'accountType' => $user->isDistributor() ? 'DISTRIBUTOR' : 'CUSTOMER',
+            'eventTimestamp' => now()->toIso8601String(),
+            'lines' => $lines,
+            'totalOrderValue' => $order->total_payable + ($order->coin_redeemed_amount ?? 0), // Full value before coins
+        ];
     }
 
     protected function getSummaryData(array $data, int $userId, int $addressId): array
