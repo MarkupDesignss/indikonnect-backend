@@ -277,10 +277,10 @@ class OrderController extends Controller
         return implode(', ', array_filter($parts));
     }
 
-    public function getOrder(): JsonResponse
+    public function getOrder()
     {
         try {
-            $order = Order::with([
+            $orders = Order::with([
                 'user',
                 'lines.product',
                 'lines.product.images',
@@ -289,19 +289,22 @@ class OrderController extends Controller
                 'invoice'
             ])
                 ->where('user_id', auth()->id())
-                ->firstOrFail();
+                ->latest()
+                ->get();
 
-            $formattedOrder = $this->formatOrderDetails($order);
+            $formattedOrders = $orders->map(function ($order) {
+                return $this->formatOrderDetails($order);
+            });
 
             return response()->json([
                 'success' => true,
-                'data' => $formattedOrder,
+                'data' => $formattedOrders,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
-            ], 404);
+            ], 500);
         }
     }
 }
