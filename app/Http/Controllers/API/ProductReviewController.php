@@ -358,7 +358,7 @@ class ProductReviewController extends Controller
     {
         $order = Order::where('user_id', $userId)
             ->where('status', 'delivered')
-            ->whereHas('orderLines', function ($query) use ($productId) {
+            ->whereHas('lines', function ($query) use ($productId) {
                 $query->where('product_id', $productId);
             })
             ->first();
