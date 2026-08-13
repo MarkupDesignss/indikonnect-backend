@@ -8,6 +8,7 @@ use App\Models\Wishlist;
 use App\Models\Cart;
 use App\Models\Product;
 use App\Models\OrderLine;
+use App\Models\ProductReview;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -37,7 +38,7 @@ class UserDashboardController extends Controller
             'success' => true,
             'data' => [
                 'user' => [
-                    'name' => $user->name,
+                    'name' => $user->full_name,
                     'member_since' => $user->created_at->format('Y'),
                     'preferred_member' => true,
                     'points_to_next_tier' => 250,
@@ -47,8 +48,8 @@ class UserDashboardController extends Controller
                 'stats' => $stats,
                 'latest_order' => $latestOrder,
                 'recent_activity' => $recentActivity,
-                'wishlist' => $wishlistItems,
-                'cart' => $cartItems
+                // 'wishlist' => $wishlistItems,
+                // 'cart' => $cartItems
             ]
         ]);
     }
@@ -62,13 +63,37 @@ class UserDashboardController extends Controller
         $totalPoints = Order::where('user_id', $userId)
             ->sum('coin_redeemed') ?? 0;
 
-        $reviewsCount = 0; // You'll need a reviews table for this
+        // Get total reviews count for the user
+        $reviewsCount = ProductReview::where('user_id', $userId)->count();
+
+        // Get average rating given by the user
+        $averageRating = ProductReview::where('user_id', $userId)->avg('rating');
+
+        // Get cart items count
+        $cart = Cart::where('user_id', $userId)->latest()->first();
+        $cartItemsCount = 0;
+        $cartTotal = 0;
+
+        if ($cart) {
+            $cartItems = DB::table('cart_items')
+                ->where('cart_id', $cart->id)
+                ->get();
+
+            $cartItemsCount = $cartItems->count();
+
+            // Calculate cart total
+            foreach ($cartItems as $item) {
+                $cartTotal += $item->unit_price * $item->quantity;
+            }
+        }
 
         return [
             'total_orders' => $totalOrders,
             'wishlist' => $wishlistCount,
             'points_earned' => $totalPoints,
-            'reviews' => $reviewsCount
+            'reviews' => $reviewsCount,
+            'average_rating' => $averageRating ? round($averageRating, 1) : 0,
+            'cart_items' => $cartItemsCount,
         ];
     }
 
@@ -76,7 +101,6 @@ class UserDashboardController extends Controller
     {
         $order = Order::with(['lines.product.images'])
             ->where('user_id', $userId)
-            ->whereNull('deleted_at')
             ->latest('created_at')
             ->first();
 
@@ -121,7 +145,6 @@ class UserDashboardController extends Controller
                 ? date('M d', strtotime($order->courier_delivery_date))
                 : null,
             'items' => $orderItems,
-            'track_order_url' => route('orders.track', $order->order_reference)
         ];
     }
 
@@ -129,7 +152,6 @@ class UserDashboardController extends Controller
     {
         // Get recent order activities
         $orders = Order::where('user_id', $userId)
-            ->whereNull('deleted_at')
             ->latest('created_at')
             ->limit(10)
             ->get();
@@ -152,10 +174,33 @@ class UserDashboardController extends Controller
             ];
         }
 
-        // If no orders, return some sample data or empty array
-        if (empty($activities)) {
-            return [];
+        // Get recent review activities
+        $recentReviews = ProductReview::where('user_id', $userId)
+            ->with('product')
+            ->latest('created_at')
+            ->limit(5)
+            ->get();
+
+        foreach ($recentReviews as $review) {
+            $productName = $review->product?->name ?? 'Product';
+
+            $activities[] = [
+                'event' => "Product Review: {$productName}",
+                'date' => $review->created_at->format('M d, Y'),
+                'rating' => $review->rating,
+                'review_text' => $review->review_text,
+                'status' => $review->status ?? 'active',
+                'product_id' => $review->product_id
+            ];
         }
+
+        // Sort all activities by date (newest first)
+        usort($activities, function ($a, $b) {
+            return strtotime($b['date']) - strtotime($a['date']);
+        });
+
+        // Limit to 10 most recent activities
+        $activities = array_slice($activities, 0, 10);
 
         return $activities;
     }
@@ -200,7 +245,6 @@ class UserDashboardController extends Controller
     private function getCartItems($userId)
     {
         $cart = Cart::where('user_id', $userId)
-            ->whereNull('deleted_at')
             ->latest()
             ->first();
 
