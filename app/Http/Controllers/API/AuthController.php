@@ -2810,15 +2810,15 @@ class AuthController extends Controller
     {
         try {
             $request->validate([
-                'phone' => 'required|min:10|max:15'
+                'email' => 'required|email|max:255'
             ]);
 
-            $user = User::where('phone', $request->phone)->first();
+            $user = User::where('email', $request->email)->first();
 
             if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Phone number not registered'
+                    'message' => 'Email not registered'
                 ], 422);
             }
 
@@ -2836,12 +2836,16 @@ class AuthController extends Controller
                 'otp_expires_at' => Carbon::now()->addMinutes(10)
             ]);
 
-            // Send OTP via Twilio
-            $this->twilioService->sendOtp($request->phone, $otp);
+            // Send OTP via email
+            // You can use Mail facade or your email service
+            // Mail::to($user->email)->send(new OtpMail($otp));
+
+            // Or if you want to use Twilio for SMS to the user's phone
+            // $this->twilioService->sendOtp($user->phone, $otp);
 
             return response()->json([
                 'status' => true,
-                'message' => 'OTP sent to your phone'
+                'message' => 'OTP sent to your email'
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -2858,11 +2862,11 @@ class AuthController extends Controller
     {
         try {
             $request->validate([
-                'phone' => 'required|min:10|max:15',
+                'email' => 'required|email|max:255',
                 'otp' => 'required|digits:6'
             ]);
 
-            $user = User::where('phone', $request->phone)->first();
+            $user = User::where('email', $request->email)->first();
 
             if (!$user) {
                 return response()->json([
@@ -2904,21 +2908,17 @@ class AuthController extends Controller
     {
         try {
             $request->validate([
-                'phone' => 'required|min:10|max:15|exists:users,phone',
-                'password' => 'nullable|string|min:8'
+                'email' => 'required|email|max:255|exists:users,email',
+                'password' => 'required|string|min:8|confirmed'
             ]);
 
-            $user = User::where('phone', $request->phone)->first();
+            $user = User::where('email', $request->email)->first();
 
             $updateData = [
                 'otp' => null,
-                'otp_expires_at' => null
+                'otp_expires_at' => null,
+                'password' => Hash::make($request->password)
             ];
-
-            // If password is provided, update it
-            if ($request->has('password') && !empty($request->password)) {
-                $updateData['password'] = Hash::make($request->password);
-            }
 
             $user->update($updateData);
 
