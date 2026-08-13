@@ -31,24 +31,21 @@ class ProductReviewController extends Controller
             $query->select('id', 'name', 'email');
         }])
             ->where('product_id', $productId)
-            ->where('status', 'approved')
             ->orderBy('created_at', 'desc')
             ->get();
 
         $averageRating = ProductReview::where('product_id', $productId)
-            ->where('status', 'approved')
             ->avg('rating');
 
         $totalReviews = ProductReview::where('product_id', $productId)
-            ->where('status', 'approved')
             ->count();
 
         $ratingDistribution = [
-            1 => ProductReview::where('product_id', $productId)->where('status', 'approved')->where('rating', 1)->count(),
-            2 => ProductReview::where('product_id', $productId)->where('status', 'approved')->where('rating', 2)->count(),
-            3 => ProductReview::where('product_id', $productId)->where('status', 'approved')->where('rating', 3)->count(),
-            4 => ProductReview::where('product_id', $productId)->where('status', 'approved')->where('rating', 4)->count(),
-            5 => ProductReview::where('product_id', $productId)->where('status', 'approved')->where('rating', 5)->count(),
+            1 => ProductReview::where('product_id', $productId)->where('rating', 1)->count(),
+            2 => ProductReview::where('product_id', $productId)->where('rating', 2)->count(),
+            3 => ProductReview::where('product_id', $productId)->where('rating', 3)->count(),
+            4 => ProductReview::where('product_id', $productId)->where('rating', 4)->count(),
+            5 => ProductReview::where('product_id', $productId)->where('rating', 5)->count(),
         ];
 
         return response()->json([
@@ -104,12 +101,12 @@ class ProductReviewController extends Controller
             ], 404);
         }
 
-        // Check if review is approved or the user owns it
+        // Check if user owns the review or is admin
         $user = request()->user();
-        if ($review->status !== 'approved' && $review->user_id !== $user->id) {
+        if ($review->user_id !== $user->id) {
             return response()->json([
                 'success' => false,
-                'message' => 'Review is not available'
+                'message' => 'You are not authorized to view this review'
             ], 403);
         }
 
@@ -173,7 +170,7 @@ class ProductReviewController extends Controller
         if (!$orderId) {
             return response()->json([
                 'success' => false,
-                'message' => 'You can only review products you have purchased or got delivered'
+                'message' => 'You can only review products you have purchased'
             ], 403);
         }
 
@@ -184,12 +181,12 @@ class ProductReviewController extends Controller
                 'order_id' => $orderId,
                 'rating' => $request->rating,
                 'review_text' => $request->review_text,
-                'status' => 'pending'
+                'status' => 'active'
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Review submitted successfully and is pending moderation',
+                'message' => 'Review submitted successfully',
                 'data' => [
                     'id' => $review->id,
                     'rating' => $review->rating,
@@ -243,14 +240,6 @@ class ProductReviewController extends Controller
             ], 403);
         }
 
-        // Check if review can be edited (only pending or rejected reviews can be edited)
-        if ($review->status === 'approved') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Approved reviews cannot be edited. Please contact support.'
-            ], 403);
-        }
-
         $validator = Validator::make($request->all(), [
             'rating' => 'sometimes|integer|min:1|max:5',
             'review_text' => 'sometimes|string|min:10|max:1000',
@@ -267,12 +256,11 @@ class ProductReviewController extends Controller
             $review->update([
                 'rating' => $request->rating ?? $review->rating,
                 'review_text' => $request->review_text ?? $review->review_text,
-                'status' => 'pending',
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Review updated successfully and is pending moderation',
+                'message' => 'Review updated successfully',
                 'data' => [
                     'id' => $review->id,
                     'product_id' => $review->product_id,
@@ -324,14 +312,6 @@ class ProductReviewController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'You are not authorized to delete this review'
-            ], 403);
-        }
-
-        // Check if review can be deleted
-        if ($review->status === 'approved') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Approved reviews cannot be deleted. Please contact support.'
             ], 403);
         }
 
