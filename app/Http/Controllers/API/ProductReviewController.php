@@ -19,7 +19,6 @@ class ProductReviewController extends Controller
     public function index($productId)
     {
         $product = Product::find($productId);
-
         if (!$product) {
             return response()->json([
                 'success' => false,
@@ -28,7 +27,7 @@ class ProductReviewController extends Controller
         }
 
         $reviews = ProductReview::with(['user' => function ($query) {
-            $query->select('id', 'name', 'email');
+            $query->select('id', 'full_name', 'email');
         }])
             ->where('product_id', $productId)
             ->orderBy('created_at', 'desc')
@@ -60,7 +59,7 @@ class ProductReviewController extends Controller
                     return [
                         'id' => $review->id,
                         'user_id' => $review->user_id,
-                        'user_name' => $review->user->name ?? 'Anonymous',
+                        'user_name' => $review->user->full_name ?? 'Anonymous',
                         'rating' => $review->rating,
                         'review_text' => $review->review_text,
                         'created_at' => $review->created_at->format('M d, Y'),
@@ -88,7 +87,7 @@ class ProductReviewController extends Controller
         }
 
         $review = ProductReview::with(['user' => function ($query) {
-            $query->select('id', 'name', 'email');
+            $query->select('id', 'full_name', 'email');
         }])
             ->where('product_id', $productId)
             ->where('id', $reviewId)
@@ -101,12 +100,11 @@ class ProductReviewController extends Controller
             ], 404);
         }
 
-        // Check if user owns the review or is admin
         $user = request()->user();
         if ($review->user_id !== $user->id) {
             return response()->json([
                 'success' => false,
-                'message' => 'You are not authorized to view this review'
+                'message' => 'Review is not available'
             ], 403);
         }
 
@@ -115,10 +113,10 @@ class ProductReviewController extends Controller
             'data' => [
                 'id' => $review->id,
                 'user_id' => $review->user_id,
-                'user_name' => $review->user->name ?? 'Anonymous',
+                'user_name' => $review->user->full_name ?? 'Anonymous',
                 'rating' => $review->rating,
                 'review_text' => $review->review_text,
-                // 'status' => $review->status,
+                'status' => $review->status,
                 'created_at' => $review->created_at->format('M d, Y'),
                 'updated_at' => $review->updated_at->format('M d, Y'),
                 'is_verified_purchase' => $this->isVerifiedPurchase($review->order_id),
@@ -181,17 +179,17 @@ class ProductReviewController extends Controller
                 'order_id' => $orderId,
                 'rating' => $request->rating,
                 'review_text' => $request->review_text,
-                'status' => 'active'
+                'status' => 'pending'
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Review submitted successfully',
+                'message' => 'Review submitted successfully and is pending moderation',
                 'data' => [
                     'id' => $review->id,
                     'rating' => $review->rating,
                     'review_text' => $review->review_text,
-                    // 'status' => $review->status,
+                    'status' => $review->status,
                     'created_at' => $review->created_at->format('M d, Y')
                 ]
             ], 201);
@@ -256,17 +254,18 @@ class ProductReviewController extends Controller
             $review->update([
                 'rating' => $request->rating ?? $review->rating,
                 'review_text' => $request->review_text ?? $review->review_text,
+                'status' => 'pending',
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Review updated successfully',
+                'message' => 'Review updated successfully and is pending moderation',
                 'data' => [
                     'id' => $review->id,
                     'product_id' => $review->product_id,
                     'rating' => $review->rating,
                     'review_text' => $review->review_text,
-                    // 'status' => $review->status,
+                    'status' => $review->status,
                     'updated_at' => $review->updated_at->format('M d, Y')
                 ]
             ]);
