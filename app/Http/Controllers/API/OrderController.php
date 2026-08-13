@@ -277,7 +277,7 @@ class OrderController extends Controller
         return implode(', ', array_filter($parts));
     }
 
-    public function getOrder($id): JsonResponse
+    public function getOrder(): JsonResponse
     {
         try {
             $order = Order::with([
@@ -287,7 +287,7 @@ class OrderController extends Controller
                 'billingAddress',
                 'deliveryAddress',
                 'invoice'
-            ])->where('id', $id)
+            ])
                 ->where('user_id', auth()->id())
                 ->firstOrFail();
 

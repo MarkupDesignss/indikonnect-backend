@@ -1329,123 +1329,6 @@ class CheckoutService
     //     });
     // }
 
-    // public function placeOrder(int $userId, array $data): array
-    // {
-    //     $address = Address::findOrFail($data['address_id']);
-    //     $cart = Cart::with('items.product')->where('user_id', $userId)->firstOrFail();
-    //     $user = User::findOrFail($userId);
-
-    //     // Check stock
-    //     foreach ($cart->items as $item) {
-    //         if ($item->product->stock_quantity < $item->quantity) {
-    //             throw new Exception("Insufficient stock for: {$item->product->name}");
-    //         }
-    //     }
-
-    //     // Use the grand total from request
-    //     $grandTotal = $data['grand_total'];
-
-    //     // Handle coin redemption
-    //     $coinRedemption = null;
-    //     $coinsUsed = 0;
-    //     $coinRedeemedAmount = 0;
-
-    //     if (isset($data['redemption_id'])) {
-    //         $coinRedemption = CoinRedemption::where('id', $data['redemption_id'])
-    //             ->where('user_id', $userId)
-    //             ->where('status', 'authorized')
-    //             ->first();
-    //         if (!$coinRedemption) {
-    //             throw new Exception('Invalid or expired coin redemption');
-    //         }
-
-    //         $coinsUsed = $coinRedemption->coins_used ?? 0;
-    //         $coinRedeemedAmount = $coinRedemption->amount_redeemed ?? 0;
-    //     }
-
-    //     return DB::transaction(function () use ($user, $address, $cart, $coinRedemption, $coinsUsed, $coinRedeemedAmount, $grandTotal, $data) {
-
-    //         // Calculate totals from cart
-    //         $subtotal = 0;
-    //         $totalTax = 0;
-    //         $orderItemsData = [];
-
-    //         foreach ($cart->items as $item) {
-    //             $unitPrice = $user->isDistributor()
-    //                 ? ($item->product->distributor_price ?? $item->product->retail_price)
-    //                 : $item->product->retail_price;
-
-    //             $lineTotal = $unitPrice * $item->quantity;
-    //             $subtotal += $lineTotal;
-
-    //             $taxRate = $item->product->taxCategory?->rate ?? 0;
-    //             $taxAmount = ($lineTotal * $taxRate) / 100;
-    //             $totalTax += $taxAmount;
-
-    //             $orderItemsData[] = [
-    //                 'item' => $item,
-    //                 'unit_price' => $unitPrice,
-    //                 'tax_rate' => $taxRate,
-    //                 'tax_amount' => $taxAmount,
-    //                 'line_total' => $lineTotal + $taxAmount,
-    //             ];
-    //         }
-
-    //         $shippingCharge = $data['shipping_cost'] ?? 0;
-
-    //         $order = Order::create([
-    //             'order_reference' => 'ORD-' . strtoupper(uniqid()),
-    //             'user_id' => $user->id,
-    //             'billing_address_id' => $data['address_id'],
-    //             'delivery_address_id' => $data['address_id'],
-    //             'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
-    //             'subtotal' => $subtotal,
-    //             'total_gst' => $totalTax,
-    //             'shipping_charge' => $shippingCharge,
-    //             'coin_redeemed' => $coinsUsed,
-    //             'coin_redeemed_amount' => $coinRedeemedAmount,
-    //             'total_payable' => $grandTotal,
-    //             'amount_paid' => 0,
-    //             'status' => 'pending',
-    //             'tax_breakdown' => json_encode([]),
-    //         ]);
-
-    //         // Create order lines
-    //         foreach ($orderItemsData as $itemData) {
-    //             OrderLine::create([
-    //                 'order_id' => $order->id,
-    //                 'product_id' => $itemData['item']->product_id,
-    //                 'quantity' => $itemData['item']->quantity,
-    //                 'unit_price' => $itemData['unit_price'],
-    //                 'gst_rate' => $itemData['tax_rate'],
-    //                 'gst_amount' => $itemData['tax_amount'],
-    //                 'line_total' => $itemData['line_total'],
-    //                 'commissionable_volume' => $itemData['item']->product->commissionable_volume ?? 0,
-    //             ]);
-    //         }
-
-    //         // Update coin redemption with order
-    //         if ($coinRedemption) {
-    //             $coinRedemption->update([
-    //                 'order_id' => $order->id,
-    //                 'status' => 'used'
-    //             ]);
-    //         }
-
-    //         // Create Razorpay order
-    //         $razorpayOrder = $this->razorpayService->createOrder($order);
-
-    //         return [
-    //             'order_id' => $order->id,
-    //             'order_reference' => $order->order_reference,
-    //             'amount' => $order->total_payable,
-    //             'razorpay_order_id' => $razorpayOrder['id'],
-    //             'razorpay_key' => config('services.razorpay.key_id'),
-    //             'status' => 'pending',
-    //         ];
-    //     });
-    // }
-
     public function placeOrder(int $userId, array $data): array
     {
         $address = Address::findOrFail($data['address_id']);
@@ -1459,16 +1342,14 @@ class CheckoutService
             }
         }
 
-        // Get summary data (from request or calculate)
-        $summary = $this->getSummaryData($data, $userId, $address->id);
+        // Use the grand total from request
+        $grandTotal = $data['grand_total'];
 
-        // Validate grand total
-        $expectedGrandTotal = $summary['grand_total'] - ($data['coin_redeemed'] ?? 0);
-        if (abs($expectedGrandTotal - $data['grand_total']) > 0.01) {
-            throw new Exception('Grand total mismatch. Please recalculate your cart.');
-        }
-
+        // Handle coin redemption
         $coinRedemption = null;
+        $coinsUsed = 0;
+        $coinRedeemedAmount = 0;
+
         if (isset($data['redemption_id'])) {
             $coinRedemption = CoinRedemption::where('id', $data['redemption_id'])
                 ->where('user_id', $userId)
@@ -1477,81 +1358,95 @@ class CheckoutService
             if (!$coinRedemption) {
                 throw new Exception('Invalid or expired coin redemption');
             }
+
+            $coinsUsed = $coinRedemption->coins_used ?? 0;
+            $coinRedeemedAmount = $coinRedemption->amount_redeemed ?? 0;
         }
 
-        return DB::transaction(function () use ($user, $address, $cart, $summary, $coinRedemption, $data) {
+        return DB::transaction(function () use ($user, $address, $cart, $coinRedemption, $coinsUsed, $coinRedeemedAmount, $grandTotal, $data) {
+
+            // Calculate totals from cart
+            $subtotal = 0;
+            $totalTax = 0;
+            $orderItemsData = [];
+
+            foreach ($cart->items as $item) {
+                $unitPrice = $user->isDistributor()
+                    ? ($item->product->distributor_price ?? $item->product->retail_price)
+                    : $item->product->retail_price;
+
+                $lineTotal = $unitPrice * $item->quantity;
+                $subtotal += $lineTotal;
+
+                $taxRate = $item->product->taxCategory?->rate ?? 0;
+                $taxAmount = ($lineTotal * $taxRate) / 100;
+                $totalTax += $taxAmount;
+
+                $orderItemsData[] = [
+                    'item' => $item,
+                    'unit_price' => $unitPrice,
+                    'tax_rate' => $taxRate,
+                    'tax_amount' => $taxAmount,
+                    'line_total' => $lineTotal + $taxAmount,
+                ];
+            }
+
+            $shippingCharge = $data['shipping_cost'] ?? 0;
+
             $order = Order::create([
                 'order_reference' => 'ORD-' . strtoupper(uniqid()),
                 'user_id' => $user->id,
                 'billing_address_id' => $data['address_id'],
                 'delivery_address_id' => $data['address_id'],
                 'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
-                'subtotal' => $summary['subtotal'],
-                'total_gst' => $summary['total_tax'],
-                'shipping_charge' => $data['shipping_charge'] ?? $summary['shipping_charge'] ?? 0,
-                'shipping_method_id' => $data['shipping_method_id'] ?? $summary['shipping_method_id'] ?? null,
-                'coupon_discount' => $data['coupon_discount'] ?? $summary['coupon_discount'] ?? 0,
-                'coupon_code' => $data['coupon_code'] ?? $summary['coupon_code'] ?? null,
-                'coin_redeemed' => $data['coin_redeemed'] ?? ($coinRedemption ? $coinRedemption->amount_redeemed : 0),
-                'total_payable' => $data['grand_total'],
+                'subtotal' => $subtotal,
+                'total_gst' => $totalTax,
+                'shipping_charge' => $shippingCharge,
+                'coin_redeemed' => $coinsUsed,
+                'coin_redeemed_amount' => $coinRedeemedAmount,
+                'total_payable' => $grandTotal,
                 'amount_paid' => 0,
                 'status' => 'pending',
-                'tax_breakdown' => json_encode($summary['tax_breakdown']),
-                'summary_data' => json_encode($summary),
-                'payment_gateway' => $data['payment_gateway'] ?? null,
+                'tax_breakdown' => json_encode([]),
             ]);
 
-            // Create order lines from summary items
-            foreach ($summary['items'] as $itemData) {
-                $product = Product::find($itemData['product_id']);
+            // Create order lines
+            foreach ($orderItemsData as $itemData) {
                 OrderLine::create([
                     'order_id' => $order->id,
-                    'product_id' => $product->id,
-                    'quantity' => $itemData['quantity'],
+                    'product_id' => $itemData['item']->product_id,
+                    'quantity' => $itemData['item']->quantity,
                     'unit_price' => $itemData['unit_price'],
-                    'gst_rate' => $itemData['gst_rate'],
-                    'gst_amount' => $itemData['total_tax'],
+                    'gst_rate' => $itemData['tax_rate'],
+                    'gst_amount' => $itemData['tax_amount'],
                     'line_total' => $itemData['line_total'],
-                    'commissionable_volume' => $product->commissionable_volume ?? 0,
-                    'tax_data' => json_encode([
-                        'cgst' => $itemData['cgst'],
-                        'sgst' => $itemData['sgst'],
-                        'igst' => $itemData['igst'],
-                        'taxable_value' => $itemData['taxable_value'],
-                    ]),
+                    'commissionable_volume' => $itemData['item']->product->commissionable_volume ?? 0,
                 ]);
             }
 
             // Update coin redemption with order
             if ($coinRedemption) {
-                $coinRedemption->update(['order_id' => $order->id]);
+                $coinRedemption->update([
+                    'order_id' => $order->id,
+                    'status' => 'used'
+                ]);
             }
 
-            // Clear cart
-            $cart->items()->delete();
+            // Create Razorpay order
+            $razorpayOrder = $this->razorpayService->createOrder($order);
 
-            // Create Razorpay order if needed
-            $razorpayOrder = null;
-            if (($data['payment_gateway'] ?? null) === 'razorpay') {
-                $razorpayOrder = $this->razorpayService->createOrder($order);
-            }
-
-            $response = [
+            return [
                 'order_id' => $order->id,
                 'order_reference' => $order->order_reference,
                 'amount' => $order->total_payable,
+                'razorpay_order_id' => $razorpayOrder['id'],
+                'razorpay_key' => config('services.razorpay.key_id'),
                 'status' => 'pending',
-                'summary' => $summary,
             ];
-
-            if ($razorpayOrder) {
-                $response['razorpay_order_id'] = $razorpayOrder['id'];
-                $response['razorpay_key'] = config('services.razorpay.key_id');
-            }
-
-            return $response;
         });
     }
+
+
 
     /**
      * FR-CO-006: Confirm order via webhook
