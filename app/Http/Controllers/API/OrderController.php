@@ -99,7 +99,7 @@ class OrderController extends Controller
         }
     }
 
-    public function getConfirmedOrder(string $id): JsonResponse
+    public function getConfirmedOrder(string $order_reference): JsonResponse
     {
         try {
             $order = Order::with([
@@ -108,7 +108,7 @@ class OrderController extends Controller
                 'lines.product.images',
                 'billingAddress',
                 'deliveryAddress',
-            ])->where('id', $id)
+            ])->where('order_reference', $order_reference)
                 ->where('user_id', auth()->id())
                 ->firstOrFail();
 

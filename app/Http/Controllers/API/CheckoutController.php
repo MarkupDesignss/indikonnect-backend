@@ -82,6 +82,68 @@ class CheckoutController extends Controller
     //     }
     // }
 
+    // public function summary(Request $request): JsonResponse
+    // {
+    //     try {
+    //         $validated = $request->validate([
+    //             'address_id' => 'nullable|exists:addresses,id,user_id,' . auth()->id(),
+    //             'coupon_code' => 'nullable|string|max:50',
+    //             'shipping_method_id' => 'nullable|exists:shipping_methods,id',
+    //             'coins' => 'nullable|integer|min:0',
+    //         ]);
+
+    //         // Get or find address
+    //         $addressId = $validated['address_id'] ?? null;
+
+    //         if (!$addressId) {
+    //             $defaultAddress = Address::where('user_id', auth()->id())
+    //                 ->where(function ($query) {
+    //                     $query->where('is_default', true)
+    //                         ->orWhere('is_billing', true);
+    //                 })
+    //                 ->first();
+
+    //             if ($defaultAddress) {
+    //                 $addressId = $defaultAddress->id;
+    //             } else {
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => 'No delivery address found. Please add an address first.',
+    //                     'data' => [
+    //                         'needs_address' => true,
+    //                         'has_coupon' => !empty($validated['coupon_code']),
+    //                         'coupon_applied' => false,
+    //                     ]
+    //                 ], 400);
+    //             }
+    //         }
+
+    //         $summary = $this->checkoutService->calculateSummary(
+    //             auth()->id(),
+    //             $addressId,
+    //             $validated['coupon_code'] ?? null,
+    //             $validated['shipping_method_id'] ?? null,
+    //             $validated['coins'] ?? null // Pass coins parameter
+    //         );
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $summary,
+    //         ]);
+    //     } catch (ValidationException $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Invalid parameters provided',
+    //             'errors' => $e->errors(),
+    //         ], 422);
+    //     } catch (Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
+
     public function summary(Request $request): JsonResponse
     {
         try {
@@ -123,7 +185,7 @@ class CheckoutController extends Controller
                 $addressId,
                 $validated['coupon_code'] ?? null,
                 $validated['shipping_method_id'] ?? null,
-                $validated['coins'] ?? null // Pass coins parameter
+                $validated['coins'] ?? null
             );
 
             return response()->json([
@@ -307,6 +369,32 @@ class CheckoutController extends Controller
     //         ], 400);
     //     }
     // }
+    // public function placeOrder(Request $request): JsonResponse
+    // {
+    //     $validated = $request->validate([
+    //         'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
+    //         'grand_total' => 'required|numeric|min:0',
+    //         'payment_gateway' => 'nullable|in:razorpay',
+    //         'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
+    //     ]);
+
+    //     try {
+    //         $result = $this->checkoutService->placeOrder(
+    //             auth()->id(),
+    //             $validated
+    //         );
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $result,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
     public function placeOrder(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -314,6 +402,16 @@ class CheckoutController extends Controller
             'grand_total' => 'required|numeric|min:0',
             'payment_gateway' => 'nullable|in:razorpay',
             'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
+            // Summary data from frontend
+            'subtotal' => 'sometimes|numeric|min:0',
+            'total_tax' => 'sometimes|numeric|min:0',
+            'coupon_code' => 'nullable|string|max:50',
+            'coupon_discount' => 'nullable|numeric|min:0',
+            'shipping_charge' => 'nullable|numeric|min:0',
+            'shipping_method_id' => 'nullable|exists:shipping_methods,id',
+            'coin_redeemed' => 'nullable|numeric|min:0',
+            'items' => 'sometimes|array',
+            'tax_breakdown' => 'sometimes|array',
         ]);
 
         try {
@@ -333,6 +431,4 @@ class CheckoutController extends Controller
             ], 400);
         }
     }
-
-   
 }

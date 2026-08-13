@@ -276,7 +276,7 @@ Route::prefix('coupons')->group(function () {
 });
 
 Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/orders/confirmed/{id}', [OrderController::class, 'getConfirmedOrder']);
+    Route::get('/orders/confirmed/{order_reference}', [OrderController::class, 'getConfirmedOrder']);
     // Or use a more generic route
     Route::get('/my-orders/{id}', [OrderController::class, 'getOrder']);
 });
