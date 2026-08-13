@@ -280,3 +280,4 @@ Route::middleware('auth:sanctum')->group(function () {
     // Or use a more generic route
     Route::get('/my-orders', [OrderController::class, 'getOrder']);
 });
+Route::get('/orders/statuses', [OrderController::class, 'statuses']);
