@@ -2273,6 +2273,8 @@ class AuthController extends Controller
                 'pan_verified' => $distributorProfile->pan_verified,
                 'encrypted_pan' => $distributorProfile->encrypted_pan,
                 'pan_verified_at' => $distributorProfile->pan_verified_at,
+                'type_of_entity' => $distributorProfile->type_of_entity,
+                'title' => $distributorProfile->title,
                 'bank_verified' => $distributorProfile->bank_verified,
                 'bank_name' => $distributorProfile->bank_name,
                 'bank_holder_name' => $distributorProfile->bank_holder_name,
