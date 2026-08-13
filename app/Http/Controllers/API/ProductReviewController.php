@@ -121,7 +121,7 @@ class ProductReviewController extends Controller
                 'user_name' => $review->user->name ?? 'Anonymous',
                 'rating' => $review->rating,
                 'review_text' => $review->review_text,
-                'status' => $review->status,
+                // 'status' => $review->status,
                 'created_at' => $review->created_at->format('M d, Y'),
                 'updated_at' => $review->updated_at->format('M d, Y'),
                 'is_verified_purchase' => $this->isVerifiedPurchase($review->order_id),
@@ -173,7 +173,7 @@ class ProductReviewController extends Controller
         if (!$orderId) {
             return response()->json([
                 'success' => false,
-                'message' => 'You can only review products you have purchased'
+                'message' => 'You can only review products you have purchased or got delivered'
             ], 403);
         }
 
@@ -194,7 +194,7 @@ class ProductReviewController extends Controller
                     'id' => $review->id,
                     'rating' => $review->rating,
                     'review_text' => $review->review_text,
-                    'status' => $review->status,
+                    // 'status' => $review->status,
                     'created_at' => $review->created_at->format('M d, Y')
                 ]
             ], 201);
@@ -278,7 +278,7 @@ class ProductReviewController extends Controller
                     'product_id' => $review->product_id,
                     'rating' => $review->rating,
                     'review_text' => $review->review_text,
-                    'status' => $review->status,
+                    // 'status' => $review->status,
                     'updated_at' => $review->updated_at->format('M d, Y')
                 ]
             ]);
