@@ -42,13 +42,9 @@ class UserDashboardController extends Controller
                     'email' => $user->email,
                     'account_type' => $user->account_type,
                     'member_since' => $user->created_at->format('Y'),
-                    'preferred_member' => true,
-                    'points_to_next_tier' => 250,
-                    'discount' => '15% off all retail orders',
-                    'progress_to_next_tier' => '50% to next tier'
                 ],
                 'stats' => $stats,
-                'latest_order' => $latestOrder,
+                'latest_order' => $latestOrder, 
                 'recent_activity' => $recentActivity,
                 // 'wishlist' => $wishlistItems,
                 // 'cart' => $cartItems
