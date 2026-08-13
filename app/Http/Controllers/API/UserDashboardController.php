@@ -39,6 +39,8 @@ class UserDashboardController extends Controller
             'data' => [
                 'user' => [
                     'name' => $user->full_name,
+                    'email' => $user->email,
+                    'account_type' => $user->account_type,
                     'member_since' => $user->created_at->format('Y'),
                     'preferred_member' => true,
                     'points_to_next_tier' => 250,
