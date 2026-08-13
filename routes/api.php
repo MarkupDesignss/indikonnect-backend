@@ -290,7 +290,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 
 // routes/api.php
-Route::prefix('products')->group(function () {
+Route::prefix('product')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{productId}/reviews', [ProductReviewController::class, 'index']);
         Route::post('/{productId}/reviews', [ProductReviewController::class, 'store']);
