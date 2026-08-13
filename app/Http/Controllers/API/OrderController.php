@@ -182,7 +182,7 @@ class OrderController extends Controller
             'confirmed_date' => $order->confirmed_at?->toDateTimeString(),
 
             // Payment Info
-            'payment_gateway' => $order->payment_gateway,
+            'payment_gateway' => $order->payment_gateway ?? 'Razorpay',
             'gateway_transaction_id' => $order->gateway_transaction_id,
             'amount_paid' => (float) $order->amount_paid,
             'payment_status' => $order->amount_paid > 0 ? 'paid' : 'unpaid',

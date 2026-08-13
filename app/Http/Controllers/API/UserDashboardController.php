@@ -74,7 +74,7 @@ class UserDashboardController extends Controller
 
     private function getLatestOrder($userId)
     {
-        $order = Order::with(['orderLines.product.images'])
+        $order = Order::with(['lines.product.images'])
             ->where('user_id', $userId)
             ->whereNull('deleted_at')
             ->latest('created_at')
@@ -85,7 +85,7 @@ class UserDashboardController extends Controller
         }
 
         $orderItems = [];
-        foreach ($order->orderLines as $line) {
+        foreach ($order->lines as $line) {
             $product = $line->product;
             if ($product) {
                 $images = $product->images->map(function ($image) {
