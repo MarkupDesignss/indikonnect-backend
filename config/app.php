@@ -14,6 +14,9 @@ return [
     */
 
     'name' => env('APP_NAME', 'Laravel'),
+    'company_name' => env('COMPANY_NAME', 'IndieKonnect'),
+    'company_gstin' => env('COMPANY_GSTIN', ''),
+    'company_address' => env('COMPANY_ADDRESS', ''),
 
     /*
     |--------------------------------------------------------------------------
