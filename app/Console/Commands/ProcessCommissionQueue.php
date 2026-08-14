@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\CommissionApiEvent;
 use App\Services\Commission\CommissionServiceInterface;
 use App\Services\Commission\OrderPayload;
+use App\Services\Commission\ReversalPayload;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -26,9 +27,9 @@ class ProcessCommissionQueue extends Command
         $limit = (int) $this->option('limit');
         $dryRun = (bool) $this->option('dry-run');
 
-        // Fetch pending events that are ready for retry
+        // Fetch pending events of both types
         $events = CommissionApiEvent::where('status', 'pending')
-            ->where('event_type', 'order_post')
+            ->whereIn('event_type', ['order_post', 'reversal'])
             ->get()
             ->filter(fn($e) => $e->shouldRetry())
             ->take($limit);
@@ -55,20 +56,15 @@ class ProcessCommissionQueue extends Command
                 return;
             }
 
-            $this->info("Processing event #{$event->id} (Attempt {$event->retry_count})");
+            $this->info("Processing #{$event->id} (Attempt {$event->retry_count})");
+            $event->markProcessing();
 
-            // Ensure payload is an array
             $payload = $event->payload;
             if (is_string($payload)) {
                 $payload = json_decode($payload, true);
-                if (!is_array($payload)) {
-                    throw new \Exception('Invalid payload format: cannot decode JSON.');
-                }
             }
 
-            $event->markProcessing();
-
-            // --- Handle ORDER_POST ---
+            // Handle ORDER_POST
             if ($event->event_type === 'order_post') {
                 $orderPayload = new OrderPayload(
                     eventId: $payload['eventId'] ?? 'evt_' . uniqid(),
@@ -88,14 +84,14 @@ class ProcessCommissionQueue extends Command
                     if ($event->order_id && isset($response->data['cv'])) {
                         $event->order()->update(['commissionable_volume' => $response->data['cv']]);
                     }
-                    $this->info("✓ Event #{$event->id} succeeded. CV: " . ($response->data['cv'] ?? 'N/A'));
+                    $this->info("✓ Order event #{$event->id} succeeded. CV: " . ($response->data['cv'] ?? 'N/A'));
                 } else {
                     $event->markFailed($response->message);
-                    $this->warn("✗ Event #{$event->id} failed: {$response->message}");
+                    $this->warn("✗ Order event #{$event->id} failed: {$response->message}");
                 }
             }
 
-            // --- Handle REVERSAL ---
+            // Handle REVERSAL
             elseif ($event->event_type === 'reversal') {
                 $reversalPayload = new ReversalPayload(
                     eventId: $payload['eventId'],
@@ -114,10 +110,6 @@ class ProcessCommissionQueue extends Command
 
                 if ($response->success) {
                     $event->markSent($response->data);
-                    // Optionally update order reversal status
-                    if ($event->order_id) {
-                        $event->order()->update(['reversal_status' => 'done']);
-                    }
                     $this->info("✓ Reversal event #{$event->id} succeeded.");
                 } else {
                     $event->markFailed($response->message);
@@ -125,14 +117,14 @@ class ProcessCommissionQueue extends Command
                 }
             }
 
+            // Mark permanently failed if max retries reached
             if ($event->status === 'failed') {
                 $this->error("Event #{$event->id} permanently failed after {$event->max_retries} attempts.");
-                // TODO: Send admin alert
             }
 
         } catch (\Throwable $e) {
             $event->markFailed($e->getMessage());
-            $this->error("Error processing event #{$event->id}: " . $e->getMessage());
+            $this->error("Error #{$event->id}: " . $e->getMessage());
         }
     }
 
