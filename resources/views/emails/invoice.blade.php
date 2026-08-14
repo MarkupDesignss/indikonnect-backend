@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>Invoice for Order #{{ $order->order_reference }}</title>
+    <title>Order confirmation #{{ $order->order_reference }}</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -49,7 +49,7 @@
         <div class="header">
             <h2>Thank you for your order!</h2>
             <p>Dear {{ $order->user->full_name }},</p>
-            <p>Your order has been confirmed. Please find your invoice attached to this email.</p>
+            <p>Your order has been confirmed. Please find your details attached to this email.</p>
         </div>
 
         <div class="summary">
@@ -70,7 +70,7 @@
             @endif
         </div>
 
-        <p><strong>Invoice Number:</strong> {{ $invoice->invoice_number }}</p>
+        {{-- <p><strong>Invoice Number:</strong> {{ $invoice->invoice_number }}</p> --}}
         <p>You can view your order details in your account dashboard.</p>
 
         <p>If you have any questions, please don't hesitate to contact us.</p>

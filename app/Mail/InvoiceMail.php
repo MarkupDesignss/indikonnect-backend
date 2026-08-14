@@ -23,9 +23,9 @@ class InvoiceMail extends Mailable
 
     public function build()
     {
-        return $this->subject('Invoice for Order #' . $this->order->order_reference)
+        return $this->subject('Order confirmation #' . $this->order->order_reference)
             ->view('emails.invoice')
-            ->attachData($this->pdfContent, 'invoice_' . $this->invoice->invoice_number . '.pdf', [
+            ->attachData($this->pdfContent, 'Order_' . $this->order->order_reference  . '.pdf', [
                 'mime' => 'application/pdf',
             ]);
     }

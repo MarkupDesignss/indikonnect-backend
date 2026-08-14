@@ -140,14 +140,63 @@ class UserDashboardController extends Controller
         ];
     }
 
+    // private function getRecentActivity($userId)
+    // {
+    //     $orders = Order::where('user_id', $userId)
+    //         ->latest('created_at')
+    //         ->limit(10)
+    //         ->get();
+
+    //     $activities = [];
+
+    //     foreach ($orders as $order) {
+    //         $orderLine = OrderLine::where('order_id', $order->id)->first();
+    //         $productName = $orderLine ?
+    //             (Product::find($orderLine->product_id)?->name ?? 'Product') :
+    //             'Product';
+
+    //         $activities[] = [
+    //             'event' => "Product Purchase: {$productName}",
+    //             'date' => $order->created_at->format('M d, Y'),
+    //             'points_earned' => "+{$order->coin_redeemed} PV",
+    //             'status' => 'Confirmed',
+    //             'order_reference' => $order->order_reference
+    //         ];
+    //     }
+
+    //     $recentReviews = ProductReview::where('user_id', $userId)
+    //         ->with('product')
+    //         ->latest('created_at')
+    //         ->limit(5)
+    //         ->get();
+
+    //     foreach ($recentReviews as $review) {
+    //         $productName = $review->product?->name ?? 'Product';
+    //         $activities[] = [
+    //             'event' => "Product Review: {$productName}",
+    //             'date' => $review->created_at->format('M d, Y'),
+    //             'rating' => $review->rating,
+    //             'review_text' => $review->review_text,
+    //             'status' => $review->status ?? 'active',
+    //             'product_id' => $review->product_id
+    //         ];
+    //     }
+
+    //     usort($activities, function ($a, $b) {
+    //         return strtotime($b['date']) - strtotime($a['date']);
+    //     });
+
+    //     return array_slice($activities, 0, 10);
+    // }
     private function getRecentActivity($userId)
     {
+        $activities = [];
+
+        // 1. Order activities
         $orders = Order::where('user_id', $userId)
             ->latest('created_at')
             ->limit(10)
             ->get();
-
-        $activities = [];
 
         foreach ($orders as $order) {
             $orderLine = OrderLine::where('order_id', $order->id)->first();
@@ -156,14 +205,19 @@ class UserDashboardController extends Controller
                 'Product';
 
             $activities[] = [
+                'type' => 'order',
                 'event' => "Product Purchase: {$productName}",
-                'date' => $order->created_at->format('M d, Y'),
+                'created_at' => $order->created_at->format('M d, Y H:i:s'),
+                'updated_at' => $order->updated_at->format('M d, Y H:i:s'),
+                'created_timestamp' => $order->created_at->timestamp,
+                'updated_timestamp' => $order->updated_at->timestamp,
                 'points_earned' => "+{$order->coin_redeemed} PV",
                 'status' => 'Confirmed',
                 'order_reference' => $order->order_reference
             ];
         }
 
+        // 2. Review activities
         $recentReviews = ProductReview::where('user_id', $userId)
             ->with('product')
             ->latest('created_at')
@@ -173,8 +227,12 @@ class UserDashboardController extends Controller
         foreach ($recentReviews as $review) {
             $productName = $review->product?->name ?? 'Product';
             $activities[] = [
+                'type' => 'review',
                 'event' => "Product Review: {$productName}",
-                'date' => $review->created_at->format('M d, Y'),
+                'created_at' => $review->created_at->format('M d, Y H:i:s'),
+                'updated_at' => $review->updated_at->format('M d, Y H:i:s'),
+                'created_timestamp' => $review->created_at->timestamp,
+                'updated_timestamp' => $review->updated_at->timestamp,
                 'rating' => $review->rating,
                 'review_text' => $review->review_text,
                 'status' => $review->status ?? 'active',
@@ -182,10 +240,67 @@ class UserDashboardController extends Controller
             ];
         }
 
+        // 3. Wishlist activities
+        $wishlistItems = Wishlist::where('user_id', $userId)
+            ->with('product')
+            ->latest('created_at')
+            ->limit(10)
+            ->get();
+
+        foreach ($wishlistItems as $wishlist) {
+            $productName = $wishlist->product?->name ?? 'Product';
+            $activities[] = [
+                'type' => 'wishlist',
+                'event' => "Added to Wishlist: {$productName}",
+                'created_at' => $wishlist->created_at->format('M d, Y H:i:s'),
+                'updated_at' => $wishlist->updated_at->format('M d, Y H:i:s'),
+                'created_timestamp' => $wishlist->created_at->timestamp,
+                'updated_timestamp' => $wishlist->updated_at->timestamp,
+                'product_id' => $wishlist->product_id,
+                'wishlist_id' => $wishlist->id
+            ];
+        }
+
+        // 4. Cart activities
+        $carts = Cart::where('user_id', $userId)
+            ->with('items.product')
+            ->latest('created_at')
+            ->limit(10)
+            ->get();
+
+        foreach ($carts as $cart) {
+            // Get cart items for this cart
+            $cartItems = DB::table('cart_items')
+                ->where('cart_id', $cart->id)
+                ->join('products', 'cart_items.product_id', '=', 'products.id')
+                ->select('products.name', 'cart_items.quantity', 'cart_items.created_at', 'cart_items.updated_at')
+                ->get();
+
+            foreach ($cartItems as $item) {
+                $createdAt = $item->created_at ? date('M d, Y H:i:s', strtotime($item->created_at)) : $cart->created_at->format('M d, Y H:i:s');
+                $updatedAt = $item->updated_at ? date('M d, Y H:i:s', strtotime($item->updated_at)) : $cart->updated_at->format('M d, Y H:i:s');
+                $createdTimestamp = $item->created_at ? strtotime($item->created_at) : $cart->created_at->timestamp;
+                $updatedTimestamp = $item->updated_at ? strtotime($item->updated_at) : $cart->updated_at->timestamp;
+
+                $activities[] = [
+                    'type' => 'cart',
+                    'event' => "Added to Cart: {$item->name} (Qty: {$item->quantity})",
+                    'created_at' => $createdAt,
+                    'updated_at' => $updatedAt,
+                    'created_timestamp' => $createdTimestamp,
+                    'updated_timestamp' => $updatedTimestamp,
+                    'quantity' => $item->quantity,
+                    'product_name' => $item->name
+                ];
+            }
+        }
+
+        // Sort all activities by created_timestamp (newest first)
         usort($activities, function ($a, $b) {
-            return strtotime($b['date']) - strtotime($a['date']);
+            return $b['created_timestamp'] - $a['created_timestamp'];
         });
 
+        // Return top 10 most recent activities
         return array_slice($activities, 0, 10);
     }
 
