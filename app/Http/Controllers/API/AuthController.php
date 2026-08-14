@@ -371,6 +371,13 @@ class AuthController extends Controller
                 ], 422);
             }
 
+            if ($user->is_active == 0) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Your account is blocked by admin. Please contact support.'
+                ], 422);
+            }
+
             // Check OTP
             if ($user->otp != $request->otp) {
                 return response()->json([
