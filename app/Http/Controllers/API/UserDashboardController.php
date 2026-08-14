@@ -9,30 +9,36 @@ use App\Models\Cart;
 use App\Models\Product;
 use App\Models\OrderLine;
 use App\Models\ProductReview;
+use App\Services\DistributorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class UserDashboardController extends Controller
 {
+    protected DistributorService $distributorService;
+
+    public function __construct(DistributorService $distributorService)
+    {
+        $this->distributorService = $distributorService;
+    }
+
     public function dashboard(Request $request)
     {
         $user = $request->user();
         $userId = $user->id;
 
-        // Get dashboard statistics
+        // Common stats for all users
         $stats = $this->getUserStats($userId);
-
-        // Get latest order with images
         $latestOrder = $this->getLatestOrder($userId);
-
-        // Get recent activity
         $recentActivity = $this->getRecentActivity($userId);
-
-        // Get wishlist items with images
         $wishlistItems = $this->getWishlistItems($userId);
-
-        // Get cart items with images
         $cartItems = $this->getCartItems($userId);
+
+        // Commission data – ONLY for distributors
+        $commissionData = null;
+        if ($user->isDistributor()) {
+            $commissionData = $this->distributorService->getDashboardData($userId);
+        }
 
         return response()->json([
             'success' => true,
@@ -44,10 +50,12 @@ class UserDashboardController extends Controller
                     'member_since' => $user->created_at->format('Y'),
                 ],
                 'stats' => $stats,
-                'latest_order' => $latestOrder, 
+                'latest_order' => $latestOrder,
                 'recent_activity' => $recentActivity,
-                // 'wishlist' => $wishlistItems,
-                // 'cart' => $cartItems
+                'wishlist' => $wishlistItems,
+                'cart' => $cartItems,
+                // Commission data – null for customers, filled for distributors
+                'commission' => $commissionData,
             ]
         ]);
     }
@@ -55,31 +63,17 @@ class UserDashboardController extends Controller
     private function getUserStats($userId)
     {
         $totalOrders = Order::where('user_id', $userId)->count();
-
         $wishlistCount = Wishlist::where('user_id', $userId)->count();
-
-        $totalPoints = Order::where('user_id', $userId)
-            ->sum('coin_redeemed') ?? 0;
-
-        // Get total reviews count for the user
+        $totalPoints = Order::where('user_id', $userId)->sum('coin_redeemed') ?? 0;
         $reviewsCount = ProductReview::where('user_id', $userId)->count();
-
-        // Get average rating given by the user
         $averageRating = ProductReview::where('user_id', $userId)->avg('rating');
 
-        // Get cart items count
         $cart = Cart::where('user_id', $userId)->latest()->first();
         $cartItemsCount = 0;
         $cartTotal = 0;
-
         if ($cart) {
-            $cartItems = DB::table('cart_items')
-                ->where('cart_id', $cart->id)
-                ->get();
-
+            $cartItems = DB::table('cart_items')->where('cart_id', $cart->id)->get();
             $cartItemsCount = $cartItems->count();
-
-            // Calculate cart total
             foreach ($cartItems as $item) {
                 $cartTotal += $item->unit_price * $item->quantity;
             }
@@ -148,7 +142,6 @@ class UserDashboardController extends Controller
 
     private function getRecentActivity($userId)
     {
-        // Get recent order activities
         $orders = Order::where('user_id', $userId)
             ->latest('created_at')
             ->limit(10)
@@ -157,7 +150,6 @@ class UserDashboardController extends Controller
         $activities = [];
 
         foreach ($orders as $order) {
-            // Get first product from order for the name
             $orderLine = OrderLine::where('order_id', $order->id)->first();
             $productName = $orderLine ?
                 (Product::find($orderLine->product_id)?->name ?? 'Product') :
@@ -172,7 +164,6 @@ class UserDashboardController extends Controller
             ];
         }
 
-        // Get recent review activities
         $recentReviews = ProductReview::where('user_id', $userId)
             ->with('product')
             ->latest('created_at')
@@ -181,7 +172,6 @@ class UserDashboardController extends Controller
 
         foreach ($recentReviews as $review) {
             $productName = $review->product?->name ?? 'Product';
-
             $activities[] = [
                 'event' => "Product Review: {$productName}",
                 'date' => $review->created_at->format('M d, Y'),
@@ -192,23 +182,18 @@ class UserDashboardController extends Controller
             ];
         }
 
-        // Sort all activities by date (newest first)
         usort($activities, function ($a, $b) {
             return strtotime($b['date']) - strtotime($a['date']);
         });
 
-        // Limit to 10 most recent activities
-        $activities = array_slice($activities, 0, 10);
-
-        return $activities;
+        return array_slice($activities, 0, 10);
     }
 
     private function getWishlistItems($userId)
     {
         $wishlistItems = Wishlist::where('user_id', $userId)
             ->with(['product.images' => function ($query) {
-                $query->orderBy('is_primary', 'desc')
-                    ->orderBy('sort_order');
+                $query->orderBy('is_primary', 'desc')->orderBy('sort_order');
             }])
             ->latest()
             ->get();
@@ -236,29 +221,22 @@ class UserDashboardController extends Controller
                 ];
             }
         }
-
         return $items;
     }
 
     private function getCartItems($userId)
     {
-        $cart = Cart::where('user_id', $userId)
-            ->latest()
-            ->first();
-
+        $cart = Cart::where('user_id', $userId)->latest()->first();
         if (!$cart) {
             return [];
         }
 
-        $cartItems = DB::table('cart_items')
-            ->where('cart_id', $cart->id)
-            ->get();
-
+        $cartItems = DB::table('cart_items')->where('cart_id', $cart->id)->get();
         $items = [];
+
         foreach ($cartItems as $cartItem) {
             $product = Product::with(['images' => function ($query) {
-                $query->orderBy('is_primary', 'desc')
-                    ->orderBy('sort_order');
+                $query->orderBy('is_primary', 'desc')->orderBy('sort_order');
             }])->find($cartItem->product_id);
 
             if ($product) {
@@ -281,7 +259,6 @@ class UserDashboardController extends Controller
                 ];
             }
         }
-
         return $items;
     }
 }
