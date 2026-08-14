@@ -1806,7 +1806,7 @@ class AuthController extends Controller
                 'bank_name' => $request->bank_name,
                 'branch_name' => $request->branch_name,
                 'account_type' => $request->account_type,
-                'bank_verified' => 0
+                'bank_verified' => 1
             ]);
 
             $user->update([
