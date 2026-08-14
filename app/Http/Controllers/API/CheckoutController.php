@@ -401,17 +401,19 @@ class CheckoutController extends Controller
             'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
             'grand_total' => 'required|numeric|min:0',
             'payment_gateway' => 'nullable|in:razorpay',
+
             'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
-            // Summary data from frontend
-            'subtotal' => 'sometimes|numeric|min:0',
-            'total_tax' => 'sometimes|numeric|min:0',
-            'coupon_code' => 'nullable|string|max:50',
-            'coupon_discount' => 'nullable|numeric|min:0',
-            'shipping_charge' => 'nullable|numeric|min:0',
-            'shipping_method_id' => 'nullable|exists:shipping_methods,id',
-            'coin_redeemed' => 'nullable|numeric|min:0',
-            'items' => 'sometimes|array',
-            'tax_breakdown' => 'sometimes|array',
+
+            'summary_data' => 'required|array',
+            'summary_data.subtotal' => 'sometimes|numeric|min:0',
+            'summary_data.total_tax' => 'sometimes|numeric|min:0',
+            'summary_data.coupon_code' => 'nullable|string|max:50',
+            'summary_data.coupon_discount' => 'nullable|numeric|min:0',
+            'summary_data.shipping_charge' => 'nullable|numeric|min:0',
+            'summary_data.shipping_method_id' => 'nullable|exists:shipping_methods,id',
+            'summary_data.coin_redeemed' => 'nullable|numeric|min:0',
+            'summary_data.amount_redeemed' => 'nullable|numeric|min:0',
+            'summary_data.net_subtotal' => 'nullable|numeric|min:0',
         ]);
 
         try {
