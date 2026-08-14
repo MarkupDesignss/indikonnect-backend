@@ -1446,8 +1446,6 @@ class CheckoutService
         });
     }
 
-
-
     /**
      * FR-CO-006: Confirm order via webhook
      */
