@@ -57,7 +57,7 @@ class ProcessCommissionQueue extends Command
 
             $this->info("Processing event #{$event->id} (Attempt {$event->retry_count})");
 
-            // Fix: Ensure $payload is an array
+            // Ensure payload is an array
             $payload = $event->payload;
             if (is_string($payload)) {
                 $payload = json_decode($payload, true);
@@ -68,36 +68,72 @@ class ProcessCommissionQueue extends Command
 
             $event->markProcessing();
 
-            $orderPayload = new OrderPayload(
-                eventId: $payload['eventId'] ?? 'evt_' . uniqid(),
-                action: $payload['action'] ?? 'ORDER_PLACED',
-                orderReference: $payload['orderReference'],
-                purchaserIdentifier: $payload['purchaserIdentifier'],
-                accountType: $payload['accountType'],
-                eventTimestamp: $payload['eventTimestamp'],
-                lines: $payload['lines'],
-                totalOrderValue: $payload['totalOrderValue'],
-            );
+            // --- Handle ORDER_POST ---
+            if ($event->event_type === 'order_post') {
+                $orderPayload = new OrderPayload(
+                    eventId: $payload['eventId'] ?? 'evt_' . uniqid(),
+                    action: $payload['action'] ?? 'ORDER_PLACED',
+                    orderReference: $payload['orderReference'],
+                    purchaserIdentifier: $payload['purchaserIdentifier'],
+                    accountType: $payload['accountType'],
+                    eventTimestamp: $payload['eventTimestamp'],
+                    lines: $payload['lines'],
+                    totalOrderValue: $payload['totalOrderValue'],
+                );
 
-            $response = $this->commissionService->postOrderEvent($orderPayload);
+                $response = $this->commissionService->postOrderEvent($orderPayload);
 
-            if ($response->success) {
-                $event->markSent($response->data);
-                if ($event->order_id && isset($response->data['cv'])) {
-                    $event->order()->update(['commissionable_volume' => $response->data['cv']]);
-                }
-                $this->info("✓ Event #{$event->id} succeeded. CV: " . ($response->data['cv'] ?? 'N/A'));
-            } else {
-                $event->markFailed($response->message);
-                $this->warn("✗ Event #{$event->id} failed: {$response->message}");
-                if ($event->status === 'failed') {
-                    $this->error("Event #{$event->id} permanently failed after {$event->max_retries} attempts.");
-                    // Optionally send admin alert
+                if ($response->success) {
+                    $event->markSent($response->data);
+                    if ($event->order_id && isset($response->data['cv'])) {
+                        $event->order()->update(['commissionable_volume' => $response->data['cv']]);
+                    }
+                    $this->info("✓ Event #{$event->id} succeeded. CV: " . ($response->data['cv'] ?? 'N/A'));
+                } else {
+                    $event->markFailed($response->message);
+                    $this->warn("✗ Event #{$event->id} failed: {$response->message}");
                 }
             }
+
+            // --- Handle REVERSAL ---
+            elseif ($event->event_type === 'reversal') {
+                $reversalPayload = new ReversalPayload(
+                    eventId: $payload['eventId'],
+                    action: $payload['action'],
+                    orderReference: $payload['orderReference'],
+                    reason: $payload['reason'],
+                    lines: $payload['lines'],
+                    reversedValue: $payload['reversedValue'],
+                    originalCv: $payload['originalCv'],
+                    purchaserIdentifier: $payload['purchaserIdentifier'],
+                    accountType: $payload['accountType'],
+                    eventTimestamp: $payload['eventTimestamp'],
+                );
+
+                $response = $this->commissionService->postReversalEvent($reversalPayload);
+
+                if ($response->success) {
+                    $event->markSent($response->data);
+                    // Optionally update order reversal status
+                    if ($event->order_id) {
+                        $event->order()->update(['reversal_status' => 'done']);
+                    }
+                    $this->info("✓ Reversal event #{$event->id} succeeded.");
+                } else {
+                    $event->markFailed($response->message);
+                    $this->warn("✗ Reversal event #{$event->id} failed: {$response->message}");
+                }
+            }
+
+            if ($event->status === 'failed') {
+                $this->error("Event #{$event->id} permanently failed after {$event->max_retries} attempts.");
+                // TODO: Send admin alert
+            }
+
         } catch (\Throwable $e) {
             $event->markFailed($e->getMessage());
             $this->error("Error processing event #{$event->id}: " . $e->getMessage());
         }
     }
+
 }

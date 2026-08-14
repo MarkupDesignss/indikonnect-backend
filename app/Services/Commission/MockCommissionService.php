@@ -15,37 +15,116 @@ class MockCommissionService implements CommissionServiceInterface
         $this->latencyMs   = (int) config('commission.mock_latency_ms', 500);
     }
 
+    // -------- Order Posting --------
+
     public function postOrderEvent(OrderPayload $payload): EventResponse
     {
         if ($this->latencyMs > 0) usleep($this->latencyMs * 1000);
 
         if (rand(1, 100) <= $this->failureRate) {
-            Log::warning('Mock Commission API failed', ['order' => $payload->orderReference]);
+            Log::warning('Mock order post failed', ['order' => $payload->orderReference]);
             return new EventResponse(false, 'Mock API simulated failure', ['retryable' => true]);
         }
 
         $mockCv = round($payload->totalOrderValue * 0.10, 2);
-        $breakdown = array_map(fn($line) => [
-            'product_id' => $line['productIdentifier'],
-            'cv' => round(($line['quantity'] * $line['unitPriceCharged']) * 0.10, 2),
-        ], $payload->lines);
-
-        Log::info('Mock Commission API success', ['order' => $payload->orderReference, 'cv' => $mockCv]);
+        Log::info('Mock order post success', ['order' => $payload->orderReference, 'cv' => $mockCv]);
 
         return new EventResponse(true, 'Order event posted (MOCK)', [
             'cv' => $mockCv,
-            'cv_breakdown' => $breakdown,
+            'cv_breakdown' => array_map(fn($line) => [
+                'product_id' => $line['productIdentifier'],
+                'cv' => round(($line['quantity'] * $line['unitPriceCharged']) * 0.10, 2),
+            ], $payload->lines),
         ]);
     }
 
+    // -------- Reversal / Clawback --------
+
     public function postReversalEvent(ReversalPayload $payload): EventResponse
     {
-        usleep($this->latencyMs * 1000);
+        if ($this->latencyMs > 0) usleep($this->latencyMs * 1000);
+
         if (rand(1, 100) <= $this->failureRate) {
+            Log::warning('Mock reversal failed', ['order' => $payload->orderReference]);
             return new EventResponse(false, 'Mock reversal failed', ['retryable' => true]);
         }
-        return new EventResponse(true, 'Reversal posted (MOCK)', ['reversed_cv' => $payload->originalCv]);
+
+        Log::info('Mock reversal success', ['order' => $payload->orderReference, 'cv' => $payload->originalCv]);
+        return new EventResponse(true, 'Reversal posted (MOCK)', [
+            'reversed_cv' => $payload->originalCv,
+        ]);
     }
+
+    // -------- Commission Visibility (Mock Data) --------
+
+    public function getCommission(int $userId, string $period = 'current'): array
+    {
+        return [
+            'period' => $period,
+            'total' => 1500.00,
+            'breakdown' => [
+                ['type' => 'step_commission', 'amount' => 800.00],
+                ['type' => 'bonus', 'amount' => 700.00],
+            ],
+            'currency' => 'INR',
+        ];
+    }
+
+    public function getRank(int $userId): array
+    {
+        return [
+            'current_rank' => 'Silver',
+            'next_rank' => 'Gold',
+            'progress_percentage' => 65,
+            'requirements' => [
+                'cv_required' => 10000,
+                'cv_current' => 6500,
+            ],
+        ];
+    }
+
+    public function getBonus(int $userId, string $period = 'current'): array
+    {
+        return [
+            'period' => $period,
+            'bonuses' => [
+                ['name' => 'Team Bonus', 'amount' => 500.00],
+                ['name' => 'Leadership Bonus', 'amount' => 200.00],
+            ],
+            'total' => 700.00,
+        ];
+    }
+
+    public function getCoins(int $userId): int
+    {
+        return 500;
+    }
+
+    public function getLedger(int $userId, string $period = 'current'): array
+    {
+        return [
+            'entries' => [
+                [
+                    'date' => now()->subDays(1)->toDateString(),
+                    'type' => 'commission',
+                    'description' => 'Step commission for order #ORD-123',
+                    'amount' => 300.00,
+                    'status' => 'released',
+                ],
+                [
+                    'date' => now()->subDays(3)->toDateString(),
+                    'type' => 'bonus',
+                    'description' => 'Team bonus',
+                    'amount' => 200.00,
+                    'status' => 'pending',
+                ],
+            ],
+            'opening_balance' => 1000.00,
+            'closing_balance' => 1500.00,
+        ];
+    }
+
+    // -------- Health Check --------
 
     public function healthCheck(): bool
     {
