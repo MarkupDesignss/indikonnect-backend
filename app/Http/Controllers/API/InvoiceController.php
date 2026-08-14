@@ -88,7 +88,7 @@ class InvoiceController extends Controller
                 'id' => $invoice->id,
                 'invoice_number' => $invoice->invoice_number,
                 'issued_at' => $invoice->issued_at,
-                'pdf_path' => $invoice->pdf_path,
+                // 'pdf_path' => $invoice->pdf_path,
                 'subtotal_before_redemption' => $invoice->subtotal_before_redemption,
                 'coin_redeemed' => $invoice->coin_redeemed,
                 'total_taxable' => $invoice->total_taxable,
