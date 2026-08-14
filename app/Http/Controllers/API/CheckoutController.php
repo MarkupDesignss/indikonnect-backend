@@ -8,7 +8,6 @@ use App\Models\Order;
 use App\Services\CheckoutService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Validation\ValidationException;
 use Exception;
 
 class CheckoutController extends Controller
@@ -403,8 +402,9 @@ class CheckoutController extends Controller
             'grand_total' => 'required|numeric|min:0',
             'payment_gateway' => 'nullable|in:razorpay',
 
-            'summary_data' => 'required|array',
+            'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
 
+            'summary_data' => 'required|array',
             'summary_data.subtotal' => 'sometimes|numeric|min:0',
             'summary_data.total_tax' => 'sometimes|numeric|min:0',
             'summary_data.coupon_code' => 'nullable|string|max:50',
