@@ -2007,7 +2007,7 @@ class AuthController extends Controller
                 'registration_completed' => 1,
                 'submitted_at' => now(),
                 'terms_accepted_at' => now(),
-                'kyc_status' => 'pending'
+                'kyc_status' => 'verified'
             ]);
 
             // Assign role
