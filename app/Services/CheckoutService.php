@@ -1243,7 +1243,7 @@ class CheckoutService
     //     $address = Address::findOrFail($data['address_id']);
     //     $cart = Cart::with('items.product')->where('user_id', $userId)->firstOrFail();
     //     $user = User::findOrFail($userId);
-
+    //         dd($data);
     //     // Check stock
     //     foreach ($cart->items as $item) {
     //         if ($item->product->stock_quantity < $item->quantity) {
@@ -1251,9 +1251,14 @@ class CheckoutService
     //         }
     //     }
 
-    //     $summary = $this->calculateSummary($userId, $data['address_id']);
+    //     // Use the grand total from request
+    //     $grandTotal = $data['grand_total'];
 
+    //     // Handle coin redemption
     //     $coinRedemption = null;
+    //     $coinsUsed = 0;
+    //     $coinRedeemedAmount = 0;
+
     //     if (isset($data['redemption_id'])) {
     //         $coinRedemption = CoinRedemption::where('id', $data['redemption_id'])
     //             ->where('user_id', $userId)
@@ -1263,43 +1268,68 @@ class CheckoutService
     //             throw new Exception('Invalid or expired coin redemption');
     //         }
 
-    //         // Verify that the redemption amount matches what's in the summary
-    //         if ($coinRedemption->amount_redeemed != $summary['amount_redeemed']) {
-    //             throw new Exception('Coin redemption amount mismatch');
-    //         }
+    //         $coinsUsed = $coinRedemption->coins_used ?? 0;
+    //         $coinRedeemedAmount = $coinRedemption->amount_redeemed ?? 0;
     //     }
 
-    //     return DB::transaction(function () use ($user, $address, $cart, $summary, $coinRedemption, $data) {
+    //     return DB::transaction(function () use ($user, $address, $cart, $coinRedemption, $coinsUsed, $coinRedeemedAmount, $grandTotal, $data) {
+
+    //         // Calculate totals from cart
+    //         $subtotal = 0;
+    //         $totalTax = 0;
+    //         $orderItemsData = [];
+
+    //         foreach ($cart->items as $item) {
+    //             $unitPrice = $user->isDistributor()
+    //                 ? ($item->product->distributor_price ?? $item->product->retail_price)
+    //                 : $item->product->retail_price;
+
+    //             $lineTotal = $unitPrice * $item->quantity;
+    //             $subtotal += $lineTotal;
+
+    //             $taxRate = $item->product->taxCategory?->rate ?? 0;
+    //             $taxAmount = ($lineTotal * $taxRate) / 100;
+    //             $totalTax += $taxAmount;
+
+    //             $orderItemsData[] = [
+    //                 'item' => $item,
+    //                 'unit_price' => $unitPrice,
+    //                 'tax_rate' => $taxRate,
+    //                 'tax_amount' => $taxAmount,
+    //                 'line_total' => $lineTotal + $taxAmount,
+    //             ];
+    //         }
+
+    //         $shippingCharge = $data['shipping_cost'] ?? 0;
+
     //         $order = Order::create([
     //             'order_reference' => 'ORD-' . strtoupper(uniqid()),
     //             'user_id' => $user->id,
     //             'billing_address_id' => $data['address_id'],
     //             'delivery_address_id' => $data['address_id'],
     //             'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
-    //             'subtotal' => $summary['subtotal'],
-    //             'total_gst' => $summary['total_tax'],
-    //             'shipping_charge' => $summary['shipping_cost'], // You had this as 0, should use actual shipping cost
-    //             'coin_redeemed' => $summary['coins_used'], // Use from summary
-    //             'coin_redeemed_amount' => $summary['amount_redeemed'], // Add this field to orders table
-    //             'total_payable' => $summary['grand_total'], // This already includes coin deduction
+    //             'subtotal' => $subtotal,
+    //             'total_gst' => $totalTax,
+    //             'shipping_charge' => $shippingCharge,
+    //             'coin_redeemed' => $coinsUsed,
+    //             'coin_redeemed_amount' => $coinRedeemedAmount,
+    //             'total_payable' => $grandTotal,
     //             'amount_paid' => 0,
     //             'status' => 'pending',
-    //             'tax_breakdown' => json_encode($summary['tax_breakdown']),
+    //             'tax_breakdown' => json_encode([]),
     //         ]);
+
     //         // Create order lines
-    //         foreach ($summary['items'] as $itemData) {
-    //             $product = Product::find($itemData['product_id']);
-    //             // dd($itemData);
+    //         foreach ($orderItemsData as $itemData) {
     //             OrderLine::create([
     //                 'order_id' => $order->id,
-    //                 'product_id' => $product->id,
-    //                 'quantity' => $itemData['quantity'],
+    //                 'product_id' => $itemData['item']->product_id,
+    //                 'quantity' => $itemData['item']->quantity,
     //                 'unit_price' => $itemData['unit_price'],
-    //                 'gst_rate' => (float) str_replace('%', '', $itemData['tax_rate']),
-    //                 // 'gst_rate' => $itemData['tax_rate'],
-    //                 'gst_amount' => $itemData['total_tax'],
+    //                 'gst_rate' => $itemData['tax_rate'],
+    //                 'gst_amount' => $itemData['tax_amount'],
     //                 'line_total' => $itemData['line_total'],
-    //                 'commissionable_volume' => $product->commissionable_volume ?? 0,
+    //                 'commissionable_volume' => $itemData['item']->product->commissionable_volume ?? 0,
     //             ]);
     //         }
 
@@ -1307,12 +1337,9 @@ class CheckoutService
     //         if ($coinRedemption) {
     //             $coinRedemption->update([
     //                 'order_id' => $order->id,
-    //                 'status' => 'used' // Update status to used
+    //                 'status' => 'used'
     //             ]);
     //         }
-
-    //         // Clear cart
-    //         $cart->items()->delete();
 
     //         // Create Razorpay order
     //         $razorpayOrder = $this->razorpayService->createOrder($order);
@@ -1324,7 +1351,6 @@ class CheckoutService
     //             'razorpay_order_id' => $razorpayOrder['id'],
     //             'razorpay_key' => config('services.razorpay.key_id'),
     //             'status' => 'pending',
-    //             'summary' => $summary, // Optional: return summary for verification
     //         ];
     //     });
     // }
@@ -1334,6 +1360,9 @@ class CheckoutService
         $address = Address::findOrFail($data['address_id']);
         $cart = Cart::with('items.product')->where('user_id', $userId)->firstOrFail();
         $user = User::findOrFail($userId);
+
+        // Extract summary data
+        $summary = $data['summary_data'] ?? [];
 
         // Check stock
         foreach ($cart->items as $item) {
@@ -1363,7 +1392,7 @@ class CheckoutService
             $coinRedeemedAmount = $coinRedemption->amount_redeemed ?? 0;
         }
 
-        return DB::transaction(function () use ($user, $address, $cart, $coinRedemption, $coinsUsed, $coinRedeemedAmount, $grandTotal, $data) {
+        return DB::transaction(function () use ($user, $address, $cart, $coinRedemption, $coinsUsed, $coinRedeemedAmount, $grandTotal, $data, $summary) {
 
             // Calculate totals from cart
             $subtotal = 0;
@@ -1391,8 +1420,13 @@ class CheckoutService
                 ];
             }
 
-            $shippingCharge = $data['shipping_cost'] ?? 0;
+            // Get values from summary data with fallbacks
+            $shippingCharge = $summary['shipping_charge'] ?? $data['shipping_cost'] ?? 0;
+            $couponDiscount = $summary['coupon_discount'] ?? 0;
+            $amountRedeemed = $summary['amount_redeemed'] ?? $coinRedeemedAmount ?? 0;
+            $netSubtotal = $summary['net_subtotal'] ?? $subtotal;
 
+            // Create the order
             $order = Order::create([
                 'order_reference' => 'ORD-' . strtoupper(uniqid()),
                 'user_id' => $user->id,
@@ -1402,8 +1436,9 @@ class CheckoutService
                 'subtotal' => $subtotal,
                 'total_gst' => $totalTax,
                 'shipping_charge' => $shippingCharge,
-                'coin_redeemed' => $coinsUsed,
-                'coin_redeemed_amount' => $coinRedeemedAmount,
+                'coupon_discount' => $couponDiscount, // Add this if column exists
+                'coin_redeemed' => $summary['coin_redeemed'] ?? $coinsUsed,
+                'coin_redeemed_amount' => $amountRedeemed,
                 'total_payable' => $grandTotal,
                 'amount_paid' => 0,
                 'status' => 'pending',
@@ -1445,65 +1480,9 @@ class CheckoutService
             ];
         });
     }
-
     /**
      * FR-CO-006: Confirm order via webhook
      */
-    // public function confirmOrder(string $orderReference, array $gatewayData): array
-    // {
-    //     $order = Order::where('order_reference', $orderReference)->firstOrFail();
-
-    //     if ($order->status === 'confirmed') {
-    //         return ['success' => true, 'message' => 'Order already confirmed'];
-    //     }
-
-    //     return DB::transaction(function () use ($order, $gatewayData) {
-    //         $order->update([
-    //             'status' => 'confirmed',
-    //             'confirmed_at' => now(),
-    //             'payment_gateway' => $gatewayData['gateway'],
-    //             'gateway_transaction_id' => $gatewayData['transaction_id'],
-    //             'amount_paid' => $order->total_payable,
-    //         ]);
-
-    //         // Decrement stock
-    //         foreach ($order->lines as $line) {
-    //             $product = $line->product;
-    //             $product->decrement('stock_quantity', $line->quantity);
-
-    //             StockMovement::create([
-    //                 'product_id' => $product->id,
-    //                 'quantity' => -$line->quantity,
-    //                 'available_quantity_after' => $product->stock_quantity,
-    //                 'reason' => 'Order confirmed: ' . $order->order_reference,
-    //                 'order_id' => $order->id,
-    //             ]);
-    //         }
-
-    //         // Generate invoice
-    //         $invoice = $this->invoiceService->generateInvoice($order);
-
-    //         // Queue commission event (optional)
-    //         CommissionApiEvent::create([
-    //             'event_type' => 'order_post',
-    //             'order_id' => $order->id,
-    //             'payload' => json_encode([
-    //                 'order_reference' => $order->order_reference,
-    //                 'user_id' => $order->user_id,
-    //                 'total' => $order->total_payable,
-    //             ]),
-    //             'status' => 'pending',
-    //         ]);
-
-    //         return [
-    //             'success' => true,
-    //             'order_id' => $order->id,
-    //             'order_reference' => $order->order_reference,
-    //             'status' => 'confirmed',
-    //             'invoice_number' => $invoice->invoice_number,
-    //         ];
-    //     });
-    // }
 
     // public function confirmOrder(string $orderReference, array $gatewayData): array
     // {
@@ -1536,27 +1515,43 @@ class CheckoutService
     //             ]);
     //         }
 
-    //         // ============ ADD: Delete cart after successful payment ============
-    //         $cart = Cart::where('user_id', $order->user_id)->first();
-    //         if ($cart) {
-    //             $cart->items()->delete();
-    //             // Optionally delete the cart itself
-    //             $cart->delete();
-    //         }
-
-    //         // Generate invoice
+    //         // Generate invoice using stored summary data
     //         $invoice = $this->invoiceService->generateInvoice($order);
 
-    //         // Queue commission event (optional)
+    //         // Generate PDF and send email
+    //         try {
+    //             $this->pdfInvoiceService->generateAndSendInvoice($order, $invoice);
+    //         } catch (\Exception $e) {
+    //             Log::error('Failed to send invoice email: ' . $e->getMessage(), [
+    //                 'order_id' => $order->id
+    //             ]);
+    //         }
+
+    //         // // Queue commission event
+    //         // CommissionApiEvent::create([
+    //         //     'event_type' => 'order_post',
+    //         //     'order_id' => $order->id,
+    //         //     'payload' => json_encode([
+    //         //         'order_reference' => $order->order_reference,
+    //         //         'user_id' => $order->user_id,
+    //         //         'total' => $order->total_payable,
+    //         //     ]),
+    //         //     'status' => 'pending',
+    //         // ]);
+
+    //         // Build full payload for commission API
+    //         $payload = $this->buildCommissionPayload($order);
+
     //         CommissionApiEvent::create([
     //             'event_type' => 'order_post',
     //             'order_id' => $order->id,
-    //             'payload' => json_encode([
-    //                 'order_reference' => $order->order_reference,
-    //                 'user_id' => $order->user_id,
-    //                 'total' => $order->total_payable,
-    //             ]),
+    //             'payload' => $payload,
     //             'status' => 'pending',
+    //             'retry_count' => 0,
+    //             'max_retries' => 5,
+    //             'last_attempt' => null,
+    //             'error_message' => null,
+    //             'response_data' => null,
     //         ]);
 
     //         return [
@@ -1568,7 +1563,6 @@ class CheckoutService
     //         ];
     //     });
     // }
-
     public function confirmOrder(string $orderReference, array $gatewayData): array
     {
         $order = Order::where('order_reference', $orderReference)->firstOrFail();
@@ -1600,6 +1594,15 @@ class CheckoutService
                 ]);
             }
 
+            // Delete the cart and its items
+            $cart = Cart::where('user_id', $order->user_id)->first();
+            if ($cart) {
+                // Delete cart items first
+                $cart->items()->delete();
+                // Then delete the cart itself
+                $cart->delete();
+            }
+
             // Generate invoice using stored summary data
             $invoice = $this->invoiceService->generateInvoice($order);
 
@@ -1611,18 +1614,6 @@ class CheckoutService
                     'order_id' => $order->id
                 ]);
             }
-
-            // // Queue commission event
-            // CommissionApiEvent::create([
-            //     'event_type' => 'order_post',
-            //     'order_id' => $order->id,
-            //     'payload' => json_encode([
-            //         'order_reference' => $order->order_reference,
-            //         'user_id' => $order->user_id,
-            //         'total' => $order->total_payable,
-            //     ]),
-            //     'status' => 'pending',
-            // ]);
 
             // Build full payload for commission API
             $payload = $this->buildCommissionPayload($order);
