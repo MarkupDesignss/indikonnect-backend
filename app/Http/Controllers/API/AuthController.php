@@ -2404,12 +2404,12 @@ class AuthController extends Controller
             }
 
             // Check if user is registered
-            if ($user->is_registered == 0) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Please complete your registration first.'
-                ], 422);
-            }
+            // if ($user->is_registered == 0) {
+            //     return response()->json([
+            //         'status' => false,
+            //         'message' => 'Please complete your registration first.'
+            //     ], 422);
+            // }
 
             // Check if password exists and verify
             if (empty($user->password)) {
@@ -3147,12 +3147,12 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            if ($user->is_registered == 0) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Please complete your registration first'
-                ], 422);
-            }
+            // if ($user->is_registered == 0) {
+            //     return response()->json([
+            //         'status' => false,
+            //         'message' => 'Please complete your registration first'
+            //     ], 422);
+            // }
 
             $otp = rand(100000, 999999);
 
