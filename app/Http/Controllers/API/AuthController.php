@@ -666,97 +666,97 @@ class AuthController extends Controller
     //     }
     // }
 
-        public function checkUserStatus(Request $request)
-{
-    try {
-        $validator = Validator::make($request->all(), [
-            'phone' => 'nullable|min:10|max:15',
-            'email' => 'nullable|email',
-        ]);
+    public function checkUserStatus(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone' => 'nullable|min:10|max:15',
+                'email' => 'nullable|email',
+            ]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'status' => false,
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        // At least one identifier is required
-        if (empty($request->phone) && empty($request->email)) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Please provide either phone or email.'
-            ], 422);
-        }
-
-        // Find user
-        $user = User::where(function ($query) use ($request) {
-            if ($request->phone) {
-                $query->orWhere('phone', $request->phone);
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
             }
-            if ($request->email) {
-                $query->orWhere('email', $request->email);
-            }
-        })->first();
 
-        // If user doesn't exist, return new user flow
-        if (!$user) {
+            // At least one identifier is required
+            if (empty($request->phone) && empty($request->email)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please provide either phone or email.'
+                ], 422);
+            }
+
+            // Find user
+            $user = User::where(function ($query) use ($request) {
+                if ($request->phone) {
+                    $query->orWhere('phone', $request->phone);
+                }
+                if ($request->email) {
+                    $query->orWhere('email', $request->email);
+                }
+            })->first();
+
+            // If user doesn't exist, return new user flow
+            if (!$user) {
+                return response()->json([
+                    'status' => true,
+                    'exists' => false,
+                    'message' => 'New user. Proceed with registration.',
+                    'current_step' => 1,
+                    'next_step' => 1,
+                    'user_data' => null
+                ]);
+            }
+
+            // Check if user is registered with customer role
+            if ($user->account_type !== 'customer') {
+                $roleName = ucfirst($user->account_type ?? 'Unknown');
+                return response()->json([
+                    'status' => false,
+                    'exists' => true,
+                    'message' => "This email is registered as {$roleName}.",
+                    'role' => $user->role
+                ], 403);
+            }
+
+            // Get distributor profile
+            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+
+            // Check if user is already fully registered
+            if ($user->is_registered == 1) {
+                return response()->json([
+                    'status' => true,
+                    'exists' => true,
+                    'is_registered' => true,
+                    'message' => 'User already registered.',
+                    'current_step' => 7,
+                    'user_data' => $this->getUserStepData($user, $distributorProfile, 7)
+                ]);
+            }
+
+            // Get current step data
+            $currentStep = $user->registration_step ?? 1;
+
             return response()->json([
                 'status' => true,
-                'exists' => false,
-                'message' => 'New user. Proceed with registration.',
-                'current_step' => 1,
-                'next_step' => 1,
-                'user_data' => null
+                'exists' => true,
+                'is_registered' => false,
+                'message' => 'User found. Continuing registration.',
+                'current_step' => $currentStep,
+                'next_step' => $currentStep + 1,
+                'user_data' => $this->getUserStepData($user, $distributorProfile, $currentStep)
             ]);
-        }
-
-        // Check if user is registered with customer role
-        if ($user->role !== 'customer') {
-            $roleName = ucfirst($user->account_type ?? 'Unknown');
+        } catch (\Exception $e) {
+            Log::error('Check user status error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
-                'exists' => true,
-                'message' => "This email is registered as {$roleName}.",
-                'role' => $user->role
-            ], 403);
+                'message' => $e->getMessage()
+            ], 500);
         }
-
-        // Get distributor profile
-        $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
-
-        // Check if user is already fully registered
-        if ($user->is_registered == 1) {
-            return response()->json([
-                'status' => true,
-                'exists' => true,
-                'is_registered' => true,
-                'message' => 'User already registered.',
-                'current_step' => 7,
-                'user_data' => $this->getUserStepData($user, $distributorProfile, 7)
-            ]);
-        }
-
-        // Get current step data
-        $currentStep = $user->registration_step ?? 1;
-
-        return response()->json([
-            'status' => true,
-            'exists' => true,
-            'is_registered' => false,
-            'message' => 'User found. Continuing registration.',
-            'current_step' => $currentStep,
-            'next_step' => $currentStep + 1,
-            'user_data' => $this->getUserStepData($user, $distributorProfile, $currentStep)
-        ]);
-    } catch (\Exception $e) {
-        Log::error('Check user status error: ' . $e->getMessage());
-        return response()->json([
-            'status' => false,
-            'message' => $e->getMessage()
-        ], 500);
     }
-}
 
     /**
      * Get step data for a specific step
@@ -1326,7 +1326,7 @@ class AuthController extends Controller
             if ($request->type === 'phone') {
                 // Check if phone exists and is registered as customer
                 $user = User::where('phone', $request->phone)
-                    ->where('role', 'customer')
+                    ->where('account_type', 'customer')
                     ->first();
 
                 if ($user && $user->is_registered == 1) {
@@ -1338,7 +1338,7 @@ class AuthController extends Controller
 
                 // Check if phone exists with any other role (admin, vendor, etc.)
                 $userOtherRole = User::where('phone', $request->phone)
-                    ->where('role', '!=', 'customer')
+                    ->where('account_type', '!=', 'customer')
                     ->where('is_registered', 1)
                     ->first();
 
@@ -1423,7 +1423,7 @@ class AuthController extends Controller
             else {
                 // Check if email exists and is registered as customer
                 $user = User::where('email', $request->email)
-                    ->where('role', 'customer')
+                    ->where('account_type', 'customer')
                     ->first();
 
                 if ($user && $user->is_registered == 1) {
@@ -1435,7 +1435,7 @@ class AuthController extends Controller
 
                 // Check if email exists with any other role (admin, vendor, etc.)
                 $userOtherRole = User::where('email', $request->email)
-                    ->where('role', '!=', 'customer')
+                    ->where('account_type', '!=', 'customer')
                     ->where('is_registered', 1)
                     ->first();
 
