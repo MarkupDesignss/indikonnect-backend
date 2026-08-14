@@ -1394,7 +1394,7 @@ class AuthController extends Controller
                             'otp_expires_at' => now()->addMinutes(10),
                             'is_registered' => 0,
                             'registration_step' => 0,
-                            'role' => 'customer',
+                            'account_type' => 'customer',
                             'temp_token' => Str::random(60),
                         ]);
                     }
@@ -1488,7 +1488,7 @@ class AuthController extends Controller
                             'email_otp_expires_at' => now()->addMinutes(10),
                             'is_registered' => 0,
                             'registration_step' => 0,
-                            'role' => 'customer',
+                            'account_type' => 'customer',
                             'temp_token' => Str::random(60),
                         ]);
                     }
