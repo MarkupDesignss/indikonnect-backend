@@ -25,8 +25,7 @@ class RazorpayService
         try {
             $razorpayOrder = $this->api->order->create([
                 'receipt' => $order->order_reference,
-                'amount' => 500,
-                // 'amount' => $order->total_payable ,
+                'amount' => $order->total_payable * 100,
                 'currency' => 'INR',
                 'payment_capture' => 1,
                 'notes' => [
