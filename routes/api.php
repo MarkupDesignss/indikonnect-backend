@@ -13,6 +13,7 @@ use App\Http\Controllers\API\CartController;
 use App\Http\Controllers\API\CheckoutController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\API\CouponController;
+use App\Http\Controllers\API\InvoiceController;
 use App\Http\Controllers\API\OrderController;
 use App\Http\Controllers\API\ProductReviewController;
 use App\Http\Controllers\API\ReviewController;
@@ -288,6 +289,7 @@ Route::get('/orders/statuses', [OrderController::class, 'statuses']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/dashboard', [UserDashboardController::class, 'dashboard']);
+    Route::get('/invoice/order/{orderId}', [InvoiceController::class, 'getInvoiceByOrder']);
 });
 
 

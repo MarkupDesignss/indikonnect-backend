@@ -9,24 +9,7 @@ class Order extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = [
-        'order_reference',
-        'user_id',
-        'billing_address_id',
-        'delivery_address_id',
-        'order_type',
-        'subtotal',
-        'total_gst',
-        'shipping_charge',
-        'coin_redeemed',
-        'total_payable',
-        'amount_paid',
-        'status',
-        'payment_gateway',
-        'gateway_transaction_id',
-        'confirmed_at',
-        'tax_breakdown',
-    ];
+    protected $guarded = [];
 
     protected $casts = [
         'tax_breakdown' => 'array',
@@ -114,7 +97,7 @@ class Order extends Model
 
     public function isReturnable(): bool
     {
-        return $this->status === 'delivered' 
+        return $this->status === 'delivered'
             && $this->created_at->diffInDays(now()) <= 30; // Return window
     }
 }

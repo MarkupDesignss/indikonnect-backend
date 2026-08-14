@@ -6,28 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Invoice extends Model
 {
-    protected $fillable = [
-        'invoice_number',
-        'order_id',
-        'seller_name',
-        'seller_gstin',
-        'seller_address',
-        'buyer_name',
-        'buyer_gstin',
-        'buyer_address',
-        'delivery_state',
-        'line_items',
-        'subtotal_before_redemption',
-        'coin_redeemed',
-        'total_taxable',
-        'total_cgst',
-        'total_sgst',
-        'total_igst',
-        'total_tax',
-        'total',
-        'issued_at',
-    ];
-
+    protected $guarded = [];
     protected $casts = [
         'line_items' => 'array',
         'subtotal_before_redemption' => 'decimal:2',
