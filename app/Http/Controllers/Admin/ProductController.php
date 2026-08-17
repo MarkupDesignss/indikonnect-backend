@@ -374,6 +374,8 @@ class ProductController extends Controller
             'stock_quantity' => ['required', 'integer', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'is_published' => ['nullable', 'boolean'],
+            'is_trending' => ['nullable', 'boolean'],
+            'trending_sort_order' => ['nullable', 'integer', 'min:0'],
             'product_images' => ['nullable', 'array'],
             'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
             'product_images.*.sort_order' => ['nullable', 'integer'],
@@ -636,6 +638,8 @@ class ProductController extends Controller
             'stock_quantity' => (int) $product->stock_quantity,
             'low_stock_threshold' => (int) $product->low_stock_threshold,
             'is_published' => (bool) $product->is_published,
+            'is_trending' => (bool) $product->is_trending,
+            'trending_sort_order' => (int) $product->trending_sort_order,
             'status' => $this->getProductStatus($product),
             'is_wishlisted' => $isWishlisted,
             'images' => $product->images->map(function ($image) {
@@ -854,6 +858,8 @@ class ProductController extends Controller
             'stock_quantity' => ['required', 'integer', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'is_published' => ['nullable', 'boolean'],
+            'is_trending' => ['nullable', 'boolean'],
+            'trending_sort_order' => ['nullable', 'integer', 'min:0'],
             'product_images' => ['nullable', 'array'],
             'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
             'product_images.*.sort_order' => ['nullable', 'integer'],
@@ -1361,6 +1367,8 @@ class ProductController extends Controller
                 'low_stock_threshold' => (int) $product->low_stock_threshold,
                 'stock_status' => $this->getProductStatus($product),
                 'is_published' => (bool) $product->is_published,
+                'is_trending' => (bool) $product->is_trending,
+                'trending_sort_order' => (int) $product->trending_sort_order,
                 'is_wishlisted' => $isWishlisted,
                 'images' => $product->images->map(function ($image) {
                     return [
@@ -1629,5 +1637,53 @@ class ProductController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    public function trending()
+    {
+        $products = Product::with('images')
+            ->where('is_published', true)
+            ->where('is_trending', true)
+            ->orderBy('trending_sort_order', 'asc')
+            ->get();
+
+        $data = $products->map(function ($product) {
+            return [
+                'id' => $product->id,
+                'name' => $product->name,
+                'description' => $product->description,
+
+                'category_id' => $product->category_id,
+                'tax_category_id' => $product->tax_category_id,
+
+                // Retail pricing
+                'retail_price' => $product->retail_price,
+                'retail_mrp' => $product->retail_mrp,
+                'retail_discount_type' => $product->retail_discount_type,
+                'retail_discount_value' => $product->retail_discount_value,
+
+                // Distributor pricing
+                'distributor_price' => $product->distributor_price,
+                'distributor_mrp' => $product->distributor_mrp,
+                'distributor_discount_type' => $product->distributor_discount_type,
+                'distributor_discount_value' => $product->distributor_discount_value,
+
+                // Images
+                'images' => $product->images->map(function ($image) {
+                    return [
+                        'id' => $image->id,
+                        'image_url' => asset('storage/' . $image->image),
+                        'is_primary' => (bool) $image->is_primary,
+                        'sort_order' => $image->sort_order,
+                    ];
+                })->values()->toArray(),
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Trending products retrieved successfully.',
+            'data' => $data,
+        ]);
     }
 }

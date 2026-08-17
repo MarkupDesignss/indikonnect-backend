@@ -128,6 +128,7 @@ Route::prefix('products')->group(function () {
     // Public routes with optional authentication
     Route::middleware('optional.auth:sanctum')->group(function () {
         Route::get('/', [ProductController::class, 'index']);
+        Route::get('/trending', [ProductController::class, 'trending']);
         Route::get('/slug/{slug}', [ProductController::class, 'showBySlug']);
         Route::get('/code/{code}', [ProductController::class, 'showByCode']);
         Route::get('/{product}', [ProductController::class, 'show']);
