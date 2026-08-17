@@ -564,80 +564,6 @@ class CheckoutService
     /**
      * FR-CO-006: Confirm order via webhook
      */
-    // public function confirmOrder(string $orderReference, array $gatewayData): array
-    // {
-    //     $order = Order::where('order_reference', $orderReference)->firstOrFail();
-
-    //     if ($order->status === 'confirmed') {
-    //         return ['success' => true, 'message' => 'Order already confirmed'];
-    //     }
-
-    //     return DB::transaction(function () use ($order, $gatewayData) {
-    //         $order->update([
-    //             'status' => 'confirmed',
-    //             'confirmed_at' => now(),
-    //             'payment_gateway' => $gatewayData['gateway'],
-    //             'gateway_transaction_id' => $gatewayData['transaction_id'],
-    //             'amount_paid' => $order->total_payable,
-    //         ]);
-
-    //         // Decrement stock
-    //         foreach ($order->lines as $line) {
-    //             $product = $line->product;
-    //             $product->decrement('stock_quantity', $line->quantity);
-
-    //             StockMovement::create([
-    //                 'product_id' => $product->id,
-    //                 'quantity' => -$line->quantity,
-    //                 'available_quantity_after' => $product->stock_quantity,
-    //                 'reason' => 'Order confirmed: ' . $order->order_reference,
-    //                 'order_id' => $order->id,
-    //             ]);
-    //         }
-
-    //         // Delete the cart and its items
-    //         $cart = Cart::where('user_id', $order->user_id)->first();
-    //         if ($cart) {
-    //             $cart->items()->delete();
-    //             $cart->delete();
-    //         }
-
-    //         // Generate invoice using stored summary data
-    //         $invoice = $this->invoiceService->generateInvoice($order);
-
-    //         // Generate PDF and send email
-    //         try {
-    //             $this->pdfInvoiceService->generateAndSendInvoice($order, $invoice);
-    //         } catch (\Exception $e) {
-    //             Log::error('Failed to send invoice email: ' . $e->getMessage(), [
-    //                 'order_id' => $order->id
-    //             ]);
-    //         }
-
-    //         // Build full payload for commission API
-    //         $payload = $this->buildCommissionPayload($order);
-
-    //         CommissionApiEvent::create([
-    //             'event_type' => 'order_post',
-    //             'order_id' => $order->id,
-    //             'payload' => $payload,
-    //             'status' => 'pending',
-    //             'retry_count' => 0,
-    //             'max_retries' => 5,
-    //             'last_attempt' => null,
-    //             'error_message' => null,
-    //             'response_data' => null,
-    //         ]);
-
-    //         return [
-    //             'success' => true,
-    //             'order_id' => $order->id,
-    //             'order_reference' => $order->order_reference,
-    //             'status' => 'confirmed',
-    //             'invoice_number' => $invoice->invoice_number,
-    //         ];
-    //     });
-    // }
     public function confirmOrder(string $orderReference, array $gatewayData): array
     {
         $order = Order::where('order_reference', $orderReference)->firstOrFail();
@@ -859,49 +785,7 @@ class CheckoutService
     /**
      * FR-CM-009: Cancel an order and queue reversal event
      */
-    // public function cancelOrder(Order $order, string $reason = 'cancelled'): void
-    // {
-    //     DB::transaction(function () use ($order, $reason) {
-    //         // Update order status
-    //         $order->update([
-    //             'status' => 'cancelled',
-    //             'cancelled_at' => now(),
-    //         ]);
 
-    //         // Restore stock
-    //         foreach ($order->lines as $line) {
-    //             $line->product->increment('stock_quantity', $line->quantity);
-    //             StockMovement::create([
-    //                 'product_id' => $line->product_id,
-    //                 'quantity' => $line->quantity,
-    //                 'available_quantity_after' => $line->product->stock_quantity,
-    //                 'reason' => "Order cancelled: {$order->order_reference}",
-    //                 'order_id' => $order->id,
-    //             ]);
-    //         }
-
-    //         // Create reversal event
-    //         $payload = $this->buildReversalPayload($order, $reason);
-    //         CommissionApiEvent::create([
-    //             'event_type' => 'reversal',
-    //             'order_id' => $order->id,
-    //             'payload' => $payload,
-    //             'status' => 'pending',
-    //             'retry_count' => 0,
-    //             'max_retries' => 5,
-    //             'last_attempt' => null,
-    //             'error_message' => null,
-    //             'response_data' => null,
-    //         ]);
-
-    //         // Process refund if order was paid
-    //         if ($order->amount_paid > 0) {
-    //             $this->processRefund($order);
-    //         }
-
-    //         Log::info('Order cancelled and reversal queued', ['order' => $order->order_reference]);
-    //     });
-    // }
 
     public function cancelOrder(
         int $userId,

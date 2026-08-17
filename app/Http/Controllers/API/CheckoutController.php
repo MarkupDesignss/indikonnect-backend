@@ -238,8 +238,6 @@ class CheckoutController extends Controller
         }
     }
 
-
-
     /**
      * Apply shipping method
      */
@@ -344,57 +342,6 @@ class CheckoutController extends Controller
     /**
      * FR-CO-005: Place order and initiate Razorpay payment
      */
-    // public function placeOrder(Request $request): JsonResponse
-    // {
-    //     $validated = $request->validate([
-    //         'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
-    //         'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
-    //         'payment_gateway' => 'nullable|in:razorpay',
-    //     ]);
-
-    //     try {
-    //         $result = $this->checkoutService->placeOrder(
-    //             auth()->id(),
-    //             $validated
-    //         );
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'data' => $result,
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 400);
-    //     }
-    // }
-    // public function placeOrder(Request $request): JsonResponse
-    // {
-    //     $validated = $request->validate([
-    //         'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
-    //         'grand_total' => 'required|numeric|min:0',
-    //         'payment_gateway' => 'nullable|in:razorpay',
-    //         'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
-    //     ]);
-
-    //     try {
-    //         $result = $this->checkoutService->placeOrder(
-    //             auth()->id(),
-    //             $validated
-    //         );
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'data' => $result,
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 400);
-    //     }
-    // }
     public function placeOrder(Request $request): JsonResponse
     {
         $validated = $request->validate([

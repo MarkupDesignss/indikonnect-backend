@@ -2928,11 +2928,7 @@ class AuthController extends Controller
                 'current_password' => ['required', 'string'],
                 'new_password' => [
                     'required',
-                    'confirmed',
-                    Password::min(8)
-                        ->mixedCase()
-                        ->numbers()
-                        ->symbols()
+                    'confirmed'
                 ],
             ]);
 
