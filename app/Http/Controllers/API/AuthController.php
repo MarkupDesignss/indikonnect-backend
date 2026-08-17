@@ -189,6 +189,62 @@ class AuthController extends Controller
     /**
      * STEP 1: Send OTP
      */
+    // public function sendOtp(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone' => 'required|min:10|max:15'
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $user = User::where('phone', $request->phone)->first();
+
+
+    //         // Generate 6 digit OTP
+    //         $otp = rand(100000, 999999);
+
+    //         if ($user) {
+    //             // Existing user
+    //             $user->update([
+    //                 'otp' => $otp,
+    //                 'otp_expires_at' => now()->addMinutes(10),
+    //             ]);
+    //         } else {
+    //             // New user
+    //             $user = User::create([
+    //                 'phone' => $request->phone,
+    //                 'otp' => $otp,
+    //                 'otp_expires_at' => now()->addMinutes(10),
+    //                 'is_registered' => 0,
+    //                 'account_type' => 'customer',
+    //             ]);
+    //         }
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'OTP sent successfully',
+    //             'phone' => $request->phone,
+
+    //             // Remove this in production
+    //             'otp' => $otp,
+    //         ]);
+    //     } catch (\Exception $e) {
+
+    //         Log::error('Send OTP error: ' . $e->getMessage());
+
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => 'Something went wrong'
+    //         ], 500);
+    //     }
+    // }
+
     public function sendOtp(Request $request)
     {
         try {
@@ -204,23 +260,31 @@ class AuthController extends Controller
             }
 
             $user = User::where('phone', $request->phone)->first();
-            // Phone already registered
-            if ($user && $user->is_registered == 1) {
+
+            // Check if user exists and is a registered distributor
+            if ($user && $user->is_registered == 1 && $user->account_type == 'distributor') {
                 return response()->json([
                     'status' => false,
-                    'message' => 'This phone number is already registered.'
-                ], 409);
+                    'message' => 'This phone number is already registered as a distributor. Please login from the distributor app/screen.',
+                    'account_type' => 'distributor',
+                    'is_registered' => true,
+                    'phone' => $request->phone
+                ], 403);
             }
 
             // Generate 6 digit OTP
             $otp = rand(100000, 999999);
 
             if ($user) {
-                // Existing user
+                // Existing user (customer or unregistered distributor)
                 $user->update([
                     'otp' => $otp,
                     'otp_expires_at' => now()->addMinutes(10),
                 ]);
+
+                $message = $user->account_type == 'distributor'
+                    ? 'OTP sent successfully. Please complete your distributor registration.'
+                    : 'OTP sent successfully. Please verify to login.';
             } else {
                 // New user
                 $user = User::create([
@@ -228,25 +292,27 @@ class AuthController extends Controller
                     'otp' => $otp,
                     'otp_expires_at' => now()->addMinutes(10),
                     'is_registered' => 0,
-                    'account_type' => 'customer',
+                    'account_type' => 'customer', // Default to customer
                 ]);
+
+                $message = 'OTP sent successfully. Please verify to complete registration.';
             }
 
             return response()->json([
                 'status' => true,
-                'message' => 'OTP sent successfully',
+                'message' => $message,
                 'phone' => $request->phone,
-
+                'is_registered' => $user->is_registered,
+                'account_type' => $user->account_type,
                 // Remove this in production
                 'otp' => $otp,
             ]);
         } catch (\Exception $e) {
-
             Log::error('Send OTP error: ' . $e->getMessage());
 
             return response()->json([
                 'status' => false,
-                'message' => 'Something went wrong'
+                'message' => 'Something went wrong. Please try again later.'
             ], 500);
         }
     }
