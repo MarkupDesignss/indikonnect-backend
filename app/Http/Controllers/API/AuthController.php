@@ -3319,6 +3319,13 @@ class AuthController extends Controller
                 ], 422);
             }
 
+            if ($user && $user->account_type == 'customer') {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please enter a valid email address registered with a Distributor account.',
+                ], 422);
+            }
+
             $otp = rand(100000, 999999);
 
             $user->update([
