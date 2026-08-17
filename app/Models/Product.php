@@ -23,6 +23,8 @@ class Product extends Model
         'stock_quantity',
         'low_stock_threshold',
         'is_published',
+        'is_trending',
+        'trending_sort_order',
     ];
 
     protected $casts = [
