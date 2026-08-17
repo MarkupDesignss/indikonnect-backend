@@ -148,7 +148,7 @@ class AuthController extends Controller
         if ($user->account_type === 'distributor' && $user->distributor_status !== 'active') {
             return response()->json([
                 'status' => false,
-                'message' => 'Your distributor account is not active yet. Please wait for admin approval.'
+                'message' => 'Your distributor account is not active yet. Please wait for admin .'
             ], 422);
         }
 
@@ -204,6 +204,13 @@ class AuthController extends Controller
             }
 
             $user = User::where('phone', $request->phone)->first();
+            // Phone already registered
+            if ($user && $user->is_registered == 1) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'This phone number is already registered.'
+                ], 409);
+            }
 
             // Generate 6 digit OTP
             $otp = rand(100000, 999999);
