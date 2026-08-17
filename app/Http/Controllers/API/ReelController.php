@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Reel;
 use App\Models\Product;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -18,11 +19,14 @@ class ReelController extends Controller
      */
     public function index(Request $request)
     {
-        $reels = Reel::with(['product.category', 'product.taxCategory', 'product.images', 'product.primaryImage'])
-            ->where('is_published', true)
-            ->orderBy('sort_order', 'asc')
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->get('per_page', 15));
+        $cacheKey = 'reels_' . md5($request->fullUrl());
+
+        $reels = Cache::remember($cacheKey, 3600, function () use ($request) {
+            return Reel::with(['product.category', 'product.taxCategory', 'product.images', 'product.primaryImage'])
+                ->published()
+                ->ordered()
+                ->paginate($request->get('per_page', 15));
+        });
 
         return response()->json([
             'data' => $this->formatReelCollection($reels),
@@ -50,7 +54,12 @@ class ReelController extends Controller
 
             // Either video file or video URL is required
             'video' => ['nullable', 'file', 'mimes:mp4,mov,avi,wmv,flv,mkv', 'max:102400'], // Max 100MB
-            'video_url' => ['nullable', 'url', 'max:500'],
+            'video_url' => [
+                'nullable',
+                'url',
+                'max:500',
+                'regex:/\.(mp4|mov|avi|wmv|flv|mkv)(\?.*)?$/i'
+            ],
         ]);
 
         // Custom validation: At least one video source is required
@@ -68,13 +77,14 @@ class ReelController extends Controller
         try {
             $validated = $validator->validated();
 
+            // Sanitize inputs
             $reelData = [
-                'title' => $validated['title'],
-                'creator_handle' => $validated['creator_handle'],
+                'title' => strip_tags(trim($validated['title'])),
+                'creator_handle' => strip_tags(trim($validated['creator_handle'])),
                 'followers_count' => $validated['followers_count'] ?? 0,
                 'product_id' => $validated['product_id'],
                 'is_published' => $validated['is_published'] ?? true,
-                'sort_order' => $validated['sort_order'] ?? 0,
+                'sort_order' => $validated['sort_order'] ?? $this->getNextSortOrder(),
                 'video_url' => null,
                 'video_path' => null,
             ];
@@ -93,6 +103,10 @@ class ReelController extends Controller
             $reel = Reel::create($reelData);
 
             DB::commit();
+
+            // Clear cache
+            $this->clearReelsCache();
+
             $reel->load(['product.category', 'product.taxCategory', 'product.images', 'product.primaryImage']);
 
             return response()->json([
@@ -107,7 +121,7 @@ class ReelController extends Controller
             ]);
             return response()->json([
                 'message' => 'Failed to create reel',
-                'error' => $e->getMessage()
+                'error' => 'An error occurred while creating the reel. Please try again.'
             ], 500);
         }
     }
@@ -117,8 +131,12 @@ class ReelController extends Controller
      */
     public function show($id)
     {
-        $reel = Reel::with(['product.category', 'product.taxCategory', 'product.images', 'product.primaryImage'])
-            ->find($id);
+        $cacheKey = 'reel_' . $id;
+
+        $reel = Cache::remember($cacheKey, 3600, function () use ($id) {
+            return Reel::with(['product.category', 'product.taxCategory', 'product.images', 'product.primaryImage'])
+                ->find($id);
+        });
 
         if (!$reel) {
             return response()->json(['message' => 'Reel not found'], 404);
@@ -147,9 +165,25 @@ class ReelController extends Controller
             'is_published' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer'],
             'video' => ['nullable', 'file', 'mimes:mp4,mov,avi,wmv,flv,mkv', 'max:102400'],
-            'video_url' => ['nullable', 'url', 'max:500'],
+            'video_url' => [
+                'nullable',
+                'url',
+                'max:500',
+                'regex:/\.(mp4|mov|avi|wmv|flv|mkv)(\?.*)?$/i'
+            ],
             'remove_video' => ['nullable', 'boolean'],
         ]);
+
+        // Custom validation: At least one video source must remain
+        $validator->after(function ($validator) use ($request, $reel) {
+            $hasVideo = $request->hasFile('video') ||
+                !empty($request->video_url) ||
+                (!empty($reel->video_path) && empty($request->remove_video));
+
+            if (!$hasVideo && empty($request->video_url) && empty($reel->video_path)) {
+                $validator->errors()->add('video', 'At least one video source is required.');
+            }
+        });
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
@@ -161,12 +195,12 @@ class ReelController extends Controller
 
             $reelData = [];
 
-            // Update fields if provided
+            // Update fields if provided with sanitization
             if (isset($validated['title'])) {
-                $reelData['title'] = $validated['title'];
+                $reelData['title'] = strip_tags(trim($validated['title']));
             }
             if (isset($validated['creator_handle'])) {
-                $reelData['creator_handle'] = $validated['creator_handle'];
+                $reelData['creator_handle'] = strip_tags(trim($validated['creator_handle']));
             }
             if (isset($validated['followers_count'])) {
                 $reelData['followers_count'] = $validated['followers_count'];
@@ -218,6 +252,11 @@ class ReelController extends Controller
             }
 
             DB::commit();
+
+            // Clear cache
+            $this->clearReelsCache();
+            Cache::forget('reel_' . $id);
+
             $reel->load(['product.category', 'product.taxCategory', 'product.images', 'product.primaryImage']);
 
             return response()->json([
@@ -232,7 +271,7 @@ class ReelController extends Controller
             ]);
             return response()->json([
                 'message' => 'Failed to update reel',
-                'error' => $e->getMessage()
+                'error' => 'An error occurred while updating the reel. Please try again.'
             ], 500);
         }
     }
@@ -258,6 +297,10 @@ class ReelController extends Controller
 
             DB::commit();
 
+            // Clear cache
+            $this->clearReelsCache();
+            Cache::forget('reel_' . $id);
+
             return response()->json([
                 'message' => 'Reel deleted successfully'
             ]);
@@ -269,7 +312,7 @@ class ReelController extends Controller
             ]);
             return response()->json([
                 'message' => 'Failed to delete reel',
-                'error' => $e->getMessage()
+                'error' => 'An error occurred while deleting the reel. Please try again.'
             ], 500);
         }
     }
@@ -284,17 +327,78 @@ class ReelController extends Controller
             return response()->json(['message' => 'Product not found'], 404);
         }
 
-        $reels = Reel::with(['product.category', 'product.taxCategory', 'product.images', 'product.primaryImage'])
-            ->where('product_id', $productId)
-            ->where('is_published', true)
-            ->orderBy('sort_order', 'asc')
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $cacheKey = 'product_reels_' . $productId;
+
+        $reels = Cache::remember($cacheKey, 3600, function () use ($productId) {
+            return Reel::with(['product.category', 'product.taxCategory', 'product.images', 'product.primaryImage'])
+                ->forProduct($productId)
+                ->published()
+                ->ordered()
+                ->get();
+        });
 
         return response()->json([
             'product' => $this->formatProduct($product),
             'reels' => $this->formatReelCollection($reels)
         ]);
+    }
+
+    /**
+     * Bulk update sort order
+     */
+    public function updateSortOrder(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'reels' => ['required', 'array'],
+            'reels.*.id' => ['required', 'exists:reels,id'],
+            'reels.*.sort_order' => ['required', 'integer', 'min:0'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            foreach ($request->reels as $reelData) {
+                Reel::where('id', $reelData['id'])
+                    ->update(['sort_order' => $reelData['sort_order']]);
+            }
+
+            DB::commit();
+
+            // Clear cache
+            $this->clearReelsCache();
+
+            return response()->json([
+                'message' => 'Sort order updated successfully'
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to update sort order:', ['error' => $e->getMessage()]);
+            return response()->json([
+                'message' => 'Failed to update sort order',
+                'error' => 'An error occurred while updating sort order. Please try again.'
+            ], 500);
+        }
+    }
+
+    /**
+     * Get the next available sort order
+     */
+    protected function getNextSortOrder()
+    {
+        $maxSortOrder = Reel::max('sort_order');
+        return ($maxSortOrder ?? 0) + 1;
+    }
+
+    /**
+     * Clear all reel-related cache
+     */
+    protected function clearReelsCache()
+    {
+        // Clear paginated cache - you might want to implement a more sophisticated cache clearing strategy
+        Cache::flush(); // Or use a more specific approach
     }
 
     /**
@@ -309,7 +413,8 @@ class ReelController extends Controller
             'followers_count' => $reel->followers_count,
             'video_path' => $reel->video_path,
             'video_url' => $reel->video_url,
-            'video_full_url' => $reel->video_full_url, // Using accessor
+            'video_full_url' => $reel->video_full_url,
+            'video_full_path' => $reel->video_full_path,
             'is_published' => (bool) $reel->is_published,
             'sort_order' => $reel->sort_order,
             'created_at' => $reel->created_at?->toISOString(),
@@ -345,29 +450,15 @@ class ReelController extends Controller
             'product_code' => $product->product_code,
             'name' => $product->name,
             'slug' => $product->slug,
-            // 'description' => $product->description,
-            // 'specification' => $product->specification,
             'category_id' => $product->category_id,
-            // 'category' => $product->category ? [
-            //     'id' => $product->category->id,
-            //     'name' => $product->category->title,
-            //     'slug' => $product->category->slug,
-            // ] : null,
             'tax_category_id' => $product->tax_category_id,
             'retail_mrp' => $product->retail_mrp,
             'retail_price' => $product->retail_price,
-            // 'retail_price_formatted' => number_format($product->retail_price, 2),
-            // 'retail_discount_type' => $product->retail_discount_type,
-            // 'retail_discount_value' => $product->retail_discount_value,
             'distributor_mrp' => $product->distributor_mrp,
             'distributor_price' => $product->distributor_price,
-            // 'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
             'stock_quantity' => (int) $product->stock_quantity,
             'low_stock_threshold' => (int) $product->low_stock_threshold,
             'is_published' => (bool) $product->is_published,
-            // 'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
-            // 'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
-            // 'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
             'images' => $product->images->map(function ($image) {
                 return [
                     'id' => $image->id,
@@ -377,12 +468,6 @@ class ReelController extends Controller
                     'sort_order' => $image->sort_order,
                 ];
             })->values()->toArray(),
-            // 'primary_image' => $primaryImage ? [
-            //     'id' => $primaryImage->id,
-            //     'image_url' => asset('storage/' . $primaryImage->image),
-            // ] : null,
-            // 'created_at' => $product->created_at?->toISOString(),
-            // 'updated_at' => $product->updated_at?->toISOString(),
         ];
     }
 }
