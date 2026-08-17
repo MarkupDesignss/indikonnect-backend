@@ -19,4 +19,5 @@ interface CommissionServiceInterface
     public function getBonus(int $userId, string $period = 'current'): array;
     public function getCoins(int $userId): int;
     public function getLedger(int $userId, string $period = 'current'): array;
+    public function getPayoutRunData(string $period): array;
 }
