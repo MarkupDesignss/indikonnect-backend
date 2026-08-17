@@ -130,4 +130,31 @@ class MockCommissionService implements CommissionServiceInterface
     {
         return rand(1, 100) > 10;
     }
+
+    public function getPayoutRunData(string $period): array
+    {
+        // Get all distributors
+        $distributors = \App\Models\User::where('account_type', 'distributor')->get();
+
+        $entries = [];
+        foreach ($distributors as $dist) {
+            $gross = rand(1000, 50000); // Mock commission
+            $tds = round($gross * 0.02, 2); // 2% TDS
+            $entries[] = [
+                'distributor_id' => $dist->id,
+                'name' => $dist->name,
+                'gross_commission' => $gross,
+                'tds' => $tds,
+                'net_payable' => $gross - $tds,
+            ];
+        }
+
+        return [
+            'period' => $period,
+            'entries' => $entries,
+            'total_gross' => array_sum(array_column($entries, 'gross_commission')),
+            'total_tds' => array_sum(array_column($entries, 'tds')),
+            'total_net' => array_sum(array_column($entries, 'net_payable')),
+        ];
+    }
 }
