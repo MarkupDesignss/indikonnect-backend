@@ -50,6 +50,8 @@ Route::prefix('admin')->group(function () {
         Route::post('/payouts', [PayoutController::class, 'store']);
         Route::get('/payouts/{id}', [PayoutController::class, 'show']);
         Route::post('/payouts/{id}/release', [PayoutController::class, 'release']);
+        Route::post('/payouts/entries/{entryId}/hold', [PayoutController::class, 'holdEntry']);
+        Route::get('/payouts/{id}/export', [PayoutController::class, 'export']);
     });
 });
 
