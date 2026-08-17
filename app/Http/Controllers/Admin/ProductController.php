@@ -1639,25 +1639,51 @@ class ProductController extends Controller
         }
     }
 
-    public function trending(Request $request)
+    public function trending()
     {
-        $limit = (int) $request->get('limit', 10);
-
-        $products = Product::with([
-            'category',
-            'taxCategory',
-            'images',
-        ])
+        $products = Product::with('images')
             ->where('is_published', true)
             ->where('is_trending', true)
             ->orderBy('trending_sort_order', 'asc')
-            ->limit($limit)
             ->get();
+
+        $data = $products->map(function ($product) {
+            return [
+                'id' => $product->id,
+                'name' => $product->name,
+                'description' => $product->description,
+
+                'category_id' => $product->category_id,
+                'tax_category_id' => $product->tax_category_id,
+
+                // Retail pricing
+                'retail_price' => $product->retail_price,
+                'retail_mrp' => $product->retail_mrp,
+                'retail_discount_type' => $product->retail_discount_type,
+                'retail_discount_value' => $product->retail_discount_value,
+
+                // Distributor pricing
+                'distributor_price' => $product->distributor_price,
+                'distributor_mrp' => $product->distributor_mrp,
+                'distributor_discount_type' => $product->distributor_discount_type,
+                'distributor_discount_value' => $product->distributor_discount_value,
+
+                // Images
+                'images' => $product->images->map(function ($image) {
+                    return [
+                        'id' => $image->id,
+                        'image_url' => asset('storage/' . $image->image),
+                        'is_primary' => (bool) $image->is_primary,
+                        'sort_order' => $image->sort_order,
+                    ];
+                })->values()->toArray(),
+            ];
+        });
 
         return response()->json([
             'success' => true,
             'message' => 'Trending products retrieved successfully.',
-            'data' => $this->formatProductCollection($products),
+            'data' => $data,
         ]);
     }
 }
