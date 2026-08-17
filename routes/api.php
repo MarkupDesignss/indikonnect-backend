@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\ContentController;
 use App\Http\Controllers\Admin\MenuController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\TaxCategoryController;
+use App\Http\Controllers\Admin\PayoutController;
 use App\Http\Controllers\API\AddressController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
@@ -36,12 +37,19 @@ Route::prefix('admin')->group(function () {
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
     Route::get('/registered-users', [AuthController::class, 'getRegisteredUsers']);
     Route::get('/registered-users/{id}', [AuthController::class, 'getUserDetails']);
+
     // Protected Routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/update-user-status/{id}', [AuthController::class, 'toggleUserStatus']);
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('/update', [AuthController::class, 'update']);
+
+        //Payout Run routes
+        Route::get('/payouts', [PayoutController::class, 'index']);
+        Route::post('/payouts', [PayoutController::class, 'store']);
+        Route::get('/payouts/{id}', [PayoutController::class, 'show']);
+        Route::post('/payouts/{id}/release', [PayoutController::class, 'release']);
     });
 });
 
@@ -112,6 +120,7 @@ Route::prefix('subscribers')->group(function () {
         Route::delete('/{email}', [SubscriberController::class, 'destroy']);
     });
 });
+
 Route::prefix('products')->group(function () {
     // Public routes with optional authentication
     Route::middleware('optional.auth:sanctum')->group(function () {
@@ -134,6 +143,7 @@ Route::prefix('products')->group(function () {
         Route::post('/{product}/toggle-publish', [ProductController::class, 'togglePublish']);
     });
 });
+
 Route::prefix('tax-categories')->group(function () {
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         // Tax Category Routes
@@ -169,11 +179,13 @@ Route::prefix('distributor')->group(function () {
     Route::post('progress', [APIAuthController::class, 'getDistributorProgress']);
     Route::post('login', [APIAuthController::class, 'distributorLogin']);
 });
+
 Route::group(['prefix' => 'distributor'], function () {
     Route::post('forgot-password', [APIAuthController::class, 'forgotPassword']);
     Route::post('verify-reset-otp', [APIAuthController::class, 'verifyResetOtp']);
     Route::post('reset-password', [APIAuthController::class, 'resetPassword']);
 });
+
 Route::group(['prefix' => 'user'], function () {
     // Public routes (no authentication required)
     Route::post('send-otp', [APIAuthController::class, 'sendOtp']);
@@ -183,8 +195,6 @@ Route::group(['prefix' => 'user'], function () {
 
     Route::post('login', [APIAuthController::class, 'login']);
     Route::post('verify-login-otp', [APIAuthController::class, 'verifyLoginOtp']);
-
-
 
     // Refresh token route
     Route::post('refresh-token', [APIAuthController::class, 'refreshToken'])->name('refresh-token');
