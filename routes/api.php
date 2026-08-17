@@ -17,6 +17,7 @@ use App\Http\Controllers\API\CouponController;
 use App\Http\Controllers\API\InvoiceController;
 use App\Http\Controllers\API\OrderController;
 use App\Http\Controllers\API\ProductReviewController;
+use App\Http\Controllers\API\ReelController;
 use App\Http\Controllers\API\ReviewController;
 use App\Http\Controllers\API\ShippingMethodController;
 use App\Http\Controllers\API\SubscriberController;
@@ -320,4 +321,14 @@ Route::prefix('product')->group(function () {
         Route::put('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'update']);
         Route::delete('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'destroy']);
     });
+});
+
+
+Route::prefix('reels')->group(function () {
+    Route::get('/', [ReelController::class, 'index']);
+    Route::post('/', [ReelController::class, 'store']);
+    Route::get('/{id}', [ReelController::class, 'show']);
+    Route::post('/{id}', [ReelController::class, 'update']);
+    Route::delete('/{id}', [ReelController::class, 'destroy']);
+    Route::get('/product/{productId}', [ReelController::class, 'getByProduct']);
 });
