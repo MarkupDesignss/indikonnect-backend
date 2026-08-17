@@ -316,24 +316,4 @@ Route::prefix('product')->group(function () {
         Route::put('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'update']);
         Route::delete('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'destroy']);
     });
-});<?php
-
-use App\Http\Controllers\Api\ReturnController;
-
-Route::middleware('auth:sanctum')->group(function () {
-    // User routes
-    Route::get('/returns/eligibility', [ReturnController::class, 'eligibility']);
-    Route::post('/returns/initiate', [ReturnController::class, 'initiate']);
-    Route::get('/returns/my-returns', [ReturnController::class, 'myReturns']);
-    Route::get('/returns/{id}', [ReturnController::class, 'show']);
-
-    // Admin routes
-    Route::middleware('admin')->prefix('admin')->group(function () {
-        Route::get('/returns', [ReturnController::class, 'adminIndex']);
-        Route::get('/returns/{id}', [ReturnController::class, 'adminShow']);
-        Route::post('/returns/{id}/approve', [ReturnController::class, 'adminApprove']);
-        Route::post('/returns/{id}/reject', [ReturnController::class, 'adminReject']);
-        Route::post('/returns/{id}/received', [ReturnController::class, 'adminMarkReceived']);
-        Route::post('/returns/{id}/complete', [ReturnController::class, 'adminComplete']);
-    });
 });
