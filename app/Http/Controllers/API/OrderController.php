@@ -80,12 +80,16 @@ class OrderController extends Controller
      * FR-CO-010: Cancel order (before dispatch)
      * POST /api/order/{orderReference}/cancel
      */
-    public function cancel(string $orderReference): JsonResponse
+    public function cancel(Request $request, string $orderReference): JsonResponse
     {
         try {
+            $request->validate([
+                'reason' => 'required|string|max:500',
+            ]);
             $result = $this->checkoutService->cancelOrder(
                 auth()->id(),
-                $orderReference
+                $orderReference,
+                $request->reason
             );
 
             return response()->json([
