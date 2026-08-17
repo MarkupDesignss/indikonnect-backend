@@ -564,6 +564,80 @@ class CheckoutService
     /**
      * FR-CO-006: Confirm order via webhook
      */
+    // public function confirmOrder(string $orderReference, array $gatewayData): array
+    // {
+    //     $order = Order::where('order_reference', $orderReference)->firstOrFail();
+
+    //     if ($order->status === 'confirmed') {
+    //         return ['success' => true, 'message' => 'Order already confirmed'];
+    //     }
+
+    //     return DB::transaction(function () use ($order, $gatewayData) {
+    //         $order->update([
+    //             'status' => 'confirmed',
+    //             'confirmed_at' => now(),
+    //             'payment_gateway' => $gatewayData['gateway'],
+    //             'gateway_transaction_id' => $gatewayData['transaction_id'],
+    //             'amount_paid' => $order->total_payable,
+    //         ]);
+
+    //         // Decrement stock
+    //         foreach ($order->lines as $line) {
+    //             $product = $line->product;
+    //             $product->decrement('stock_quantity', $line->quantity);
+
+    //             StockMovement::create([
+    //                 'product_id' => $product->id,
+    //                 'quantity' => -$line->quantity,
+    //                 'available_quantity_after' => $product->stock_quantity,
+    //                 'reason' => 'Order confirmed: ' . $order->order_reference,
+    //                 'order_id' => $order->id,
+    //             ]);
+    //         }
+
+    //         // Delete the cart and its items
+    //         $cart = Cart::where('user_id', $order->user_id)->first();
+    //         if ($cart) {
+    //             $cart->items()->delete();
+    //             $cart->delete();
+    //         }
+
+    //         // Generate invoice using stored summary data
+    //         $invoice = $this->invoiceService->generateInvoice($order);
+
+    //         // Generate PDF and send email
+    //         try {
+    //             $this->pdfInvoiceService->generateAndSendInvoice($order, $invoice);
+    //         } catch (\Exception $e) {
+    //             Log::error('Failed to send invoice email: ' . $e->getMessage(), [
+    //                 'order_id' => $order->id
+    //             ]);
+    //         }
+
+    //         // Build full payload for commission API
+    //         $payload = $this->buildCommissionPayload($order);
+
+    //         CommissionApiEvent::create([
+    //             'event_type' => 'order_post',
+    //             'order_id' => $order->id,
+    //             'payload' => $payload,
+    //             'status' => 'pending',
+    //             'retry_count' => 0,
+    //             'max_retries' => 5,
+    //             'last_attempt' => null,
+    //             'error_message' => null,
+    //             'response_data' => null,
+    //         ]);
+
+    //         return [
+    //             'success' => true,
+    //             'order_id' => $order->id,
+    //             'order_reference' => $order->order_reference,
+    //             'status' => 'confirmed',
+    //             'invoice_number' => $invoice->invoice_number,
+    //         ];
+    //     });
+    // }
     public function confirmOrder(string $orderReference, array $gatewayData): array
     {
         $order = Order::where('order_reference', $orderReference)->firstOrFail();
@@ -593,6 +667,52 @@ class CheckoutService
                     'reason' => 'Order confirmed: ' . $order->order_reference,
                     'order_id' => $order->id,
                 ]);
+
+                // ========== LOW STOCK NOTIFICATION ==========
+                // Refresh product to get updated stock
+                $product->refresh();
+
+                // Check if stock is below or equal to threshold
+                if ($product->stock_quantity <= $product->low_stock_threshold) {
+                    try {
+                        $message = sprintf(
+                            "Product '%s' (Code: %s) is running low on stock. Current stock: %d. Threshold: %d",
+                            $product->name,
+                            $product->product_code,
+                            $product->stock_quantity,
+                            $product->low_stock_threshold
+                        );
+
+                        \App\Models\AdminNotification::create([
+                            'admin_id' => 1,
+                            'type' => 'low_stock_alert',
+                            'title' => 'ow Stock Alert',
+                            'message' => $message,
+                            'reference_type' => 'product',
+                            'reference_id' => $product->id,
+                            'priority' => 'critical',
+                            'extra_data' => json_encode([
+                                'product_code' => $product->product_code,
+                                'product_name' => $product->name,
+                                'current_stock' => $product->stock_quantity,
+                                'threshold' => $product->low_stock_threshold,
+                                'category_id' => $product->category_id
+                            ]),
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+
+                        Log::info('Low stock notification sent', [
+                            'product_id' => $product->id,
+                            'current_stock' => $product->stock_quantity
+                        ]);
+                    } catch (\Exception $e) {
+                        Log::error('Failed to send low stock notification: ' . $e->getMessage(), [
+                            'product_id' => $product->id
+                        ]);
+                    }
+                }
+                // ==========================================
             }
 
             // Delete the cart and its items
@@ -628,6 +748,41 @@ class CheckoutService
                 'error_message' => null,
                 'response_data' => null,
             ]);
+
+            // ========== ORDER CONFIRMATION NOTIFICATION ==========
+            try {
+                $message = sprintf(
+                    "Order #%s has been confirmed. Total amount: %s. Customer: %s",
+                    $order->order_reference,
+                    number_format($order->total_payable, 2),
+                    $order->user->name ?? 'Guest'
+                );
+
+                \App\Models\AdminNotification::create([
+                    'admin_id' => 1,
+                    'type' => 'order_confirmed',
+                    'title' => 'New Order Confirmed',
+                    'message' => $message,
+                    'reference_type' => 'order',
+                    'reference_id' => $order->id,
+                    'priority' => 'high',
+                    'extra_data' => json_encode([
+                        'order_reference' => $order->order_reference,
+                        'total_payable' => $order->total_payable,
+                        'customer_name' => $order->user->name ?? 'Guest',
+                        'confirmed_at' => now()->toDateTimeString()
+                    ]),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                Log::info('Order confirmation notification sent', ['order_id' => $order->id]);
+            } catch (\Exception $e) {
+                Log::error('Failed to send order confirmation notification: ' . $e->getMessage(), [
+                    'order_id' => $order->id
+                ]);
+            }
+            // ==================================================
 
             return [
                 'success' => true,
