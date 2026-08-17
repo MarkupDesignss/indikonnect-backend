@@ -146,6 +146,10 @@ Route::prefix('products')->group(function () {
     });
 });
 
+Route::post('/products-deal-of-the-day/{id}', [ProductController::class, 'markAsDealOfTheDay']);
+Route::delete('/products-deal-of-the-day/{id}', [ProductController::class, 'removeDealOfTheDay']);
+Route::get('/products-deal-of-the-day', [ProductController::class, 'getDealOfTheDayProducts']);
+
 Route::prefix('tax-categories')->group(function () {
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         // Tax Category Routes
