@@ -1337,25 +1337,25 @@ class ProductController extends Controller
 
                 'retail_mrp' => $product->retail_mrp,
                 'retail_price' => $product->retail_price,
-                'retail_price_formatted' => number_format($product->retail_price, 2),
-                'retail_discount_type' => $product->retail_discount_type,
-                'retail_discount_value' => $product->retail_discount_value,
-                'retail_discount_amount' => $product->retail_mrp - $product->retail_price,
-                'retail_discount_percentage' => $product->retail_mrp > 0
-                    ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
-                    : 0,
+                // 'retail_price_formatted' => number_format($product->retail_price, 2),
+                // 'retail_discount_type' => $product->retail_discount_type,
+                // 'retail_discount_value' => $product->retail_discount_value,
+                // 'retail_discount_amount' => $product->retail_mrp - $product->retail_price,
+                // 'retail_discount_percentage' => $product->retail_mrp > 0
+                //     ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
+                //     : 0,
 
                 'distributor_mrp' => $product->distributor_mrp,
                 'distributor_price' => $product->distributor_price,
-                'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
-                'distributor_discount_type' => $product->distributor_discount_type,
-                'distributor_discount_value' => $product->distributor_discount_value,
-                'distributor_discount_amount' => $product->distributor_mrp && $product->distributor_price
-                    ? $product->distributor_mrp - $product->distributor_price
-                    : null,
-                'distributor_discount_percentage' => $product->distributor_mrp && $product->distributor_price && $product->distributor_mrp > 0
-                    ? round((($product->distributor_mrp - $product->distributor_price) / $product->distributor_mrp) * 100, 2)
-                    : null,
+                // 'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+                // 'distributor_discount_type' => $product->distributor_discount_type,
+                // 'distributor_discount_value' => $product->distributor_discount_value,
+                // 'distributor_discount_amount' => $product->distributor_mrp && $product->distributor_price
+                //     ? $product->distributor_mrp - $product->distributor_price
+                //     : null,
+                // 'distributor_discount_percentage' => $product->distributor_mrp && $product->distributor_price && $product->distributor_mrp > 0
+                //     ? round((($product->distributor_mrp - $product->distributor_price) / $product->distributor_mrp) * 100, 2)
+                //     : null,
 
                 // Deal of the Day fields
                 'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
@@ -1379,8 +1379,8 @@ class ProductController extends Controller
                     ];
                 })->values()->toArray(),
                 'primary_image_url' => $product->primaryImage ? asset('storage/' . $product->primaryImage->image) : null,
-                'created_at' => $product->created_at?->toISOString(),
-                'updated_at' => $product->updated_at?->toISOString(),
+                // 'created_at' => $product->created_at?->toISOString(),
+                // 'updated_at' => $product->updated_at?->toISOString(),
             ];
         })->values()->toArray();
     }

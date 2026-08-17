@@ -10,22 +10,22 @@ return new class extends Migration
     {
         Schema::create('reels', function (Blueprint $table) {
             $table->id();
-            
+
             // Video Details
             $table->string('video_url');
             $table->string('title');
-            
+
             // Creator Details
-            $table->string('creator_handle');      // "@ananya.glow"
-            $table->integer('followers_count')->default(0); // "412k"
-            
+            $table->string('creator_handle');
+            $table->integer('followers_count')->default(0);
+
             $table->foreignId('product_id')
-                  ->constrained()  
-                  ->onDelete('cascade'); 
-            
+                ->constrained()
+                ->onDelete('cascade');
+
             $table->boolean('is_published')->default(false);
             $table->integer('sort_order')->default(0);
-            
+
             $table->timestamps();
         });
     }
