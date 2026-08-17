@@ -638,6 +638,8 @@ class ProductController extends Controller
             'stock_quantity' => (int) $product->stock_quantity,
             'low_stock_threshold' => (int) $product->low_stock_threshold,
             'is_published' => (bool) $product->is_published,
+            'is_trending' => (bool) $product->is_trending,
+            'trending_sort_order' => (int) $product->trending_sort_order,
             'status' => $this->getProductStatus($product),
             'is_wishlisted' => $isWishlisted,
             'images' => $product->images->map(function ($image) {
@@ -1365,6 +1367,8 @@ class ProductController extends Controller
                 'low_stock_threshold' => (int) $product->low_stock_threshold,
                 'stock_status' => $this->getProductStatus($product),
                 'is_published' => (bool) $product->is_published,
+                'is_trending' => (bool) $product->is_trending,
+                'trending_sort_order' => (int) $product->trending_sort_order,
                 'is_wishlisted' => $isWishlisted,
                 'images' => $product->images->map(function ($image) {
                     return [
