@@ -233,8 +233,130 @@ class ProductController extends Controller
     /**
      * Create a new product
      */
+    // public function store(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'product_code' => ['required', 'string', 'max:255', Rule::unique('products')],
+    //         'name' => ['required', 'string', 'max:255'],
+    //         'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')],
+    //         'description' => ['nullable', 'string'],
+    //         'specification' => ['nullable', 'string'],
+    //         'category_id' => ['required', 'exists:categories,id'],
+    //         'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+    //         'retail_price' => ['required', 'numeric'],
+    //         'distributor_price' => ['nullable', 'numeric'],
+    //         'stock_quantity' => ['required', 'integer'],
+    //         'low_stock_threshold' => ['nullable', 'integer'],
+    //         'is_published' => ['nullable', 'boolean'],
+    //         'product_images' => ['nullable', 'array'],
+    //         'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+    //         'product_images.*.sort_order' => ['nullable', 'integer'],
+    //         'product_images.*.is_primary' => ['nullable', 'boolean'],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['errors' => $validator->errors()], 422);
+    //     }
+
+    //     DB::beginTransaction();
+    //     try {
+    //         $validated = $validator->validated();
+
+    //         // Extract product data (remove product_images)
+    //         $productData = collect($validated)->except(['product_images'])->toArray();
+
+    //         // Generate slug if not provided
+    //         if (empty($productData['slug'])) {
+    //             $productData['slug'] = Str::slug($productData['name']);
+    //         }
+    //         $productData['slug'] = $this->generateUniqueSlug($productData['slug']);
+    //         $productData['is_published'] = $productData['is_published'] ?? false;
+    //         $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
+
+    //         // Create product
+    //         $product = Product::create($productData);
+
+    //         // Handle images
+    //         $productImages = $request->input('product_images', []);
+    //         $imageCount = 0;
+    //         $hasPrimary = false;
+
+    //         // Debug: Log received images
+    //         Log::info('Product images received:', [
+    //             'count' => count($productImages),
+    //             'images' => $productImages
+    //         ]);
+
+    //         if (!empty($productImages)) {
+    //             foreach ($productImages as $index => $imageData) {
+    //                 // Check if image file exists in request
+    //                 $imageFile = $request->file("product_images.{$index}.image");
+
+    //                 // Debug: Log each image
+    //                 Log::info("Processing image {$index}:", [
+    //                     'has_file' => $imageFile ? 'yes' : 'no',
+    //                     'is_valid' => $imageFile && $imageFile->isValid() ? 'yes' : 'no',
+    //                     'file_name' => $imageFile ? $imageFile->getClientOriginalName() : 'null'
+    //                 ]);
+
+    //                 if ($imageFile && $imageFile->isValid()) {
+    //                     $path = $imageFile->store('products', 'public');
+    //                     $sortOrder = isset($imageData['sort_order']) ? (int) $imageData['sort_order'] : $imageCount;
+
+    //                     // Determine if this should be primary
+    //                     $isPrimary = false;
+    //                     if (isset($imageData['is_primary'])) {
+    //                         $isPrimary = (bool) $imageData['is_primary'];
+    //                     } elseif (!$hasPrimary && $imageCount === 0) {
+    //                         $isPrimary = true;
+    //                     }
+
+    //                     ProductImage::create([
+    //                         'product_id' => $product->id,
+    //                         'image' => $path,
+    //                         'is_primary' => $isPrimary,
+    //                         'sort_order' => $sortOrder,
+    //                     ]);
+
+    //                     if ($isPrimary) {
+    //                         $hasPrimary = true;
+    //                     }
+
+    //                     $imageCount++;
+    //                 }
+    //             }
+
+    //             // If no primary image was set, set the first image as primary
+    //             if (!$hasPrimary && $imageCount > 0) {
+    //                 $firstImage = ProductImage::where('product_id', $product->id)
+    //                     ->orderBy('sort_order')
+    //                     ->first();
+    //                 if ($firstImage) {
+    //                     $firstImage->update(['is_primary' => true]);
+    //                 }
+    //             }
+    //         }
+
+    //         DB::commit();
+    //         $product->load(['category', 'taxCategory', 'images']);
+
+    //         return response()->json($this->formatProduct($product), 201);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         Log::error('Product creation failed:', [
+    //             'error' => $e->getMessage(),
+    //             'trace' => $e->getTraceAsString()
+    //         ]);
+    //         return response()->json([
+    //             'message' => 'Failed to create product',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function store(Request $request)
     {
+        // dd($request->all());
         $validator = Validator::make($request->all(), [
             'product_code' => ['required', 'string', 'max:255', Rule::unique('products')],
             'name' => ['required', 'string', 'max:255'],
@@ -243,15 +365,19 @@ class ProductController extends Controller
             'specification' => ['nullable', 'string'],
             'category_id' => ['required', 'exists:categories,id'],
             'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
-            'retail_price' => ['required', 'numeric'],
-            'distributor_price' => ['nullable', 'numeric'],
-            'stock_quantity' => ['required', 'integer'],
-            'low_stock_threshold' => ['nullable', 'integer'],
+            'retail_mrp' => ['required', 'numeric', 'min:0'],
+            'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
+            'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+            'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
+            'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
+            'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
+            'stock_quantity' => ['required', 'integer', 'min:0'],
+            'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'is_published' => ['nullable', 'boolean'],
             'is_trending' => ['nullable', 'boolean'],
             'trending_sort_order' => ['nullable', 'integer', 'min:0'],
             'product_images' => ['nullable', 'array'],
-            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp'],
             'product_images.*.sort_order' => ['nullable', 'integer'],
             'product_images.*.is_primary' => ['nullable', 'boolean'],
         ]);
@@ -267,6 +393,27 @@ class ProductController extends Controller
             // Extract product data (remove product_images)
             $productData = collect($validated)->except(['product_images'])->toArray();
 
+            // Calculate retail price
+            $productData['retail_price'] = $this->calculatePrice(
+                $productData['retail_mrp'],
+                $productData['retail_discount_type'] ?? null,
+                $productData['retail_discount_value'] ?? null
+            );
+
+            // Calculate distributor price
+            if (!empty($productData['distributor_mrp'])) {
+                $productData['distributor_price'] = $this->calculatePrice(
+                    $productData['distributor_mrp'],
+                    $productData['distributor_discount_type'] ?? null,
+                    $productData['distributor_discount_value'] ?? null
+                );
+            } else {
+                $productData['distributor_price'] = null;
+                $productData['distributor_mrp'] = null;
+                $productData['distributor_discount_type'] = null;
+                $productData['distributor_discount_value'] = null;
+            }
+
             // Generate slug if not provided
             if (empty($productData['slug'])) {
                 $productData['slug'] = Str::slug($productData['name']);
@@ -278,12 +425,11 @@ class ProductController extends Controller
             // Create product
             $product = Product::create($productData);
 
-            // Handle images
+            // Handle images (same as before)
             $productImages = $request->input('product_images', []);
             $imageCount = 0;
             $hasPrimary = false;
 
-            // Debug: Log received images
             Log::info('Product images received:', [
                 'count' => count($productImages),
                 'images' => $productImages
@@ -291,10 +437,8 @@ class ProductController extends Controller
 
             if (!empty($productImages)) {
                 foreach ($productImages as $index => $imageData) {
-                    // Check if image file exists in request
                     $imageFile = $request->file("product_images.{$index}.image");
 
-                    // Debug: Log each image
                     Log::info("Processing image {$index}:", [
                         'has_file' => $imageFile ? 'yes' : 'no',
                         'is_valid' => $imageFile && $imageFile->isValid() ? 'yes' : 'no',
@@ -305,7 +449,6 @@ class ProductController extends Controller
                         $path = $imageFile->store('products', 'public');
                         $sortOrder = isset($imageData['sort_order']) ? (int) $imageData['sort_order'] : $imageCount;
 
-                        // Determine if this should be primary
                         $isPrimary = false;
                         if (isset($imageData['is_primary'])) {
                             $isPrimary = (bool) $imageData['is_primary'];
@@ -328,7 +471,6 @@ class ProductController extends Controller
                     }
                 }
 
-                // If no primary image was set, set the first image as primary
                 if (!$hasPrimary && $imageCount > 0) {
                     $firstImage = ProductImage::where('product_id', $product->id)
                         ->orderBy('sort_order')
@@ -429,7 +571,7 @@ class ProductController extends Controller
     //         'low_stock_threshold' => (int) $product->low_stock_threshold,
     //         'is_published' => (bool) $product->is_published,
     //         'status' => $this->getProductStatus($product),
-    //         'is_wishlisted' => $isWishlisted, // Add this field
+    //         'is_wishlisted' => $isWishlisted,
     //         'images' => $product->images->map(function ($image) {
     //             return [
     //                 'id' => $image->id,
@@ -445,6 +587,7 @@ class ProductController extends Controller
     //         'updated_at' => $product->updated_at?->toISOString(),
     //     ];
     // }
+
     protected function formatProduct($product, $wishlistIds = [])
     {
         $isWishlisted = in_array($product->id, $wishlistIds);
@@ -467,10 +610,31 @@ class ProductController extends Controller
                 'description' => $product->category->description,
             ] : null,
             'tax_category_id' => $product->tax_category_id,
+
+            // Retail pricing
+            'retail_mrp' => $product->retail_mrp,
             'retail_price' => $product->retail_price,
             'retail_price_formatted' => number_format($product->retail_price, 2),
+            'retail_discount_type' => $product->retail_discount_type,
+            'retail_discount_value' => $product->retail_discount_value,
+            'retail_discount_amount' => $product->retail_mrp - $product->retail_price,
+            'retail_discount_percentage' => $product->retail_mrp > 0
+                ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
+                : 0,
+
+            // Distributor pricing
+            'distributor_mrp' => $product->distributor_mrp,
             'distributor_price' => $product->distributor_price,
             'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+            'distributor_discount_type' => $product->distributor_discount_type,
+            'distributor_discount_value' => $product->distributor_discount_value,
+            'distributor_discount_amount' => $product->distributor_mrp && $product->distributor_price
+                ? $product->distributor_mrp - $product->distributor_price
+                : null,
+            'distributor_discount_percentage' => $product->distributor_mrp && $product->distributor_price && $product->distributor_mrp > 0
+                ? round((($product->distributor_mrp - $product->distributor_price) / $product->distributor_mrp) * 100, 2)
+                : null,
+
             'stock_quantity' => (int) $product->stock_quantity,
             'low_stock_threshold' => (int) $product->low_stock_threshold,
             'is_published' => (bool) $product->is_published,
@@ -495,6 +659,173 @@ class ProductController extends Controller
     /**
      * Update an existing product
      */
+    // public function update(Request $request, $id)
+    // {
+    //     $product = Product::where('id', $id)->first();
+    //     if (!$product) {
+    //         return response()->json([
+    //             'message' => 'Product not found'
+    //         ], 422);
+    //     }
+
+    //     // DEBUG: Log incoming request
+    //     Log::info('=== UPDATE REQUEST DEBUG ===');
+    //     Log::info('All request data:', $request->all());
+    //     Log::info('All files:', array_keys($_FILES));
+
+    //     $validator = Validator::make($request->all(), [
+    //         'product_code' => ['required', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
+    //         'name' => ['required', 'string', 'max:255'],
+    //         'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
+    //         'description' => ['nullable', 'string'],
+    //         'specification' => ['nullable', 'string'],
+    //         'category_id' => ['required', 'exists:categories,id'],
+    //         'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+    //         'retail_price' => ['required', 'numeric', 'min:0'],
+    //         'distributor_price' => ['nullable', 'numeric', 'min:0'],
+    //         'stock_quantity' => ['required', 'integer', 'min:0'],
+    //         'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
+    //         'is_published' => ['nullable', 'boolean'],
+    //         'product_images' => ['nullable', 'array'],
+    //         'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+    //         'product_images.*.sort_order' => ['nullable', 'integer'],
+    //         'product_images.*.is_primary' => ['nullable', 'boolean'],
+    //         'remove_images' => ['nullable', 'array'],
+    //         'remove_images.*' => ['exists:product_images,id'],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['errors' => $validator->errors()], 422);
+    //     }
+
+    //     DB::beginTransaction();
+    //     try {
+    //         $validated = $validator->validated();
+
+    //         // Extract product data (remove product_images and remove_images)
+    //         $productData = collect($validated)->except(['product_images', 'remove_images'])->toArray();
+
+    //         // Handle slug
+    //         if (empty($productData['slug'])) {
+    //             $productData['slug'] = Str::slug($productData['name']);
+    //         }
+    //         if ($productData['slug'] !== $product->slug) {
+    //             $productData['slug'] = $this->generateUniqueSlug($productData['slug'], $product->id);
+    //         }
+    //         $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
+
+    //         // Update product
+    //         $product->update($productData);
+
+    //         // Remove specified images
+    //         $removeImages = $validated['remove_images'] ?? [];
+    //         if (!empty($removeImages)) {
+    //             $imagesToRemove = ProductImage::whereIn('id', $removeImages)
+    //                 ->where('product_id', $product->id)
+    //                 ->get();
+
+    //             foreach ($imagesToRemove as $image) {
+    //                 if (Storage::disk('public')->exists($image->image)) {
+    //                     Storage::disk('public')->delete($image->image);
+    //                 }
+    //                 $image->delete();
+    //             }
+    //         }
+
+    //         // Handle images - IMPROVED VERSION
+    //         $productImages = $request->input('product_images', []);
+    //         Log::info('Product images input:', $productImages);
+
+    //         if (!empty($productImages)) {
+    //             $existingCount = $product->images()->count();
+    //             $hasPrimary = $product->images()->where('is_primary', true)->exists();
+    //             $imageCount = 0;
+
+    //             foreach ($productImages as $index => $imageData) {
+    //                 // Try multiple ways to get the file
+    //                 $imageFile = $request->file("product_images.{$index}.image");
+
+    //                 // If not found, try alternative key format
+    //                 if (!$imageFile) {
+    //                     $imageFile = $request->file("product_images.{$index}.image");
+    //                 }
+
+    //                 Log::info("Processing image {$index}:", [
+    //                     'has_file' => $imageFile ? 'yes' : 'no',
+    //                     'is_valid' => $imageFile && $imageFile->isValid() ? 'yes' : 'no',
+    //                     'file_name' => $imageFile ? $imageFile->getClientOriginalName() : 'null',
+    //                     'image_data' => $imageData
+    //                 ]);
+
+    //                 if ($imageFile && $imageFile->isValid()) {
+    //                     $path = $imageFile->store('products', 'public');
+
+    //                     // Get sort order - use provided or auto-increment
+    //                     $sortOrder = isset($imageData['sort_order'])
+    //                         ? (int) $imageData['sort_order']
+    //                         : $existingCount + $imageCount;
+
+    //                     // Determine primary status
+    //                     $isPrimary = false;
+    //                     if (isset($imageData['is_primary'])) {
+    //                         $isPrimary = (bool) $imageData['is_primary'];
+    //                     } elseif (!$hasPrimary && $imageCount === 0) {
+    //                         $isPrimary = true;
+    //                     }
+
+    //                     $created = ProductImage::create([
+    //                         'product_id' => $product->id,
+    //                         'image' => $path,
+    //                         'is_primary' => $isPrimary,
+    //                         'sort_order' => $sortOrder,
+    //                     ]);
+
+    //                     Log::info("Created image:", [
+    //                         'id' => $created->id,
+    //                         'path' => $path,
+    //                         'is_primary' => $isPrimary,
+    //                         'sort_order' => $sortOrder
+    //                     ]);
+
+    //                     if ($isPrimary) {
+    //                         $hasPrimary = true;
+    //                     }
+
+    //                     $imageCount++;
+    //                 }
+    //             }
+
+    //             // If no primary image was set, set the first image as primary
+    //             if (!$hasPrimary && $imageCount > 0) {
+    //                 $firstImage = ProductImage::where('product_id', $product->id)
+    //                     ->orderBy('sort_order')
+    //                     ->first();
+    //                 if ($firstImage) {
+    //                     $firstImage->update(['is_primary' => true]);
+    //                     Log::info("Set primary image:", ['id' => $firstImage->id]);
+    //                 }
+    //             }
+    //         }
+
+    //         DB::commit();
+    //         $product->load(['category', 'taxCategory', 'images']);
+
+    //         Log::info('Final images count: ' . $product->images->count());
+
+    //         return response()->json($this->formatProduct($product));
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         Log::error('Failed to update product:', [
+    //             'error' => $e->getMessage(),
+    //             'trace' => $e->getTraceAsString()
+    //         ]);
+    //         return response()->json([
+    //             'message' => 'Failed to update product',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function update(Request $request, $id)
     {
         $product = Product::where('id', $id)->first();
@@ -504,7 +835,6 @@ class ProductController extends Controller
             ], 422);
         }
 
-        // DEBUG: Log incoming request
         Log::info('=== UPDATE REQUEST DEBUG ===');
         Log::info('All request data:', $request->all());
         Log::info('All files:', array_keys($_FILES));
@@ -517,15 +847,19 @@ class ProductController extends Controller
             'specification' => ['nullable', 'string'],
             'category_id' => ['required', 'exists:categories,id'],
             'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
-            'retail_price' => ['required', 'numeric', 'min:0'],
-            'distributor_price' => ['nullable', 'numeric', 'min:0'],
+            'retail_mrp' => ['required', 'numeric', 'min:0'],
+            'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
+            'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+            'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
+            'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
+            'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
             'stock_quantity' => ['required', 'integer', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'is_published' => ['nullable', 'boolean'],
             'is_trending' => ['nullable', 'boolean'],
             'trending_sort_order' => ['nullable', 'integer', 'min:0'],
             'product_images' => ['nullable', 'array'],
-            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp'],
             'product_images.*.sort_order' => ['nullable', 'integer'],
             'product_images.*.is_primary' => ['nullable', 'boolean'],
             'remove_images' => ['nullable', 'array'],
@@ -543,6 +877,27 @@ class ProductController extends Controller
             // Extract product data (remove product_images and remove_images)
             $productData = collect($validated)->except(['product_images', 'remove_images'])->toArray();
 
+            // Calculate retail price
+            $productData['retail_price'] = $this->calculatePrice(
+                $productData['retail_mrp'],
+                $productData['retail_discount_type'] ?? null,
+                $productData['retail_discount_value'] ?? null
+            );
+
+            // Calculate distributor price
+            if (!empty($productData['distributor_mrp'])) {
+                $productData['distributor_price'] = $this->calculatePrice(
+                    $productData['distributor_mrp'],
+                    $productData['distributor_discount_type'] ?? null,
+                    $productData['distributor_discount_value'] ?? null
+                );
+            } else {
+                $productData['distributor_price'] = null;
+                $productData['distributor_mrp'] = null;
+                $productData['distributor_discount_type'] = null;
+                $productData['distributor_discount_value'] = null;
+            }
+
             // Handle slug
             if (empty($productData['slug'])) {
                 $productData['slug'] = Str::slug($productData['name']);
@@ -555,7 +910,7 @@ class ProductController extends Controller
             // Update product
             $product->update($productData);
 
-            // Remove specified images
+            // Remove specified images (same as before)
             $removeImages = $validated['remove_images'] ?? [];
             if (!empty($removeImages)) {
                 $imagesToRemove = ProductImage::whereIn('id', $removeImages)
@@ -570,7 +925,7 @@ class ProductController extends Controller
                 }
             }
 
-            // Handle images - IMPROVED VERSION
+            // Handle images (same as before)
             $productImages = $request->input('product_images', []);
             Log::info('Product images input:', $productImages);
 
@@ -580,13 +935,7 @@ class ProductController extends Controller
                 $imageCount = 0;
 
                 foreach ($productImages as $index => $imageData) {
-                    // Try multiple ways to get the file
                     $imageFile = $request->file("product_images.{$index}.image");
-
-                    // If not found, try alternative key format
-                    if (!$imageFile) {
-                        $imageFile = $request->file("product_images.{$index}.image");
-                    }
 
                     Log::info("Processing image {$index}:", [
                         'has_file' => $imageFile ? 'yes' : 'no',
@@ -598,12 +947,10 @@ class ProductController extends Controller
                     if ($imageFile && $imageFile->isValid()) {
                         $path = $imageFile->store('products', 'public');
 
-                        // Get sort order - use provided or auto-increment
                         $sortOrder = isset($imageData['sort_order'])
                             ? (int) $imageData['sort_order']
                             : $existingCount + $imageCount;
 
-                        // Determine primary status
                         $isPrimary = false;
                         if (isset($imageData['is_primary'])) {
                             $isPrimary = (bool) $imageData['is_primary'];
@@ -633,7 +980,6 @@ class ProductController extends Controller
                     }
                 }
 
-                // If no primary image was set, set the first image as primary
                 if (!$hasPrimary && $imageCount > 0) {
                     $firstImage = ProductImage::where('product_id', $product->id)
                         ->orderBy('sort_order')
@@ -662,6 +1008,28 @@ class ProductController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    protected function calculatePrice($mrp, $discountType = null, $discountValue = null)
+    {
+        // If no discount type or value, return MRP as final price
+        if (empty($discountType) || empty($discountValue) || $discountValue <= 0) {
+            return $mrp;
+        }
+
+        if ($discountType === 'percentage') {
+            // Percentage discount: MRP - (MRP * discount% / 100)
+            $discountAmount = ($mrp * $discountValue) / 100;
+            $finalPrice = $mrp - $discountAmount;
+        } elseif ($discountType === 'fixed') {
+            // Fixed discount: MRP - fixed amount
+            $finalPrice = $mrp - $discountValue;
+        } else {
+            return $mrp;
+        }
+
+        // Ensure price doesn't go below zero
+        return max(0, $finalPrice);
     }
 
     /**
@@ -891,10 +1259,59 @@ class ProductController extends Controller
     //     })->values()->toArray();
     // }
 
+    // protected function formatProductCollection($products, $wishlistIds = [])
+    // {
+    //     return $products->map(function ($product) use ($wishlistIds) {
+    //         $isWishlisted = in_array($product->id, $wishlistIds);
+
+    //         return [
+    //             'id' => $product->id,
+    //             'product_code' => $product->product_code,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'description' => $product->description,
+    //             'specification' => $product->specification,
+    //             'category_id' => $product->category_id,
+    //             'category' => $product->category ? [
+    //                 'id' => $product->category->id,
+    //                 'name' => $product->category->title,
+    //                 'slug' => $product->category->slug,
+    //             ] : null,
+    //             'tax_category_id' => $product->tax_category_id,
+    //             'tax_category' => $product->taxCategory ? [
+    //                 'id' => $product->taxCategory->id,
+    //                 'name' => $product->taxCategory->name,
+    //                 'rate' => $product->taxCategory->rate,
+    //             ] : null,
+    //             'retail_price' => $product->retail_price,
+    //             'retail_price_formatted' => number_format($product->retail_price, 2),
+    //             'distributor_price' => $product->distributor_price,
+    //             'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+    //             'stock_quantity' => (int) $product->stock_quantity,
+    //             'low_stock_threshold' => (int) $product->low_stock_threshold,
+    //             'stock_status' => $this->getProductStatus($product),
+    //             'is_published' => (bool) $product->is_published,
+    //             'is_wishlisted' => $isWishlisted,
+    //             'images' => $product->images->map(function ($image) {
+    //                 return [
+    //                     'id' => $image->id,
+    //                     'image_url' => asset('storage/' . $image->image),
+    //                     'is_primary' => (bool) $image->is_primary,
+    //                     'sort_order' => $image->sort_order,
+    //                 ];
+    //             })->values()->toArray(),
+    //             'primary_image_url' => $product->primaryImage ? asset('storage/' . $product->primaryImage->image) : null,
+    //             'created_at' => $product->created_at?->toISOString(),
+    //             'updated_at' => $product->updated_at?->toISOString(),
+    //         ];
+    //     })->values()->toArray();
+    // }
+
     protected function formatProductCollection($products, $wishlistIds = [])
     {
         return $products->map(function ($product) use ($wishlistIds) {
             $isWishlisted = in_array($product->id, $wishlistIds);
+            $isActiveDeal = $product->isActiveDealOfTheDay();
 
             return [
                 'id' => $product->id,
@@ -915,10 +1332,35 @@ class ProductController extends Controller
                     'name' => $product->taxCategory->name,
                     'rate' => $product->taxCategory->rate,
                 ] : null,
+
+                'retail_mrp' => $product->retail_mrp,
                 'retail_price' => $product->retail_price,
                 'retail_price_formatted' => number_format($product->retail_price, 2),
+                'retail_discount_type' => $product->retail_discount_type,
+                'retail_discount_value' => $product->retail_discount_value,
+                'retail_discount_amount' => $product->retail_mrp - $product->retail_price,
+                'retail_discount_percentage' => $product->retail_mrp > 0
+                    ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
+                    : 0,
+
+                'distributor_mrp' => $product->distributor_mrp,
                 'distributor_price' => $product->distributor_price,
                 'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+                'distributor_discount_type' => $product->distributor_discount_type,
+                'distributor_discount_value' => $product->distributor_discount_value,
+                'distributor_discount_amount' => $product->distributor_mrp && $product->distributor_price
+                    ? $product->distributor_mrp - $product->distributor_price
+                    : null,
+                'distributor_discount_percentage' => $product->distributor_mrp && $product->distributor_price && $product->distributor_mrp > 0
+                    ? round((($product->distributor_mrp - $product->distributor_price) / $product->distributor_mrp) * 100, 2)
+                    : null,
+
+                // Deal of the Day fields
+                'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+                'is_active_deal' => $isActiveDeal,
+                'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+                'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+
                 'stock_quantity' => (int) $product->stock_quantity,
                 'low_stock_threshold' => (int) $product->low_stock_threshold,
                 'stock_status' => $this->getProductStatus($product),
@@ -937,6 +1379,121 @@ class ProductController extends Controller
                 'updated_at' => $product->updated_at?->toISOString(),
             ];
         })->values()->toArray();
+    }
+
+    /**
+     * Mark product as deal of the day
+     */
+    public function markAsDealOfTheDay(Request $request, $id)
+    {
+        $product = Product::find($id);
+        if (!$product) {
+            return response()->json(['message' => 'Product not found'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'starts_at' => ['nullable', 'date'],
+            'ends_at' => ['nullable', 'date', 'after:starts_at'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $product->update([
+                'is_deal_of_the_day' => true,
+                'deal_of_the_day_starts_at' => $request->starts_at ?? now(),
+                'deal_of_the_day_ends_at' => $request->ends_at ?? null,
+            ]);
+
+            DB::commit();
+            $product->load(['category', 'taxCategory', 'images']);
+
+            return response()->json([
+                'message' => 'Product marked as deal of the day successfully',
+                'product' => $this->formatProduct($product)
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to mark product as deal of the day:', [
+                'error' => $e->getMessage()
+            ]);
+            return response()->json([
+                'message' => 'Failed to mark product as deal of the day',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Remove product from deal of the day
+     */
+    public function removeDealOfTheDay($id)
+    {
+        $product = Product::find($id);
+        if (!$product) {
+            return response()->json(['message' => 'Product not found'], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            $product->update([
+                'is_deal_of_the_day' => false,
+                'deal_of_the_day_starts_at' => null,
+                'deal_of_the_day_ends_at' => null,
+            ]);
+
+            DB::commit();
+            $product->load(['category', 'taxCategory', 'images']);
+
+            return response()->json([
+                'message' => 'Product removed from deal of the day successfully',
+                'product' => $this->formatProduct($product)
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to remove product from deal of the day:', [
+                'error' => $e->getMessage()
+            ]);
+            return response()->json([
+                'message' => 'Failed to remove product from deal of the day',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get all active deal of the day products
+     */
+    public function getDealOfTheDayProducts(Request $request)
+    {
+        $now = now();
+
+        $products = Product::with(['category', 'taxCategory', 'images', 'primaryImage'])
+            ->where('is_published', true)
+            ->where('is_deal_of_the_day', true)
+            ->where(function ($query) use ($now) {
+                $query->whereNull('deal_of_the_day_starts_at')
+                    ->orWhere('deal_of_the_day_starts_at', '<=', $now);
+            })
+            ->where(function ($query) use ($now) {
+                $query->whereNull('deal_of_the_day_ends_at')
+                    ->orWhere('deal_of_the_day_ends_at', '>=', $now);
+            })
+            ->orderBy('deal_of_the_day_starts_at', 'asc')
+            ->paginate($request->get('per_page', 15));
+
+        return response()->json([
+            'data' => $this->formatProductCollection($products),
+            'meta' => [
+                'current_page' => $products->currentPage(),
+                'per_page' => $products->perPage(),
+                'total' => $products->total(),
+                'last_page' => $products->lastPage(),
+            ]
+        ]);
     }
 
 

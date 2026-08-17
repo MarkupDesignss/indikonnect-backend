@@ -10,22 +10,7 @@ class Product extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $fillable = [
-        'product_code',
-        'name',
-        'slug',
-        'description',
-        'specification',
-        'category_id',
-        'tax_category_id',
-        'retail_price',
-        'distributor_price',
-        'stock_quantity',
-        'low_stock_threshold',
-        'is_published',
-        'is_trending',
-        'trending_sort_order',
-    ];
+    protected $guarded = [];
 
     protected $casts = [
         'retail_price' => 'decimal:2',
@@ -33,6 +18,9 @@ class Product extends Model
         'is_published' => 'boolean',
         'stock_quantity' => 'integer',
         'low_stock_threshold' => 'integer',
+        'is_deal_of_the_day' => 'boolean',
+        'deal_of_the_day_starts_at' => 'datetime',
+        'deal_of_the_day_ends_at' => 'datetime',
     ];
 
     protected $attributes = [
@@ -134,5 +122,24 @@ class Product extends Model
     public function stockMovements()
     {
         return $this->hasMany(StockMovement::class);
+    }
+
+    public function isActiveDealOfTheDay(): bool
+    {
+        if (!$this->is_deal_of_the_day) {
+            return false;
+        }
+
+        $now = now();
+
+        if ($this->deal_of_the_day_starts_at && $this->deal_of_the_day_starts_at > $now) {
+            return false;
+        }
+
+        if ($this->deal_of_the_day_ends_at && $this->deal_of_the_day_ends_at < $now) {
+            return false;
+        }
+
+        return true;
     }
 }
