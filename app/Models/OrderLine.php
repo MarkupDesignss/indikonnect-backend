@@ -3,19 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class OrderLine extends Model
 {
-    protected $fillable = [
-        'order_id',
-        'product_id',
-        'quantity',
-        'unit_price',
-        'gst_rate',
-        'gst_amount',
-        'line_total',
-        'commissionable_volume',
-    ];
+    protected $guarded = [];
 
     protected $casts = [
         'unit_price' => 'decimal:2',
@@ -23,6 +15,7 @@ class OrderLine extends Model
         'gst_amount' => 'decimal:2',
         'line_total' => 'decimal:2',
         'commissionable_volume' => 'decimal:2',
+        'returned_quantity' => 'integer',
     ];
 
     public function order()
@@ -33,5 +26,17 @@ class OrderLine extends Model
     public function product()
     {
         return $this->belongsTo(Product::class);
+    }
+
+    // Check if line item can be returned
+    public function isReturnable(): bool
+    {
+        return $this->quantity > $this->returned_quantity;
+    }
+
+    // Get available quantity for return
+    public function getAvailableForReturnAttribute(): int
+    {
+        return $this->quantity - $this->returned_quantity;
     }
 }

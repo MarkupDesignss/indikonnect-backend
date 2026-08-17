@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Order extends Model
 {
@@ -14,6 +16,7 @@ class Order extends Model
     protected $casts = [
         'tax_breakdown' => 'array',
         'confirmed_at' => 'datetime',
+        'delivered_at' => 'datetime',
         'subtotal' => 'decimal:2',
         'total_gst' => 'decimal:2',
         'shipping_charge' => 'decimal:2',
@@ -98,6 +101,21 @@ class Order extends Model
     public function isReturnable(): bool
     {
         return $this->status === 'delivered'
-            && $this->created_at->diffInDays(now()) <= 30; // Return window
+            && $this->delivered_at
+            && $this->delivered_at->diffInDays(now()) <= 30;
+    }
+
+    public function hasPendingReturn(): bool
+    {
+        return $this->returns()
+            ->where('status', 'pending')
+            ->exists();
+    }
+
+    public function hasApprovedReturn(): bool
+    {
+        return $this->returns()
+            ->whereIn('status', ['approved', 'received', 'completed'])
+            ->exists();
     }
 }
