@@ -102,28 +102,52 @@ class MockCommissionService implements CommissionServiceInterface
 
     public function getLedger(int $userId, string $period = 'current'): array
     {
-        return [
-            'entries' => [
-                [
-                    'date' => now()->subDays(1)->toDateString(),
-                    'type' => 'commission',
-                    'description' => 'Step commission for order #ORD-123',
-                    'amount' => 300.00,
-                    'status' => 'released',
-                ],
-                [
-                    'date' => now()->subDays(3)->toDateString(),
-                    'type' => 'bonus',
-                    'description' => 'Team bonus',
-                    'amount' => 200.00,
-                    'status' => 'pending',
-                ],
+        // Get actual payout entries for this user
+        $payoutEntries = \App\Models\PayoutEntry::where('distributor_id', $userId)
+            ->where('status', 'released')
+            ->with('payoutRun')
+            ->get();
+
+        $ledgerEntries = [];
+
+        // Add payout entries
+        foreach ($payoutEntries as $entry) {
+            $ledgerEntries[] = [
+                'date' => $entry->created_at->toDateString(),
+                'type' => 'payout',
+                'description' => "Payout for period {$entry->payoutRun->period}",
+                'amount' => $entry->net_payable,
+                'status' => 'released',
+                'gross' => $entry->gross_commission,
+                'tds' => $entry->tds,
+            ];
+        }
+
+        // Add mock ledger entries (from earlier)
+        $mockEntries = [
+            [
+                'date' => now()->subDays(1)->toDateString(),
+                'type' => 'commission',
+                'description' => 'Step commission for order #123',
+                'amount' => 300.00,
+                'status' => 'released',
             ],
+            [
+                'date' => now()->subDays(3)->toDateString(),
+                'type' => 'bonus',
+                'description' => 'Team bonus',
+                'amount' => 200.00,
+                'status' => 'pending',
+            ],
+        ];
+
+        return [
+            'entries' => array_merge($ledgerEntries, $mockEntries),
             'opening_balance' => 1000.00,
             'closing_balance' => 1500.00,
         ];
     }
-
+    
     // -------- Health Check --------
 
     public function healthCheck(): bool
