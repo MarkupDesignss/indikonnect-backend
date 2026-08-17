@@ -28,6 +28,7 @@ class AddressController extends Controller
             }
 
             $addresses = Address::where('user_id', $user->id)
+                ->where('status', 'active')
                 ->orderBy('is_default', 'desc')
                 ->orderBy('created_at', 'desc')
                 ->get();
@@ -132,6 +133,7 @@ class AddressController extends Controller
                 'postcode' => $request->postcode,
                 'country' => $request->country ?? 'India',
                 'is_default' => $request->is_default ?? false,
+                'status' => 'active'
 
             ];
 
@@ -269,6 +271,7 @@ class AddressController extends Controller
                 'company_name',
                 'company_contact_person',
                 'address_label',
+                'status'
             ]);
 
             // Handle billing fields
@@ -288,6 +291,7 @@ class AddressController extends Controller
                 $updateData['address_line_1'] = $updateData['billing_address_line_1'] ?? $address->billing_address_line_1;
                 $updateData['address_line_2'] = $updateData['billing_address_line_2'] ?? $address->billing_address_line_2;
                 $updateData['city'] = $updateData['billing_city'] ?? $address->billing_city;
+                $updateData['status'] = $updateData['status'] ?? $address->status;
                 $updateData['state'] = $updateData['billing_state'] ?? $address->billing_state;
                 $updateData['postcode'] = $updateData['billing_postcode'] ?? $address->billing_postcode;
                 $updateData['country'] = $updateData['billing_country'] ?? $address->billing_country ?? 'India';
@@ -372,6 +376,64 @@ class AddressController extends Controller
     /**
      * Remove the specified address.
      */
+    // public function destroy($id)
+    // {
+    //     try {
+    //         $user = Auth::user();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Unauthorized'
+    //             ], 401);
+    //         }
+
+    //         $address = Address::where('user_id', $user->id)
+    //             ->where('id', $id)
+    //             ->first();
+
+    //         if (!$address) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Address not found'
+    //             ], 404);
+    //         }
+
+    //         // Check if this is the only address
+    //         $addressCount = Address::where('user_id', $user->id)->count();
+
+    //         if ($addressCount <= 1) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Cannot delete the only address. Please add another address first.'
+    //             ], 422);
+    //         }
+
+    //         // If deleting the default address, set another as default
+    //         if ($address->is_default) {
+    //             $newDefault = Address::where('user_id', $user->id)
+    //                 ->where('id', '!=', $id)
+    //                 ->first();
+
+    //             if ($newDefault) {
+    //                 $newDefault->update(['is_default' => true]);
+    //             }
+    //         }
+
+    //         $address->delete();
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Address deleted successfully'
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function destroy($id)
     {
         try {
@@ -386,6 +448,7 @@ class AddressController extends Controller
 
             $address = Address::where('user_id', $user->id)
                 ->where('id', $id)
+                ->where('status', 'active')
                 ->first();
 
             if (!$address) {
@@ -395,28 +458,10 @@ class AddressController extends Controller
                 ], 404);
             }
 
-            // Check if this is the only address
-            $addressCount = Address::where('user_id', $user->id)->count();
-
-            if ($addressCount <= 1) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Cannot delete the only address. Please add another address first.'
-                ], 422);
-            }
-
-            // If deleting the default address, set another as default
-            if ($address->is_default) {
-                $newDefault = Address::where('user_id', $user->id)
-                    ->where('id', '!=', $id)
-                    ->first();
-
-                if ($newDefault) {
-                    $newDefault->update(['is_default' => true]);
-                }
-            }
-
-            $address->delete();
+            // Mark address as inactive instead of deleting
+            $address->update([
+                'status' => 'inactive'
+            ]);
 
             return response()->json([
                 'status' => true,
