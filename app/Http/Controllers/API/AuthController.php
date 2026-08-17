@@ -790,7 +790,7 @@ class AuthController extends Controller
                 return response()->json([
                     'status' => false,
                     'exists' => true,
-                    'message' => "This email is registered as {$roleName}.",
+                    'message' => "This email is registered as {$roleName}.Please login.",
                     'role' => $user->role
                 ], 403);
             }
