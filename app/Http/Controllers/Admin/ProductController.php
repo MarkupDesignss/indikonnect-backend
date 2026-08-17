@@ -1638,4 +1638,26 @@ class ProductController extends Controller
             ], 500);
         }
     }
+
+    public function trending(Request $request)
+    {
+        $limit = (int) $request->get('limit', 10);
+
+        $products = Product::with([
+            'category',
+            'taxCategory',
+            'images',
+        ])
+            ->where('is_published', true)
+            ->where('is_trending', true)
+            ->orderBy('trending_sort_order', 'asc')
+            ->limit($limit)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Trending products retrieved successfully.',
+            'data' => $this->formatProductCollection($products),
+        ]);
+    }
 }

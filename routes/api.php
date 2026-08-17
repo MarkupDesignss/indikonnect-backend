@@ -133,6 +133,7 @@ Route::prefix('products')->group(function () {
         Route::post('/update/{id}', [ProductController::class, 'update']);
         Route::delete('/images/{id}', [ProductController::class, 'deleteImages']);
         Route::get('/category/{categoryId}', [ProductController::class, 'productsByCategory']);
+        Route::get('/trending', [ProductController::class, 'trending']);
     });
 
     // Admin protected routes
