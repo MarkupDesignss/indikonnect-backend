@@ -614,7 +614,7 @@ class ProductController extends Controller
             // Retail pricing
             'retail_mrp' => $product->retail_mrp,
             'retail_price' => $product->retail_price,
-            'retail_price_formatted' => number_format($product->retail_price, 2),
+            // 'retail_price_formatted' => number_format($product->retail_price, 2),
             'retail_discount_type' => $product->retail_discount_type,
             'retail_discount_value' => $product->retail_discount_value,
             'retail_discount_amount' => $product->retail_mrp - $product->retail_price,
@@ -625,7 +625,7 @@ class ProductController extends Controller
             // Distributor pricing
             'distributor_mrp' => $product->distributor_mrp,
             'distributor_price' => $product->distributor_price,
-            'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+            // 'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
             'distributor_discount_type' => $product->distributor_discount_type,
             'distributor_discount_value' => $product->distributor_discount_value,
             'distributor_discount_amount' => $product->distributor_mrp && $product->distributor_price
@@ -1496,6 +1496,146 @@ class ProductController extends Controller
                 'per_page' => $products->perPage(),
                 'total' => $products->total(),
                 'last_page' => $products->lastPage(),
+            ]
+        ]);
+    }
+
+    protected function calculateDiscountPercentage($product, $type = 'retail')
+    {
+        if ($type === 'retail') {
+            if ($product->retail_mrp > 0 && $product->retail_price < $product->retail_mrp) {
+                return round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2);
+            }
+            return 0;
+        } elseif ($type === 'distributor') {
+            if ($product->distributor_mrp > 0 && $product->distributor_price < $product->distributor_mrp) {
+                return round((($product->distributor_mrp - $product->distributor_price) / $product->distributor_mrp) * 100, 2);
+            }
+            return 0;
+        }
+        return 0;
+    }
+
+    public function getTopDiscountedProducts(Request $request)
+    {
+        $limit = $request->get('limit', 10);
+        $type = $request->get('type', 'all');
+        $now = now();
+
+
+
+        $products = Product::with(['category', 'taxCategory', 'images', 'primaryImage'])
+            ->where('is_published', true)
+            ->where('is_deal_of_the_day', true) // Only deal products
+            ->where(function ($query) use ($now) {
+                // Check if current time is between start and end date
+                $query->where(function ($q) use ($now) {
+                    $q->whereNull('deal_of_the_day_starts_at')
+                        ->orWhere('deal_of_the_day_starts_at', '<=', $now);
+                })->where(function ($q) use ($now) {
+                    $q->whereNull('deal_of_the_day_ends_at')
+                        ->orWhere('deal_of_the_day_ends_at', '>=', $now);
+                });
+            })
+            ->where(function ($query) {
+                $query->where(function ($q) {
+                    $q->where('retail_mrp', '>', 0)
+                        ->whereColumn('retail_price', '<', 'retail_mrp');
+                })->orWhere(function ($q) {
+                    $q->where('distributor_mrp', '>', 0)
+                        ->whereColumn('distributor_price', '<', 'distributor_mrp');
+                });
+            })
+            ->get();
+
+        // dd([
+        //     'now' => $now,
+        //     'product' => $products->first()?->toArray(),
+        // ]);
+
+        // Calculate discount percentages and sort
+        $productsWithDiscounts = $products->map(function ($product) use ($type) {
+            $retailDiscount = $this->calculateDiscountPercentage($product, 'retail');
+            $distributorDiscount = $this->calculateDiscountPercentage($product, 'distributor');
+
+            // Get the highest discount among both
+            $maxDiscount = max($retailDiscount, $distributorDiscount);
+
+            // Determine discount type
+            $discountType = 'none';
+            if ($retailDiscount > 0 && $distributorDiscount > 0) {
+                $discountType = 'both';
+            } elseif ($retailDiscount > 0) {
+                $discountType = 'retail';
+            } elseif ($distributorDiscount > 0) {
+                $discountType = 'distributor';
+            }
+
+            return [
+                'product' => $product,
+                'retail_discount' => $retailDiscount,
+                'distributor_discount' => $distributorDiscount,
+                'max_discount' => $maxDiscount,
+                'discount_type' => $discountType,
+            ];
+        });
+
+        // Filter by type if specified
+        if ($type === 'retail') {
+            $productsWithDiscounts = $productsWithDiscounts->filter(function ($item) {
+                return $item['retail_discount'] > 0;
+            });
+        } elseif ($type === 'distributor') {
+            $productsWithDiscounts = $productsWithDiscounts->filter(function ($item) {
+                return $item['distributor_discount'] > 0;
+            });
+        }
+
+        // Sort by max discount (highest first)
+        $productsWithDiscounts = $productsWithDiscounts->sortByDesc('max_discount')
+            ->values()
+            ->take($limit);
+
+        // Format the response
+        $formattedProducts = $productsWithDiscounts->map(function ($item) {
+            $product = $item['product'];
+
+            return [
+                'product' => $this->formatProduct($product),
+                'deal_info' => [
+                    'starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+                    'ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+                    'is_active' => true,
+                ],
+                'discounts' => [
+                    'retail' => [
+                        'mrp' => $product->retail_mrp,
+                        'price' => $product->retail_price,
+                        'discount_amount' => $product->retail_mrp > 0 ? $product->retail_mrp - $product->retail_price : 0,
+                        'discount_percentage' => $item['retail_discount'],
+                        'has_discount' => $item['retail_discount'] > 0,
+                    ],
+                    'distributor' => [
+                        'mrp' => $product->distributor_mrp,
+                        'price' => $product->distributor_price,
+                        'discount_amount' => $product->distributor_mrp > 0 && $product->distributor_price
+                            ? $product->distributor_mrp - $product->distributor_price
+                            : 0,
+                        'discount_percentage' => $item['distributor_discount'],
+                        'has_discount' => $item['distributor_discount'] > 0,
+                    ],
+                    'max_discount' => $item['max_discount'],
+                    'discount_type' => $item['discount_type'],
+                ]
+            ];
+        });
+
+        return response()->json([
+            'data' => $formattedProducts,
+            'meta' => [
+                'total' => $formattedProducts->count(),
+                'limit' => $limit,
+                'type' => $type,
             ]
         ]);
     }

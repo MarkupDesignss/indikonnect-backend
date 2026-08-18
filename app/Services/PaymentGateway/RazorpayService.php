@@ -47,6 +47,73 @@ class RazorpayService
     }
 
     /**
+     * Process a refund for a payment
+     */
+    public function refundPayment(string $paymentId, float $amount): array
+    {
+        try {
+            // Fetch the payment
+            $payment = $this->api->payment->fetch($paymentId);
+
+            // Create refund
+            $refund = $payment->refund([
+                'amount' => (int)($amount * 100),
+                'speed' => 'normal',
+                'notes' => [
+                    'refund_reason' => 'Product return - items received',
+                    'processed_at' => now()->toDateTimeString(),
+                ]
+            ]);
+
+            Log::info('Razorpay refund processed successfully', [
+                'payment_id' => $paymentId,
+                'refund_id' => $refund->id,
+                'amount' => $amount,
+            ]);
+
+            return [
+                'success' => true,
+                'refund_id' => $refund->id,
+            'payment_id' => $paymentId,
+                'amount' => $amount,
+                'status' => $refund->status,
+                'created_at' => $refund->created_at,
+            ];
+        } catch (\Exception $e) {
+            Log::error('Razorpay refund failed', [
+                'payment_id' => $paymentId,
+                'amount' => $amount,
+                'error' => $e->getMessage(),
+            ]);
+            throw new \Exception('Refund processing failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Check refund status
+     */
+    public function checkRefundStatus(string $refundId): array
+    {
+        try {
+            $refund = $this->api->refund->fetch($refundId);
+
+            return [
+                'id' => $refund->id,
+                'payment_id' => $refund->payment_id,
+                'amount' => $refund->amount / 100,
+                'status' => $refund->status,
+                'created_at' => $refund->created_at,
+            ];
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch refund status', [
+                'refund_id' => $refundId,
+                'error' => $e->getMessage(),
+            ]);
+            throw new \Exception('Failed to fetch refund status: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Verify webhook signature
      */
     public function verifyWebhook(array $payload, ?string $signature): bool
