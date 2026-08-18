@@ -272,8 +272,19 @@ class AuthController extends Controller
                 ], 403);
             }
 
-            // Generate 6 digit OTP
-            $otp = rand(100000, 999999);
+             // ========== STATIC OTP MAPPING ==========
+            $staticOtps = [
+                '9980980980' => '111111',   // Customer
+                '8800880088' => '222222',   // Distributor (phone)
+            ];
+
+             // Generate OTP: static if in mapping, else random
+            if (array_key_exists($request->phone, $staticOtps)) {
+                $otp = $staticOtps[$request->phone];
+            } else {
+                $otp = rand(100000, 999999);
+            }
+            // ========================================
 
             if ($user) {
                 // Existing user (customer or unregistered distributor)
@@ -1487,6 +1498,14 @@ class AuthController extends Controller
                     ->first();
             }
 
+            // ========== STATIC OTP MAPPING ==========
+            $staticOtps = [
+                '9980980980'           => '111111',   // Customer phone
+                '8800880088'           => '222222',   // Distributor phone
+                'qatest02md@gmail.com' => '333333',   // Distributor email
+            ];
+            // ========================================
+
             // For phone OTP
             if ($request->type === 'phone') {
                 // Check if phone exists and is registered as customer
@@ -1514,7 +1533,12 @@ class AuthController extends Controller
                     ], 422);
                 }
 
-                $otp = rand(100000, 999999);
+                 // Generate OTP (static or random)
+                if (array_key_exists($request->phone, $staticOtps)) {
+                    $otp = $staticOtps[$request->phone];
+                } else {
+                    $otp = rand(100000, 999999);
+                }
 
                 // Case 1: User exists with this phone
                 if ($user) {
@@ -1611,7 +1635,12 @@ class AuthController extends Controller
                     ], 422);
                 }
 
-                $emailOtp = rand(100000, 999999);
+                 // Generate OTP (static or random) for email
+                if (array_key_exists($request->email, $staticOtps)) {
+                    $emailOtp = $staticOtps[$request->email];
+                } else {
+                    $emailOtp = rand(100000, 999999);
+                }
 
                 // Case 1: User exists with this email
                 if ($user) {
@@ -1710,7 +1739,18 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            $otp = rand(100000, 999999);
+              // ========== STATIC OTP MAPPING ==========
+                $staticOtps = [
+                    '9980980980' => '111111',   // Customer
+                    '8800880088' => '222222',   // Distributor (phone)
+                ];
+
+                if (array_key_exists($request->phone, $staticOtps)) {
+                    $otp = $staticOtps[$request->phone];
+                } else {
+                    $otp = rand(100000, 999999);
+                }
+                // ========================================
 
             $user->update([
                 'otp' => $otp,
