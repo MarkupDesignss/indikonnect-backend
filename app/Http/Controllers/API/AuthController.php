@@ -565,13 +565,14 @@ class AuthController extends Controller
                 'phone' => 'required|min:10|max:15',
                 'temp_token' => 'required|string',
                 'full_name' => 'required|string|max:255',
-                'email' => [
-                    'required',
-                    'email',
-                    Rule::unique('users', 'email')->where(function ($query) {
-                        return $query->where('is_registered', 1);
-                    })
-                ],
+                // 'email' => [
+                //     'required',
+                //     'email',
+                //     Rule::unique('users', 'email')->where(function ($query) {
+                //         return $query->where('is_registered', 1);
+                //     })
+                // ],
+                'email' => 'required|email',
                 'country' => 'nullable|string|max:255',
                 'password' => 'nullable|string|min:8',
                 'terms_condition' => 'required|in:0,1',
@@ -590,6 +591,20 @@ class AuthController extends Controller
                 return response()->json([
                     'status' => false,
                     'message' => 'User not found. Please request OTP first.'
+                ], 422);
+            }
+
+            $emailExists = User::where('email', $request->email)
+                ->where('is_registered', 1)
+                ->when($user->id, function ($query) use ($user) {
+                    return $query->where('id', '!=', $user->id);
+                })
+                ->exists();
+
+            if ($emailExists) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Email is already registered. Please use a different email.'
                 ], 422);
             }
 
