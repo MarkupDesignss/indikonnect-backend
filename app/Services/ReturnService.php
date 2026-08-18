@@ -116,7 +116,7 @@ class ReturnService
             'items' => 'required|array|min:1',
             'items.*.order_line_id' => 'required|exists:order_lines,id',
             'items.*.quantity' => 'required|integer|min:1',
-            'items.*.reason' => 'required|string|max:500',
+            'items.*.reason' => 'nullable|string|max:500',
             'return_reason' => 'nullable|string|max:1000',
         ]);
 

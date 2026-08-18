@@ -20,6 +20,7 @@ use App\Http\Controllers\API\InvoiceController;
 use App\Http\Controllers\API\OrderController;
 use App\Http\Controllers\API\ProductReviewController;
 use App\Http\Controllers\API\ReelController;
+use App\Http\Controllers\API\ReturnController;
 use App\Http\Controllers\API\ReviewController;
 use App\Http\Controllers\API\ShippingMethodController;
 use App\Http\Controllers\API\SubscriberController;
@@ -350,4 +351,22 @@ Route::prefix('footer')->group(function () {
     Route::get('/', [FooterController::class, 'index']);
     Route::post('/', [FooterController::class, 'store']);
     Route::put('/update', [FooterController::class, 'update']);
+});
+
+Route::middleware('auth:sanctum')->group(function () {
+    // User routes
+    Route::get('/returns/eligibility', [ReturnController::class, 'eligibility']);
+    Route::post('/returns/initiate', [ReturnController::class, 'initiate']);
+    Route::get('/returns/my-returns', [ReturnController::class, 'myReturns']);
+    Route::get('/returns/{id}', [ReturnController::class, 'show']);
+
+    // Admin routes
+    Route::middleware('admin')->prefix('admin')->group(function () {
+        Route::get('/returns', [ReturnController::class, 'adminIndex']);
+        Route::get('/returns/{id}', [ReturnController::class, 'adminShow']);
+        Route::post('/returns/{id}/approve', [ReturnController::class, 'adminApprove']);
+        Route::post('/returns/{id}/reject', [ReturnController::class, 'adminReject']);
+        Route::post('/returns/{id}/received', [ReturnController::class, 'adminMarkReceived']);
+        Route::post('/returns/{id}/complete', [ReturnController::class, 'adminComplete']);
+    });
 });
