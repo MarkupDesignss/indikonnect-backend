@@ -842,7 +842,7 @@ class ProductController extends Controller
         Log::info('All files:', array_keys($_FILES));
 
         $validator = Validator::make($request->all(), [
-            'product_code' => ['required', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
+            'product_code' => ['required', 'string', 'max:255'],
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
             'description' => ['nullable', 'string'],
@@ -861,7 +861,7 @@ class ProductController extends Controller
             'is_trending' => ['nullable', 'boolean'],
             'trending_sort_order' => ['nullable', 'integer', 'min:0'],
             'product_images' => ['nullable', 'array'],
-            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
+            'product_images.*.image' => ['nullable',  'mimes:jpg,jpeg,png,webp,avif'],
             'product_images.*.sort_order' => ['nullable', 'integer'],
             'product_images.*.is_primary' => ['nullable', 'boolean'],
             'remove_images' => ['nullable', 'array'],
