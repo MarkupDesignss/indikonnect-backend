@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class ReelController extends Controller
 {
@@ -60,6 +61,9 @@ class ReelController extends Controller
                 'max:500',
                 'regex:/\.(mp4|mov|avi|wmv|flv|mkv)(\?.*)?$/i'
             ],
+
+            // Thumbnail validation
+            'thumbnail' => ['nullable', 'mimes:jpeg,png,jpg,gif,webp,avif', 'max:5120'], // Max 5MB
         ]);
 
         // Custom validation: At least one video source is required
@@ -87,6 +91,7 @@ class ReelController extends Controller
                 'sort_order' => $validated['sort_order'] ?? $this->getNextSortOrder(),
                 'video_url' => null,
                 'video_path' => null,
+                'thumbnail' => null,
             ];
 
             // Handle video upload
@@ -98,6 +103,13 @@ class ReelController extends Controller
             // Handle video URL
             elseif (!empty($validated['video_url'])) {
                 $reelData['video_url'] = $validated['video_url'];
+            }
+
+            // Handle thumbnail upload
+            if ($request->hasFile('thumbnail')) {
+                $thumbnailFile = $request->file('thumbnail');
+                $thumbnailPath = $thumbnailFile->store('reels/thumbnails', 'public');
+                $reelData['thumbnail'] = $thumbnailPath;
             }
 
             $reel = Reel::create($reelData);
@@ -171,7 +183,9 @@ class ReelController extends Controller
                 'max:500',
                 'regex:/\.(mp4|mov|avi|wmv|flv|mkv)(\?.*)?$/i'
             ],
+            'thumbnail' => ['nullable', 'mimes:jpeg,png,jpg,gif,webp,avif', 'max:5120'],
             'remove_video' => ['nullable', 'boolean'],
+            'remove_thumbnail' => ['nullable', 'boolean'],
         ]);
 
         // Custom validation: At least one video source must remain
@@ -225,6 +239,15 @@ class ReelController extends Controller
                 $reelData['video_url'] = null;
             }
 
+            // Handle thumbnail removal
+            if (!empty($validated['remove_thumbnail']) && $reel->thumbnail) {
+                // Delete old thumbnail file
+                if (Storage::disk('public')->exists($reel->thumbnail)) {
+                    Storage::disk('public')->delete($reel->thumbnail);
+                }
+                $reelData['thumbnail'] = null;
+            }
+
             // Handle new video upload
             if ($request->hasFile('video')) {
                 // Delete old video if exists
@@ -245,6 +268,18 @@ class ReelController extends Controller
                 }
                 $reelData['video_url'] = $validated['video_url'];
                 $reelData['video_path'] = null;
+            }
+
+            // Handle thumbnail upload
+            if ($request->hasFile('thumbnail')) {
+                // Delete old thumbnail if exists
+                if ($reel->thumbnail && Storage::disk('public')->exists($reel->thumbnail)) {
+                    Storage::disk('public')->delete($reel->thumbnail);
+                }
+
+                $thumbnailFile = $request->file('thumbnail');
+                $thumbnailPath = $thumbnailFile->store('reels/thumbnails', 'public');
+                $reelData['thumbnail'] = $thumbnailPath;
             }
 
             if (!empty($reelData)) {
@@ -291,6 +326,11 @@ class ReelController extends Controller
             // Delete video file if exists
             if ($reel->video_path && Storage::disk('public')->exists($reel->video_path)) {
                 Storage::disk('public')->delete($reel->video_path);
+            }
+
+            // Delete thumbnail file if exists
+            if ($reel->thumbnail && Storage::disk('public')->exists($reel->thumbnail)) {
+                Storage::disk('public')->delete($reel->thumbnail);
             }
 
             $reel->delete();
@@ -415,6 +455,9 @@ class ReelController extends Controller
             'video_url' => $reel->video_url,
             'video_full_url' => $reel->video_full_url,
             'video_full_path' => $reel->video_full_path,
+            'thumbnail' => $reel->thumbnail,
+            'thumbnail_url' => $reel->thumbnail ? asset('storage/' . $reel->thumbnail) : null,
+            // 'thumbnail_full_url' => $reel->thumbnail ? url('storage/' . $reel->thumbnail) : null,
             'is_published' => (bool) $reel->is_published,
             'sort_order' => $reel->sort_order,
             'created_at' => $reel->created_at?->toISOString(),

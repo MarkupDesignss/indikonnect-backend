@@ -23,7 +23,7 @@ class Reel extends Model
     public function getVideoFullUrlAttribute()
     {
         if ($this->video_url) {
-            return $this->video_url; // video_url is already a full URL
+            return $this->video_url;
         }
         return null;
     }
