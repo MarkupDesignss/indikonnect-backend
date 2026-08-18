@@ -377,7 +377,7 @@ class ProductController extends Controller
             'is_trending' => ['nullable', 'boolean'],
             'trending_sort_order' => ['nullable', 'integer', 'min:0'],
             'product_images' => ['nullable', 'array'],
-            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp'],
+            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
             'product_images.*.sort_order' => ['nullable', 'integer'],
             'product_images.*.is_primary' => ['nullable', 'boolean'],
         ]);
@@ -861,7 +861,7 @@ class ProductController extends Controller
             'is_trending' => ['nullable', 'boolean'],
             'trending_sort_order' => ['nullable', 'integer', 'min:0'],
             'product_images' => ['nullable', 'array'],
-            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp'],
+            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
             'product_images.*.sort_order' => ['nullable', 'integer'],
             'product_images.*.is_primary' => ['nullable', 'boolean'],
             'remove_images' => ['nullable', 'array'],
