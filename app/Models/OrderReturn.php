@@ -22,6 +22,8 @@ class OrderReturn extends Model
         'refund_tax',
         'refund_shipping',
         'total_refund_amount',
+        'refund_transaction_id',
+        'refund_status',
         'total_cv_reversed',
         'admin_notes',
         'rejection_reason',
@@ -47,6 +49,9 @@ class OrderReturn extends Model
         'total_refund_amount' => 'decimal:2',
         'total_cv_reversed' => 'decimal:2',
     ];
+    const REFUND_STATUS_PROCESSING = 'processing';
+    const REFUND_STATUS_COMPLETED = 'completed';
+    const REFUND_STATUS_FAILED = 'failed';
 
     const STATUS_PENDING = 'pending';
     const STATUS_APPROVED = 'approved';

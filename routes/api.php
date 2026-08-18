@@ -162,6 +162,8 @@ Route::prefix('products')->group(function () {
 Route::post('/products-deal-of-the-day/{id}', [ProductController::class, 'markAsDealOfTheDay']);
 Route::delete('/products-deal-of-the-day/{id}', [ProductController::class, 'removeDealOfTheDay']);
 Route::get('/products-deal-of-the-day', [ProductController::class, 'getDealOfTheDayProducts']);
+Route::get('/products-top-discounted', [ProductController::class, 'getTopDiscountedProducts']);
+
 
 Route::prefix('tax-categories')->group(function () {
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
@@ -376,5 +378,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/returns/{id}/reject', [ReturnController::class, 'adminReject']);
         Route::post('/returns/{id}/received', [ReturnController::class, 'adminMarkReceived']);
         Route::post('/returns/{id}/complete', [ReturnController::class, 'adminComplete']);
+        Route::post('/returns/{id}/refund', [ReturnController::class, 'adminRefund']);
     });
 });
