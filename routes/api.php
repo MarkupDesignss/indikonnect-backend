@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\MenuController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\Admin\PayoutController;
+use App\Http\Controllers\Admin\ReconciliationController;
 use App\Http\Controllers\API\AddressController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
@@ -54,6 +55,13 @@ Route::prefix('admin')->group(function () {
         Route::post('/payouts/{id}/release', [PayoutController::class, 'release']);
         Route::post('/payouts/entries/{entryId}/hold', [PayoutController::class, 'holdEntry']);
         Route::get('/payouts/{id}/export', [PayoutController::class, 'export']);
+
+        // Payout Notifications
+        Route::post('/payouts/{id}/notify', [PayoutController::class, 'sendNotifications']);
+        
+        // Commission Reconciliation Report
+        Route::get('/reconciliation', [ReconciliationController::class, 'index']);
+        Route::get('/reconciliation/export', [ReconciliationController::class, 'export']);
     });
 });
 
