@@ -368,5 +368,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/returns/{id}/reject', [ReturnController::class, 'adminReject']);
         Route::post('/returns/{id}/received', [ReturnController::class, 'adminMarkReceived']);
         Route::post('/returns/{id}/complete', [ReturnController::class, 'adminComplete']);
+        Route::post('/returns/{id}/refund', [ReturnController::class, 'adminRefund']);
     });
 });
