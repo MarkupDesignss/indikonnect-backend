@@ -185,11 +185,52 @@ class PayoutController extends Controller
     /**
      * Send payout notifications to all released distributors.
      */
+    // public function sendNotifications($id)
+    // {
+    //     $run = PayoutRun::with(['entries.distributor'])->findOrFail($id);
+
+    //     // Only released runs can send notifications
+    //     if ($run->status !== 'released') {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Run must be released before sending notifications.'
+    //         ], 400);
+    //     }
+
+    //     $sentCount = 0;
+    //     $errors = [];
+
+    //     foreach ($run->entries as $entry) {
+    //         // Only send to released entries that have a distributor
+    //         if ($entry->status === 'released' && $entry->distributor) {
+    //             try {
+    //                 $entry->distributor->notify(new PayoutReleasedNotification($run, [
+    //                     'gross_commission' => $entry->gross_commission,
+    //                     'tds' => $entry->tds,
+    //                     'net_payable' => $entry->net_payable,
+    //                 ]));
+    //                 $sentCount++;
+    //             } catch (\Exception $e) {
+    //                 $errors[] = "Distributor ID {$entry->distributor_id}: " . $e->getMessage();
+    //             }
+    //         }
+    //     }
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => "Notifications sent to {$sentCount} distributors.",
+    //         'data' => [
+    //             'sent' => $sentCount,
+    //             'errors' => $errors,
+    //             'total_entries' => $run->entries->count(),
+    //         ]
+    //     ]);
+    // }
+
     public function sendNotifications($id)
     {
         $run = PayoutRun::with(['entries.distributor'])->findOrFail($id);
 
-        // Only released runs can send notifications
         if ($run->status !== 'released') {
             return response()->json([
                 'success' => false,
@@ -198,29 +239,38 @@ class PayoutController extends Controller
         }
 
         $sentCount = 0;
+        $skippedCount = 0;
         $errors = [];
 
         foreach ($run->entries as $entry) {
-            // Only send to released entries that have a distributor
-            if ($entry->status === 'released' && $entry->distributor) {
-                try {
-                    $entry->distributor->notify(new PayoutReleasedNotification($run, [
-                        'gross_commission' => $entry->gross_commission,
-                        'tds' => $entry->tds,
-                        'net_payable' => $entry->net_payable,
-                    ]));
-                    $sentCount++;
-                } catch (\Exception $e) {
-                    $errors[] = "Distributor ID {$entry->distributor_id}: " . $e->getMessage();
-                }
+            if ($entry->status !== 'released' || !$entry->distributor) {
+                continue;
+            }
+
+            // Skip if email contains "markupdesigns.com"
+            if (strpos($entry->distributor->email, 'markupdesigns.com') !== false) {
+                $skippedCount++;
+                continue;
+            }
+
+            try {
+                $entry->distributor->notify(new PayoutReleasedNotification($run, [
+                    'gross_commission' => $entry->gross_commission,
+                    'tds' => $entry->tds,
+                    'net_payable' => $entry->net_payable,
+                ]));
+                $sentCount++;
+            } catch (\Exception $e) {
+                $errors[] = "Distributor ID {$entry->distributor_id}: " . $e->getMessage();
             }
         }
 
         return response()->json([
             'success' => true,
-            'message' => "Notifications sent to {$sentCount} distributors.",
+            'message' => "Notifications sent to {$sentCount} distributors (skipped {$skippedCount}).",
             'data' => [
                 'sent' => $sentCount,
+                'skipped' => $skippedCount,
                 'errors' => $errors,
                 'total_entries' => $run->entries->count(),
             ]
