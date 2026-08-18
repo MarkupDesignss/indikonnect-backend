@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::table('orders', function (Blueprint $table) {
             $table->string('refund_status')
                 ->nullable()
-                ->after('payment_status');
+                ->after('return_status');
 
             $table->timestamp('refunded_at')
                 ->nullable()
