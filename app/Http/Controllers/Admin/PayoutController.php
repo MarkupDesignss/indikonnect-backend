@@ -7,6 +7,7 @@ use App\Models\PayoutRun;
 use App\Models\PayoutEntry;
 use App\Services\Commission\CommissionServiceInterface;
 use Illuminate\Http\Request;
+use App\Notifications\PayoutReleasedNotification;
 use Illuminate\Support\Facades\Response;
 
 class PayoutController extends Controller
@@ -179,5 +180,50 @@ class PayoutController extends Controller
         };
 
         return Response::stream($callback, 200, $headers);
+    }
+
+    /**
+     * Send payout notifications to all released distributors.
+     */
+    public function sendNotifications($id)
+    {
+        $run = PayoutRun::with(['entries.distributor'])->findOrFail($id);
+
+        // Only released runs can send notifications
+        if ($run->status !== 'released') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Run must be released before sending notifications.'
+            ], 400);
+        }
+
+        $sentCount = 0;
+        $errors = [];
+
+        foreach ($run->entries as $entry) {
+            // Only send to released entries that have a distributor
+            if ($entry->status === 'released' && $entry->distributor) {
+                try {
+                    $entry->distributor->notify(new PayoutReleasedNotification($run, [
+                        'gross_commission' => $entry->gross_commission,
+                        'tds' => $entry->tds,
+                        'net_payable' => $entry->net_payable,
+                    ]));
+                    $sentCount++;
+                } catch (\Exception $e) {
+                    $errors[] = "Distributor ID {$entry->distributor_id}: " . $e->getMessage();
+                }
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "Notifications sent to {$sentCount} distributors.",
+            'data' => [
+                'sent' => $sentCount,
+                'errors' => $errors,
+                'total_entries' => $run->entries->count(),
+            ]
+        ]);
     }
 }
