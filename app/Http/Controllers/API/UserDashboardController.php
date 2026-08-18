@@ -377,91 +377,119 @@ class UserDashboardController extends Controller
         return $items;
     }
 
-    public function getStats(Request $request)
+    public function getStats()
     {
         try {
-            // Get individual distributor data (only distributors)
-            $distributors = DB::table('users as u')
-                ->leftJoin('addresses as a', function ($join) {
-                    $join->on('u.id', '=', 'a.user_id')
-                        ->where('a.is_default', '=', 1);
+            /*
+            |--------------------------------------------------------------------------
+            | Distributor Reviews
+            |--------------------------------------------------------------------------
+            | Only reviews submitted by users whose account_type is distributer
+            */
+            $reviews = ProductReview::query()
+                ->select([
+                    'product_reviews.id',
+                    'product_reviews.rating',
+                    'product_reviews.review_text',
+                    'product_reviews.created_at',
+                    'users.id as user_id',
+                    'users.full_name',
+                    'users.profile_picture',
+                    'addresses.state',
+                ])
+                ->join('users', 'users.id', '=', 'product_reviews.user_id')
+                ->leftJoin('addresses', function ($join) {
+                    $join->on('addresses.user_id', '=', 'users.id');
                 })
-                ->leftJoin('product_reviews as pr', 'u.id', '=', 'pr.user_id')
-                ->select(
-                    'u.id as user_id',
-                    'u.full_name as distributor_name',
-                    'u.profile_picture',
-                    DB::raw('COALESCE(a.state, "Not Provided") as state'),
-                    DB::raw('COUNT(DISTINCT pr.id) as reviews_given'),
-                    DB::raw('COALESCE(AVG(pr.rating), 0) as avg_rating_given')
-                )
-                ->where('u.account_type', 'distributer')
-                ->where('u.is_active', 1)
-                ->groupBy('u.id', 'u.full_name', 'u.profile_picture', 'a.state')
-                ->orderBy('u.full_name', 'asc')
-                ->get();
+                ->orderByDesc('product_reviews.created_at')
+                ->get()
+                ->map(function ($review) {
+                    return [
+                        'id' => $review->id,
+                        'rating' => $review->rating,
+                        'review_text' => $review->review_text,
+                        'created_at' => $review->created_at
+                            ? $review->created_at->format('Y-m-d H:i:s')
+                            : null,
+                        'user' => [
+                            'id' => $review->user_id,
+                            'full_name' => $review->full_name,
+                            'profile_picture' => $review->profile_picture
+                                ? asset('storage/' . $review->profile_picture)
+                                : null,
+                            'state' => $review->state ?? 'Not Provided',
+                        ],
+                    ];
+                });
+            /*
+            |--------------------------------------------------------------------------
+            | Total Reviews
+            |--------------------------------------------------------------------------
+            | Customer + Distributor both
+            */
+            $totalReviews = ProductReview::count();
 
-            // Get overall statistics for ALL users (not just distributors)
-            $overallStats = DB::table('users as u')
-                ->select(
-                    // Total users (all)
-                    DB::raw('COUNT(DISTINCT u.id) as total_users'),
+            /*
+            |--------------------------------------------------------------------------
+            | Average Rating
+            |--------------------------------------------------------------------------
+            */
+            $averageRating = ProductReview::avg('rating');
 
-                    // Total distributors (for reference)
-                    DB::raw('(
-                    SELECT COUNT(DISTINCT id)
-                    FROM users
-                    WHERE account_type = "distributer"
-                    AND is_active = 1
-                ) as total_distributors'),
+            /*
+            |--------------------------------------------------------------------------
+            | Repeat Buyers
+            |--------------------------------------------------------------------------
+            | Users who have placed more than one order
+            */
+            $totalBuyers = DB::table('orders')
+                ->whereNull('deleted_at')
+                ->whereNotNull('user_id')
+                ->distinct()
+                ->count('user_id');
 
-                    // All reviews count (from all users)
-                    DB::raw('(SELECT COUNT(DISTINCT id) FROM product_reviews) as overall_total_reviews'),
+            $repeatBuyers = DB::table('orders')
+                ->whereNull('deleted_at')
+                ->whereNotNull('user_id')
+                ->select('user_id')
+                ->groupBy('user_id')
+                ->havingRaw('COUNT(*) > 1')
+                ->get()
+                ->count();
 
-                    // All reviews average rating (from all users)
-                    DB::raw('(SELECT COALESCE(AVG(rating), 0) FROM product_reviews) as overall_average_rating'),
+            $repeatBuyerPercentage = $totalBuyers > 0
+                ? round(($repeatBuyers / $totalBuyers) * 100)
+                : 0;
 
-                    // Repeated buyers count (all users with >1 order)
-                    DB::raw('(
-                    SELECT COUNT(DISTINCT user_id)
-                    FROM orders
-                    WHERE user_id IN (
-                        SELECT user_id
-                        FROM orders
-                        GROUP BY user_id
-                        HAVING COUNT(*) > 1
-                    )
-                ) as repeated_buyers_count'),
+            /*
+            |--------------------------------------------------------------------------
+            | Total Cities
+            |--------------------------------------------------------------------------
+            | Unique cities from addresses
+            */
+            $totalCities = DB::table('addresses')
+                ->whereNull('deleted_at')
+                ->whereNotNull('city')
+                ->where('city', '!=', '')
+                ->distinct()
+                ->count('city');
 
-                    // Total cities (all addresses)
-                    DB::raw('(
-                    SELECT COUNT(DISTINCT state)
-                    FROM addresses
-                    WHERE state IS NOT NULL AND state != ""
-                ) as total_cities'),
-
-
-
-                    
-                )
-                ->first();
-
-            // Prepare response
-            $response = [
+            return response()->json([
                 'success' => true,
                 'data' => [
-                    'distributors' => $distributors,
-                    'summary' => $overallStats
+                    'statistics' => [
+                        'total_reviews' => $totalReviews,
+                        'average_rating' => round((float) $averageRating, 1),
+                        'repeat_buyers_percentage' => $repeatBuyerPercentage,
+                        'total_cities' => $totalCities,
+                    ],
+                    'reviews' => $reviews,
                 ],
-                'message' => 'Distributor statistics retrieved successfully'
-            ];
-
-            return response()->json($response, 200);
+            ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to retrieve distributor statistics',
-                'error' => $e->getMessage()
+                'message' => $e->getMessage(),
             ], 500);
         }
     }
