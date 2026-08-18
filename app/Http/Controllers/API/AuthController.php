@@ -274,8 +274,8 @@ class AuthController extends Controller
 
              // ========== STATIC OTP MAPPING ==========
             $staticOtps = [
-                '9980980980' => '111111',   // Customer
-                '8800880088' => '222222',   // Distributor (phone)
+                '+919980980980' => '111111',   // Customer
+                '+918800880088' => '222222',   // Distributor (phone)
             ];
 
              // Generate OTP: static if in mapping, else random
@@ -1500,8 +1500,8 @@ class AuthController extends Controller
 
             // ========== STATIC OTP MAPPING ==========
             $staticOtps = [
-                '9980980980'           => '111111',   // Customer phone
-                '8800880088'           => '222222',   // Distributor phone
+                '+919980980980'           => '111111',   // Customer phone
+                '+918800880088'           => '222222',   // Distributor phone
                 'qatest02md@gmail.com' => '333333',   // Distributor email
             ];
             // ========================================
@@ -1741,8 +1741,8 @@ class AuthController extends Controller
 
               // ========== STATIC OTP MAPPING ==========
                 $staticOtps = [
-                    '9980980980' => '111111',   // Customer
-                    '8800880088' => '222222',   // Distributor (phone)
+                    '+919980980980' => '111111',   // Customer
+                    '+918800880088' => '222222',   // Distributor (phone)
                 ];
 
                 if (array_key_exists($request->phone, $staticOtps)) {
