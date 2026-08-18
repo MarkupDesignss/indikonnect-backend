@@ -14,6 +14,7 @@ use App\Http\Controllers\API\CartController;
 use App\Http\Controllers\API\CheckoutController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\API\CouponController;
+use App\Http\Controllers\API\HeritageSiteController;
 use App\Http\Controllers\API\InvoiceController;
 use App\Http\Controllers\API\OrderController;
 use App\Http\Controllers\API\ProductReviewController;
@@ -332,4 +333,14 @@ Route::prefix('reels')->group(function () {
     Route::post('/{id}', [ReelController::class, 'update']);
     Route::delete('/{id}', [ReelController::class, 'destroy']);
     Route::get('/product/{productId}', [ReelController::class, 'getByProduct']);
+});
+
+// Heritage Sites Routes
+Route::prefix('heritage')->group(function () {
+    // Get all sites with optional filters
+    Route::get('/', [HeritageSiteController::class, 'index']);
+    Route::get('/{id}', [HeritageSiteController::class, 'show']);
+    Route::post('/', [HeritageSiteController::class, 'store']);
+    Route::put('/{id}', [HeritageSiteController::class, 'update']);
+    Route::delete('/{id}', [HeritageSiteController::class, 'destroy']);
 });

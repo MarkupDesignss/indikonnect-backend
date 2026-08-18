@@ -125,7 +125,7 @@ class CategoryController extends Controller
                 'title' => 'required|string|max:255',
                 'slug' => 'nullable|string|max:255|unique:categories,slug',
                 'description' => 'nullable|string',
-                'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
+                'image' => 'nullable|mimes:jpeg,png,jpg,gif,svg,webp,avif',
                 'status' => 'nullable|in:active,inactive',
             ]);
 
@@ -238,7 +238,7 @@ class CategoryController extends Controller
                     Rule::unique('categories')->ignore($category->id),
                 ],
                 'description' => 'nullable|string',
-                'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
+                'image' => 'nullable|mimes:jpeg,png,jpg,gif,svg,webp,avif',
                 'status' => 'nullable|in:active,inactive',
             ]);
 
