@@ -57,9 +57,8 @@ class ReelController extends Controller
             'video' => ['nullable', 'file', 'mimes:mp4,mov,avi,wmv,flv,mkv', 'max:102400'], // Max 100MB
             'video_url' => [
                 'nullable',
-                'url',
+                'string',
                 'max:500',
-                'regex:/\.(mp4|mov|avi|wmv|flv|mkv)(\?.*)?$/i'
             ],
 
             // Thumbnail validation
@@ -179,9 +178,8 @@ class ReelController extends Controller
             'video' => ['nullable', 'file', 'mimes:mp4,mov,avi,wmv,flv,mkv', 'max:102400'],
             'video_url' => [
                 'nullable',
-                'url',
+                'string',
                 'max:500',
-                'regex:/\.(mp4|mov|avi|wmv|flv|mkv)(\?.*)?$/i'
             ],
             'thumbnail' => ['nullable', 'mimes:jpeg,png,jpg,gif,webp,avif', 'max:5120'],
             'remove_video' => ['nullable', 'boolean'],
@@ -499,18 +497,6 @@ class ReelController extends Controller
             'retail_price' => $product->retail_price,
             'distributor_mrp' => $product->distributor_mrp,
             'distributor_price' => $product->distributor_price,
-            'stock_quantity' => (int) $product->stock_quantity,
-            'low_stock_threshold' => (int) $product->low_stock_threshold,
-            'is_published' => (bool) $product->is_published,
-            'images' => $product->images->map(function ($image) {
-                return [
-                    'id' => $image->id,
-                    'image' => $image->image,
-                    'image_url' => asset('storage/' . $image->image),
-                    'is_primary' => (bool) $image->is_primary,
-                    'sort_order' => $image->sort_order,
-                ];
-            })->values()->toArray(),
         ];
     }
 }
