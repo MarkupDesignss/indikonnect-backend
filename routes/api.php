@@ -62,9 +62,10 @@ Route::prefix('admin')->group(function () {
         // Commission Reconciliation Report
         Route::get('/reconciliation', [ReconciliationController::class, 'index']);
         Route::get('/reconciliation/export', [ReconciliationController::class, 'export']);
+        Route::get('/reconciliation/summary', [ReconciliationController::class, 'summary']);
+        Route::post('/reconciliation/events/{eventId}/replay', [ReconciliationController::class, 'replayEvent']);
     });
 });
-
 
 // Header menu
 Route::prefix('header')->group(function () {
