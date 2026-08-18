@@ -373,3 +373,4 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/returns/{id}/refund', [ReturnController::class, 'adminRefund']);
     });
 });
+Route::get('/stats', [UserDashboardController::class, 'getStats']);

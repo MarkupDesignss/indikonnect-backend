@@ -376,4 +376,93 @@ class UserDashboardController extends Controller
         }
         return $items;
     }
+
+    public function getStats(Request $request)
+    {
+        try {
+            // Get individual distributor data (only distributors)
+            $distributors = DB::table('users as u')
+                ->leftJoin('addresses as a', function ($join) {
+                    $join->on('u.id', '=', 'a.user_id')
+                        ->where('a.is_default', '=', 1);
+                })
+                ->leftJoin('product_reviews as pr', 'u.id', '=', 'pr.user_id')
+                ->select(
+                    'u.id as user_id',
+                    'u.full_name as distributor_name',
+                    'u.profile_picture',
+                    DB::raw('COALESCE(a.state, "Not Provided") as state'),
+                    DB::raw('COUNT(DISTINCT pr.id) as reviews_given'),
+                    DB::raw('COALESCE(AVG(pr.rating), 0) as avg_rating_given')
+                )
+                ->where('u.account_type', 'distributer')
+                ->where('u.is_active', 1)
+                ->groupBy('u.id', 'u.full_name', 'u.profile_picture', 'a.state')
+                ->orderBy('u.full_name', 'asc')
+                ->get();
+
+            // Get overall statistics for ALL users (not just distributors)
+            $overallStats = DB::table('users as u')
+                ->select(
+                    // Total users (all)
+                    DB::raw('COUNT(DISTINCT u.id) as total_users'),
+
+                    // Total distributors (for reference)
+                    DB::raw('(
+                    SELECT COUNT(DISTINCT id)
+                    FROM users
+                    WHERE account_type = "distributer"
+                    AND is_active = 1
+                ) as total_distributors'),
+
+                    // All reviews count (from all users)
+                    DB::raw('(SELECT COUNT(DISTINCT id) FROM product_reviews) as overall_total_reviews'),
+
+                    // All reviews average rating (from all users)
+                    DB::raw('(SELECT COALESCE(AVG(rating), 0) FROM product_reviews) as overall_average_rating'),
+
+                    // Repeated buyers count (all users with >1 order)
+                    DB::raw('(
+                    SELECT COUNT(DISTINCT user_id)
+                    FROM orders
+                    WHERE user_id IN (
+                        SELECT user_id
+                        FROM orders
+                        GROUP BY user_id
+                        HAVING COUNT(*) > 1
+                    )
+                ) as repeated_buyers_count'),
+
+                    // Total cities (all addresses)
+                    DB::raw('(
+                    SELECT COUNT(DISTINCT state)
+                    FROM addresses
+                    WHERE state IS NOT NULL AND state != ""
+                ) as total_cities'),
+
+
+
+                    
+                )
+                ->first();
+
+            // Prepare response
+            $response = [
+                'success' => true,
+                'data' => [
+                    'distributors' => $distributors,
+                    'summary' => $overallStats
+                ],
+                'message' => 'Distributor statistics retrieved successfully'
+            ];
+
+            return response()->json($response, 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve distributor statistics',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }
