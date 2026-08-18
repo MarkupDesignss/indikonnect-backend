@@ -14,6 +14,7 @@ use App\Http\Controllers\API\CartController;
 use App\Http\Controllers\API\CheckoutController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\API\CouponController;
+use App\Http\Controllers\API\FooterController;
 use App\Http\Controllers\API\HeritageSiteController;
 use App\Http\Controllers\API\InvoiceController;
 use App\Http\Controllers\API\OrderController;
@@ -343,4 +344,10 @@ Route::prefix('heritage')->group(function () {
     Route::post('/', [HeritageSiteController::class, 'store']);
     Route::put('/{id}', [HeritageSiteController::class, 'update']);
     Route::delete('/{id}', [HeritageSiteController::class, 'destroy']);
+});
+
+Route::prefix('footer')->group(function () {
+    Route::get('/', [FooterController::class, 'index']);
+    Route::post('/', [FooterController::class, 'store']);
+    Route::put('/update', [FooterController::class, 'update']);
 });
