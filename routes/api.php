@@ -15,6 +15,7 @@ use App\Http\Controllers\API\CheckoutController;
 use App\Http\Controllers\API\ContactController;
 use App\Http\Controllers\API\CouponController;
 use App\Http\Controllers\API\FooterController;
+use App\Http\Controllers\API\GrowthStepController;
 use App\Http\Controllers\API\HeritageSiteController;
 use App\Http\Controllers\API\InvoiceController;
 use App\Http\Controllers\API\OrderController;
@@ -374,3 +375,11 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 });
 Route::get('/stats', [UserDashboardController::class, 'getStats']);
+
+Route::prefix('growth-steps')->group(function () {
+    Route::get('/', [GrowthStepController::class, 'index']);
+    Route::post('/', [GrowthStepController::class, 'store']);
+    Route::get('/{id}', [GrowthStepController::class, 'show']);
+    Route::post('/{id}', [GrowthStepController::class, 'update']);
+    Route::delete('/{id}', [GrowthStepController::class, 'destroy']);
+});

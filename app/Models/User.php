@@ -272,4 +272,9 @@ class User extends Authenticatable
     {
         return $this->full_name ?? $this->email ?? 'User';
     }
+
+    public function scopeDistributors($query)
+    {
+        return $query->where('account_type', 'distributer')->where('is_active', 1);
+    }
 }
