@@ -28,6 +28,8 @@ use App\Http\Controllers\API\ShippingMethodController;
 use App\Http\Controllers\API\SubscriberController;
 use App\Http\Controllers\API\UserDashboardController;
 use App\Http\Controllers\API\WishlistController;
+use App\Http\Controllers\Admin\SettingController;
+use App\Http\Controllers\API\LedgerController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 
 Route::get('/login', function () {
@@ -67,6 +69,12 @@ Route::prefix('admin')->group(function () {
         Route::get('/reconciliation/export', [ReconciliationController::class, 'export']);
         Route::get('/reconciliation/summary', [ReconciliationController::class, 'summary']);
         Route::post('/reconciliation/events/{eventId}/replay', [ReconciliationController::class, 'replayEvent']);
+
+        // Settings Management
+        Route::get('/settings', [SettingController::class, 'index']);
+        Route::post('/settings', [SettingController::class, 'store']);
+        Route::put('/settings/{key}', [SettingController::class, 'update']);
+        Route::delete('/settings/{key}', [SettingController::class, 'destroy']);
     });
 });
 
@@ -95,7 +103,6 @@ Route::prefix('contents')->group(function () {
         Route::delete('/delete/{id}', [ContentController::class, 'destroy']);
     });
 });
-
 
 // Categories
 Route::prefix('categories')->group(function () {
@@ -180,7 +187,6 @@ Route::prefix('tax-categories')->group(function () {
         // Route::post('/bulk-delete', [TaxCategoryController::class, 'bulkDelete']);
     });
 });
-
 
 // Distributer and user
 Route::prefix('distributor')->group(function () {
@@ -325,6 +331,10 @@ Route::get('/orders/statuses', [OrderController::class, 'statuses']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/dashboard', [UserDashboardController::class, 'dashboard']);
     Route::get('/invoice/order/{orderId}', [InvoiceController::class, 'getInvoiceByOrder']);
+    // Distributor Ledger & Tax Summary
+    Route::get('/distributor/ledger', [LedgerController::class, 'index']);
+    Route::get('/distributor/ledger/summary', [LedgerController::class, 'summary']);
+    Route::get('/distributor/ledger/tax-summary', [LedgerController::class, 'taxSummary']);
 });
 
 
