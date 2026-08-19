@@ -196,7 +196,7 @@ class CartController extends Controller
         try {
             $cart = $this->getCart($request);
             $cartItem = CartItem::where('cart_id', $cart->id)
-                ->where('id', $itemId)
+                ->where('product_id', $itemId)
                 ->first();
 
             if (!$cartItem) {

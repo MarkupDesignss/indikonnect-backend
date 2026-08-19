@@ -252,13 +252,33 @@ class ReturnController extends Controller
      * Admin: Mark return as received
      * POST /api/admin/returns/{id}/received
      */
+    // public function adminMarkReceived(int $returnId): JsonResponse
+    // {
+    //     try {
+    //         $result = $this->returnService->markReturnReceived($returnId);
+
+    //         return response()->json($result);
+    //     } catch (Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
+
     public function adminMarkReceived(int $returnId): JsonResponse
     {
         try {
             $result = $this->returnService->markReturnReceived($returnId);
 
-            return response()->json($result);
-        } catch (Exception $e) {
+            return response()->json($result, 200);
+        } catch (\Throwable $e) {
+
+            Log::error('Admin mark return received failed', [
+                'return_id' => $returnId,
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
