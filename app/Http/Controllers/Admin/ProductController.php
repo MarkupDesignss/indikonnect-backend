@@ -206,6 +206,17 @@ class ProductController extends Controller
     /**
      * Get product by slug
      */
+    // public function showBySlug($slug)
+    // {
+    //     $product = Product::with(['category', 'taxCategory', 'images'])
+    //         ->where('slug', $slug)
+    //         ->firstOrFail();
+
+    //     $userId = request()->query('user_id');
+    //     $wishlistIds = $this->getUserWishlistIds($userId);
+
+    //     return response()->json($this->formatProduct($product, $wishlistIds));
+    // }
     public function showBySlug($slug)
     {
         $product = Product::with(['category', 'taxCategory', 'images'])
@@ -215,8 +226,81 @@ class ProductController extends Controller
         $userId = request()->query('user_id');
         $wishlistIds = $this->getUserWishlistIds($userId);
 
-        return response()->json($this->formatProduct($product, $wishlistIds));
+        // Get all approved reviews for this product
+        $reviews = ProductReview::with([
+            'user' => function ($query) {
+                $query->select('id', 'full_name', 'email', 'profile_picture');
+            },
+            'images'
+        ])
+            ->where('product_id', $product->id)
+            ->where('status', 'approved')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $averageRating = ProductReview::where('product_id', $product->id)
+            ->where('status', 'approved')
+            ->avg('rating');
+
+        $totalReviews = ProductReview::where('product_id', $product->id)
+            ->where('status', 'approved')
+            ->count();
+
+        // Rating distribution
+        $ratingDistribution = [
+            1 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 1)->count(),
+            2 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 2)->count(),
+            3 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 3)->count(),
+            4 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 4)->count(),
+            5 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 5)->count(),
+        ];
+
+        $formattedProduct = $this->formatProduct($product, $wishlistIds);
+
+        // Add reviews to the response
+        $formattedProduct['reviews'] = [
+            'summary' => [
+                'average_rating' => round($averageRating, 1),
+                'total_reviews' => $totalReviews,
+                'rating_distribution' => $ratingDistribution,
+            ],
+            'data' => $reviews->map(function ($review) {
+                return [
+                    'id' => $review->id,
+                    'user_id' => $review->user_id,
+                    'user_name' => $review->user->full_name ?? 'Anonymous',
+                    'user_profile_picture' => $review->user->profile_picture
+                        ? asset('storage/' . $review->user->profile_picture)
+                        : null,
+                    'rating' => $review->rating,
+                    'review_text' => $review->review_text,
+                    'created_at' => $review->created_at->format('M d, Y'),
+                    'updated_at' => $review->updated_at->format('M d, Y'),
+                    'is_verified_purchase' => $this->isVerifiedPurchase($review->order_id),
+                    'images' => $review->images->map(function ($image) {
+                        return [
+                            'id' => $image->id,
+                            'image_url' => $image->image_url,
+                            'sort_order' => $image->sort_order,
+                        ];
+                    })->values()->toArray(),
+                ];
+            })->values()->toArray(),
+        ];
+
+        return response()->json($formattedProduct);
     }
+
+    private function isVerifiedPurchase($orderId)
+    {
+        if (!$orderId) {
+            return false;
+        }
+
+        $order = Order::find($orderId);
+        return $order && $order->status === 'delivered';
+    }
+
 
     /**
      * Get product by product code
@@ -1214,10 +1298,13 @@ class ProductController extends Controller
     /**
      * Format product collection
      */
+
+
     // protected function formatProductCollection($products, $wishlistIds = [])
     // {
     //     return $products->map(function ($product) use ($wishlistIds) {
     //         $isWishlisted = in_array($product->id, $wishlistIds);
+    //         $isActiveDeal = $product->isActiveDealOfTheDay();
 
     //         return [
     //             'id' => $product->id,
@@ -1238,61 +1325,41 @@ class ProductController extends Controller
     //                 'name' => $product->taxCategory->name,
     //                 'rate' => $product->taxCategory->rate,
     //             ] : null,
-    //             'retail_price' => $product->retail_price,
-    //             'distributor_price' => $product->distributor_price,
-    //             'stock_quantity' => $product->stock_quantity,
-    //             'low_stock_threshold' => $product->low_stock_threshold,
-    //             'stock_status' => $product->stock_status,
-    //             'is_published' => $product->is_published,
-    //             'is_wishlisted' => $isWishlisted, // Add this field
-    //             'images' => $product->images->map(function ($image) {
-    //                 return [
-    //                     'id' => $image->id,
-    //                     'image' => asset('storage/' . $image->image),
-    //                     'is_primary' => $image->is_primary,
-    //                     'sort_order' => $image->sort_order,
-    //                 ];
-    //             })->values()->toArray(),
-    //             'primary_image' => $product->primaryImage ? asset('storage/' . $product->primaryImage->image) : null,
-    //             'image_urls' => $product->image_urls,
-    //             'created_at' => $product->created_at,
-    //             'updated_at' => $product->updated_at,
-    //         ];
-    //     })->values()->toArray();
-    // }
 
-    // protected function formatProductCollection($products, $wishlistIds = [])
-    // {
-    //     return $products->map(function ($product) use ($wishlistIds) {
-    //         $isWishlisted = in_array($product->id, $wishlistIds);
-
-    //         return [
-    //             'id' => $product->id,
-    //             'product_code' => $product->product_code,
-    //             'name' => $product->name,
-    //             'slug' => $product->slug,
-    //             'description' => $product->description,
-    //             'specification' => $product->specification,
-    //             'category_id' => $product->category_id,
-    //             'category' => $product->category ? [
-    //                 'id' => $product->category->id,
-    //                 'name' => $product->category->title,
-    //                 'slug' => $product->category->slug,
-    //             ] : null,
-    //             'tax_category_id' => $product->tax_category_id,
-    //             'tax_category' => $product->taxCategory ? [
-    //                 'id' => $product->taxCategory->id,
-    //                 'name' => $product->taxCategory->name,
-    //                 'rate' => $product->taxCategory->rate,
-    //             ] : null,
+    //             'retail_mrp' => $product->retail_mrp,
     //             'retail_price' => $product->retail_price,
-    //             'retail_price_formatted' => number_format($product->retail_price, 2),
+    //             // 'retail_price_formatted' => number_format($product->retail_price, 2),
+    //             // 'retail_discount_type' => $product->retail_discount_type,
+    //             // 'retail_discount_value' => $product->retail_discount_value,
+    //             // 'retail_discount_amount' => $product->retail_mrp - $product->retail_price,
+    //             // 'retail_discount_percentage' => $product->retail_mrp > 0
+    //             //     ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
+    //             //     : 0,
+
+    //             'distributor_mrp' => $product->distributor_mrp,
     //             'distributor_price' => $product->distributor_price,
-    //             'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+    //             // 'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+    //             // 'distributor_discount_type' => $product->distributor_discount_type,
+    //             // 'distributor_discount_value' => $product->distributor_discount_value,
+    //             // 'distributor_discount_amount' => $product->distributor_mrp && $product->distributor_price
+    //             //     ? $product->distributor_mrp - $product->distributor_price
+    //             //     : null,
+    //             // 'distributor_discount_percentage' => $product->distributor_mrp && $product->distributor_price && $product->distributor_mrp > 0
+    //             //     ? round((($product->distributor_mrp - $product->distributor_price) / $product->distributor_mrp) * 100, 2)
+    //             //     : null,
+
+    //             // Deal of the Day fields
+    //             'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+    //             'is_active_deal' => $isActiveDeal,
+    //             'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+    //             'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+
     //             'stock_quantity' => (int) $product->stock_quantity,
     //             'low_stock_threshold' => (int) $product->low_stock_threshold,
     //             'stock_status' => $this->getProductStatus($product),
     //             'is_published' => (bool) $product->is_published,
+    //             'is_trending' => (bool) $product->is_trending,
+    //             'trending_sort_order' => (int) $product->trending_sort_order,
     //             'is_wishlisted' => $isWishlisted,
     //             'images' => $product->images->map(function ($image) {
     //                 return [
@@ -1303,8 +1370,8 @@ class ProductController extends Controller
     //                 ];
     //             })->values()->toArray(),
     //             'primary_image_url' => $product->primaryImage ? asset('storage/' . $product->primaryImage->image) : null,
-    //             'created_at' => $product->created_at?->toISOString(),
-    //             'updated_at' => $product->updated_at?->toISOString(),
+    //             // 'created_at' => $product->created_at?->toISOString(),
+    //             // 'updated_at' => $product->updated_at?->toISOString(),
     //         ];
     //     })->values()->toArray();
     // }
@@ -1314,6 +1381,27 @@ class ProductController extends Controller
         return $products->map(function ($product) use ($wishlistIds) {
             $isWishlisted = in_array($product->id, $wishlistIds);
             $isActiveDeal = $product->isActiveDealOfTheDay();
+
+            // Get product reviews with user data
+            $reviews = ProductReview::with([
+                'user' => function ($query) {
+                    $query->select('id', 'full_name', 'profile_picture');
+                },
+                'images'
+            ])
+                ->where('product_id', $product->id)
+                ->where('status', 'approved') // Only show approved reviews
+                ->orderBy('created_at', 'desc')
+                ->limit(5) // Show last 5 reviews
+                ->get();
+
+            $averageRating = ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->avg('rating');
+
+            $totalReviews = ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->count();
 
             return [
                 'id' => $product->id,
@@ -1337,25 +1425,9 @@ class ProductController extends Controller
 
                 'retail_mrp' => $product->retail_mrp,
                 'retail_price' => $product->retail_price,
-                // 'retail_price_formatted' => number_format($product->retail_price, 2),
-                // 'retail_discount_type' => $product->retail_discount_type,
-                // 'retail_discount_value' => $product->retail_discount_value,
-                // 'retail_discount_amount' => $product->retail_mrp - $product->retail_price,
-                // 'retail_discount_percentage' => $product->retail_mrp > 0
-                //     ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
-                //     : 0,
 
                 'distributor_mrp' => $product->distributor_mrp,
                 'distributor_price' => $product->distributor_price,
-                // 'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
-                // 'distributor_discount_type' => $product->distributor_discount_type,
-                // 'distributor_discount_value' => $product->distributor_discount_value,
-                // 'distributor_discount_amount' => $product->distributor_mrp && $product->distributor_price
-                //     ? $product->distributor_mrp - $product->distributor_price
-                //     : null,
-                // 'distributor_discount_percentage' => $product->distributor_mrp && $product->distributor_price && $product->distributor_mrp > 0
-                //     ? round((($product->distributor_mrp - $product->distributor_price) / $product->distributor_mrp) * 100, 2)
-                //     : null,
 
                 // Deal of the Day fields
                 'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
@@ -1370,6 +1442,33 @@ class ProductController extends Controller
                 'is_trending' => (bool) $product->is_trending,
                 'trending_sort_order' => (int) $product->trending_sort_order,
                 'is_wishlisted' => $isWishlisted,
+
+                // Product Reviews Summary
+                'reviews_summary' => [
+                    'average_rating' => round($averageRating, 1),
+                    'total_reviews' => $totalReviews,
+                    'recent_reviews' => $reviews->map(function ($review) {
+                        return [
+                            'id' => $review->id,
+                            'user_id' => $review->user_id,
+                            'user_name' => $review->user->full_name ?? 'Anonymous',
+                            'user_profile_picture' => $review->user->profile_picture
+                                ? asset('storage/' . $review->user->profile_picture)
+                                : null,
+                            'rating' => $review->rating,
+                            'review_text' => $review->review_text,
+                            'created_at' => $review->created_at->format('M d, Y'),
+                            'is_verified_purchase' => $this->isVerifiedPurchase($review->order_id),
+                            'images' => $review->images->map(function ($image) {
+                                return [
+                                    'id' => $image->id,
+                                    'image_url' => $image->image_url,
+                                ];
+                            })->values()->toArray(),
+                        ];
+                    })->values()->toArray(),
+                ],
+
                 'images' => $product->images->map(function ($image) {
                     return [
                         'id' => $image->id,
@@ -1379,8 +1478,6 @@ class ProductController extends Controller
                     ];
                 })->values()->toArray(),
                 'primary_image_url' => $product->primaryImage ? asset('storage/' . $product->primaryImage->image) : null,
-                // 'created_at' => $product->created_at?->toISOString(),
-                // 'updated_at' => $product->updated_at?->toISOString(),
             ];
         })->values()->toArray();
     }
@@ -1779,15 +1876,72 @@ class ProductController extends Controller
         }
     }
 
+    // public function trending()
+    // {
+    //     $products = Product::with('images')
+    //         ->where('is_published', true)
+    //         ->where('is_trending', true)
+    //         ->orderBy('trending_sort_order', 'asc')
+    //         ->get();
+
+    //     $data = $products->map(function ($product) {
+    //         return [
+    //             'id' => $product->id,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'description' => $product->description,
+
+    //             'category_id' => $product->category_id,
+    //             'tax_category_id' => $product->tax_category_id,
+
+    //             // Retail pricing
+    //             'retail_price' => $product->retail_price,
+    //             'retail_mrp' => $product->retail_mrp,
+    //             'retail_discount_type' => $product->retail_discount_type,
+    //             'retail_discount_value' => $product->retail_discount_value,
+
+    //             // Distributor pricing
+    //             'distributor_price' => $product->distributor_price,
+    //             'distributor_mrp' => $product->distributor_mrp,
+    //             'distributor_discount_type' => $product->distributor_discount_type,
+    //             'distributor_discount_value' => $product->distributor_discount_value,
+
+    //             // Images
+    //             'images' => $product->images->map(function ($image) {
+    //                 return [
+    //                     'id' => $image->id,
+    //                     'image_url' => asset('storage/' . $image->image),
+    //                     'is_primary' => (bool) $image->is_primary,
+    //                     'sort_order' => $image->sort_order,
+    //                 ];
+    //             })->values()->toArray(),
+    //         ];
+    //     });
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'Trending products retrieved successfully.',
+    //         'data' => $data,
+    //     ]);
+    // }
     public function trending()
     {
-        $products = Product::with('images')
+        $products = Product::with(['images'])
             ->where('is_published', true)
             ->where('is_trending', true)
             ->orderBy('trending_sort_order', 'asc')
             ->get();
 
         $data = $products->map(function ($product) {
+            // Get reviews for trending products
+            $averageRating = ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->avg('rating');
+
+            $totalReviews = ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->count();
+
             return [
                 'id' => $product->id,
                 'name' => $product->name,
@@ -1808,6 +1962,12 @@ class ProductController extends Controller
                 'distributor_mrp' => $product->distributor_mrp,
                 'distributor_discount_type' => $product->distributor_discount_type,
                 'distributor_discount_value' => $product->distributor_discount_value,
+
+                // Review Summary
+                'reviews' => [
+                    'average_rating' => round($averageRating, 1),
+                    'total_reviews' => $totalReviews,
+                ],
 
                 // Images
                 'images' => $product->images->map(function ($image) {
