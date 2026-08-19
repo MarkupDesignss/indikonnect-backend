@@ -30,6 +30,7 @@ class OrderReturn extends Model
         'approved_at',
         'received_at',
         'completed_at',
+        'general_images',
         'admin_id',
         'refund_processed_at',
         'created_at',
