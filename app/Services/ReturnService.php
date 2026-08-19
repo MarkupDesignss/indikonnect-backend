@@ -533,65 +533,190 @@ class ReturnService
     //         'status' => 'received',
     //     ];
     // }
+    // public function markReturnReceived(int $returnId): array
+    // {
+    //     $returnOrder = OrderReturn::with(['order'])
+    //         ->findOrFail($returnId);
 
-    /**
-     * Admin: Mark return as received
-     */
+    //     if (!$returnOrder->canMarkReceived()) {
+    //         throw new Exception('Only approved returns can be marked as received.');
+    //     }
+
+    //     return DB::transaction(function () use ($returnOrder) {
+    //         // Update status to received
+    //         $returnOrder->update([
+    //             'status' => OrderReturn::STATUS_RECEIVED,
+    //             'received_at' => now(),
+    //         ]);
+
+    //         $this->createReturnNotification($returnOrder, 'received');
+
+    //         // Process refund automatically
+    //         $this->processRefund($returnOrder);
+
+    //         // Update to completed status
+    //         $returnOrder->update([
+    //             'status' => OrderReturn::STATUS_COMPLETED,
+    //             'completed_at' => now(),
+    //         ]);
+
+    //         // Update order
+    //         $returnOrder->order->update([
+    //             'return_status' => 'fully_approved',
+    //         ]);
+
+    //         // Update order lines
+    //         foreach ($returnOrder->items as $item) {
+    //             $orderLine = OrderLine::find($item['order_line_id']);
+    //             if ($orderLine) {
+    //                 $orderLine->update(['return_status' => 'returned']);
+    //             }
+    //         }
+
+    //         $this->createReturnNotification($returnOrder, 'completed');
+
+    //         Log::info('Return marked as received and refund processed', [
+    //             'return_id' => $returnOrder->id,
+    //             'refund_amount' => $returnOrder->total_refund_amount,
+    //             'refund_transaction_id' => $returnOrder->refund_transaction_id ?? null,
+    //         ]);
+
+    //         return [
+    //             'success' => true,
+    //             'message' => 'Return marked as received and refund processed successfully.',
+    //             'return_id' => $returnOrder->id,
+    //             'status' => 'completed',
+    //             'refund_amount' => (float) $returnOrder->total_refund_amount,
+    //             'refund_transaction_id' => $returnOrder->refund_transaction_id,
+    //         ];
+    //     });
+    // }
+
     public function markReturnReceived(int $returnId): array
     {
-        $returnOrder = OrderReturn::with(['order'])
-            ->findOrFail($returnId);
+        $returnOrder = OrderReturn::with([
+            'order',
+            'user',
+        ])->findOrFail($returnId);
 
         if (!$returnOrder->canMarkReceived()) {
-            throw new Exception('Only approved returns can be marked as received.');
+            throw new Exception(
+                'Only approved returns can be marked as received.'
+            );
         }
 
         return DB::transaction(function () use ($returnOrder) {
-            // Update status to received
+
+            /*
+         * 1. Mark return as received
+         */
             $returnOrder->update([
                 'status' => OrderReturn::STATUS_RECEIVED,
                 'received_at' => now(),
             ]);
 
-            $this->createReturnNotification($returnOrder, 'received');
+            $this->createReturnNotification(
+                $returnOrder,
+                'received'
+            );
 
-            // Process refund automatically
-            $this->processRefund($returnOrder);
+            /*
+         * 2. Process Razorpay refund
+         *
+         * This method MUST throw an exception if Razorpay
+         * does not create the refund.
+         */
+            $refundResponse = $this->processRefund($returnOrder);
 
-            // Update to completed status
+            /*
+         * 3. Verify actual Razorpay refund ID
+         */
+            if (
+                !is_array($refundResponse) ||
+                empty($refundResponse['refund_id'])
+            ) {
+                throw new Exception(
+                    'Refund failed. Razorpay refund ID was not returned.'
+                );
+            }
+
+            /*
+         * 4. Refresh model so refund_transaction_id is available
+         */
+            $returnOrder->refresh();
+
+            /*
+         * 5. ONLY NOW mark return as completed
+         */
             $returnOrder->update([
                 'status' => OrderReturn::STATUS_COMPLETED,
                 'completed_at' => now(),
             ]);
 
-            // Update order
-            $returnOrder->order->update([
-                'return_status' => 'fully_approved',
-            ]);
-
-            // Update order lines
-            foreach ($returnOrder->items as $item) {
-                $orderLine = OrderLine::find($item['order_line_id']);
-                if ($orderLine) {
-                    $orderLine->update(['return_status' => 'returned']);
-                }
+            /*
+         * 6. Update order
+         */
+            if ($returnOrder->order) {
+                $returnOrder->order->update([
+                    'return_status' => 'fully_approved',
+                ]);
             }
 
-            $this->createReturnNotification($returnOrder, 'completed');
+            /*
+         * 7. Update order lines
+         */
+            foreach ($returnOrder->items ?? [] as $item) {
 
-            Log::info('Return marked as received and refund processed', [
-                'return_id' => $returnOrder->id,
-                'refund_amount' => $returnOrder->total_refund_amount,
-                'refund_transaction_id' => $returnOrder->refund_transaction_id ?? null,
-            ]);
+                $orderLineId = is_array($item)
+                    ? ($item['order_line_id'] ?? null)
+                    : ($item->order_line_id ?? null);
+
+                if (!$orderLineId) {
+                    continue;
+                }
+
+                OrderLine::where('id', $orderLineId)->update([
+                    'return_status' => 'returned',
+                ]);
+            }
+
+            /*
+         * 8. Completed notification
+         */
+            $this->createReturnNotification(
+                $returnOrder,
+                'completed'
+            );
+
+            /*
+         * 9. Final logging
+         */
+            Log::info(
+                'Return marked as received and Razorpay refund completed',
+                [
+                    'return_id' => $returnOrder->id,
+                    'order_id' => $returnOrder->order_id,
+                    'payment_id' => $returnOrder->order->gateway_transaction_id,
+                    'refund_amount' => $returnOrder->total_refund_amount,
+                    'refund_transaction_id' =>
+                    $returnOrder->refund_transaction_id,
+                    'refund_status' =>
+                    $returnOrder->refund_status,
+                ]
+            );
 
             return [
                 'success' => true,
-                'message' => 'Return marked as received and refund processed successfully.',
+                'message' =>
+                'Return marked as received and refund processed successfully.',
                 'return_id' => $returnOrder->id,
-                'status' => 'completed',
-                'refund_amount' => (float) $returnOrder->total_refund_amount,
-                'refund_transaction_id' => $returnOrder->refund_transaction_id,
+                'status' => OrderReturn::STATUS_COMPLETED,
+                'refund_amount' =>
+                (float) $returnOrder->total_refund_amount,
+                'refund_transaction_id' =>
+                $returnOrder->refund_transaction_id,
+                'refund_status' =>
+                $returnOrder->refund_status,
             ];
         });
     }
@@ -721,67 +846,173 @@ class ReturnService
     //         'amount' => $refundAmount,
     //     ]);
     // }
-    /**
-     * Process refund for return
-     */
-    protected function processRefund(OrderReturn $returnOrder): void
+    // protected function processRefund(OrderReturn $returnOrder): void
+    // {
+    //     $gateway = $returnOrder->order->payment_gateway ?? 'razorpay';
+    //     $refundAmount = (float) $returnOrder->total_refund_amount;
+
+    //     if ($refundAmount <= 0) {
+    //         Log::warning('Refund amount is zero or negative', [
+    //             'return_id' => $returnOrder->id,
+    //         ]);
+    //         return;
+    //     }
+
+    //     if ($gateway === 'razorpay' && $returnOrder->order->gateway_transaction_id) {
+    //         try {
+    //             // Process the refund through Razorpay
+    //             $refundResponse = $this->razorpayService->refundPayment(
+    //                 $returnOrder->order->gateway_transaction_id,
+    //                 $refundAmount
+    //             );
+
+    //             // Store refund transaction ID
+    //             if (isset($refundResponse['refund_id'])) {
+    //                 $returnOrder->update([
+    //                     'refund_transaction_id' => $refundResponse['refund_id'],
+    //                     'refund_status' => 'processing',
+    //                 ]);
+    //             }
+
+    //             Log::info('Refund processed successfully via Razorpay', [
+    //                 'return_id' => $returnOrder->id,
+    //                 'refund_id' => $refundResponse['refund_id'] ?? null,
+    //                 'amount' => $refundAmount,
+    //             ]);
+    //         } catch (\Exception $e) {
+    //             Log::error('Refund failed for return', [
+    //                 'return_id' => $returnOrder->id,
+    //                 'payment_id' => $returnOrder->order->gateway_transaction_id,
+    //                 'error' => $e->getMessage(),
+    //             ]);
+    //             throw new Exception('Failed to process refund: ' . $e->getMessage());
+    //         }
+    //     } else {
+    //         Log::warning('Refund not processed - invalid gateway or missing transaction ID', [
+    //             'return_id' => $returnOrder->id,
+    //             'gateway' => $gateway,
+    //             'transaction_id' => $returnOrder->order->gateway_transaction_id,
+    //         ]);
+    //     }
+
+    //     $returnOrder->update([
+    //         'refund_processed_at' => now(),
+    //     ]);
+
+    //     Log::info('Refund record updated for return', [
+    //         'return_id' => $returnOrder->id,
+    //         'amount' => $refundAmount,
+    //         'gateway' => $gateway,
+    //     ]);
+    // }
+
+    protected function processRefund(OrderReturn $returnOrder): array
     {
-        $gateway = $returnOrder->order->payment_gateway ?? 'razorpay';
+        $order = $returnOrder->order;
+
+        if (!$order) {
+            throw new Exception(
+                'Order not found for this return.'
+            );
+        }
+
+        $gateway = $order->payment_gateway ?? 'razorpay';
+
+        $paymentId = $order->gateway_transaction_id;
+
         $refundAmount = (float) $returnOrder->total_refund_amount;
 
+        /*
+     * Validate refund amount
+     */
         if ($refundAmount <= 0) {
-            Log::warning('Refund amount is zero or negative', [
-                'return_id' => $returnOrder->id,
-            ]);
-            return;
+            throw new Exception(
+                'Refund amount must be greater than zero.'
+            );
         }
 
-        if ($gateway === 'razorpay' && $returnOrder->order->gateway_transaction_id) {
-            try {
-                // Process the refund through Razorpay
-                $refundResponse = $this->razorpayService->refundPayment(
-                    $returnOrder->order->gateway_transaction_id,
-                    $refundAmount
+        /*
+     * Validate gateway
+     */
+        if ($gateway !== 'razorpay') {
+            throw new Exception(
+                'Refund is not supported for payment gateway: ' . $gateway
+            );
+        }
+
+        /*
+     * Validate Razorpay payment ID
+     */
+        if (empty($paymentId)) {
+            throw new Exception(
+                'Razorpay payment ID is missing for this order.'
+            );
+        }
+
+        try {
+
+            Log::info('Starting Razorpay refund', [
+                'return_id' => $returnOrder->id,
+                'order_id' => $order->id,
+                'payment_id' => $paymentId,
+                'refund_amount' => $refundAmount,
+                'amount_in_paise' => (int) round($refundAmount * 100),
+            ]);
+
+            /*
+         * Call Razorpay
+         */
+            $refundResponse = $this->razorpayService->refundPayment(
+                $paymentId,
+                $refundAmount
+            );
+
+            /*
+         * Razorpay MUST return a refund ID
+         */
+            if (
+                !is_array($refundResponse) ||
+                empty($refundResponse['refund_id'])
+            ) {
+                throw new Exception(
+                    'Razorpay refund failed. No refund ID was returned.'
                 );
-
-                // Store refund transaction ID
-                if (isset($refundResponse['refund_id'])) {
-                    $returnOrder->update([
-                        'refund_transaction_id' => $refundResponse['refund_id'],
-                        'refund_status' => 'processing',
-                    ]);
-                }
-
-                Log::info('Refund processed successfully via Razorpay', [
-                    'return_id' => $returnOrder->id,
-                    'refund_id' => $refundResponse['refund_id'] ?? null,
-                    'amount' => $refundAmount,
-                ]);
-            } catch (\Exception $e) {
-                Log::error('Refund failed for return', [
-                    'return_id' => $returnOrder->id,
-                    'payment_id' => $returnOrder->order->gateway_transaction_id,
-                    'error' => $e->getMessage(),
-                ]);
-                throw new Exception('Failed to process refund: ' . $e->getMessage());
             }
-        } else {
-            Log::warning('Refund not processed - invalid gateway or missing transaction ID', [
-                'return_id' => $returnOrder->id,
-                'gateway' => $gateway,
-                'transaction_id' => $returnOrder->order->gateway_transaction_id,
+
+            /*
+         * Save actual Razorpay refund details
+         */
+            $returnOrder->update([
+                'refund_transaction_id' => $refundResponse['refund_id'],
+                'refund_status' => $refundResponse['status'] ?? 'processing',
+                'refund_processed_at' => now(),
             ]);
+
+            Log::info('Refund successfully processed via Razorpay', [
+                'return_id' => $returnOrder->id,
+                'payment_id' => $paymentId,
+                'refund_id' => $refundResponse['refund_id'],
+                'refund_status' => $refundResponse['status'] ?? null,
+                'amount' => $refundAmount,
+            ]);
+
+            return $refundResponse;
+        } catch (\Throwable $e) {
+
+            Log::error('Refund failed for return', [
+                'return_id' => $returnOrder->id,
+                'order_id' => $order->id,
+                'payment_id' => $paymentId,
+                'refund_amount' => $refundAmount,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw new Exception(
+                'Failed to process refund: ' . $e->getMessage(),
+                0,
+                $e
+            );
         }
-
-        $returnOrder->update([
-            'refund_processed_at' => now(),
-        ]);
-
-        Log::info('Refund record updated for return', [
-            'return_id' => $returnOrder->id,
-            'amount' => $refundAmount,
-            'gateway' => $gateway,
-        ]);
     }
 
     /**
