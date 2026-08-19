@@ -236,25 +236,22 @@ class ProductController extends Controller
             'images'
         ])
             ->where('product_id', $product->id)
-            ->where('status', 'approved')
             ->orderBy('created_at', 'desc')
             ->get();
 
         $averageRating = ProductReview::where('product_id', $product->id)
-            ->where('status', 'approved')
             ->avg('rating');
 
         $totalReviews = ProductReview::where('product_id', $product->id)
-            ->where('status', 'approved')
             ->count();
 
         // Rating distribution
         $ratingDistribution = [
-            1 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 1)->count(),
-            2 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 2)->count(),
-            3 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 3)->count(),
-            4 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 4)->count(),
-            5 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 5)->count(),
+            1 => ProductReview::where('product_id', $product->id)->where('rating', 1)->count(),
+            2 => ProductReview::where('product_id', $product->id)->where('rating', 2)->count(),
+            3 => ProductReview::where('product_id', $product->id)->where('rating', 3)->count(),
+            4 => ProductReview::where('product_id', $product->id)->where('rating', 4)->count(),
+            5 => ProductReview::where('product_id', $product->id)->where('rating', 5)->count(),
         ];
 
         $formattedProduct = $this->formatProduct($product, $wishlistIds);
@@ -1392,17 +1389,14 @@ class ProductController extends Controller
                 'images'
             ])
                 ->where('product_id', $product->id)
-                ->where('status', 'approved') // Only show approved reviews
                 ->orderBy('created_at', 'desc')
                 ->limit(5) // Show last 5 reviews
                 ->get();
 
             $averageRating = ProductReview::where('product_id', $product->id)
-                ->where('status', 'approved')
                 ->avg('rating');
 
             $totalReviews = ProductReview::where('product_id', $product->id)
-                ->where('status', 'approved')
                 ->count();
 
             return [
@@ -1937,11 +1931,9 @@ class ProductController extends Controller
         $data = $products->map(function ($product) {
             // Get reviews for trending products
             $averageRating = ProductReview::where('product_id', $product->id)
-                ->where('status', 'approved')
                 ->avg('rating');
 
             $totalReviews = ProductReview::where('product_id', $product->id)
-                ->where('status', 'approved')
                 ->count();
 
             return [
