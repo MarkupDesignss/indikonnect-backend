@@ -247,70 +247,230 @@ class ReturnService
     //         ];
     //     });
     // }
+    public function initiateReturn(
+        int $userId,
+        array $data
+    ): array {
 
-    public function initiateReturn(int $userId, array $data): array
-    {
+        /*
+         * Validate processed data.
+         */
         $validator = Validator::make($data, [
-            'order_reference' => 'required|string|exists:orders,order_reference',
-            'items' => 'required|array|min:1',
-            'items.*.order_line_id' => 'required|exists:order_lines,id',
-            'items.*.quantity' => 'required|integer|min:1',
-            'items.*.reason' => 'nullable|string|max:500',
-            'items.*.image_paths' => 'nullable|array|max:5',
-            'items.*.image_paths.*' => 'string',
-            'return_reason' => 'nullable|string|max:1000',
-            'general_image_paths' => 'nullable|array|max:10',
-            'general_image_paths.*' => 'string',
+
+            'order_reference' => [
+                'required',
+                'string',
+                'exists:orders,order_reference',
+            ],
+
+            'items' => [
+                'required',
+                'array',
+                'min:1',
+            ],
+
+            'items.*.order_line_id' => [
+                'required',
+                'integer',
+                'exists:order_lines,id',
+            ],
+
+            'items.*.quantity' => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+
+            'items.*.reason' => [
+                'nullable',
+                'string',
+                'max:500',
+            ],
+
+            /*
+             * These are already file paths at this stage.
+             */
+            'items.*.image_paths' => [
+                'nullable',
+                'array',
+                'max:5',
+            ],
+
+            'items.*.image_paths.*' => [
+                'string',
+            ],
+
+            'return_reason' => [
+                'nullable',
+                'string',
+                'max:1000',
+            ],
+
+            'general_image_paths' => [
+                'nullable',
+                'array',
+                'max:10',
+            ],
+
+            'general_image_paths.*' => [
+                'string',
+            ],
         ]);
 
         if ($validator->fails()) {
-            throw new Exception($validator->errors()->first());
+            throw new Exception(
+                $validator->errors()->first()
+            );
         }
 
-        $order = Order::where('order_reference', $data['order_reference'])
+        /*
+         * Get order belonging to authenticated user.
+         */
+        $order = Order::where(
+            'order_reference',
+            $data['order_reference']
+        )
             ->where('user_id', $userId)
-            ->with('lines')
-            ->firstOrFail();
+            ->with([
+                'lines.product',
+            ])
+            ->first();
 
-        // Validate order eligibility
+        if (!$order) {
+            throw new Exception(
+                'Order not found or does not belong to this user.'
+            );
+        }
+
+        /*
+         * Validate delivery status.
+         */
         if (!$order->delivered_at) {
-            throw new Exception('Order has not been delivered yet.');
+            throw new Exception(
+                'Order has not been delivered yet.'
+            );
         }
 
+        /*
+         * Validate return window.
+         */
         if (!$order->isReturnable()) {
-            throw new Exception('Return window has expired (30 days from delivery).');
+            throw new Exception(
+                'Return window has expired (30 days from delivery).'
+            );
         }
 
+        /*
+         * Check existing pending return.
+         */
         if ($order->hasPendingReturn()) {
-            throw new Exception('A return request is already pending for this order.');
+            throw new Exception(
+                'A return request is already pending for this order.'
+            );
         }
 
+        /*
+         * Check existing approved return.
+         */
         if ($order->hasApprovedReturn()) {
-            throw new Exception('This order has already been returned.');
+            throw new Exception(
+                'This order has already been returned.'
+            );
         }
 
-        // Validate items
+        /*
+         * Prepare return calculations.
+         */
         $returnItems = [];
-        $refundSubtotal = 0;
-        $refundTax = 0;
-        $refundShipping = 0;
+
+        $refundSubtotal = 0.00;
+        $refundTax = 0.00;
+        $refundShipping = 0.00;
+
+        /*
+         * Track duplicate order lines.
+         */
+        $processedOrderLines = [];
 
         foreach ($data['items'] as $itemData) {
-            $orderLine = $order->lines()->find($itemData['order_line_id']);
-            if (!$orderLine) {
-                throw new Exception("Invalid order line ID: {$itemData['order_line_id']}");
-            }
 
-            $available = $orderLine->available_for_return;
-            if ($itemData['quantity'] > $available) {
-                throw new Exception("Only {$available} units of '{$orderLine->product->name}' are available for return.");
-            }
-
-            $unitPrice = (float) $orderLine->unit_price;
+            $orderLineId = (int) $itemData['order_line_id'];
             $quantity = (int) $itemData['quantity'];
-            $subtotal = $unitPrice * $quantity;
-            $tax = $orderLine->gst_rate ? ($subtotal * $orderLine->gst_rate / 100) : 0;
 
+            /*
+             * Prevent same order line from being
+             * submitted multiple times.
+             */
+            if (in_array($orderLineId, $processedOrderLines, true)) {
+                throw new Exception(
+                    "Order line ID {$orderLineId} was submitted more than once."
+                );
+            }
+
+            $processedOrderLines[] = $orderLineId;
+
+            /*
+             * Find order line only inside this order.
+             */
+            $orderLine = $order->lines
+                ->firstWhere('id', $orderLineId);
+
+            if (!$orderLine) {
+                throw new Exception(
+                    "Invalid order line ID: {$orderLineId}"
+                );
+            }
+
+            /*
+             * Available quantity for return.
+             */
+            $available = (int) $orderLine->available_for_return;
+
+            if ($quantity > $available) {
+
+                $productName = $orderLine->product?->name
+                    ?? 'this product';
+
+                throw new Exception(
+                    "Only {$available} units of '{$productName}' are available for return."
+                );
+            }
+
+            /*
+             * Product price.
+             */
+            $unitPrice = (float) $orderLine->unit_price;
+
+            /*
+             * Item subtotal.
+             */
+            $subtotal = round(
+                $unitPrice * $quantity,
+                2
+            );
+
+            /*
+             * GST calculation.
+             */
+            $gstRate = (float) ($orderLine->gst_rate ?? 0);
+
+            $tax = round(
+                $subtotal * $gstRate / 100,
+                2
+            );
+
+            /*
+             * Image paths.
+             */
+            $imagePaths = $itemData['image_paths'] ?? [];
+
+            if (!is_array($imagePaths)) {
+                $imagePaths = [];
+            }
+
+            /*
+             * Build return item.
+             */
             $returnItem = [
                 'order_line_id' => $orderLine->id,
                 'product_id' => $orderLine->product_id,
@@ -319,84 +479,293 @@ class ReturnService
                 'subtotal' => $subtotal,
                 'tax' => $tax,
                 'reason' => $itemData['reason'] ?? null,
-                'image_paths' => $itemData['image_paths'] ?? [],
+                'image_paths' => array_values($imagePaths),
             ];
 
             $returnItems[] = $returnItem;
 
+            /*
+             * Add refund amounts.
+             */
             $refundSubtotal += $subtotal;
             $refundTax += $tax;
         }
 
-        // Calculate shipping refund proportionally
-        if ((float) $order->shipping_charge > 0) {
-            $orderSubtotal = (float) $order->subtotal;
-            $returnedProportion = $refundSubtotal / $orderSubtotal;
-            $refundShipping = (float) $order->shipping_charge * $returnedProportion;
+        /*
+         * Round totals.
+         */
+        $refundSubtotal = round(
+            $refundSubtotal,
+            2
+        );
+
+        $refundTax = round(
+            $refundTax,
+            2
+        );
+
+        /*
+         * Calculate proportional shipping refund.
+         *
+         * IMPORTANT:
+         * Prevent division by zero.
+         */
+        $orderSubtotal = (float) $order->subtotal;
+        $shippingCharge = (float) $order->shipping_charge;
+
+        if (
+            $shippingCharge > 0 &&
+            $orderSubtotal > 0
+        ) {
+            $returnedProportion = min(
+                $refundSubtotal / $orderSubtotal,
+                1
+            );
+
+            $refundShipping = round(
+                $shippingCharge * $returnedProportion,
+                2
+            );
         }
 
-        $totalRefund = $refundSubtotal + $refundTax + $refundShipping;
+        /*
+         * Total refund.
+         */
+        $totalRefund = round(
+            $refundSubtotal
+                + $refundTax
+                + $refundShipping,
+            2
+        );
 
-        // Create return request
-        return DB::transaction(function () use ($order, $userId, $returnItems, $refundSubtotal, $refundTax, $refundShipping, $totalRefund, $data) {
+        /*
+         * General images.
+         */
+        $generalImagePaths = $data['general_image_paths'] ?? [];
+
+        if (!is_array($generalImagePaths)) {
+            $generalImagePaths = [];
+        }
+
+        /*
+         * CV reversal.
+         */
+        $totalCvReversed = $this->calculateCvReversal(
+            $order,
+            $returnItems
+        );
+
+        /*
+         * Create return request inside transaction.
+         */
+        return DB::transaction(function () use (
+            $order,
+            $userId,
+            $returnItems,
+            $generalImagePaths,
+            $refundSubtotal,
+            $refundTax,
+            $refundShipping,
+            $totalRefund,
+            $totalCvReversed,
+            $data
+        ) {
+
+            /*
+             * IMPORTANT:
+             *
+             * Because OrderReturn has:
+             *
+             * 'items' => 'array'
+             * 'general_images' => 'array'
+             *
+             * Laravel will automatically JSON encode
+             * these arrays before inserting them.
+             */
             $returnOrder = OrderReturn::create([
                 'order_id' => $order->id,
                 'user_id' => $userId,
-                'items' => $returnItems, // This will be automatically JSON encoded
+
+                'items' => $returnItems,
+
                 'status' => OrderReturn::STATUS_PENDING,
+
                 'reason' => $data['return_reason'] ?? null,
-                'general_images' => $data['general_image_paths'] ?? [], // This will be automatically JSON encoded
-                'refund_subtotal' => round($refundSubtotal, 2),
-                'refund_tax' => round($refundTax, 2),
-                'refund_shipping' => round($refundShipping, 2),
-                'total_refund_amount' => round($totalRefund, 2),
-                'total_cv_reversed' => $this->calculateCvReversal($order, $returnItems),
+
+                'general_images' => $generalImagePaths,
+
+                'refund_subtotal' => $refundSubtotal,
+                'refund_tax' => $refundTax,
+                'refund_shipping' => $refundShipping,
+                'total_refund_amount' => $totalRefund,
+
+                'total_cv_reversed' => $totalCvReversed,
             ]);
 
-            // Update order lines
+            /*
+             * Update order lines.
+             */
             foreach ($returnItems as $item) {
-                $orderLine = OrderLine::find($item['order_line_id']);
-                if ($orderLine) {
-                    $orderLine->update([
-                        'returned_quantity' => ($orderLine->returned_quantity ?? 0) + $item['quantity'],
-                        'return_status' => 'pending',
-                    ]);
+
+                $orderLine = OrderLine::find(
+                    $item['order_line_id']
+                );
+
+                if (!$orderLine) {
+                    continue;
                 }
+
+                $currentReturnedQuantity =
+                    (int) ($orderLine->returned_quantity ?? 0);
+
+                $newReturnedQuantity =
+                    $currentReturnedQuantity
+                    + (int) $item['quantity'];
+
+                $orderLine->update([
+                    'returned_quantity' => $newReturnedQuantity,
+                    'return_status' => 'pending',
+                ]);
             }
 
+            /*
+             * Update order return status.
+             */
             $order->update([
                 'return_status' => 'pending',
             ]);
 
-            $this->createReturnNotification($returnOrder, 'pending');
+            /*
+             * Notification.
+             */
+            $this->createReturnNotification(
+                $returnOrder,
+                'pending'
+            );
 
-            Log::info('Return request initiated', [
-                'return_id' => $returnOrder->id,
-                'order_reference' => $order->order_reference,
-                'user_id' => $userId,
-                'total_refund' => $totalRefund,
-                'has_images' => !empty($data['general_image_paths']) || !empty(array_filter(array_column($returnItems, 'image_paths'))),
-            ]);
+            /*
+             * Logging.
+             */
+            Log::info(
+                'Return request initiated',
+                [
+                    'return_id' => $returnOrder->id,
+                    'order_reference' => $order->order_reference,
+                    'user_id' => $userId,
+                    'total_refund' => $totalRefund,
+                    'refund_subtotal' => $refundSubtotal,
+                    'refund_tax' => $refundTax,
+                    'refund_shipping' => $refundShipping,
+                    'total_cv_reversed' => $totalCvReversed,
+                    'general_images_count' => count(
+                        $generalImagePaths
+                    ),
+                    'item_images_count' => count(
+                        array_merge(
+                            ...array_map(
+                                fn($item) => $item['image_paths'] ?? [],
+                                $returnItems
+                            )
+                        )
+                    ),
+                ]
+            );
 
+            /*
+             * Return API response.
+             */
             return [
                 'success' => true,
+
                 'return_id' => $returnOrder->id,
-                'status' => 'pending',
-                'message' => 'Return request submitted successfully. Admin will review and notify you.',
+
+                'order_id' => $order->id,
+
+                'order_reference' => $order->order_reference,
+
+                'status' => OrderReturn::STATUS_PENDING,
+
+                'message' =>
+                'Return request submitted successfully. Admin will review and notify you.',
+
                 'refund_details' => [
-                    'subtotal' => round($refundSubtotal, 2),
-                    'tax' => round($refundTax, 2),
-                    'shipping' => round($refundShipping, 2),
-                    'total' => round($totalRefund, 2),
+                    'subtotal' => $refundSubtotal,
+                    'tax' => $refundTax,
+                    'shipping' => $refundShipping,
+                    'total' => $totalRefund,
+                    'cv_reversed' => $totalCvReversed,
                 ],
+
                 'items' => $returnItems,
+
                 'images' => [
-                    'general' => $data['general_image_paths'] ?? [],
-                    'items' => array_column($returnItems, 'image_paths'),
+                    'general' => $generalImagePaths,
+
+                    'general_urls' => $this->getImageUrls(
+                        $generalImagePaths
+                    ),
+
+                    'items' => array_map(
+                        function ($item) {
+                            return [
+                                'order_line_id' =>
+                                $item['order_line_id'],
+
+                                // 'images' =>
+                                // $item['image_paths'] ?? [],
+
+                                'image_urls' =>
+                                $this->getImageUrls(
+                                    $item['image_paths'] ?? []
+                                ),
+                            ];
+                        },
+                        $returnItems
+                    ),
                 ],
             ];
         });
     }
+
+    /**
+     * Convert stored image paths into public URLs.
+     */
+    private function getImageUrls(array $paths): array
+    {
+        return array_values(
+            array_map(
+                function ($path) {
+
+                    if (empty($path)) {
+                        return null;
+                    }
+
+                    /*
+                     * Already a URL.
+                     */
+                    if (
+                        str_starts_with(
+                            $path,
+                            'http://'
+                        ) ||
+                        str_starts_with(
+                            $path,
+                            'https://'
+                        )
+                    ) {
+                        return $path;
+                    }
+
+                    return asset(
+                        'storage/' . ltrim($path, '/')
+                    );
+                },
+                $paths
+            )
+        );
+    }
+
+
 
     /**
      * Admin: Get all return requests
