@@ -403,3 +403,12 @@ Route::prefix('growth-steps')->group(function () {
     Route::post('/{id}', [GrowthStepController::class, 'update']);
     Route::delete('/{id}', [GrowthStepController::class, 'destroy']);
 });
+
+Route::middleware('auth:sanctum')->prefix('notification-settings')->group(function () {
+    // Get notification settings
+    Route::get('/', [NotificationSettingsController::class, 'index']);
+    Route::put('/', [NotificationSettingsController::class, 'update']);
+    Route::post('/toggle', [NotificationSettingsController::class, 'toggle']);
+    Route::post('/activate-all', [NotificationSettingsController::class, 'activateAll']);
+    Route::post('/deactivate-all', [NotificationSettingsController::class, 'deactivateAll']);
+});
