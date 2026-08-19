@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\Wishlist;
 use App\Models\Cart;
 use App\Models\Product;
+use Carbon\Carbon;
 use App\Models\OrderLine;
 use App\Models\ProductReview;
 use App\Services\DistributorService;
@@ -209,8 +210,8 @@ class UserDashboardController extends Controller
                 'event' => "Product Purchase: {$productName}",
                 'created_at' => $order->created_at->format('M d, Y H:i:s'),
                 'updated_at' => $order->updated_at->format('M d, Y H:i:s'),
-                'created_timestamp' => $order->created_at->timestamp,
-                'updated_timestamp' => $order->updated_at->timestamp,
+                'created_timestamp' => $order->created_at->timestamp, // This is already an int
+                'updated_timestamp' => $order->updated_at->timestamp, // This is already an int
                 'points_earned' => "+{$order->coin_redeemed} PV",
                 'status' => 'Confirmed',
                 'order_reference' => $order->order_reference
@@ -229,10 +230,10 @@ class UserDashboardController extends Controller
             $activities[] = [
                 'type' => 'review',
                 'event' => "Product Review: {$productName}",
-                'created_at' => $review->created_at,
-                'updated_at' => $review->updated_at,
-                'created_timestamp' => $review->created_at,
-                'updated_timestamp' => $review->updated_at,
+                'created_at' => $review->created_at->format('M d, Y H:i:s'),
+                'updated_at' => $review->updated_at->format('M d, Y H:i:s'),
+                'created_timestamp' => $review->created_at->timestamp, // Fix: use ->timestamp
+                'updated_timestamp' => $review->updated_at->timestamp, // Fix: use ->timestamp
                 'rating' => $review->rating,
                 'review_text' => $review->review_text,
                 'status' => $review->status ?? 'active',
@@ -254,8 +255,8 @@ class UserDashboardController extends Controller
                 'event' => "Added to Wishlist: {$productName}",
                 'created_at' => $wishlist->created_at->format('M d, Y H:i:s'),
                 'updated_at' => $wishlist->updated_at->format('M d, Y H:i:s'),
-                'created_timestamp' => $wishlist->created_at->timestamp,
-                'updated_timestamp' => $wishlist->updated_at->timestamp,
+                'created_timestamp' => $wishlist->created_at->timestamp, // Fix: use ->timestamp
+                'updated_timestamp' => $wishlist->updated_at->timestamp, // Fix: use ->timestamp
                 'product_id' => $wishlist->product_id,
                 'wishlist_id' => $wishlist->id
             ];
