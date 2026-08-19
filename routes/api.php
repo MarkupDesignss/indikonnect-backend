@@ -340,15 +340,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
 
 // routes/api.php
-Route::prefix('product')->group(function () {
-    Route::middleware('auth:sanctum')->group(function () {
-        Route::get('/{productId}/reviews', [ProductReviewController::class, 'index']);
-        Route::post('/{productId}/reviews', [ProductReviewController::class, 'store']);
-        Route::get('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'show']);
-        Route::put('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'update']);
-        Route::delete('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'destroy']);
-    });
-});
+// Route::prefix('product')->group(function () {
+//     Route::middleware('auth:sanctum')->group(function () {
+//         Route::get('/{productId}/reviews', [ProductReviewController::class, 'index']);
+//         Route::post('/{productId}/reviews', [ProductReviewController::class, 'store']);
+//         Route::get('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'show']);
+//         Route::put('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'update']);
+//         Route::delete('/{productId}/reviews/{reviewId}', [ProductReviewController::class, 'destroy']);
+//     });
+// });
 
 
 Route::prefix('reels')->group(function () {

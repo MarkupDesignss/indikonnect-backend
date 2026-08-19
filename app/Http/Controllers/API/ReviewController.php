@@ -4,11 +4,13 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\ProductReview;
+use App\Models\ProductReviewImage;
 use App\Models\Product;
 use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Storage;
 
 class ReviewController extends Controller
 {
@@ -21,7 +23,10 @@ class ReviewController extends Controller
 
         $reviews = ProductReview::forProduct($productId)
             ->approved()
-            ->with('user:id,name')
+            ->with([
+                'user:id,name,profile_picture',
+                'images' // Load review images
+            ])
             ->latest()
             ->paginate($request->get('per_page', 10));
 
@@ -39,12 +44,43 @@ class ReviewController extends Controller
             ->pluck('count', 'rating')
             ->toArray();
 
+        // Format the response with images and user data
+        $formattedReviews = $reviews->map(function ($review) {
+            return [
+                'id' => $review->id,
+                'user_id' => $review->user_id,
+                'user_name' => $review->user->name ?? 'Anonymous',
+                'user_profile_picture' => $review->user->profile_picture
+                    ? asset('storage/' . $review->user->profile_picture)
+                    : null,
+                'rating' => $review->rating,
+                'review_text' => $review->review_text,
+                'status' => $review->status,
+                'created_at' => $review->created_at->format('M d, Y'),
+                'updated_at' => $review->updated_at->format('M d, Y'),
+                'is_verified_purchase' => $this->isVerifiedPurchase($review->order_id),
+                'images' => $review->images->map(function ($image) {
+                    return [
+                        'id' => $image->id,
+                        'image_url' => $image->image_url,
+                        'sort_order' => $image->sort_order
+                    ];
+                })->values()->toArray(),
+            ];
+        });
+
         return response()->json([
-            'data' => $reviews,
+            'data' => $formattedReviews,
             'meta' => [
                 'average_rating' => round($averageRating, 2),
                 'total_reviews' => $reviews->total(),
                 'rating_distribution' => $distribution,
+                'pagination' => [
+                    'total' => $reviews->total(),
+                    'per_page' => $reviews->perPage(),
+                    'current_page' => $reviews->currentPage(),
+                    'last_page' => $reviews->lastPage(),
+                ]
             ]
         ]);
     }
@@ -56,7 +92,8 @@ class ReviewController extends Controller
     {
         $userId = auth()->id();
 
-        $review = ProductReview::where('user_id', $userId)
+        $review = ProductReview::with(['images'])
+            ->where('user_id', $userId)
             ->where('product_id', $productId)
             ->first();
 
@@ -64,11 +101,30 @@ class ReviewController extends Controller
             return response()->json(['message' => 'No review found'], 404);
         }
 
-        return response()->json($review);
+        return response()->json([
+            'review' => [
+                'id' => $review->id,
+                'user_id' => $review->user_id,
+                'product_id' => $review->product_id,
+                'order_id' => $review->order_id,
+                'rating' => $review->rating,
+                'review_text' => $review->review_text,
+                'status' => $review->status,
+                'created_at' => $review->created_at->format('M d, Y'),
+                'updated_at' => $review->updated_at->format('M d, Y'),
+                'images' => $review->images->map(function ($image) {
+                    return [
+                        'id' => $image->id,
+                        'image_url' => $image->image_url,
+                        'sort_order' => $image->sort_order
+                    ];
+                })->values()->toArray(),
+            ]
+        ]);
     }
 
     /**
-     * Create a new review
+     * Create a new review with images
      */
     public function store(Request $request)
     {
@@ -76,7 +132,9 @@ class ReviewController extends Controller
             'product_id' => 'required|exists:products,id',
             'rating' => 'required|integer|min:1|max:5',
             'review_text' => 'nullable|string|max:1000',
-            'order_id' => 'nullable|exists:orders,id'
+            'order_id' => 'nullable|exists:orders,id',
+            'images' => 'nullable|array|max:5',
+            'images.*' => 'image|mimes:jpeg,png,jpg,gif,webp|max:5120', // 5MB max
         ]);
 
         if ($validator->fails()) {
@@ -107,8 +165,7 @@ class ReviewController extends Controller
                 return response()->json(['message' => 'Invalid order'], 422);
             }
 
-            // Verify product is in the order (adjust based on your order structure)
-            // This assumes you have an order_items table
+            // Verify product is in the order
             $hasProduct = $order->items()->where('product_id', $request->product_id)->exists();
 
             if (!$hasProduct) {
@@ -118,24 +175,67 @@ class ReviewController extends Controller
             }
         }
 
-        // Create review
-        $review = ProductReview::create([
-            'user_id' => $userId,
-            'product_id' => $request->product_id,
-            'order_id' => $request->order_id,
-            'rating' => $request->rating,
-            'review_text' => $request->review_text,
-            'status' => 'pending' // All reviews start as pending
-        ]);
+        try {
+            DB::beginTransaction();
 
-        return response()->json([
-            'message' => 'Review submitted successfully and is pending moderation',
-            'review' => $review
-        ], 201);
+            // Create review
+            $review = ProductReview::create([
+                'user_id' => $userId,
+                'product_id' => $request->product_id,
+                'order_id' => $request->order_id,
+                'rating' => $request->rating,
+                'review_text' => $request->review_text,
+                'status' => 'pending'
+            ]);
+
+            // Handle image uploads
+            if ($request->hasFile('images')) {
+                foreach ($request->file('images') as $index => $image) {
+                    $path = $image->store('product_reviews', 'public');
+
+                    ProductReviewImage::create([
+                        'product_review_id' => $review->id,
+                        'image_path' => $path,
+                        'sort_order' => $index
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            // Load images for response
+            $review->load('images');
+
+            return response()->json([
+                'message' => 'Review submitted successfully and is pending moderation',
+                'review' => [
+                    'id' => $review->id,
+                    'user_id' => $review->user_id,
+                    'product_id' => $review->product_id,
+                    'rating' => $review->rating,
+                    'review_text' => $review->review_text,
+                    'status' => $review->status,
+                    'created_at' => $review->created_at->format('M d, Y'),
+                    'images' => $review->images->map(function ($image) {
+                        return [
+                            'id' => $image->id,
+                            'image_url' => $image->image_url,
+                            'sort_order' => $image->sort_order
+                        ];
+                    })->values()->toArray(),
+                ]
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to submit review',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
-     * Update a review
+     * Update a review with images
      */
     public function update(Request $request, $id)
     {
@@ -156,27 +256,94 @@ class ReviewController extends Controller
         $validator = Validator::make($request->all(), [
             'rating' => 'sometimes|integer|min:1|max:5',
             'review_text' => 'nullable|string|max:1000',
+            'images' => 'nullable|array|max:5',
+            'images.*' => 'image|mimes:jpeg,png,jpg,gif,webp|max:5120',
+            'delete_images' => 'nullable|array',
+            'delete_images.*' => 'integer|exists:product_review_images,id',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $review->update($request->only(['rating', 'review_text']));
+        try {
+            DB::beginTransaction();
 
-        // If review was rejected, reset to pending after update
-        if ($review->status === 'rejected') {
-            $review->update(['status' => 'pending']);
+            // Update review data
+            $review->update($request->only(['rating', 'review_text']));
+
+            // Delete specified images
+            if ($request->has('delete_images')) {
+                $imagesToDelete = ProductReviewImage::where('product_review_id', $review->id)
+                    ->whereIn('id', $request->delete_images)
+                    ->get();
+
+                foreach ($imagesToDelete as $image) {
+                    Storage::disk('public')->delete($image->image_path);
+                    $image->delete();
+                }
+            }
+
+            // Upload new images
+            if ($request->hasFile('images')) {
+                $currentImageCount = $review->images()->count();
+                $maxImages = 5;
+
+                foreach ($request->file('images') as $index => $image) {
+                    if ($currentImageCount + $index >= $maxImages) {
+                        break;
+                    }
+                    $path = $image->store('product_reviews', 'public');
+
+                    ProductReviewImage::create([
+                        'product_review_id' => $review->id,
+                        'image_path' => $path,
+                        'sort_order' => $currentImageCount + $index
+                    ]);
+                }
+            }
+
+            // If review was rejected, reset to pending after update
+            if ($review->status === 'rejected') {
+                $review->update(['status' => 'pending']);
+            }
+
+            DB::commit();
+
+            // Load images for response
+            $review->load('images');
+
+            return response()->json([
+                'message' => 'Review updated successfully',
+                'review' => [
+                    'id' => $review->id,
+                    'user_id' => $review->user_id,
+                    'product_id' => $review->product_id,
+                    'rating' => $review->rating,
+                    'review_text' => $review->review_text,
+                    'status' => $review->status,
+                    'created_at' => $review->created_at->format('M d, Y'),
+                    'updated_at' => $review->updated_at->format('M d, Y'),
+                    'images' => $review->images->map(function ($image) {
+                        return [
+                            'id' => $image->id,
+                            'image_url' => $image->image_url,
+                            'sort_order' => $image->sort_order
+                        ];
+                    })->values()->toArray(),
+                ]
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to update review',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        return response()->json([
-            'message' => 'Review updated successfully',
-            'review' => $review
-        ]);
     }
 
     /**
-     * Delete a review
+     * Delete a review and its images
      */
     public function destroy($id)
     {
@@ -194,8 +361,142 @@ class ReviewController extends Controller
             ], 422);
         }
 
-        $review->delete();
+        try {
+            DB::beginTransaction();
 
-        return response()->json(['message' => 'Review deleted successfully']);
+            // Delete associated images from storage
+            foreach ($review->images as $image) {
+                Storage::disk('public')->delete($image->image_path);
+            }
+
+            // Delete review (images will be cascade deleted)
+            $review->delete();
+
+            DB::commit();
+
+            return response()->json(['message' => 'Review deleted successfully']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to delete review',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Add images to an existing review
+     */
+    public function addImages(Request $request, $id)
+    {
+        $review = ProductReview::findOrFail($id);
+
+        // Check if user owns the review
+        if ($review->user_id !== auth()->id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'images' => 'required|array|max:5',
+            'images.*' => 'image|mimes:jpeg,png,jpg,gif,webp|max:5120',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $currentCount = $review->images()->count();
+        $maxImages = 5;
+
+        if ($currentCount >= $maxImages) {
+            return response()->json([
+                'message' => 'Maximum number of images (5) already added'
+            ], 400);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $uploadedImages = [];
+            foreach ($request->file('images') as $index => $image) {
+                if ($currentCount + $index >= $maxImages) {
+                    break;
+                }
+                $path = $image->store('product_reviews', 'public');
+
+                $reviewImage = ProductReviewImage::create([
+                    'product_review_id' => $review->id,
+                    'image_path' => $path,
+                    'sort_order' => $currentCount + $index
+                ]);
+
+                $uploadedImages[] = [
+                    'id' => $reviewImage->id,
+                    'image_url' => $reviewImage->image_url,
+                    'sort_order' => $reviewImage->sort_order
+                ];
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Images added successfully',
+                'images' => $uploadedImages
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to add images',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Remove an image from a review
+     */
+    public function removeImage(Request $request, $id, $imageId)
+    {
+        $review = ProductReview::findOrFail($id);
+
+        // Check if user owns the review
+        if ($review->user_id !== auth()->id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $image = ProductReviewImage::where('id', $imageId)
+            ->where('product_review_id', $review->id)
+            ->first();
+
+        if (!$image) {
+            return response()->json(['message' => 'Image not found'], 404);
+        }
+
+        try {
+            Storage::disk('public')->delete($image->image_path);
+            $image->delete();
+
+            return response()->json([
+                'message' => 'Image removed successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to remove image',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Check if the purchase is verified
+     */
+    private function isVerifiedPurchase($orderId)
+    {
+        if (!$orderId) {
+            return false;
+        }
+
+        $order = Order::find($orderId);
+        return $order && $order->status === 'delivered';
     }
 }
