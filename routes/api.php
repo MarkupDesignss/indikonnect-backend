@@ -412,3 +412,13 @@ Route::middleware('auth:sanctum')->prefix('notification-settings')->group(functi
     Route::post('/activate-all', [NotificationSettingsController::class, 'activateAll']);
     Route::post('/deactivate-all', [NotificationSettingsController::class, 'deactivateAll']);
 });
+
+
+
+Route::middleware('auth:sanctum')->prefix('user-notifications')->group(function () {
+    Route::get('/', [NotificationSettingsController::class, 'index']);
+    Route::put('/', [NotificationSettingsController::class, 'update']);
+    Route::post('/toggle', [NotificationSettingsController::class, 'toggle']);
+    Route::post('/activate-all', [NotificationSettingsController::class, 'activateAll']);
+    Route::post('/deactivate-all', [NotificationSettingsController::class, 'deactivateAll']);
+});
