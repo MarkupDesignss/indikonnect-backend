@@ -272,13 +272,13 @@ class AuthController extends Controller
                 ], 403);
             }
 
-             // ========== STATIC OTP MAPPING ==========
+            // ========== STATIC OTP MAPPING ==========
             $staticOtps = [
                 '+919980980980' => '111111',   // Customer
                 '+918800880088' => '222222',   // Distributor (phone)
             ];
 
-             // Generate OTP: static if in mapping, else random
+            // Generate OTP: static if in mapping, else random
             if (array_key_exists($request->phone, $staticOtps)) {
                 $otp = $staticOtps[$request->phone];
             } else {
@@ -1035,7 +1035,7 @@ class AuthController extends Controller
             if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Existing email not found, Proceed with registration.
+                    'message' => 'Existing email not found, Proceed with registration.'
                 ], 422);
             }
 
@@ -1548,7 +1548,7 @@ class AuthController extends Controller
                     ], 422);
                 }
 
-                 // Generate OTP (static or random)
+                // Generate OTP (static or random)
                 if (array_key_exists($request->phone, $staticOtps)) {
                     $otp = $staticOtps[$request->phone];
                 } else {
@@ -1650,7 +1650,7 @@ class AuthController extends Controller
                     ], 422);
                 }
 
-                 // Generate OTP (static or random) for email
+                // Generate OTP (static or random) for email
                 if (array_key_exists($request->email, $staticOtps)) {
                     $emailOtp = $staticOtps[$request->email];
                 } else {
@@ -1754,18 +1754,18 @@ class AuthController extends Controller
                 ], 422);
             }
 
-              // ========== STATIC OTP MAPPING ==========
-                $staticOtps = [
-                    '+919980980980' => '111111',   // Customer
-                    '+918800880088' => '222222',   // Distributor (phone)
-                ];
+            // ========== STATIC OTP MAPPING ==========
+            $staticOtps = [
+                '+919980980980' => '111111',   // Customer
+                '+918800880088' => '222222',   // Distributor (phone)
+            ];
 
-                if (array_key_exists($request->phone, $staticOtps)) {
-                    $otp = $staticOtps[$request->phone];
-                } else {
-                    $otp = rand(100000, 999999);
-                }
-                // ========================================
+            if (array_key_exists($request->phone, $staticOtps)) {
+                $otp = $staticOtps[$request->phone];
+            } else {
+                $otp = rand(100000, 999999);
+            }
+            // ========================================
 
             $user->update([
                 'otp' => $otp,
