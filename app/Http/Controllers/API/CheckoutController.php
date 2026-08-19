@@ -123,7 +123,7 @@ class CheckoutController extends Controller
     //             $addressId,
     //             $validated['coupon_code'] ?? null,
     //             $validated['shipping_method_id'] ?? null,
-    //             $validated['coins'] ?? null // Pass coins parameter
+    //             $validated['coins'] ?? null
     //         );
 
     //         return response()->json([
@@ -144,7 +144,7 @@ class CheckoutController extends Controller
     //     }
     // }
 
-    public function summary(Request $request): JsonResponse
+    public function summary(Request $request)
     {
         try {
             $validated = $request->validate([
@@ -152,7 +152,32 @@ class CheckoutController extends Controller
                 'coupon_code' => 'nullable|string|max:50',
                 'shipping_method_id' => 'nullable|exists:shipping_methods,id',
                 'coins' => 'nullable|integer|min:0',
+
+                // Buy Now
+                'product_id' => 'nullable|exists:products,id',
+                'quantity' => 'nullable|integer|min:1',
             ]);
+
+            // product_id and quantity must come together
+            if (
+                isset($validated['product_id']) &&
+                !isset($validated['quantity'])
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Quantity is required for Buy Now.',
+                ], 422);
+            }
+
+            if (
+                isset($validated['quantity']) &&
+                !isset($validated['product_id'])
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Product ID is required for Buy Now.',
+                ], 422);
+            }
 
             // Get or find address
             $addressId = $validated['address_id'] ?? null;
@@ -180,17 +205,26 @@ class CheckoutController extends Controller
                 }
             }
 
+            // Buy Now if product_id is provided
+            $isBuyNow = isset($validated['product_id']);
+
             $summary = $this->checkoutService->calculateSummary(
                 auth()->id(),
                 $addressId,
                 $validated['coupon_code'] ?? null,
                 $validated['shipping_method_id'] ?? null,
-                $validated['coins'] ?? null
+                $validated['coins'] ?? null,
+
+                // Buy Now parameters
+                $validated['product_id'] ?? null,
+                $validated['quantity'] ?? null
             );
 
             return response()->json([
                 'success' => true,
-                'data' => $summary,
+                'data' => array_merge($summary, [
+                    'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
+                ]),
             ]);
         } catch (ValidationException $e) {
             return response()->json([
