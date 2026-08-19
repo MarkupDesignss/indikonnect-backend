@@ -66,8 +66,6 @@ class ProductReviewController extends Controller
                         'user_name' => $review->user->full_name ?? 'Anonymous',
                         'rating' => $review->rating,
                         'review_text' => $review->review_text,
-                        'created_at' => $review->created_at->format('M d, Y'),
-                        'updated_at' => $review->updated_at->format('M d, Y'),
                         'is_verified_purchase' => $this->isVerifiedPurchase($review->order_id),
                         'helpful_count' => 0,
                         'images' => $review->images->map(function ($image) {
@@ -131,8 +129,6 @@ class ProductReviewController extends Controller
                 'rating' => $review->rating,
                 'review_text' => $review->review_text,
                 'status' => $review->status,
-                'created_at' => $review->created_at->format('M d, Y'),
-                'updated_at' => $review->updated_at->format('M d, Y'),
                 'is_verified_purchase' => $this->isVerifiedPurchase($review->order_id),
                 'helpful_count' => 0,
                 'images' => $review->images->map(function ($image) {
@@ -230,7 +226,6 @@ class ProductReviewController extends Controller
                     'rating' => $review->rating,
                     'review_text' => $review->review_text,
                     'status' => $review->status,
-                    'created_at' => $review->created_at->format('M d, Y'),
                     'images' => $review->images->map(function ($image) {
                         return [
                             'id' => $image->id,
@@ -353,7 +348,6 @@ class ProductReviewController extends Controller
                     'rating' => $review->rating,
                     'review_text' => $review->review_text,
                     'status' => $review->status,
-                    'updated_at' => $review->updated_at->format('M d, Y'),
                     'images' => $review->images->map(function ($image) {
                         return [
                             'id' => $image->id,
