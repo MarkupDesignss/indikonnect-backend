@@ -257,10 +257,10 @@ class ReturnService
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.reason' => 'nullable|string|max:500',
             'items.*.image_paths' => 'nullable|array|max:5',
-            'items.*.image_paths.*' => 'string', // Already stored paths
+            'items.*.image_paths.*' => 'string',
             'return_reason' => 'nullable|string|max:1000',
             'general_image_paths' => 'nullable|array|max:10',
-            'general_image_paths.*' => 'string', // Already stored paths
+            'general_image_paths.*' => 'string',
         ]);
 
         if ($validator->fails()) {
@@ -272,7 +272,7 @@ class ReturnService
             ->with('lines')
             ->firstOrFail();
 
-        // Validate order eligibility (same as before)
+        // Validate order eligibility
         if (!$order->delivered_at) {
             throw new Exception('Order has not been delivered yet.');
         }
@@ -319,7 +319,7 @@ class ReturnService
                 'subtotal' => $subtotal,
                 'tax' => $tax,
                 'reason' => $itemData['reason'] ?? null,
-                'image_paths' => $itemData['image_paths'] ?? [], // Store image paths
+                'image_paths' => $itemData['image_paths'] ?? [],
             ];
 
             $returnItems[] = $returnItem;
@@ -328,7 +328,7 @@ class ReturnService
             $refundTax += $tax;
         }
 
-        // Calculate shipping refund proportionally (same as before)
+        // Calculate shipping refund proportionally
         if ((float) $order->shipping_charge > 0) {
             $orderSubtotal = (float) $order->subtotal;
             $returnedProportion = $refundSubtotal / $orderSubtotal;
@@ -342,10 +342,10 @@ class ReturnService
             $returnOrder = OrderReturn::create([
                 'order_id' => $order->id,
                 'user_id' => $userId,
-                'items' => $returnItems,
+                'items' => $returnItems, // This will be automatically JSON encoded
                 'status' => OrderReturn::STATUS_PENDING,
                 'reason' => $data['return_reason'] ?? null,
-                'general_images' => $data['general_image_paths'] ?? [], // Store general images
+                'general_images' => $data['general_image_paths'] ?? [], // This will be automatically JSON encoded
                 'refund_subtotal' => round($refundSubtotal, 2),
                 'refund_tax' => round($refundTax, 2),
                 'refund_shipping' => round($refundShipping, 2),
@@ -356,10 +356,12 @@ class ReturnService
             // Update order lines
             foreach ($returnItems as $item) {
                 $orderLine = OrderLine::find($item['order_line_id']);
-                $orderLine->update([
-                    'returned_quantity' => $orderLine->returned_quantity + $item['quantity'],
-                    'return_status' => 'pending',
-                ]);
+                if ($orderLine) {
+                    $orderLine->update([
+                        'returned_quantity' => ($orderLine->returned_quantity ?? 0) + $item['quantity'],
+                        'return_status' => 'pending',
+                    ]);
+                }
             }
 
             $order->update([
@@ -388,6 +390,10 @@ class ReturnService
                     'total' => round($totalRefund, 2),
                 ],
                 'items' => $returnItems,
+                'images' => [
+                    'general' => $data['general_image_paths'] ?? [],
+                    'items' => array_column($returnItems, 'image_paths'),
+                ],
             ];
         });
     }
