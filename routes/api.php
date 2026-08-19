@@ -19,6 +19,7 @@ use App\Http\Controllers\API\FooterController;
 use App\Http\Controllers\API\GrowthStepController;
 use App\Http\Controllers\API\HeritageSiteController;
 use App\Http\Controllers\API\InvoiceController;
+use App\Http\Controllers\API\NotificationSettingsController;
 use App\Http\Controllers\API\OrderController;
 use App\Http\Controllers\API\ProductReviewController;
 use App\Http\Controllers\API\ReelController;
@@ -61,7 +62,7 @@ Route::prefix('admin')->group(function () {
 
         // Payout Notifications
         Route::post('/payouts/{id}/notify', [PayoutController::class, 'sendNotifications']);
-        
+
         // Commission Reconciliation Report
         Route::get('/reconciliation', [ReconciliationController::class, 'index']);
         Route::get('/reconciliation/export', [ReconciliationController::class, 'export']);
@@ -391,4 +392,12 @@ Route::prefix('growth-steps')->group(function () {
     Route::get('/{id}', [GrowthStepController::class, 'show']);
     Route::post('/{id}', [GrowthStepController::class, 'update']);
     Route::delete('/{id}', [GrowthStepController::class, 'destroy']);
+});
+
+Route::prefix('user-notifications')->middleware('auth:sanctum')->group(function () {
+    Route::get('/', [NotificationSettingsController::class, 'index']);
+    Route::post('/', [NotificationSettingsController::class, 'update']);
+    Route::patch('/toggle', [NotificationSettingsController::class, 'toggle']);
+    Route::post('/activate-all', [NotificationSettingsController::class, 'activateAll']);
+    Route::post('/deactivate-all', [NotificationSettingsController::class, 'deactivateAll']);
 });

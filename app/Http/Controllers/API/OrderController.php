@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Models\OrderLine;
 use App\Services\CheckoutService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -285,25 +286,148 @@ class OrderController extends Controller
     public function getOrder()
     {
         try {
-            $orders = Order::with([
-                'user',
-                'lines.product',
-                'lines.product.images',
-                'billingAddress',
-                'deliveryAddress',
-                'invoice'
+            $orderLines = OrderLine::with([
+                'order.user',
+                'order.billingAddress',
+                'order.deliveryAddress',
+                'order.invoice',
+                'product',
+                'product.images'
             ])
-                ->where('user_id', auth()->id())
-                ->latest()
+                ->whereHas('order', function ($query) {
+                    $query->where('user_id', auth()->id());
+                })
+                ->latest('id') // or you can use order by created_at
                 ->get();
 
-            $formattedOrders = $orders->map(function ($order) {
-                return $this->formatOrderDetails($order);
-            });
+            $formattedItems = [];
+
+            foreach ($orderLines as $line) {
+                $order = $line->order;
+                $product = $line->product;
+
+                // Get product images
+                $images = [];
+                $primaryImage = null;
+                if ($product && $product->images) {
+                    foreach ($product->images as $image) {
+                        $images[] = [
+                            'id' => $image->id,
+                            'image_url' => asset('storage/' . $image->image),
+                            'is_primary' => $image->is_primary,
+                        ];
+                        if ($image->is_primary) {
+                            $primaryImage = asset('storage/' . $image->image);
+                        }
+                    }
+                    // If no primary image set, use first image
+                    if (!$primaryImage && !empty($images)) {
+                        $primaryImage = $images[0]['image_url'];
+                    }
+                }
+
+                // Format billing and delivery addresses
+                $billingAddress = $order->billingAddress;
+                $deliveryAddress = $order->deliveryAddress;
+
+                $formattedItems[] = [
+                    // Order Reference
+                    'order_id' => $order->id,
+                    'order_reference' => $order->order_reference,
+                    'order_status' => $order->status,
+                    'order_type' => $order->order_type,
+                    'order_date' => $order->created_at->toDateTimeString(),
+                    'confirmed_date' => $order->confirmed_at?->toDateTimeString(),
+
+                    // Line Item Details
+                    'line_id' => $line->id,
+                    'product_id' => $line->product_id,
+                    'product_name' => $product?->name ?? 'Product Not Found',
+                    'product_code' => $product?->product_code ?? 'N/A',
+                    'quantity' => $line->quantity,
+                    'unit_price' => (float) $line->unit_price,
+                    'gst_rate' => (float) $line->gst_rate,
+                    'gst_amount' => (float) $line->gst_amount,
+                    'line_total' => (float) $line->line_total,
+                    'commissionable_volume' => (float) $line->commissionable_volume,
+
+                    // Product Images
+                    'images' => $images,
+                    'primary_image' => $primaryImage,
+
+                    // Order Financial Info
+                    'payment_gateway' => $order->payment_gateway ?? 'Razorpay',
+                    'gateway_transaction_id' => $order->gateway_transaction_id,
+                    'amount_paid' => (float) $order->amount_paid,
+                    'payment_status' => $order->amount_paid > 0 ? 'paid' : 'unpaid',
+                    'subtotal' => (float) $order->subtotal,
+                    'total_gst' => (float) $order->total_gst,
+                    'shipping_charge' => (float) $order->shipping_charge,
+                    'coin_redeemed' => (int) $order->coin_redeemed,
+                    'coin_redeemed_amount' => (float) $order->coin_redeemed_amount,
+                    'total_payable' => (float) $order->total_payable,
+
+                    // Tax Breakdown
+                    'tax_breakdown' => !empty($order->tax_breakdown)
+                        ? json_decode($order->tax_breakdown, true)
+                        : [],
+
+                    // Addresses
+                    'billing_address' => $billingAddress ? [
+                        'id' => $billingAddress->id,
+                        'full_name' => $billingAddress->full_name ?? null,
+                        'phone' => $billingAddress->phone ?? null,
+                        'address_line_1' => $billingAddress->address_line_1,
+                        'address_line_2' => $billingAddress->address_line_2 ?? null,
+                        'city' => $billingAddress->city,
+                        'state' => $billingAddress->state,
+                        'postal_code' => $billingAddress->postal_code,
+                        'country' => $billingAddress->country ?? 'India',
+                        'full_address' => $this->formatAddress($billingAddress),
+                    ] : null,
+
+                    'delivery_address' => $deliveryAddress ? [
+                        'id' => $deliveryAddress->id,
+                        'full_name' => $deliveryAddress->full_name ?? null,
+                        'phone' => $deliveryAddress->phone ?? null,
+                        'address_line_1' => $deliveryAddress->address_line_1,
+                        'address_line_2' => $deliveryAddress->address_line_2 ?? null,
+                        'city' => $deliveryAddress->city,
+                        'state' => $deliveryAddress->state,
+                        'postal_code' => $deliveryAddress->postal_code,
+                        'country' => $deliveryAddress->country ?? 'India',
+                        'full_address' => $this->formatAddress($deliveryAddress),
+                    ] : null,
+
+                    // User Info
+                    'user' => [
+                        'id' => $order->user->id,
+                        'name' => $order->user->name,
+                        'email' => $order->user->email,
+                        'phone' => $order->user->phone ?? null,
+                        'is_distributor' => $order->user->isDistributor(),
+                    ],
+
+                    // Invoice Info
+                    'invoice' => $order->invoice ? [
+                        'invoice_number' => $order->invoice->invoice_number,
+                        'invoice_url' => asset('storage/invoices/' . $order->invoice->invoice_number . '.pdf'),
+                        'generated_at' => $order->invoice->created_at->toDateTimeString(),
+                    ] : null,
+
+                    // Timeline
+                    'timeline' => [
+                        'order_placed' => $order->created_at->toDateTimeString(),
+                        'order_confirmed' => $order->confirmed_at?->toDateTimeString(),
+                        'shipped_at' => $order->shipped_at?->toDateTimeString(),
+                        'delivered_at' => $order->delivered_at?->toDateTimeString(),
+                    ],
+                ];
+            }
 
             return response()->json([
                 'success' => true,
-                'data' => $formattedOrders,
+                'data' => $formattedItems,
             ]);
         } catch (\Exception $e) {
             return response()->json([
