@@ -21,6 +21,11 @@ class ProductReview extends Model
         'rating' => 'integer',
     ];
 
+    public function images(): HasMany
+    {
+        return $this->hasMany(ProductReviewImage::class)->orderBy('sort_order');
+    }
+
     // Relationships
     public function user(): BelongsTo
     {

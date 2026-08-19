@@ -19,6 +19,7 @@ use App\Http\Controllers\API\FooterController;
 use App\Http\Controllers\API\GrowthStepController;
 use App\Http\Controllers\API\HeritageSiteController;
 use App\Http\Controllers\API\InvoiceController;
+use App\Http\Controllers\API\NotificationSettingsController;
 use App\Http\Controllers\API\OrderController;
 use App\Http\Controllers\API\ProductReviewController;
 use App\Http\Controllers\API\ReelController;
@@ -63,7 +64,7 @@ Route::prefix('admin')->group(function () {
 
         // Payout Notifications
         Route::post('/payouts/{id}/notify', [PayoutController::class, 'sendNotifications']);
-        
+
         // Commission Reconciliation Report
         Route::get('/reconciliation', [ReconciliationController::class, 'index']);
         Route::get('/reconciliation/export', [ReconciliationController::class, 'export']);

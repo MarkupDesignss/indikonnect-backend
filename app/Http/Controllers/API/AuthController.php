@@ -10,6 +10,7 @@ use App\Models\BusinessProfile;
 use App\Models\RefreshToken;
 use App\Models\RejectedUser;
 use App\Models\AdminNotification;
+use App\Models\UserNotificationSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -641,6 +642,17 @@ class AuthController extends Controller
 
             // Clear cache
             \Illuminate\Support\Facades\Cache::forget('registration_token_' . $request->phone);
+
+            UserNotificationSetting::updateOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'email_notifications' => true,
+                    'order_updates' => true,
+                    'payment_alerts' => true,
+                    'promotional_emails' => true,
+                    'security_alerts' => true,
+                ]
+            );
 
             // Assign role
             $this->assignRoleToUser($user);
@@ -2573,6 +2585,17 @@ class AuthController extends Controller
                     'updated_at' => now()
                 ]);
             }
+
+            UserNotificationSetting::updateOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'email_notifications' => true,
+                    'order_updates' => true,
+                    'payment_alerts' => true,
+                    'promotional_emails' => true,
+                    'security_alerts' => true,
+                ]
+            );
 
             // Clear cache
             \Illuminate\Support\Facades\Cache::forget('registration_token_' . $request->phone);

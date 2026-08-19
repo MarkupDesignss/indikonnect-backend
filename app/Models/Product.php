@@ -38,9 +38,16 @@ class Product extends Model
         return $this->belongsTo(ProductReview::class);
     }
 
+
+
     public function taxCategory()
     {
         return $this->belongsTo(TaxCategory::class);
+    }
+
+    public function reviews()
+    {
+        return $this->hasMany(ProductReview::class);
     }
 
     public function images()
