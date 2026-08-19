@@ -128,6 +128,7 @@ class ReviewController extends Controller
      */
     public function store(Request $request)
     {
+
         $validator = Validator::make($request->all(), [
             'product_id' => 'required|exists:products,id',
             'rating' => 'required|integer|min:1|max:5',
@@ -166,7 +167,7 @@ class ReviewController extends Controller
             }
 
             // Verify product is in the order
-            $hasProduct = $order->items()->where('product_id', $request->product_id)->exists();
+            $hasProduct = $order->lines()->where('product_id', $request->product_id)->exists();
 
             if (!$hasProduct) {
                 return response()->json([
