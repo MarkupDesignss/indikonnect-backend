@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 use Exception;
+use Illuminate\Support\Facades\Log;
 
 class ReturnController extends Controller
 {
@@ -56,6 +57,38 @@ class ReturnController extends Controller
      * Initiate a return request
      * POST /api/returns/initiate
      */
+    // public function initiate(Request $request): JsonResponse
+    // {
+    //     try {
+    //         $validated = $request->validate([
+    //             'order_reference' => 'required|string|exists:orders,order_reference',
+    //             'items' => 'required|array|min:1',
+    //             'items.*.order_line_id' => 'required|exists:order_lines,id',
+    //             'items.*.quantity' => 'required|integer|min:1',
+    //             'items.*.reason' => 'nullable|string|max:500',
+    //             'return_reason' => 'nullable|string|max:1000',
+    //         ]);
+
+    //         $result = $this->returnService->initiateReturn(
+    //             auth()->id(),
+    //             $validated
+    //         );
+
+    //         return response()->json($result);
+    //     } catch (ValidationException $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Invalid parameters provided',
+    //             'errors' => $e->errors(),
+    //         ], 422);
+    //     } catch (Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
+
     public function initiate(Request $request): JsonResponse
     {
         try {
@@ -65,12 +98,19 @@ class ReturnController extends Controller
                 'items.*.order_line_id' => 'required|exists:order_lines,id',
                 'items.*.quantity' => 'required|integer|min:1',
                 'items.*.reason' => 'nullable|string|max:500',
+                'items.*.images' => 'nullable|array|max:5', // Max 5 images per item
+                'items.*.images.*' => 'image|mimes:jpeg,png,jpg,gif|max:5120', // 5MB max per image
                 'return_reason' => 'nullable|string|max:1000',
+                'return_images' => 'nullable|array|max:10', // Additional images for the entire return
+                'return_images.*' => 'image|mimes:jpeg,png,jpg,avif,gif|max:5120',
             ]);
+
+            // Handle file uploads before passing to service
+            $processedData = $this->processReturnImages($validated);
 
             $result = $this->returnService->initiateReturn(
                 auth()->id(),
-                $validated
+                $processedData
             );
 
             return response()->json($result);
@@ -86,6 +126,46 @@ class ReturnController extends Controller
                 'message' => $e->getMessage(),
             ], 400);
         }
+    }
+
+    /**
+     * Process and store return images
+     */
+    private function processReturnImages(array $data): array
+    {
+        $processedData = $data;
+        $uploadedImages = [];
+
+        // Store general return images
+        if (isset($data['return_images']) && is_array($data['return_images'])) {
+            foreach ($data['return_images'] as $image) {
+                $path = $image->store('returns/general', 'public');
+                $uploadedImages['general'][] = $path;
+            }
+        }
+
+        // Store item-specific images
+        if (isset($data['items']) && is_array($data['items'])) {
+            foreach ($data['items'] as $index => $item) {
+                if (isset($item['images']) && is_array($item['images'])) {
+                    $itemImages = [];
+                    foreach ($item['images'] as $image) {
+                        $path = $image->store('returns/items', 'public');
+                        $itemImages[] = $path;
+                    }
+                    $processedData['items'][$index]['image_paths'] = $itemImages;
+                    // Remove the uploaded files from data
+                    unset($processedData['items'][$index]['images']);
+                }
+            }
+        }
+
+        // Add general images to processed data
+        if (!empty($uploadedImages['general'])) {
+            $processedData['general_image_paths'] = $uploadedImages['general'];
+        }
+
+        return $processedData;
     }
 
     /**
