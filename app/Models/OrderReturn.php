@@ -128,4 +128,37 @@ class OrderReturn extends Model
     {
         return $this->status === self::STATUS_APPROVED;
     }
+
+    public function getAllImages(): array
+    {
+        $images = [];
+
+        // Add general images
+        if (!empty($this->general_images) && is_array($this->general_images)) {
+            $images = array_merge($images, $this->general_images);
+        }
+
+        // Add item-specific images
+        if (!empty($this->items) && is_array($this->items)) {
+            foreach ($this->items as $item) {
+                if (!empty($item['image_paths']) && is_array($item['image_paths'])) {
+                    $images = array_merge($images, $item['image_paths']);
+                }
+            }
+        }
+
+        return $images;
+    }
+
+    public function getAllImageUrls(): array
+    {
+        $urls = [];
+        $images = $this->getAllImages();
+
+        foreach ($images as $image) {
+            $urls[] = asset('storage/' . $image);
+        }
+
+        return $urls;
+    }
 }
