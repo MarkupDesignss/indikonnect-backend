@@ -109,6 +109,145 @@ class ReturnService
     /**
      * Initiate return request
      */
+    // public function initiateReturn(int $userId, array $data): array
+    // {
+    //     $validator = Validator::make($data, [
+    //         'order_reference' => 'required|string|exists:orders,order_reference',
+    //         'items' => 'required|array|min:1',
+    //         'items.*.order_line_id' => 'required|exists:order_lines,id',
+    //         'items.*.quantity' => 'required|integer|min:1',
+    //         'items.*.reason' => 'nullable|string|max:500',
+    //         'return_reason' => 'nullable|string|max:1000',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         throw new Exception($validator->errors()->first());
+    //     }
+
+    //     $order = Order::where('order_reference', $data['order_reference'])
+    //         ->where('user_id', $userId)
+    //         ->with('lines')
+    //         ->firstOrFail();
+
+    //     // Validate order eligibility
+    //     if (!$order->delivered_at) {
+    //         throw new Exception('Order has not been delivered yet.');
+    //     }
+
+    //     if (!$order->isReturnable()) {
+    //         throw new Exception('Return window has expired (30 days from delivery).');
+    //     }
+
+    //     if ($order->hasPendingReturn()) {
+    //         throw new Exception('A return request is already pending for this order.');
+    //     }
+
+    //     if ($order->hasApprovedReturn()) {
+    //         throw new Exception('This order has already been returned.');
+    //     }
+
+    //     // Validate items
+    //     $returnItems = [];
+    //     $refundSubtotal = 0;
+    //     $refundTax = 0;
+    //     $refundShipping = 0;
+
+    //     foreach ($data['items'] as $itemData) {
+    //         $orderLine = $order->lines()->find($itemData['order_line_id']);
+    //         if (!$orderLine) {
+    //             throw new Exception("Invalid order line ID: {$itemData['order_line_id']}");
+    //         }
+
+    //         // Check if quantity is available for return
+    //         $available = $orderLine->available_for_return;
+    //         if ($itemData['quantity'] > $available) {
+    //             throw new Exception("Only {$available} units of '{$orderLine->product->name}' are available for return.");
+    //         }
+
+    //         // Calculate refund amounts
+    //         $unitPrice = (float) $orderLine->unit_price;
+    //         $quantity = (int) $itemData['quantity'];
+    //         $subtotal = $unitPrice * $quantity;
+    //         $tax = $orderLine->gst_rate ? ($subtotal * $orderLine->gst_rate / 100) : 0;
+
+    //         $returnItems[] = [
+    //             'order_line_id' => $orderLine->id,
+    //             'product_id' => $orderLine->product_id,
+    //             'quantity' => $quantity,
+    //             'unit_price' => $unitPrice,
+    //             'subtotal' => $subtotal,
+    //             'tax' => $tax,
+    //             'reason' => $itemData['reason'],
+    //         ];
+
+    //         $refundSubtotal += $subtotal;
+    //         $refundTax += $tax;
+    //     }
+
+    //     // Calculate shipping refund proportionally
+    //     if ((float) $order->shipping_charge > 0) {
+    //         $orderSubtotal = (float) $order->subtotal;
+    //         $returnedProportion = $refundSubtotal / $orderSubtotal;
+    //         $refundShipping = (float) $order->shipping_charge * $returnedProportion;
+    //     }
+
+    //     $totalRefund = $refundSubtotal + $refundTax + $refundShipping;
+
+    //     // Create return request
+    //     return DB::transaction(function () use ($order, $userId, $returnItems, $refundSubtotal, $refundTax, $refundShipping, $totalRefund, $data) {
+    //         $returnOrder = OrderReturn::create([
+    //             'order_id' => $order->id,
+    //             'user_id' => $userId,
+    //             'items' => $returnItems,
+    //             'status' => OrderReturn::STATUS_PENDING,
+    //             'reason' => $data['return_reason'] ?? null,
+    //             'refund_subtotal' => round($refundSubtotal, 2),
+    //             'refund_tax' => round($refundTax, 2),
+    //             'refund_shipping' => round($refundShipping, 2),
+    //             'total_refund_amount' => round($totalRefund, 2),
+    //             'total_cv_reversed' => $this->calculateCvReversal($order, $returnItems),
+    //         ]);
+
+    //         // Update order lines
+    //         foreach ($returnItems as $item) {
+    //             $orderLine = OrderLine::find($item['order_line_id']);
+    //             $orderLine->update([
+    //                 'returned_quantity' => $orderLine->returned_quantity + $item['quantity'],
+    //                 'return_status' => 'pending',
+    //             ]);
+    //         }
+
+    //         // Update order status
+    //         $order->update([
+    //             'return_status' => 'pending',
+    //         ]);
+
+    //         // Create admin notification
+    //         $this->createReturnNotification($returnOrder, 'pending');
+
+    //         Log::info('Return request initiated', [
+    //             'return_id' => $returnOrder->id,
+    //             'order_reference' => $order->order_reference,
+    //             'user_id' => $userId,
+    //             'total_refund' => $totalRefund,
+    //         ]);
+
+    //         return [
+    //             'success' => true,
+    //             'return_id' => $returnOrder->id,
+    //             'status' => 'pending',
+    //             'message' => 'Return request submitted successfully. Admin will review and notify you.',
+    //             'refund_details' => [
+    //                 'subtotal' => round($refundSubtotal, 2),
+    //                 'tax' => round($refundTax, 2),
+    //                 'shipping' => round($refundShipping, 2),
+    //                 'total' => round($totalRefund, 2),
+    //             ],
+    //             'items' => $returnItems,
+    //         ];
+    //     });
+    // }
+
     public function initiateReturn(int $userId, array $data): array
     {
         $validator = Validator::make($data, [
@@ -117,7 +256,11 @@ class ReturnService
             'items.*.order_line_id' => 'required|exists:order_lines,id',
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.reason' => 'nullable|string|max:500',
+            'items.*.image_paths' => 'nullable|array|max:5',
+            'items.*.image_paths.*' => 'string', // Already stored paths
             'return_reason' => 'nullable|string|max:1000',
+            'general_image_paths' => 'nullable|array|max:10',
+            'general_image_paths.*' => 'string', // Already stored paths
         ]);
 
         if ($validator->fails()) {
@@ -129,7 +272,7 @@ class ReturnService
             ->with('lines')
             ->firstOrFail();
 
-        // Validate order eligibility
+        // Validate order eligibility (same as before)
         if (!$order->delivered_at) {
             throw new Exception('Order has not been delivered yet.');
         }
@@ -158,33 +301,34 @@ class ReturnService
                 throw new Exception("Invalid order line ID: {$itemData['order_line_id']}");
             }
 
-            // Check if quantity is available for return
             $available = $orderLine->available_for_return;
             if ($itemData['quantity'] > $available) {
                 throw new Exception("Only {$available} units of '{$orderLine->product->name}' are available for return.");
             }
 
-            // Calculate refund amounts
             $unitPrice = (float) $orderLine->unit_price;
             $quantity = (int) $itemData['quantity'];
             $subtotal = $unitPrice * $quantity;
             $tax = $orderLine->gst_rate ? ($subtotal * $orderLine->gst_rate / 100) : 0;
 
-            $returnItems[] = [
+            $returnItem = [
                 'order_line_id' => $orderLine->id,
                 'product_id' => $orderLine->product_id,
                 'quantity' => $quantity,
                 'unit_price' => $unitPrice,
                 'subtotal' => $subtotal,
                 'tax' => $tax,
-                'reason' => $itemData['reason'],
+                'reason' => $itemData['reason'] ?? null,
+                'image_paths' => $itemData['image_paths'] ?? [], // Store image paths
             ];
+
+            $returnItems[] = $returnItem;
 
             $refundSubtotal += $subtotal;
             $refundTax += $tax;
         }
 
-        // Calculate shipping refund proportionally
+        // Calculate shipping refund proportionally (same as before)
         if ((float) $order->shipping_charge > 0) {
             $orderSubtotal = (float) $order->subtotal;
             $returnedProportion = $refundSubtotal / $orderSubtotal;
@@ -201,6 +345,7 @@ class ReturnService
                 'items' => $returnItems,
                 'status' => OrderReturn::STATUS_PENDING,
                 'reason' => $data['return_reason'] ?? null,
+                'general_images' => $data['general_image_paths'] ?? [], // Store general images
                 'refund_subtotal' => round($refundSubtotal, 2),
                 'refund_tax' => round($refundTax, 2),
                 'refund_shipping' => round($refundShipping, 2),
@@ -217,12 +362,10 @@ class ReturnService
                 ]);
             }
 
-            // Update order status
             $order->update([
                 'return_status' => 'pending',
             ]);
 
-            // Create admin notification
             $this->createReturnNotification($returnOrder, 'pending');
 
             Log::info('Return request initiated', [
@@ -230,6 +373,7 @@ class ReturnService
                 'order_reference' => $order->order_reference,
                 'user_id' => $userId,
                 'total_refund' => $totalRefund,
+                'has_images' => !empty($data['general_image_paths']) || !empty(array_filter(array_column($returnItems, 'image_paths'))),
             ]);
 
             return [
