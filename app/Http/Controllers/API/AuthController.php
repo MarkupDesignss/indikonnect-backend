@@ -1035,7 +1035,7 @@ class AuthController extends Controller
             if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'User not found.'
+                    'message' => 'Existing email not found, Proceed with registration.
                 ], 422);
             }
 
