@@ -543,6 +543,11 @@ class OrderController extends Controller
                     'line_total' => (float) $line->line_total,
                     'commissionable_volume' => (float) $line->commissionable_volume,
 
+                    'is_reviewed' => \App\Models\ProductReview::where('user_id', auth()->id())
+                        ->where('product_id', $line->product_id)
+                        ->where('order_id', $order->id)
+                        ->exists(),
+
                     // Product Images
                     'images' => $images,
                     'primary_image' => $primaryImage,
