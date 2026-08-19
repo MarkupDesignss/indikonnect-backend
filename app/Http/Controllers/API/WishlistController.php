@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Wishlist;
 use App\Models\Product;
+use App\Models\ProductReview;
 use App\Models\Cart;
 use App\Models\CartItem;
 use Illuminate\Http\Request;
@@ -17,6 +18,48 @@ class WishlistController extends Controller
     /**
      * Get user's wishlist
      */
+    // public function index(Request $request)
+    // {
+    //     $user = Auth::user();
+
+    //     $wishlist = Wishlist::with([
+    //         'product' => function ($query) {
+    //             $query->with([
+    //                 'category',
+    //                 'taxCategory',
+    //                 'images'
+    //             ]);
+    //         }
+    //     ])
+    //         ->where('user_id', $user->id)
+    //         ->orderBy('created_at', 'desc')
+    //         ->get();
+
+    //     // Debug
+    //     // dd($wishlist->pluck('product.category'));
+
+    //     $formattedWishlist = $wishlist->map(function ($item) {
+
+    //         $product = $item->product;
+
+    //         if ($product) {
+    //             return [
+    //                 'id' => $item->id,
+    //                 'product_id' => $product->id,
+    //                 'product' => $this->formatProductWithWishlist($product, true),
+    //                 'added_at' => $item->created_at?->toISOString(),
+    //             ];
+    //         }
+
+    //         return null;
+    //     })->filter()->values();
+
+    //     return response()->json([
+    //         'data' => $formattedWishlist,
+    //         'total' => $formattedWishlist->count()
+    //     ]);
+    // }
+
     public function index(Request $request)
     {
         $user = Auth::user();
@@ -33,9 +76,6 @@ class WishlistController extends Controller
             ->where('user_id', $user->id)
             ->orderBy('created_at', 'desc')
             ->get();
-
-        // Debug
-        // dd($wishlist->pluck('product.category'));
 
         $formattedWishlist = $wishlist->map(function ($item) {
 
@@ -264,10 +304,74 @@ class WishlistController extends Controller
     /**
      * Format product with wishlist status
      */
+    // protected function formatProductWithWishlist($product, $isWishlisted = false)
+    // {
+    //     $primaryImage = $product->images->where('is_primary', true)->first()
+    //         ?? $product->images->first();
+
+    //     return [
+    //         'id' => $product->id,
+    //         'product_code' => $product->product_code,
+    //         'name' => $product->name,
+    //         'slug' => $product->slug,
+    //         'description' => $product->description,
+    //         'specification' => $product->specification,
+    //         'category_id' => $product->category_id,
+    //         'category' => $product->category ? [
+    //             'id' => $product->category->id,
+    //             'name' => $product->category->title,
+    //             'slug' => $product->category->slug,
+    //         ] : null,
+    //         'tax_category_id' => $product->tax_category_id,
+    //         'retail_price' => $product->retail_price,
+    //         'retail_price_formatted' => number_format($product->retail_price, 2),
+    //         'distributor_price' => $product->distributor_price,
+    //         'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+    //         'stock_quantity' => (int) $product->stock_quantity,
+    //         'low_stock_threshold' => (int) $product->low_stock_threshold,
+    //         'stock_status' => $product->stock_status,
+    //         'is_published' => (bool) $product->is_published,
+    //         'status' => $this->getProductStatus($product),
+    //         'is_wishlisted' => $isWishlisted,
+    //         'images' => $product->images->map(function ($image) {
+    //             return [
+    //                 'id' => $image->id,
+    //                 'image' => $image->image,
+    //                 'image_url' => asset('storage/' . $image->image),
+    //                 'sort_order' => $image->sort_order,
+    //                 'is_primary' => (bool) $image->is_primary,
+    //             ];
+    //         })->values()->toArray(),
+    //         'primary_image' => $primaryImage ? $primaryImage->image : null,
+    //         'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+    //         'created_at' => $product->created_at?->toISOString(),
+    //         'updated_at' => $product->updated_at?->toISOString(),
+    //     ];
+    // }
     protected function formatProductWithWishlist($product, $isWishlisted = false)
     {
         $primaryImage = $product->images->where('is_primary', true)->first()
             ?? $product->images->first();
+
+        // Get approved reviews for this product
+        $reviews = ProductReview::with([
+            'user' => function ($query) {
+                $query->select('id', 'full_name', 'profile_picture');
+            },
+            'images'
+        ])
+            ->where('product_id', $product->id)
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+
+        // Average rating
+        $averageRating = ProductReview::where('product_id', $product->id)
+            ->avg('rating');
+
+        // Total approved reviews
+        $totalReviews = ProductReview::where('product_id', $product->id)
+            ->count();
 
         return [
             'id' => $product->id,
@@ -276,23 +380,88 @@ class WishlistController extends Controller
             'slug' => $product->slug,
             'description' => $product->description,
             'specification' => $product->specification,
+
             'category_id' => $product->category_id,
+
             'category' => $product->category ? [
                 'id' => $product->category->id,
                 'name' => $product->category->title,
                 'slug' => $product->category->slug,
             ] : null,
+
             'tax_category_id' => $product->tax_category_id,
+
             'retail_price' => $product->retail_price,
             'retail_price_formatted' => number_format($product->retail_price, 2),
+
             'distributor_price' => $product->distributor_price,
-            'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+            'distributor_price_formatted' => $product->distributor_price
+                ? number_format($product->distributor_price, 2)
+                : null,
+
             'stock_quantity' => (int) $product->stock_quantity,
             'low_stock_threshold' => (int) $product->low_stock_threshold,
+
             'stock_status' => $product->stock_status,
+
             'is_published' => (bool) $product->is_published,
+
             'status' => $this->getProductStatus($product),
+
             'is_wishlisted' => $isWishlisted,
+
+            /*
+            |--------------------------------------------------------------------------
+            | Reviews Summary
+            |--------------------------------------------------------------------------
+            */
+
+            'reviews_summary' => [
+                'average_rating' => round($averageRating ?? 0, 1),
+                'total_reviews' => $totalReviews,
+
+                'recent_reviews' => $reviews->map(function ($review) {
+                    return [
+                        'id' => $review->id,
+                        'user_id' => $review->user_id,
+
+                        'user_name' => $review->user->full_name ?? 'Anonymous',
+
+                        'user_profile_picture' => $review->user->profile_picture
+                            ? asset('storage/' . $review->user->profile_picture)
+                            : null,
+
+                        'rating' => $review->rating,
+
+                        'review_text' => $review->review_text,
+
+                        'created_at' => $review->created_at
+                            ? $review->created_at->format('M d, Y')
+                            : null,
+
+                        'updated_at' => $review->updated_at
+                            ? $review->updated_at->format('M d, Y')
+                            : null,
+
+
+
+                        'images' => $review->images->map(function ($image) {
+                            return [
+                                'id' => $image->id,
+                                'image_url' => $image->image_url,
+                                'sort_order' => $image->sort_order,
+                            ];
+                        })->values()->toArray(),
+                    ];
+                })->values()->toArray(),
+            ],
+
+            /*
+            |--------------------------------------------------------------------------
+            | Product Images
+            |--------------------------------------------------------------------------
+            */
+
             'images' => $product->images->map(function ($image) {
                 return [
                     'id' => $image->id,
@@ -302,8 +471,15 @@ class WishlistController extends Controller
                     'is_primary' => (bool) $image->is_primary,
                 ];
             })->values()->toArray(),
-            'primary_image' => $primaryImage ? $primaryImage->image : null,
-            'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+
+            'primary_image' => $primaryImage
+                ? $primaryImage->image
+                : null,
+
+            'primary_image_url' => $primaryImage
+                ? asset('storage/' . $primaryImage->image)
+                : null,
+
             'created_at' => $product->created_at?->toISOString(),
             'updated_at' => $product->updated_at?->toISOString(),
         ];
@@ -379,7 +555,6 @@ class WishlistController extends Controller
                 'quantity'     => $cartItem->quantity,
                 'removed_from_wishlist' => $wasInWishlist,
             ], 200);
-
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
