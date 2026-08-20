@@ -1215,7 +1215,7 @@ class ReturnService
 
                 $orderLine = OrderLine::find($orderLineId);
                 if ($orderLine && $orderLine->return_status === 'approved') {
-                    if ($orderLine->delivery_status !== 'delivered') {
+                    if ($orderLine->delivery_status !== 'return_approved') {
                         throw new Exception(
                             "Cannot complete return - item '{$orderLine->product->name}' is not delivered."
                         );
