@@ -20,7 +20,7 @@ return new class extends Migration
                 'shipped',
                 'delivered',
                 'cancelled'
-            ])->default('pending')->after('return_at');
+            ])->default('pending')->after('returned_quantity');
 
             // Delivery timestamps
             $table->timestamp('delivered_at')->nullable();
@@ -39,7 +39,6 @@ return new class extends Migration
             $table->string('return_reason', 500)->nullable();
             $table->string('return_rejection_reason', 500)->nullable();
 
-            $table->integer('return_quantity')->default(0);
             $table->boolean('is_returnable')->default(true);
         });
 
