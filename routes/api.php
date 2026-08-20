@@ -32,6 +32,7 @@ use App\Http\Controllers\API\WishlistController;
 use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\API\LedgerController;
 use App\Http\Controllers\API\BeneficiaryController;
+use App\Http\Controllers\API\GenealogyController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 
 Route::get('/login', function () {
@@ -433,5 +434,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/{id}', [BeneficiaryController::class, 'destroy']);
         Route::post('/{id}/confirm', [BeneficiaryController::class, 'confirm']);
         Route::get('/summary', [BeneficiaryController::class, 'summary']);
+    });
+});
+
+Route::middleware('auth:sanctum')->group(function () {
+    // Genealogy Tree
+    Route::prefix('distributor/genealogy')->group(function () {
+        Route::get('/tree', [GenealogyController::class, 'tree']);
+        Route::get('/children/{userId}', [GenealogyController::class, 'children']);
+        Route::get('/search', [GenealogyController::class, 'search']);
+        Route::get('/downline', [GenealogyController::class, 'downlineList']);
     });
 });
