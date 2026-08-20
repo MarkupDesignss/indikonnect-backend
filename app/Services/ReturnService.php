@@ -44,9 +44,10 @@ class ReturnService
         // Check 30-day window
         if (!$order->isReturnable()) {
             $daysPassed = $order->delivered_at->diffInDays(now());
+            $returnWindow = setting('return_window_days', 30);
             return [
                 'eligible' => false,
-                'message' => "Return window has expired. Returns must be initiated within 30 days of delivery. ({$daysPassed} days passed)",
+                'message' => "Return window has expired. Returns must be initiated within {$returnWindow} days of delivery. ({$daysPassed} days passed)",
                 'items' => [],
             ];
         }
@@ -217,7 +218,7 @@ class ReturnService
             );
         }
 
-        $returnWindowDays = 30;
+        $returnWindowDays = setting('return_window_days', 30);
         $firstDeliveredAt = Carbon::parse($firstDeliveredAt);
         $returnDeadline = $firstDeliveredAt->copy()->addDays($returnWindowDays);
 
@@ -278,9 +279,9 @@ class ReturnService
              * Check if delivery was recent enough for return window.
              */
             $itemDeliveredAt = $orderLine->delivered_at;
-            if ($itemDeliveredAt && now()->diffInDays($itemDeliveredAt) > 30) {
+            if ($itemDeliveredAt && now()->diffInDays($itemDeliveredAt) > $returnWindowDays) {
                 throw new Exception(
-                    "Return window for '{$orderLine->product->name}' has expired (30 days from delivery)."
+                    "Return window for '{$orderLine->product->name}' has expired ({$returnWindowDays} days from delivery)."
                 );
             }
 

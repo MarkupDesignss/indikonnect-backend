@@ -131,6 +131,7 @@ class PayoutController extends Controller
     public function export($id)
     {
         $run = PayoutRun::with(['entries.distributor'])->findOrFail($id);
+        $tdsRate = setting('tds_rate_percent', 2);
 
         $headers = [
             'Content-Type' => 'text/csv',
@@ -145,7 +146,8 @@ class PayoutController extends Controller
                 'Distributor ID',
                 'Name',
                 'Gross Commission',
-                'TDS (2%)',
+                //'TDS (2%)',
+                "TDS ({$tdsRate}%)",
                 'Net Payable',
                 'Status',
                 'Hold Reason'

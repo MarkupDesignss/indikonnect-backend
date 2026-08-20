@@ -27,12 +27,15 @@ class PayoutReleasedNotification extends Notification
 
     public function toMail($notifiable)
     {
+        $tdsRate = setting('tds_rate_percent', 2);
+
         return (new MailMessage)
             ->subject("Payout Released – Period {$this->payoutRun->period}")
             ->greeting("Hello {$notifiable->name},")
             ->line("Your commission payout for period {$this->payoutRun->period} has been released.")
             ->line("**Gross Commission:** ₹" . number_format($this->entryData['gross_commission'], 2))
-            ->line("**TDS Deducted (2%):** ₹" . number_format($this->entryData['tds'], 2))
+            //->line("**TDS Deducted (2%):** ₹" . number_format($this->entryData['tds'], 2))
+            ->line("**TDS Deducted ({$tdsRate}%):** ₹" . number_format($this->entryData['tds'], 2))
             ->line("**Net Payable:** ₹" . number_format($this->entryData['net_payable'], 2))
             ->action('View Ledger', url('/distributor/ledger'))
             ->line('Thank you for being part of IndieKonnect!');

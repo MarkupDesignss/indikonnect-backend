@@ -31,6 +31,7 @@ use App\Http\Controllers\API\UserDashboardController;
 use App\Http\Controllers\API\WishlistController;
 use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\API\LedgerController;
+use App\Http\Controllers\API\BeneficiaryController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 
 Route::get('/login', function () {
@@ -421,4 +422,16 @@ Route::middleware('auth:sanctum')->prefix('user-notifications')->group(function 
     Route::post('/toggle', [NotificationSettingsController::class, 'toggle']);
     Route::post('/activate-all', [NotificationSettingsController::class, 'activateAll']);
     Route::post('/deactivate-all', [NotificationSettingsController::class, 'deactivateAll']);
+});
+
+Route::middleware('auth:sanctum')->group(function () {
+    // Beneficiary Management
+    Route::prefix('distributor/beneficiaries')->group(function () {
+        Route::get('/', [BeneficiaryController::class, 'index']);
+        Route::post('/', [BeneficiaryController::class, 'store']);
+        Route::put('/{id}', [BeneficiaryController::class, 'update']);
+        Route::delete('/{id}', [BeneficiaryController::class, 'destroy']);
+        Route::post('/{id}/confirm', [BeneficiaryController::class, 'confirm']);
+        Route::get('/summary', [BeneficiaryController::class, 'summary']);
+    });
 });

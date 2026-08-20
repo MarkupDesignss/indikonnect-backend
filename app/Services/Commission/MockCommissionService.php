@@ -163,7 +163,9 @@ class MockCommissionService implements CommissionServiceInterface
         $entries = [];
         foreach ($distributors as $dist) {
             $gross = rand(1000, 50000); // Mock commission
-            $tds = round($gross * 0.02, 2); // 2% TDS
+            //$tds = round($gross * 0.02, 2); // 2% TDS
+            $tdsRate = setting('tds_rate_percent', 2);
+            $tds = round($gross * ($tdsRate / 100), 2);
             $entries[] = [
                 'distributor_id' => $dist->id,
                 'name' => $dist->name,
