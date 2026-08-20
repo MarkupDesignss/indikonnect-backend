@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Exception;
+use Carbon\Carbon;
 
 class ReturnService
 {
@@ -355,7 +356,10 @@ class ReturnService
         }
 
         $returnWindowDays = 30; // Configurable
-        $returnDeadline = $firstDeliveredAt->addDays($returnWindowDays);
+        // $returnDeadline = $firstDeliveredAt->addDays($returnWindowDays);
+        $firstDeliveredAt = Carbon::parse($firstDeliveredAt);
+
+        $returnDeadline = $firstDeliveredAt->copy()->addDays($returnWindowDays);
 
         if (now()->gt($returnDeadline)) {
             throw new Exception(
@@ -609,7 +613,7 @@ class ReturnService
                         'returned_quantity' => $newReturnedQuantity,
                         'return_status' => 'pending',
                         'return_requested_at' => now(),
-                        'return_quantity' => (int) $item['quantity'],
+                        // 'return_quantity' => (int) $item['quantity'],
                         'return_reason' => $item['reason'] ?? null,
                     ]);
                 }
@@ -1249,7 +1253,7 @@ class ReturnService
                         'return_rejected_at' => now(),
                         'return_rejection_reason' => $rejectionReason,
                         'return_requested_at' => null,
-                        'return_quantity' => 0,
+                        // 'return_quantity' => 0,
                         'returned_quantity' => $newReturnedQuantity, // Revert the quantity
                     ]);
                 }
