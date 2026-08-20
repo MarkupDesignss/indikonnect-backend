@@ -59,8 +59,9 @@ class OrderLine extends Model
         }
 
         // Check if return window hasn't expired (30 days from delivery)
-        if ($this->delivered_at && now()->diffInDays($this->delivered_at) > 30) {
-            return false;
+        $returnWindow = setting('return_window_days', 30);
+        if ($this->delivered_at && now()->diffInDays($this->delivered_at) > $returnWindow) {
+        return false;
         }
 
         // Check if item hasn't been returned already

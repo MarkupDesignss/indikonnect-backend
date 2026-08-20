@@ -104,9 +104,10 @@ class Order extends Model
 
     public function isReturnable(): bool
     {
+        $returnWindow = setting('return_window_days', 30);
         return $this->status === 'delivered'
             && $this->delivered_at
-            && $this->delivered_at->diffInDays(now()) <= 30;
+            && $this->delivered_at->diffInDays(now()) <= $returnWindow;
     }
 
     public function hasPendingReturn(): bool
