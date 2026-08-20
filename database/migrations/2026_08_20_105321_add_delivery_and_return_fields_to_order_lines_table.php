@@ -12,35 +12,22 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Modify existing delivery_status enum
-        DB::statement("
-            ALTER TABLE order_lines
-            MODIFY COLUMN delivery_status ENUM(
+        Schema::table('order_lines', function (Blueprint $table) {
+
+            // Delivery status - NEW COLUMN
+            $table->enum('delivery_status', [
                 'pending',
                 'shipped',
                 'delivered',
                 'cancelled'
-            ) DEFAULT 'pending'
-        ");
-
-        // Modify existing return_status enum
-        DB::statement("
-            ALTER TABLE order_lines
-            MODIFY COLUMN return_status ENUM(
-                'none',
-                'pending',
-                'approved',
-                'rejected',
-                'returned'
-            ) DEFAULT 'none'
-        ");
-
-        Schema::table('order_lines', function (Blueprint $table) {
+            ])->default('pending')->after('return_at');
 
             // Delivery timestamps
             $table->timestamp('delivered_at')->nullable();
-            $table->timestamp('return_at')->nullable();
             $table->timestamp('shipped_at')->nullable();
+
+            // Return timestamp
+            $table->timestamp('return_at')->nullable();
 
             // Return timestamps
             $table->timestamp('return_requested_at')->nullable();
@@ -55,6 +42,18 @@ return new class extends Migration
             $table->integer('return_quantity')->default(0);
             $table->boolean('is_returnable')->default(true);
         });
+
+        // Modify existing return_status enum
+        DB::statement("
+            ALTER TABLE order_lines
+            MODIFY COLUMN return_status ENUM(
+                'none',
+                'pending',
+                'approved',
+                'rejected',
+                'returned'
+            ) DEFAULT 'none'
+        ");
     }
 
     /**
@@ -64,7 +63,9 @@ return new class extends Migration
     {
         Schema::table('order_lines', function (Blueprint $table) {
             $table->dropColumn([
+                'delivery_status',
                 'delivered_at',
+                'return_at',
                 'shipped_at',
                 'return_requested_at',
                 'return_approved_at',
@@ -77,18 +78,7 @@ return new class extends Migration
             ]);
         });
 
-        // Restore delivery_status
-        DB::statement("
-            ALTER TABLE order_lines
-            MODIFY COLUMN delivery_status ENUM(
-                'pending',
-                'shipped',
-                'delivered',
-                'cancelled'
-            ) DEFAULT 'pending'
-        ");
-
-        // Restore return_status
+        // Restore existing return_status enum
         DB::statement("
             ALTER TABLE order_lines
             MODIFY COLUMN return_status ENUM(
