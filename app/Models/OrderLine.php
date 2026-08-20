@@ -29,14 +29,69 @@ class OrderLine extends Model
     }
 
     // Check if line item can be returned
-    public function isReturnable(): bool
+    // public function isReturnable(): bool
+    // {
+    //     return $this->quantity > $this->returned_quantity;
+    // }
+
+    // // Get available quantity for return
+    // public function getAvailableForReturnAttribute(): int
+    // {
+    //     return $this->quantity - $this->returned_quantity;
+    // }
+
+    public function isDelivered(): bool
     {
-        return $this->quantity > $this->returned_quantity;
+        return $this->delivery_status === 'delivered';
     }
 
-    // Get available quantity for return
+    /**
+     * Check if this item is returnable.
+     */
+    public function isReturnable()
+    {
+        // Only delivered items can be returned
+        if ($this->delivery_status !== 'delivered') {
+            return false;
+        }
+
+        // Check if return window hasn't expired (30 days from delivery)
+        if ($this->delivered_at && now()->diffInDays($this->delivered_at) > 30) {
+            return false;
+        }
+
+        // Check if item hasn't been returned already
+        if ($this->return_status === 'returned') {
+            return false;
+        }
+
+        // Check if there's no pending or approved return
+        if (in_array($this->return_status, ['pending', 'approved'])) {
+            return false;
+        }
+
+        // Check product returnability flag
+        return $this->is_returnable;
+    }
+
+    /**
+     * Get available quantity for return.
+     */
     public function getAvailableForReturnAttribute(): int
     {
-        return $this->quantity - $this->returned_quantity;
+        $purchased = (int) $this->quantity;
+        $alreadyReturned = (int) ($this->returned_quantity ?? 0);
+
+        // Only delivered items can be returned
+        if ($this->delivery_status !== 'delivered') {
+            return 0;
+        }
+
+        // If already fully returned
+        if ($this->return_status === 'returned') {
+            return 0;
+        }
+
+        return max(0, $purchased - $alreadyReturned);
     }
 }
