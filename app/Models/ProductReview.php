@@ -70,6 +70,11 @@ class ProductReview extends Model
         return $this->status === 'pending';
     }
 
+    public function orderLine()
+    {
+        return $this->belongsTo(OrderLine::class);
+    }
+
     public function isRejected(): bool
     {
         return $this->status === 'rejected';
