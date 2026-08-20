@@ -488,6 +488,7 @@ class ReturnService
                     $orderLine->update([
                         'returned_quantity' => $newReturnedQuantity,
                         'return_status' => 'pending',
+                        'delivery_status' => 'return_initiated',
                         'return_requested_at' => now(),
                         // 'return_quantity' => (int) $item['quantity'],
                         'return_reason' => $item['reason'] ?? null,

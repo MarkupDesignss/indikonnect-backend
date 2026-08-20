@@ -18,6 +18,7 @@ return new class extends Migration
                 'shipped',
                 'delivered',
                 'cancelled',
+                 'return_initiated',
                 'return_pending',
                 'return_approved',
                  'return_rejected',
