@@ -488,7 +488,7 @@ class ReturnService
                     $orderLine->update([
                         'returned_quantity' => $newReturnedQuantity,
                         'return_status' => 'pending',
-                        'delivery_status' => 'return_initiated',
+                        'delivery_status' => 'return_pending',
                         'return_requested_at' => now(),
                         // 'return_quantity' => (int) $item['quantity'],
                         'return_reason' => $item['reason'] ?? null,
@@ -921,7 +921,7 @@ class ReturnService
             foreach ($returnOrder->items as $item) {
                 $orderLine = OrderLine::find($item['order_line_id']);
                 if ($orderLine && $orderLine->return_status === 'pending') {
-                    if ($orderLine->delivery_status !== 'delivered') {
+                    if ($orderLine->delivery_status !== 'return_pending') {
                         throw new Exception(
                             "Cannot approve return for '{$orderLine->product->name}' - item is not delivered."
                         );
