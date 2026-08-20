@@ -1171,10 +1171,136 @@ class CheckoutService
     /**
      * Place order (FR-CO-005)
      */
+    // public function placeOrder(int $userId, array $data): array
+    // {
+    //     $address = Address::findOrFail($data['address_id']);
+    //     $cart = Cart::with('items.product')->where('user_id', $userId)->firstOrFail();
+    //     $user = User::findOrFail($userId);
+
+    //     // Extract summary data
+    //     $summary = $data['summary_data'] ?? [];
+
+    //     // Check stock
+    //     foreach ($cart->items as $item) {
+    //         if ($item->product->stock_quantity < $item->quantity) {
+    //             throw new Exception("Insufficient stock for: {$item->product->name}");
+    //         }
+    //     }
+
+    //     // Use the grand total from request
+    //     $grandTotal = $data['grand_total'];
+
+    //     // Handle coin redemption
+    //     $coinRedemption = null;
+    //     $coinsUsed = 0;
+    //     $coinRedeemedAmount = 0;
+
+    //     if (isset($data['redemption_id'])) {
+    //         $coinRedemption = CoinRedemption::where('id', $data['redemption_id'])
+    //             ->where('user_id', $userId)
+    //             ->where('status', 'authorized')
+    //             ->first();
+    //         if (!$coinRedemption) {
+    //             throw new Exception('Invalid or expired coin redemption');
+    //         }
+
+    //         $coinsUsed = $coinRedemption->coins_used ?? 0;
+    //         $coinRedeemedAmount = $coinRedemption->amount_redeemed ?? 0;
+    //     }
+
+    //     return DB::transaction(function () use ($user, $address, $cart, $coinRedemption, $coinsUsed, $coinRedeemedAmount, $grandTotal, $data, $summary) {
+
+    //         // Calculate totals from cart
+    //         $subtotal = 0;
+    //         $totalTax = 0;
+    //         $orderItemsData = [];
+
+    //         foreach ($cart->items as $item) {
+    //             $unitPrice = $user->isDistributor()
+    //                 ? ($item->product->distributor_price ?? $item->product->retail_price)
+    //                 : $item->product->retail_price;
+
+    //             $lineTotal = $unitPrice * $item->quantity;
+    //             $subtotal += $lineTotal;
+
+    //             $taxRate = $item->product->taxCategory?->rate ?? 0;
+    //             $taxAmount = ($lineTotal * $taxRate) / 100;
+    //             $totalTax += $taxAmount;
+
+    //             $orderItemsData[] = [
+    //                 'item' => $item,
+    //                 'unit_price' => $unitPrice,
+    //                 'tax_rate' => $taxRate,
+    //                 'tax_amount' => $taxAmount,
+    //                 'line_total' => $lineTotal + $taxAmount,
+    //             ];
+    //         }
+
+    //         // Get values from summary data with fallbacks
+    //         $shippingCharge = $summary['shipping_charge'] ?? $data['shipping_cost'] ?? 0;
+    //         $couponDiscount = $summary['coupon_discount'] ?? 0;
+    //         $amountRedeemed = $summary['amount_redeemed'] ?? $coinRedeemedAmount ?? 0;
+    //         $netSubtotal = $summary['net_subtotal'] ?? $subtotal;
+
+    //         // Create the order
+    //         $order = Order::create([
+    //             'order_reference' => 'ORD-' . strtoupper(uniqid()),
+    //             'user_id' => $user->id,
+    //             'billing_address_id' => $data['address_id'],
+    //             'delivery_address_id' => $data['address_id'],
+    //             'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
+    //             'subtotal' => $subtotal,
+    //             'total_gst' => $totalTax,
+    //             'shipping_charge' => $shippingCharge,
+    //             'coupon_discount' => $couponDiscount,
+    //             'coin_redeemed' => $summary['coin_redeemed'] ?? $coinsUsed,
+    //             'coin_redeemed_amount' => $amountRedeemed,
+    //             'total_payable' => $grandTotal,
+    //             'amount_paid' => 0,
+    //             'status' => 'pending',
+    //             'tax_breakdown' => json_encode([]),
+    //         ]);
+
+    //         // Create order lines
+    //         foreach ($orderItemsData as $itemData) {
+    //             OrderLine::create([
+    //                 'order_id' => $order->id,
+    //                 'product_id' => $itemData['item']->product_id,
+    //                 'quantity' => $itemData['item']->quantity,
+    //                 'unit_price' => $itemData['unit_price'],
+    //                 'gst_rate' => $itemData['tax_rate'],
+    //                 'gst_amount' => $itemData['tax_amount'],
+    //                 'line_total' => $itemData['line_total'],
+    //                 'commissionable_volume' => $itemData['item']->product->commissionable_volume ?? 0,
+    //             ]);
+    //         }
+
+    //         // Update coin redemption with order
+    //         if ($coinRedemption) {
+    //             $coinRedemption->update([
+    //                 'order_id' => $order->id,
+    //                 'status' => 'used'
+    //             ]);
+    //         }
+
+    //         // Create Razorpay order
+    //         $razorpayOrder = $this->razorpayService->createOrder($order);
+
+    //         return [
+    //             'order_id' => $order->id,
+    //             'order_reference' => $order->order_reference,
+    //             'amount' => $order->total_payable,
+    //             'razorpay_order_id' => $razorpayOrder['id'],
+    //             'razorpay_key' => config('services.razorpay.key_id'),
+    //             'status' => 'pending',
+    //         ];
+    //     });
+    // }
+
     public function placeOrder(int $userId, array $data): array
     {
         $address = Address::findOrFail($data['address_id']);
-        $cart = Cart::with('items.product')->where('user_id', $userId)->firstOrFail();
+        $cart = Cart::with('items.product.taxCategory')->where('user_id', $userId)->firstOrFail();
         $user = User::findOrFail($userId);
 
         // Extract summary data
@@ -1214,6 +1340,7 @@ class CheckoutService
             $subtotal = 0;
             $totalTax = 0;
             $orderItemsData = [];
+            $taxBreakdown = []; // Initialize tax breakdown array
 
             foreach ($cart->items as $item) {
                 $unitPrice = $user->isDistributor()
@@ -1226,6 +1353,21 @@ class CheckoutService
                 $taxRate = $item->product->taxCategory?->rate ?? 0;
                 $taxAmount = ($lineTotal * $taxRate) / 100;
                 $totalTax += $taxAmount;
+
+                // Build tax breakdown for this item
+                $taxCategoryName = $item->product->taxCategory?->name ?? 'Default';
+                $taxBreakdown[] = [
+                    'product_id' => $item->product_id,
+                    'product_name' => $item->product->name,
+                    'product_code' => $item->product->product_code ?? null,
+                    'quantity' => $item->quantity,
+                    'unit_price' => $unitPrice,
+                    'line_total_before_tax' => $lineTotal,
+                    'tax_category' => $taxCategoryName,
+                    'tax_rate' => $taxRate,
+                    'tax_amount' => $taxAmount,
+                    'line_total_after_tax' => $lineTotal + $taxAmount,
+                ];
 
                 $orderItemsData[] = [
                     'item' => $item,
@@ -1241,6 +1383,24 @@ class CheckoutService
             $couponDiscount = $summary['coupon_discount'] ?? 0;
             $amountRedeemed = $summary['amount_redeemed'] ?? $coinRedeemedAmount ?? 0;
             $netSubtotal = $summary['net_subtotal'] ?? $subtotal;
+            $couponCode = $summary['coupon_code'] ?? null;
+            $shippingMethodId = $summary['shipping_method_id'] ?? null;
+
+            // Add tax summary to the breakdown
+            $taxBreakdownSummary = [
+                'items' => $taxBreakdown,
+                'summary' => [
+                    'subtotal' => $subtotal,
+                    'total_tax' => $totalTax,
+                    'shipping_charge' => $shippingCharge,
+                    'coupon_discount' => $couponDiscount,
+                    'coin_redeemed' => $coinsUsed,
+                    'coin_redeemed_amount' => $amountRedeemed,
+                    'net_subtotal' => $netSubtotal,
+                    'grand_total' => $grandTotal,
+                ],
+                'tax_by_category' => $this->calculateTaxByCategory($taxBreakdown),
+            ];
 
             // Create the order
             $order = Order::create([
@@ -1252,13 +1412,17 @@ class CheckoutService
                 'subtotal' => $subtotal,
                 'total_gst' => $totalTax,
                 'shipping_charge' => $shippingCharge,
+                'shipping_method_id' => $shippingMethodId,
+                'coupon_code' => $couponCode,
                 'coupon_discount' => $couponDiscount,
                 'coin_redeemed' => $summary['coin_redeemed'] ?? $coinsUsed,
                 'coin_redeemed_amount' => $amountRedeemed,
                 'total_payable' => $grandTotal,
                 'amount_paid' => 0,
                 'status' => 'pending',
-                'tax_breakdown' => json_encode([]),
+                'tax_breakdown' => json_encode($taxBreakdownSummary), // Store full tax breakdown
+                'summary_data' => json_encode($summary), // Store the summary data as well
+                'payment_gateway' => $data['payment_gateway'] ?? null,
             ]);
 
             // Create order lines
@@ -1297,6 +1461,31 @@ class CheckoutService
         });
     }
 
+    /**
+     * Helper function to calculate tax breakdown by category
+     */
+    private function calculateTaxByCategory(array $taxBreakdown): array
+    {
+        $taxByCategory = [];
+
+        foreach ($taxBreakdown as $item) {
+            $category = $item['tax_category'];
+            if (!isset($taxByCategory[$category])) {
+                $taxByCategory[$category] = [
+                    'tax_rate' => $item['tax_rate'],
+                    'total_taxable_amount' => 0,
+                    'total_tax_amount' => 0,
+                    'items' => [],
+                ];
+            }
+
+            $taxByCategory[$category]['total_taxable_amount'] += $item['line_total_before_tax'];
+            $taxByCategory[$category]['total_tax_amount'] += $item['tax_amount'];
+            $taxByCategory[$category]['items'][] = $item['product_name'];
+        }
+
+        return $taxByCategory;
+    }
     /**
      * FR-CO-006: Confirm order via webhook
      */
