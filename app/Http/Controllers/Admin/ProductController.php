@@ -131,7 +131,7 @@ class ProductController extends Controller
         }
 
         // NEW ARRIVALS FILTER - Last 30 days products
-        if ($request->has('new-arrivals') && $request->boolean('new-arrivals')) {
+        if ($request->has('new-arrivals')) {
             $query->where('created_at', '>=', now()->subDays(30));
         }
 
