@@ -570,69 +570,41 @@ class ReturnService
             $totalCvReversed,
             $data
         ) {
-
-            /*
-             * IMPORTANT:
-             *
-             * Because OrderReturn has:
-             *
-             * 'items' => 'array'
-             * 'general_images' => 'array'
-             *
-             * Laravel will automatically JSON encode
-             * these arrays before inserting them.
-             */
+            // Create return order
             $returnOrder = OrderReturn::create([
                 'order_id' => $order->id,
                 'user_id' => $userId,
-
                 'items' => $returnItems,
-
                 'status' => OrderReturn::STATUS_PENDING,
-
                 'reason' => $data['return_reason'] ?? null,
-
                 'general_images' => $generalImagePaths,
-
                 'refund_subtotal' => $refundSubtotal,
                 'refund_tax' => $refundTax,
                 'refund_shipping' => $refundShipping,
                 'total_refund_amount' => $totalRefund,
-
                 'total_cv_reversed' => $totalCvReversed,
             ]);
 
-            /*
-             * Update order lines.
-             */
+            // Update individual order lines
             foreach ($returnItems as $item) {
+                $orderLine = OrderLine::find($item['order_line_id']);
 
-                $orderLine = OrderLine::find(
-                    $item['order_line_id']
-                );
+                if ($orderLine) {
+                    $currentReturnedQuantity = (int) ($orderLine->returned_quantity ?? 0);
+                    $newReturnedQuantity = $currentReturnedQuantity + (int) $item['quantity'];
 
-                if (!$orderLine) {
-                    continue;
+                    $orderLine->update([
+                        'returned_quantity' => $newReturnedQuantity,
+                        'return_status' => 'pending', // Set per item
+                        'return_at' => now(), // Set timestamp for this specific item
+                    ]);
                 }
-
-                $currentReturnedQuantity =
-                    (int) ($orderLine->returned_quantity ?? 0);
-
-                $newReturnedQuantity =
-                    $currentReturnedQuantity
-                    + (int) $item['quantity'];
-
-                $orderLine->update([
-                    'returned_quantity' => $newReturnedQuantity,
-                    'return_status' => 'pending',
-                ]);
             }
 
-            /*
-             * Update order return status.
-             */
+            // Update order-level return status only if needed (optional)
+            // You might want to keep this for tracking overall order status
             $order->update([
-                'return_status' => 'pending',
+                'return_status' => 'pending', // Overall order status
             ]);
 
             /*
@@ -933,7 +905,21 @@ class ReturnService
                 'approved_at' => now(),
             ]);
 
-            // Update order status
+            // Update individual order lines
+            foreach ($returnOrder->items as $item) {
+                $orderLine = OrderLine::find($item['order_line_id']);
+                if ($orderLine) {
+                    // Only update if it's pending
+                    if ($orderLine->return_status === 'pending') {
+                        $orderLine->update([
+                            'return_status' => 'approved',
+                            // Keep return_at as is (set during initiation)
+                        ]);
+                    }
+                }
+            }
+
+            // Update order-level status
             $returnOrder->order->update([
                 'return_status' => 'partial_approved',
             ]);
@@ -988,7 +974,22 @@ class ReturnService
                 'rejection_reason' => $rejectionReason,
             ]);
 
-            // Update order status
+            // Update individual order lines
+            foreach ($returnOrder->items as $item) {
+                $orderLine = OrderLine::find($item['order_line_id']);
+                if ($orderLine) {
+                    // Only update if it's pending
+                    if ($orderLine->return_status === 'pending') {
+                        $orderLine->update([
+                            'return_status' => 'rejected',
+                            // Optionally clear return_at or keep it
+                            'return_at' => null, // Or keep the timestamp
+                        ]);
+                    }
+                }
+            }
+
+            // Update order-level status
             $returnOrder->order->update([
                 'return_status' => 'rejected',
             ]);
@@ -1026,96 +1027,144 @@ class ReturnService
     /**
      * Admin: Mark return as received
      */
+
     // public function markReturnReceived(int $returnId): array
     // {
-    //     $returnOrder = OrderReturn::findOrFail($returnId);
+    //     $returnOrder = OrderReturn::with([
+    //         'order',
+    //         'user',
+    //     ])->findOrFail($returnId);
 
     //     if (!$returnOrder->canMarkReceived()) {
-    //         throw new Exception('Only approved returns can be marked as received.');
-    //     }
-
-    //     $returnOrder->update([
-    //         'status' => OrderReturn::STATUS_RECEIVED,
-    //         'received_at' => now(),
-    //     ]);
-
-    //     $this->createReturnNotification($returnOrder, 'received');
-
-    //     Log::info('Return marked as received', [
-    //         'return_id' => $returnOrder->id,
-    //     ]);
-
-    //     return [
-    //         'success' => true,
-    //         'message' => 'Return marked as received.',
-    //         'return_id' => $returnOrder->id,
-    //         'status' => 'received',
-    //     ];
-    // }
-    // public function markReturnReceived(int $returnId): array
-    // {
-    //     $returnOrder = OrderReturn::with(['order'])
-    //         ->findOrFail($returnId);
-
-    //     if (!$returnOrder->canMarkReceived()) {
-    //         throw new Exception('Only approved returns can be marked as received.');
+    //         throw new Exception(
+    //             'Only approved returns can be marked as received.'
+    //         );
     //     }
 
     //     return DB::transaction(function () use ($returnOrder) {
-    //         // Update status to received
+
+    //         /*
+    //      * 1. Mark return as received
+    //      */
     //         $returnOrder->update([
     //             'status' => OrderReturn::STATUS_RECEIVED,
     //             'received_at' => now(),
     //         ]);
 
-    //         $this->createReturnNotification($returnOrder, 'received');
+    //         $this->createReturnNotification(
+    //             $returnOrder,
+    //             'received'
+    //         );
 
-    //         // Process refund automatically
-    //         $this->processRefund($returnOrder);
+    //         /*
+    //      * 2. Process Razorpay refund
+    //      *
+    //      * This method MUST throw an exception if Razorpay
+    //      * does not create the refund.
+    //      */
+    //         $refundResponse = $this->processRefund($returnOrder);
 
-    //         // Update to completed status
+    //         /*
+    //      * 3. Verify actual Razorpay refund ID
+    //      */
+    //         if (
+    //             !is_array($refundResponse) ||
+    //             empty($refundResponse['refund_id'])
+    //         ) {
+    //             throw new Exception(
+    //                 'Refund failed. Razorpay refund ID was not returned.'
+    //             );
+    //         }
+
+    //         /*
+    //      * 4. Refresh model so refund_transaction_id is available
+    //      */
+    //         $returnOrder->refresh();
+
+    //         /*
+    //      * 5. ONLY NOW mark return as completed
+    //      */
     //         $returnOrder->update([
     //             'status' => OrderReturn::STATUS_COMPLETED,
     //             'completed_at' => now(),
     //         ]);
 
-    //         // Update order
-    //         $returnOrder->order->update([
-    //             'return_status' => 'fully_approved',
-    //         ]);
-
-    //         // Update order lines
-    //         foreach ($returnOrder->items as $item) {
-    //             $orderLine = OrderLine::find($item['order_line_id']);
-    //             if ($orderLine) {
-    //                 $orderLine->update(['return_status' => 'returned']);
-    //             }
+    //         /*
+    //      * 6. Update order
+    //      */
+    //         if ($returnOrder->order) {
+    //             $returnOrder->order->update([
+    //                 'return_status' => 'fully_approved',
+    //             ]);
     //         }
 
-    //         $this->createReturnNotification($returnOrder, 'completed');
+    //         /*
+    //      * 7. Update order lines
+    //      */
+    //         foreach ($returnOrder->items ?? [] as $item) {
 
-    //         Log::info('Return marked as received and refund processed', [
-    //             'return_id' => $returnOrder->id,
-    //             'refund_amount' => $returnOrder->total_refund_amount,
-    //             'refund_transaction_id' => $returnOrder->refund_transaction_id ?? null,
-    //         ]);
+    //             $orderLineId = is_array($item)
+    //                 ? ($item['order_line_id'] ?? null)
+    //                 : ($item->order_line_id ?? null);
+
+    //             if (!$orderLineId) {
+    //                 continue;
+    //             }
+
+    //             OrderLine::where('id', $orderLineId)->update([
+    //                 'return_status' => 'returned',
+    //             ]);
+    //         }
+
+    //         /*
+    //      * 8. Completed notification
+    //      */
+    //         $this->createReturnNotification(
+    //             $returnOrder,
+    //             'completed'
+    //         );
+
+    //         /*
+    //      * 9. Final logging
+    //      */
+    //         Log::info(
+    //             'Return marked as received and Razorpay refund completed',
+    //             [
+    //                 'return_id' => $returnOrder->id,
+    //                 'order_id' => $returnOrder->order_id,
+    //                 'payment_id' => $returnOrder->order->gateway_transaction_id,
+    //                 'refund_amount' => $returnOrder->total_refund_amount,
+    //                 'refund_transaction_id' =>
+    //                 $returnOrder->refund_transaction_id,
+    //                 'refund_status' =>
+    //                 $returnOrder->refund_status,
+    //             ]
+    //         );
 
     //         return [
     //             'success' => true,
-    //             'message' => 'Return marked as received and refund processed successfully.',
+    //             'message' =>
+    //             'Return marked as received and refund processed successfully.',
     //             'return_id' => $returnOrder->id,
-    //             'status' => 'completed',
-    //             'refund_amount' => (float) $returnOrder->total_refund_amount,
-    //             'refund_transaction_id' => $returnOrder->refund_transaction_id,
+    //             'status' => OrderReturn::STATUS_COMPLETED,
+    //             'refund_amount' =>
+    //             (float) $returnOrder->total_refund_amount,
+    //             'refund_transaction_id' =>
+    //             $returnOrder->refund_transaction_id,
+    //             'refund_status' =>
+    //             $returnOrder->refund_status,
     //         ];
     //     });
     // }
-
+    /**
+     * Admin: Mark return as received and process refund
+     */
     public function markReturnReceived(int $returnId): array
     {
         $returnOrder = OrderReturn::with([
             'order',
             'user',
+            'order.lines', // Load order lines for checking
         ])->findOrFail($returnId);
 
         if (!$returnOrder->canMarkReceived()) {
@@ -1125,7 +1174,6 @@ class ReturnService
         }
 
         return DB::transaction(function () use ($returnOrder) {
-
             /*
          * 1. Mark return as received
          */
@@ -1173,19 +1221,9 @@ class ReturnService
             ]);
 
             /*
-         * 6. Update order
-         */
-            if ($returnOrder->order) {
-                $returnOrder->order->update([
-                    'return_status' => 'fully_approved',
-                ]);
-            }
-
-            /*
-         * 7. Update order lines
+         * 6. Update individual order lines to 'returned' status
          */
             foreach ($returnOrder->items ?? [] as $item) {
-
                 $orderLineId = is_array($item)
                     ? ($item['order_line_id'] ?? null)
                     : ($item->order_line_id ?? null);
@@ -1194,8 +1232,62 @@ class ReturnService
                     continue;
                 }
 
-                OrderLine::where('id', $orderLineId)->update([
-                    'return_status' => 'returned',
+                $orderLine = OrderLine::find($orderLineId);
+                if ($orderLine && $orderLine->return_status === 'approved') {
+                    $orderLine->update([
+                        'return_status' => 'returned',
+                    ]);
+                }
+            }
+
+            /*
+         * 7. Update order-level return status based on all items
+         */
+            if ($returnOrder->order) {
+                $order = $returnOrder->order;
+
+                // Count items with different return statuses
+                $returnStatusCounts = [
+                    'pending' => 0,
+                    'approved' => 0,
+                    'rejected' => 0,
+                    'returned' => 0,
+                    'none' => 0,
+                ];
+
+                foreach ($order->lines as $line) {
+                    $status = $line->return_status ?? 'none';
+                    if (isset($returnStatusCounts[$status])) {
+                        $returnStatusCounts[$status]++;
+                    }
+                }
+
+                // Determine overall order return status
+                $orderReturnStatus = 'none';
+
+                if ($returnStatusCounts['returned'] > 0) {
+                    // Some items are returned
+                    if ($returnStatusCounts['pending'] > 0) {
+                        $orderReturnStatus = 'partial_returned_pending';
+                    } elseif ($returnStatusCounts['approved'] > 0) {
+                        $orderReturnStatus = 'partial_returned_approved';
+                    } elseif ($returnStatusCounts['rejected'] > 0) {
+                        $orderReturnStatus = 'partial_returned_rejected';
+                    } elseif ($returnStatusCounts['returned'] === $order->lines->count()) {
+                        $orderReturnStatus = 'fully_returned';
+                    } else {
+                        $orderReturnStatus = 'partially_returned';
+                    }
+                } elseif ($returnStatusCounts['approved'] > 0) {
+                    $orderReturnStatus = 'partial_approved';
+                } elseif ($returnStatusCounts['pending'] > 0) {
+                    $orderReturnStatus = 'pending';
+                } elseif ($returnStatusCounts['rejected'] > 0) {
+                    $orderReturnStatus = 'rejected';
+                }
+
+                $order->update([
+                    'return_status' => $orderReturnStatus,
                 ]);
             }
 
@@ -1215,30 +1307,38 @@ class ReturnService
                 [
                     'return_id' => $returnOrder->id,
                     'order_id' => $returnOrder->order_id,
-                    'payment_id' => $returnOrder->order->gateway_transaction_id,
+                    'payment_id' => $returnOrder->order->gateway_transaction_id ?? null,
                     'refund_amount' => $returnOrder->total_refund_amount,
-                    'refund_transaction_id' =>
-                    $returnOrder->refund_transaction_id,
-                    'refund_status' =>
-                    $returnOrder->refund_status,
+                    'refund_transaction_id' => $returnOrder->refund_transaction_id,
+                    'refund_status' => $returnOrder->refund_status,
+                    'items_returned' => count($returnOrder->items),
                 ]
             );
 
+            /*
+         * 10. Return API response with per-item details
+         */
             return [
                 'success' => true,
-                'message' =>
-                'Return marked as received and refund processed successfully.',
+                'message' => 'Return marked as received and refund processed successfully.',
                 'return_id' => $returnOrder->id,
                 'status' => OrderReturn::STATUS_COMPLETED,
-                'refund_amount' =>
-                (float) $returnOrder->total_refund_amount,
-                'refund_transaction_id' =>
-                $returnOrder->refund_transaction_id,
-                'refund_status' =>
-                $returnOrder->refund_status,
+                'refund_amount' => (float) $returnOrder->total_refund_amount,
+                'refund_transaction_id' => $returnOrder->refund_transaction_id,
+                'refund_status' => $returnOrder->refund_status,
+                'items' => array_map(function ($item) {
+                    return [
+                        'order_line_id' => $item['order_line_id'] ?? null,
+                        'product_id' => $item['product_id'] ?? null,
+                        'quantity' => $item['quantity'] ?? 0,
+                        'return_status' => 'returned',
+                        'return_at' => now()->toDateTimeString(),
+                    ];
+                }, $returnOrder->items ?? []),
             ];
         });
     }
+
     /**
      * Admin: Complete return (refund processed)
      */
