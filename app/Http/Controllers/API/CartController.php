@@ -108,11 +108,77 @@ class CartController extends Controller
      * Add item to cart
      * Store only the product_id and quantity, not the price
      */
+    // public function add(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'product_id' => ['required', 'exists:products,id'],
+    //         'quantity' => ['nullable', 'integer', 'min:1'],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['errors' => $validator->errors()], 422);
+    //     }
+
+    //     $productId = $request->product_id;
+    //     $quantity = $request->quantity ?? 1;
+
+    //     // Get product
+    //     $product = Product::find($productId);
+    //     if (!$product) {
+    //         return response()->json(['message' => 'Product not found'], 404);
+    //     }
+
+    //     DB::beginTransaction();
+    //     try {
+    //         // Get or create cart
+    //         $cart = $this->getCart($request);
+
+    //         // Check if item already exists in cart
+    //         $cartItem = CartItem::where('cart_id', $cart->id)
+    //             ->where('product_id', $productId)
+    //             ->first();
+
+    //         if ($cartItem) {
+    //             // Update quantity only - keep the unit_price as null or 0 since we don't store prices anymore
+    //             $cartItem->quantity += $quantity;
+    //             $cartItem->unit_price = 0;
+    //             $cartItem->save();
+    //         } else {
+    //             // Add new item - store only product_id and quantity
+    //             $cartItem = CartItem::create([
+    //                 'cart_id' => $cart->id,
+    //                 'product_id' => $productId,
+    //                 'quantity' => $quantity,
+    //                 'unit_price' => 0, // We don't store price anymore
+    //             ]);
+    //         }
+
+    //         DB::commit();
+
+    //         // Reload cart with items
+    //         $cart->load('items.product.images');
+    //         $user = auth('sanctum')->user();
+
+    //         return response()->json([
+    //             'message' => 'Item added to cart successfully',
+    //             'data' => $this->formatCart($cart, $user),
+    //             'summary' => $this->getCartSummary($cart, $user),
+    //             'user_type' => $this->getUserType(),
+    //         ], 201);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         return response()->json([
+    //             'message' => 'Failed to add item to cart',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function add(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'product_id' => ['required', 'exists:products,id'],
             'quantity' => ['nullable', 'integer', 'min:1'],
+            'from_wishlist' => ['nullable', 'boolean'],
         ]);
 
         if ($validator->fails()) {
@@ -121,42 +187,54 @@ class CartController extends Controller
 
         $productId = $request->product_id;
         $quantity = $request->quantity ?? 1;
+        $fromWishlist = $request->boolean('from_wishlist');
 
-        // Get product
         $product = Product::find($productId);
+
         if (!$product) {
             return response()->json(['message' => 'Product not found'], 404);
         }
 
         DB::beginTransaction();
+
         try {
-            // Get or create cart
             $cart = $this->getCart($request);
 
-            // Check if item already exists in cart
             $cartItem = CartItem::where('cart_id', $cart->id)
                 ->where('product_id', $productId)
                 ->first();
 
             if ($cartItem) {
-                // Update quantity only - keep the unit_price as null or 0 since we don't store prices anymore
                 $cartItem->quantity += $quantity;
                 $cartItem->unit_price = 0;
                 $cartItem->save();
             } else {
-                // Add new item - store only product_id and quantity
                 $cartItem = CartItem::create([
                     'cart_id' => $cart->id,
                     'product_id' => $productId,
                     'quantity' => $quantity,
-                    'unit_price' => 0, // We don't store price anymore
+                    'unit_price' => 0,
                 ]);
+            }
+
+            /*
+         * If item was added to cart from wishlist,
+         * remove it from wishlist.
+         */
+            if ($fromWishlist) {
+                $user = auth('sanctum')->user();
+
+                if ($user) {
+                    Wishlist::where('user_id', $user->id)
+                        ->where('product_id', $productId)
+                        ->delete();
+                }
             }
 
             DB::commit();
 
-            // Reload cart with items
             $cart->load('items.product.images');
+
             $user = auth('sanctum')->user();
 
             return response()->json([
@@ -167,6 +245,7 @@ class CartController extends Controller
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'message' => 'Failed to add item to cart',
                 'error' => $e->getMessage()

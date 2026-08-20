@@ -602,7 +602,7 @@ class WishlistController extends Controller
 
         if ($cartItem) {
             $cartItem->quantity += $quantity;
-            $cartItem->unit_price = $currentPrice; // ✅ store current price
+            $cartItem->unit_price = $currentPrice;
             $cartItem->save();
             return $cartItem;
         }
@@ -611,7 +611,7 @@ class WishlistController extends Controller
             'cart_id'    => $cart->id,
             'product_id' => $productId,
             'quantity'   => $quantity,
-            'unit_price' => $currentPrice, // ✅ store current price
+            'unit_price' => $currentPrice, 
         ]);
     }
 
