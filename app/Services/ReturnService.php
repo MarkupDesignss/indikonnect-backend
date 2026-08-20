@@ -928,6 +928,7 @@ class ReturnService
 
                     $orderLine->update([
                         'return_status' => 'approved',
+                        'delivery_status' => 'return_approved',
                         'return_approved_at' => now(),
                     ]);
                 }
@@ -1007,6 +1008,7 @@ class ReturnService
 
                     $orderLine->update([
                         'return_status' => 'rejected',
+                        'delivery_status' => 'return_rejected',
                         'return_rejected_at' => now(),
                         'return_rejection_reason' => $rejectionReason,
                         'return_requested_at' => null,
@@ -1219,6 +1221,7 @@ class ReturnService
 
                     $orderLine->update([
                         'return_status' => 'returned',
+                        'delivery_status' => 'returned',
                         'return_completed_at' => now(),
                     ]);
                 }

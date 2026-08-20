@@ -17,7 +17,10 @@ class OrderLine extends Model
         'commissionable_volume' => 'decimal:2',
         'returned_quantity' => 'integer',
     ];
-
+    public function review()
+    {
+        return $this->hasOne(ProductReview::class);
+    }
     public function order()
     {
         return $this->belongsTo(Order::class);
