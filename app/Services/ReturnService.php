@@ -250,7 +250,7 @@ class ReturnService
     public function initiateReturn(
         int $userId,
         array $data
-    ): array {
+         ): array {
 
         /*
          * Validate processed data.
