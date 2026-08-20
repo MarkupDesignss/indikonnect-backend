@@ -130,6 +130,17 @@ class ProductController extends Controller
                 ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
         }
 
+        // NEW ARRIVALS FILTER - Last 30 days products
+        if ($request->has('new-arrivals') && $request->boolean('new-arrivals')) {
+            $query->where('created_at', '>=', now()->subDays(30));
+        }
+
+        // Alternative: New arrivals with custom days parameter
+        if ($request->has('new_arrival_days') && is_numeric($request->new_arrival_days)) {
+            $days = (int) $request->new_arrival_days;
+            $query->where('created_at', '>=', now()->subDays($days));
+        }
+
         // Search by name or product code
         if ($request->has('search') && $request->search) {
             $search = $request->search;
