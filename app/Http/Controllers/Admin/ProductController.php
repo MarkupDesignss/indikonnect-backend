@@ -1508,6 +1508,9 @@ class ProductController extends Controller
      */
     public function markAsDealOfTheDay(Request $request, $id)
     {
+        $request->validate([
+            'sale_type'    => 'required|string',
+        ]);
         $product = Product::find($id);
         if (!$product) {
             return response()->json(['message' => 'Product not found'], 404);
@@ -1528,6 +1531,7 @@ class ProductController extends Controller
                 'is_deal_of_the_day' => true,
                 'deal_of_the_day_starts_at' => $request->starts_at ?? now(),
                 'deal_of_the_day_ends_at' => $request->ends_at ?? null,
+                'sale_type' => $request->sale_type,
             ]);
 
             DB::commit();
@@ -1589,99 +1593,12 @@ class ProductController extends Controller
     /**
      * Get all active deal of the day products
      */
-    // public function getDealOfTheDayProducts(Request $request)
-    // {
-    //     $now = now();
-
-    //     $products = Product::with(['category', 'taxCategory', 'images', 'primaryImage'])
-    //         ->where('is_published', true)
-    //         ->where('is_deal_of_the_day', true)
-    //         ->where(function ($query) use ($now) {
-    //             $query->whereNull('deal_of_the_day_starts_at')
-    //                 ->orWhere('deal_of_the_day_starts_at', '<=', $now);
-    //         })
-    //         ->where(function ($query) use ($now) {
-    //             $query->whereNull('deal_of_the_day_ends_at')
-    //                 ->orWhere('deal_of_the_day_ends_at', '>=', $now);
-    //         })
-    //         ->orderBy('deal_of_the_day_starts_at', 'asc')
-    //         ->paginate($request->get('per_page', 15));
-
-    //     return response()->json([
-    //         'data' => $this->formatProductCollection($products),
-    //         'meta' => [
-    //             'current_page' => $products->currentPage(),
-    //             'per_page' => $products->perPage(),
-    //             'total' => $products->total(),
-    //             'last_page' => $products->lastPage(),
-    //         ]
-    //     ]);
-    // }
-    // public  function getDealOfTheDayProducts($wishlistIds = [])
-    // {
-    //     // 1. Admin-selected Deal of the Day products
-    //     $adminDeals = Product::with(['category', 'taxCategory', 'images'])
-    //         ->where('is_deal_of_the_day', true)
-    //         ->where('is_published', true)
-    //         ->orderBy('trending_sort_order')
-    //         ->get();
-
-    //     // Already selected product IDs
-    //     $selectedIds = $adminDeals->pluck('id')->toArray();
-
-    //     // 2. If less than 2, get most ordered products
-    //     $required = 2 - $adminDeals->count();
-
-    //     if ($required > 0) {
-    //         $defaultProducts = OrderLine::query()
-    //             ->select('product_id', DB::raw('SUM(quantity) as total_quantity'))
-    //             ->whereNotNull('product_id')
-    //             ->whereNotIn('product_id', $selectedIds)
-    //             ->groupBy('product_id')
-    //             ->orderByDesc('total_quantity')
-    //             ->limit($required)
-    //             ->with('product')
-    //             ->get()
-    //             ->pluck('product')
-    //             ->filter(function ($product) {
-    //                 return $product
-    //                     && $product->is_published
-    //                     && $product->stock_quantity > 0;
-    //             });
-
-    //         $adminDeals = $adminDeals->concat($defaultProducts);
-    //     }
-
-    //     // 3. If still less than 2, fill from products
-    //     // (useful when there are not enough products in order_lines)
-    //     if ($adminDeals->count() < 2) {
-    //         $remaining = 2 - $adminDeals->count();
-
-    //         $fallbackProducts = Product::with(['category', 'taxCategory', 'images'])
-    //             ->where('is_published', true)
-    //             ->where('stock_quantity', '>', 0)
-    //             ->whereNotIn('id', $adminDeals->pluck('id')->toArray())
-    //             ->latest()
-    //             ->limit($remaining)
-    //             ->get();
-
-    //         $adminDeals = $adminDeals->concat($fallbackProducts);
-    //     }
-
-    //     return $adminDeals
-    //         ->take(2)
-    //         ->map(function ($product) use ($wishlistIds) {
-    //             return $this->formatProduct($product, $wishlistIds);
-    //         })
-    //         ->values()
-    //         ->toArray();
-    // }
-
     public function getDealOfTheDayProducts($wishlistIds = [])
     {
         // 1. Admin-selected active Deal of the Day products
         $adminDeals = Product::with(['category', 'taxCategory', 'images'])
             ->where('is_deal_of_the_day', true)
+            ->where('sale_type', 'today_best')
             ->where('is_published', true)
             ->where(function ($query) {
                 $query->whereNull('deal_of_the_day_starts_at')
@@ -1776,10 +1693,9 @@ class ProductController extends Controller
         $type = $request->get('type', 'all');
         $now = now();
 
-
-
         $products = Product::with(['category', 'taxCategory', 'images', 'primaryImage'])
             ->where('is_published', true)
+            ->where('sale_type', 'limited')
             ->where('is_deal_of_the_day', true)
             ->where(function ($query) use ($now) {
                 // Check if current time is between start and end date
