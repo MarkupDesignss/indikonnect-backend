@@ -175,6 +175,7 @@ Route::post('/products-deal-of-the-day/{id}', [ProductController::class, 'markAs
 Route::delete('/products-deal-of-the-day/{id}', [ProductController::class, 'removeDealOfTheDay']);
 Route::get('/products-deal-of-the-day', [ProductController::class, 'getDealOfTheDayProducts']);
 Route::get('/products-top-discounted', [ProductController::class, 'getTopDiscountedProducts']);
+Route::get('/product-sections', [ProductController::class, 'getProductSections']);
 
 
 Route::prefix('tax-categories')->group(function () {
