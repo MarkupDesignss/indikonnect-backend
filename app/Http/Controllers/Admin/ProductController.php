@@ -2251,4 +2251,73 @@ class ProductController extends Controller
             ],
         ]);
     }
+
+    public function generateProductLink($id)
+    {
+        $product = Product::find($id);
+
+        if (!$product) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found'
+            ], 404);
+        }
+
+        // Generate slug if not exists
+        if (empty($product->slug)) {
+            $product->slug = $this->generateSlug($product->name, $product->id);
+            $product->save();
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'slug' => $product->slug,
+                'product_url' => url("/product/{$product->slug}"),
+                'full_url' => url("/product/{$product->id}/{$product->slug}")
+            ]
+        ]);
+    }
+
+    /**
+     * Get product by slug (for frontend routing)
+     */
+    public function getProductBySlug($slug)
+    {
+        $product = Product::where('slug', $slug)
+            ->with(['category', 'images', 'taxCategory'])
+            ->first();
+
+        if (!$product) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found'
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $product
+        ]);
+    }
+
+    /**
+     * Generate URL-friendly slug
+     */
+    private function generateSlug($name, $id = null)
+    {
+        // Convert to lowercase and replace spaces with hyphens
+        $slug = strtolower(trim($name));
+        $slug = preg_replace('/[^a-z0-9-]/', '-', $slug);
+        $slug = preg_replace('/-+/', '-', $slug);
+
+        // Add ID to ensure uniqueness
+        if ($id) {
+            $slug = $slug . '-' . $id;
+        }
+
+        return $slug;
+    }
 }

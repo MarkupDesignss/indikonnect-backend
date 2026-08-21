@@ -304,6 +304,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/reviews', [ReviewController::class, 'userIndex']);
 });
 Route::post('/webhook/razorpay', [RazorpayWebhookController::class, 'handle']);
+Route::get('/product-link/{id}', [ProductController::class, 'generateProductLink']);
+Route::get('/product/{slug}', [ProductController::class, 'getProductBySlug']);
 
 
 Route::prefix('shipping-methods')->group(function () {

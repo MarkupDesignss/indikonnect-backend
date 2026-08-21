@@ -149,4 +149,57 @@ class Product extends Model
 
         return true;
     }
+
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($product) {
+            if (empty($product->slug)) {
+                $product->slug = $product->generateUniqueSlug();
+            }
+        });
+
+        static::updating(function ($product) {
+            if ($product->isDirty('name') && empty($product->slug)) {
+                $product->slug = $product->generateUniqueSlug();
+            }
+        });
+    }
+
+    /**
+     * Generate unique slug
+     */
+    public function generateUniqueSlug()
+    {
+        $baseSlug = $this->createSlug($this->name);
+        $slug = $baseSlug;
+        $counter = 1;
+
+        while (self::where('slug', $slug)->where('id', '!=', $this->id)->exists()) {
+            $slug = $baseSlug . '-' . $counter;
+            $counter++;
+        }
+
+        return $slug;
+    }
+
+    /**
+     * Create base slug from string
+     */
+    private function createSlug($text)
+    {
+        $text = strtolower(trim($text));
+        $text = preg_replace('/[^a-z0-9-]/', '-', $text);
+        $text = preg_replace('/-+/', '-', $text);
+        return trim($text, '-');
+    }
+
+    /**
+     * Get product URL attribute
+     */
+    public function getProductUrlAttribute()
+    {
+        return url("/product/{$this->slug}");
+    }
 }
