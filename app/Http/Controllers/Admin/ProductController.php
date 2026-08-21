@@ -937,26 +937,26 @@ class ProductController extends Controller
         Log::info('All files:', array_keys($_FILES));
 
         $validator = Validator::make($request->all(), [
-            'product_code' => ['required', 'string', 'max:255'],
-            'name' => ['required', 'string', 'max:255'],
+            'product_code' => ['sometimes', 'required', 'string', 'max:255'],  // Changed to 'sometimes|required'
+            'name' => ['sometimes', 'required', 'string', 'max:255'],         // Changed to 'sometimes|required'
             'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
             'description' => ['nullable', 'string'],
             'specification' => ['nullable', 'string'],
-            'category_id' => ['required', 'exists:categories,id'],
+            'category_id' => ['sometimes', 'required', 'exists:categories,id'],  // Changed to 'sometimes|required'
             'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
-            'retail_mrp' => ['required', 'numeric', 'min:0'],
+            'retail_mrp' => ['sometimes', 'required', 'numeric', 'min:0'],  // Changed to 'sometimes|required'
             'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
             'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
             'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
             'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
             'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
-            'stock_quantity' => ['required', 'integer', 'min:0'],
+            'stock_quantity' => ['sometimes', 'required', 'integer', 'min:0'],  // Changed to 'sometimes|required'
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'is_published' => ['nullable', 'boolean'],
             'is_trending' => ['nullable', 'boolean'],
             'trending_sort_order' => ['nullable', 'integer', 'min:0'],
             'product_images' => ['nullable', 'array'],
-            'product_images.*.image' => ['nullable',  'mimes:jpg,jpeg,png,webp,avif'],
+            'product_images.*.image' => ['nullable', 'mimes:jpg,jpeg,png,webp,avif'],
             'product_images.*.sort_order' => ['nullable', 'integer'],
             'product_images.*.is_primary' => ['nullable', 'boolean'],
             'remove_images' => ['nullable', 'array'],
@@ -974,38 +974,48 @@ class ProductController extends Controller
             // Extract product data (remove product_images and remove_images)
             $productData = collect($validated)->except(['product_images', 'remove_images'])->toArray();
 
-            // Calculate retail price
-            $productData['retail_price'] = $this->calculatePrice(
-                $productData['retail_mrp'],
-                $productData['retail_discount_type'] ?? null,
-                $productData['retail_discount_value'] ?? null
-            );
+            // Only calculate retail price if retail_mrp is provided
+            if (isset($productData['retail_mrp'])) {
+                $productData['retail_price'] = $this->calculatePrice(
+                    $productData['retail_mrp'],
+                    $productData['retail_discount_type'] ?? null,
+                    $productData['retail_discount_value'] ?? null
+                );
+            }
 
-            // Calculate distributor price
-            if (!empty($productData['distributor_mrp'])) {
+            // Only calculate distributor price if distributor_mrp is provided
+            if (isset($productData['distributor_mrp']) && !empty($productData['distributor_mrp'])) {
                 $productData['distributor_price'] = $this->calculatePrice(
                     $productData['distributor_mrp'],
                     $productData['distributor_discount_type'] ?? null,
                     $productData['distributor_discount_value'] ?? null
                 );
-            } else {
+            } elseif (isset($productData['distributor_mrp']) && empty($productData['distributor_mrp'])) {
                 $productData['distributor_price'] = null;
                 $productData['distributor_mrp'] = null;
                 $productData['distributor_discount_type'] = null;
                 $productData['distributor_discount_value'] = null;
             }
 
-            // Handle slug
-            if (empty($productData['slug'])) {
-                $productData['slug'] = Str::slug($productData['name']);
+            // Handle slug - only if provided or if name is provided
+            if (isset($productData['slug']) || isset($productData['name'])) {
+                if (empty($productData['slug']) && isset($productData['name'])) {
+                    $productData['slug'] = Str::slug($productData['name']);
+                }
+                if (isset($productData['slug']) && $productData['slug'] !== $product->slug) {
+                    $productData['slug'] = $this->generateUniqueSlug($productData['slug'], $product->id);
+                }
             }
-            if ($productData['slug'] !== $product->slug) {
-                $productData['slug'] = $this->generateUniqueSlug($productData['slug'], $product->id);
-            }
-            $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
 
-            // Update product
+            // Only set low_stock_threshold if provided
+            if (isset($productData['low_stock_threshold'])) {
+                $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
+            }
+
+            // Update product - only update fields that are present
             $product->update($productData);
+
+            // ... rest of your code remains the same ...
 
             // Remove specified images (same as before)
             $removeImages = $validated['remove_images'] ?? [];
@@ -1767,7 +1777,7 @@ class ProductController extends Controller
 
         $products = Product::with(['category', 'taxCategory', 'images', 'primaryImage'])
             ->where('is_published', true)
-            ->where('is_deal_of_the_day', true) // Only deal products
+            ->where('is_deal_of_the_day', true)
             ->where(function ($query) use ($now) {
                 // Check if current time is between start and end date
                 $query->where(function ($q) use ($now) {
