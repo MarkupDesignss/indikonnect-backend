@@ -807,13 +807,13 @@ class OrderController extends Controller
     {
         try {
             $result = DB::select("
-            SHOW COLUMNS FROM orders WHERE Field = 'status'
+            SHOW COLUMNS FROM order_lines WHERE Field = 'delivery_status'
         ");
 
             if (empty($result)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Status column not found.',
+                    'message' => 'Delivery status column not found.',
                 ], 404);
             }
 
