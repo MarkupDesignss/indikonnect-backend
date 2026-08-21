@@ -1777,7 +1777,7 @@ class ProductController extends Controller
 
         $products = Product::with(['category', 'taxCategory', 'images', 'primaryImage'])
             ->where('is_published', true)
-            ->where('is_deal_of_the_day', true) // Only deal products
+            ->where('is_deal_of_the_day', true)
             ->where(function ($query) use ($now) {
                 // Check if current time is between start and end date
                 $query->where(function ($q) use ($now) {
