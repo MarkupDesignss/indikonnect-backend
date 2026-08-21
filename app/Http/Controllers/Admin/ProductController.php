@@ -718,6 +718,9 @@ class ProductController extends Controller
                 : 0,
 
             // Distributor pricing
+            'is_deal_of_the_day' => $product->is_deal_of_the_day,
+            'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at,
+            'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at,
             'distributor_mrp' => $product->distributor_mrp,
             'distributor_price' => $product->distributor_price,
             // 'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
