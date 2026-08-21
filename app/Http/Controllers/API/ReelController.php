@@ -22,12 +22,16 @@ class ReelController extends Controller
     {
         $cacheKey = 'reels_' . md5($request->fullUrl());
 
-        $reels = Cache::remember($cacheKey, 3600, function () use ($request) {
-            return Reel::with(['product.category', 'product.taxCategory', 'product.images', 'product.primaryImage'])
-                ->published()
-                ->ordered()
-                ->paginate($request->get('per_page', 15));
-        });
+        $reels =  Reel::with(['product.images', 'product.primaryImage'])
+            // ->published()
+            ->ordered()
+            ->paginate($request->get('per_page', 15));
+        // $reels = Cache::remember($cacheKey, 3600, function () use ($request) {
+        //     return Reel::with(['product.images', 'product.primaryImage'])
+        //         // ->published()
+        //         ->ordered()
+        //         ->paginate($request->get('per_page', 15));
+        // });
 
         return response()->json([
             'data' => $this->formatReelCollection($reels),
@@ -444,6 +448,7 @@ class ReelController extends Controller
      */
     protected function formatReel($reel)
     {
+        // dd($reel->product->primaryImage);
         return [
             'id' => $reel->id,
             'title' => $reel->title,
@@ -497,6 +502,14 @@ class ReelController extends Controller
             'retail_price' => $product->retail_price,
             'distributor_mrp' => $product->distributor_mrp,
             'distributor_price' => $product->distributor_price,
+            'product_image' => $product->primaryImage
+                ? array_merge(
+                    $product->primaryImage->toArray(),
+                    [
+                        'image' => asset('storage/' . $product->primaryImage->image),
+                    ]
+                )
+                : null,
         ];
     }
 }
