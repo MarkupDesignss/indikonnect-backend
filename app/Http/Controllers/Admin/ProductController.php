@@ -2269,14 +2269,17 @@ class ProductController extends Controller
             $product->save();
         }
 
+        // Get frontend URL from env
+        $frontendUrl = rtrim(env('FRONTEND_URL'), '/');
+
         return response()->json([
             'success' => true,
             'data' => [
                 'id' => $product->id,
                 'name' => $product->name,
                 'slug' => $product->slug,
-                'product_url' => url("/product/{$product->slug}"),
-                'full_url' => url("/product/{$product->id}/{$product->slug}")
+                'product_url' => $frontendUrl . "/product/{$product->slug}",
+                'full_url' => $frontendUrl . "/product/{$product->id}/{$product->slug}"
             ]
         ]);
     }
