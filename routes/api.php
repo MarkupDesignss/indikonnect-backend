@@ -33,6 +33,7 @@ use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\API\LedgerController;
 use App\Http\Controllers\API\BeneficiaryController;
 use App\Http\Controllers\API\GenealogyController;
+use App\Http\Controllers\API\BuybackController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 
 Route::get('/login', function () {
@@ -432,5 +433,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/children/{userId}', [GenealogyController::class, 'children']);
         Route::get('/search', [GenealogyController::class, 'search']);
         Route::get('/downline', [GenealogyController::class, 'downlineList']);
+    });
+});
+
+Route::middleware('auth:sanctum')->group(function () {
+    // Buyback             
+    Route::prefix('distributor/buyback')->group(function () {
+        Route::get('/eligible', [BuybackController::class, 'eligibleStock']);
+        Route::post('/initiate', [BuybackController::class, 'initiate']);
+        Route::get('/history', [BuybackController::class, 'history']);
+        Route::get('/summary', [BuybackController::class, 'summary']);
     });
 });
