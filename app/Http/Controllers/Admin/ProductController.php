@@ -1604,48 +1604,134 @@ class ProductController extends Controller
     //         ]
     //     ]);
     // }
+    // public  function getDealOfTheDayProducts($wishlistIds = [])
+    // {
+    //     // 1. Admin-selected Deal of the Day products
+    //     $adminDeals = Product::with(['category', 'taxCategory', 'images'])
+    //         ->where('is_deal_of_the_day', true)
+    //         ->where('is_published', true)
+    //         ->orderBy('trending_sort_order')
+    //         ->get();
+
+    //     // Already selected product IDs
+    //     $selectedIds = $adminDeals->pluck('id')->toArray();
+
+    //     // 2. If less than 2, get most ordered products
+    //     $required = 2 - $adminDeals->count();
+
+    //     if ($required > 0) {
+    //         $defaultProducts = OrderLine::query()
+    //             ->select('product_id', DB::raw('SUM(quantity) as total_quantity'))
+    //             ->whereNotNull('product_id')
+    //             ->whereNotIn('product_id', $selectedIds)
+    //             ->groupBy('product_id')
+    //             ->orderByDesc('total_quantity')
+    //             ->limit($required)
+    //             ->with('product')
+    //             ->get()
+    //             ->pluck('product')
+    //             ->filter(function ($product) {
+    //                 return $product
+    //                     && $product->is_published
+    //                     && $product->stock_quantity > 0;
+    //             });
+
+    //         $adminDeals = $adminDeals->concat($defaultProducts);
+    //     }
+
+    //     // 3. If still less than 2, fill from products
+    //     // (useful when there are not enough products in order_lines)
+    //     if ($adminDeals->count() < 2) {
+    //         $remaining = 2 - $adminDeals->count();
+
+    //         $fallbackProducts = Product::with(['category', 'taxCategory', 'images'])
+    //             ->where('is_published', true)
+    //             ->where('stock_quantity', '>', 0)
+    //             ->whereNotIn('id', $adminDeals->pluck('id')->toArray())
+    //             ->latest()
+    //             ->limit($remaining)
+    //             ->get();
+
+    //         $adminDeals = $adminDeals->concat($fallbackProducts);
+    //     }
+
+    //     return $adminDeals
+    //         ->take(2)
+    //         ->map(function ($product) use ($wishlistIds) {
+    //             return $this->formatProduct($product, $wishlistIds);
+    //         })
+    //         ->values()
+    //         ->toArray();
+    // }
+
     public function getDealOfTheDayProducts($wishlistIds = [])
     {
-        // 1. Get admin-selected Deal of the Day products
+        // 1. Admin-selected active Deal of the Day products
         $adminDeals = Product::with(['category', 'taxCategory', 'images'])
             ->where('is_deal_of_the_day', true)
             ->where('is_published', true)
+            ->where(function ($query) {
+                $query->whereNull('deal_of_the_day_starts_at')
+                    ->orWhere('deal_of_the_day_starts_at', '<=', now());
+            })
+            ->where(function ($query) {
+                $query->whereNull('deal_of_the_day_ends_at')
+                    ->orWhere('deal_of_the_day_ends_at', '>=', now());
+            })
             ->orderBy('trending_sort_order')
             ->get();
 
-        // 2. If no admin deals exist, get top 2 discounted products
-        if ($adminDeals->isEmpty()) {
-            $adminDeals = Product::with(['category', 'taxCategory', 'images'])
+        // Already selected active product IDs
+        $selectedIds = $adminDeals->pluck('id')->toArray();
+
+        // 2. If less than 2, get default products
+        $required = 2 - $adminDeals->count();
+
+        if ($required > 0) {
+            $defaultProducts = Product::with(['category', 'taxCategory', 'images'])
                 ->where('is_published', true)
                 ->where('stock_quantity', '>', 0)
-                ->whereNotNull('discount_price')
-                ->where('discount_price', '>', 0)
-                ->whereRaw('discount_price < price')
-                ->orderByRaw('((price - discount_price) / price * 100) DESC')
-                ->limit(2)
-                ->get();
+                ->whereNotIn('id', $selectedIds)
+                ->get()
+                ->map(function ($product) {
+
+                    $mrp = (float) $product->retail_mrp;
+                    $discountValue = (float) $product->retail_discount_value;
+
+                    if ($product->retail_discount_type === 'percentage') {
+                        $discountAmount = ($mrp * $discountValue) / 100;
+                    } elseif ($product->retail_discount_type === 'fixed') {
+                        $discountAmount = $discountValue;
+                    } else {
+                        $discountAmount = 0;
+                    }
+
+                    $product->calculated_discount_amount = $discountAmount;
+
+                    return $product;
+                })
+                ->sortByDesc('calculated_discount_amount')
+                ->take($required)
+                ->values();
+
+            $adminDeals = $adminDeals->concat($defaultProducts);
         }
 
-        // 3. If admin deals exist but less than 2, fill with discounted products
+        // 3. If still less than 2, fill from products
         if ($adminDeals->count() < 2) {
             $remaining = 2 - $adminDeals->count();
-            $selectedIds = $adminDeals->pluck('id')->toArray();
 
             $fallbackProducts = Product::with(['category', 'taxCategory', 'images'])
                 ->where('is_published', true)
                 ->where('stock_quantity', '>', 0)
-                ->whereNotIn('id', $selectedIds)
-                ->whereNotNull('discount_price')
-                ->where('discount_price', '>', 0)
-                ->whereRaw('discount_price < price')
-                ->orderByRaw('((price - discount_price) / price * 100) DESC')
+                ->whereNotIn('id', $adminDeals->pluck('id')->toArray())
+                ->latest()
                 ->limit($remaining)
                 ->get();
 
             $adminDeals = $adminDeals->concat($fallbackProducts);
         }
 
-        // 4. Return top 2 products
         return $adminDeals
             ->take(2)
             ->map(function ($product) use ($wishlistIds) {
