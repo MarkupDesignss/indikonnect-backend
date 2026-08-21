@@ -1604,65 +1604,195 @@ class ProductController extends Controller
     //         ]
     //     ]);
     // }
-    protected function getDealOfTheDayProducts($wishlistIds = [])
+    public function getDealOfTheDayProducts()
     {
-        // 1. Admin-selected Deal of the Day products
+        // 1. Get active admin-selected Deal of the Day products (with valid time range)
         $adminDeals = Product::with(['category', 'taxCategory', 'images'])
             ->where('is_deal_of_the_day', true)
             ->where('is_published', true)
+            ->where(function ($query) {
+                $query->whereNull('deal_of_the_day_starts_at')
+                    ->orWhere('deal_of_the_day_starts_at', '<=', now());
+            })
+            ->where(function ($query) {
+                $query->whereNull('deal_of_the_day_ends_at')
+                    ->orWhere('deal_of_the_day_ends_at', '>=', now());
+            })
             ->orderBy('trending_sort_order')
+            ->limit(2)
             ->get();
 
-        // Already selected product IDs
-        $selectedIds = $adminDeals->pluck('id')->toArray();
-
-        // 2. If less than 2, get most ordered products
-        $required = 2 - $adminDeals->count();
-
-        if ($required > 0) {
-            $defaultProducts = OrderLine::query()
-                ->select('product_id', DB::raw('SUM(quantity) as total_quantity'))
-                ->whereNotNull('product_id')
-                ->whereNotIn('product_id', $selectedIds)
-                ->groupBy('product_id')
-                ->orderByDesc('total_quantity')
-                ->limit($required)
-                ->with('product')
-                ->get()
-                ->pluck('product')
-                ->filter(function ($product) {
-                    return $product
-                        && $product->is_published
-                        && $product->stock_quantity > 0;
-                });
-
-            $adminDeals = $adminDeals->concat($defaultProducts);
-        }
-
-        // 3. If still less than 2, fill from products
-        // (useful when there are not enough products in order_lines)
-        if ($adminDeals->count() < 2) {
-            $remaining = 2 - $adminDeals->count();
-
-            $fallbackProducts = Product::with(['category', 'taxCategory', 'images'])
+        // If no active admin deals or time expired, get products with top discounts
+        if ($adminDeals->isEmpty()) {
+            // Get products with highest discounts (retail discounts for customers)
+            $discountProducts = Product::with(['category', 'taxCategory', 'images'])
                 ->where('is_published', true)
-                ->where('stock_quantity', '>', 0)
-                ->whereNotIn('id', $adminDeals->pluck('id')->toArray())
-                ->latest()
-                ->limit($remaining)
+                ->where(function ($query) {
+                    // Products with either retail or distributor discounts
+                    $query->where(function ($q) {
+                        $q->whereNotNull('retail_discount_value')
+                            ->where('retail_discount_value', '>', 0);
+                    })->orWhere(function ($q) {
+                        $q->whereNotNull('distributor_discount_value')
+                            ->where('distributor_discount_value', '>', 0);
+                    });
+                })
+                ->orderByRaw('GREATEST(
+                    COALESCE(retail_discount_value, 0),
+                    COALESCE(distributor_discount_value, 0)
+                ) DESC')
+                ->limit(2)
                 ->get();
 
-            $adminDeals = $adminDeals->concat($fallbackProducts);
+            // If no discount products found, get latest published products
+            if ($discountProducts->isEmpty()) {
+                $discountProducts = Product::with(['category', 'taxCategory', 'images'])
+                    ->where('is_published', true)
+                    ->latest()
+                    ->limit(2)
+                    ->get();
+            }
+
+            // Format and return discount products as deals
+            return $discountProducts->map(function ($product) {
+                $isWishlisted = false; // Default, you can pass wishlist IDs if needed
+
+                // Calculate discount percentage
+                $discountValue = max(
+                    $product->retail_discount_value ?? 0,
+                    $product->distributor_discount_value ?? 0
+                );
+                $discountType = $discountValue > 0 ?
+                    ($product->retail_discount_type ?? $product->distributor_discount_type ?? 'percentage') :
+                    'percentage';
+
+                // Get product reviews
+                $averageRating = ProductReview::where('product_id', $product->id)
+                    ->avg('rating');
+                $totalReviews = ProductReview::where('product_id', $product->id)
+                    ->count();
+
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'slug' => $product->slug,
+                    'description' => $product->description,
+                    'category' => $product->category ? [
+                        'id' => $product->category->id,
+                        'name' => $product->category->title,
+                        'slug' => $product->category->slug,
+                    ] : null,
+
+                    'retail_mrp' => $product->retail_mrp,
+                    'retail_price' => $product->retail_price,
+                    'retail_discount_value' => $product->retail_discount_value,
+                    'retail_discount_type' => $product->retail_discount_type,
+                    'distributor_mrp' => $product->distributor_mrp,
+                    'distributor_price' => $product->distributor_price,
+                    'distributor_discount_value' => $product->distributor_discount_value,
+                    'distributor_discount_type' => $product->distributor_discount_type,
+
+                    'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+                    'is_active_deal' => false, // Not an active deal, just showing as replacement
+                    'deal_of_the_day_starts_at' => null,
+                    'deal_of_the_day_ends_at' => null,
+
+                    'discount_value' => $discountValue,
+                    'discount_type' => $discountType,
+                    'discount_percentage' => $discountValue > 0 && $discountType === 'percentage' ?
+                        $discountValue : ($discountValue > 0 && $product->retail_mrp > 0 ?
+                            round(($discountValue / $product->retail_mrp) * 100) :
+                            0),
+                    'has_discount' => $discountValue > 0,
+
+                    'is_wishlisted' => $isWishlisted,
+                    'is_trending' => (bool) $product->is_trending,
+                    'is_published' => (bool) $product->is_published,
+
+                    'reviews_summary' => [
+                        'average_rating' => round($averageRating, 1),
+                        'total_reviews' => $totalReviews,
+                    ],
+
+                    'primary_image_url' => $product->primaryImage ?
+                        asset('storage/' . $product->primaryImage->image) :
+                        null,
+                ];
+            })->values()->toArray();
         }
 
-        return $adminDeals
-            ->take(2)
-            ->map(function ($product) use ($wishlistIds) {
-                return $this->formatProduct($product, $wishlistIds);
-            })
-            ->values()
-            ->toArray();
+        // If admin deals exist, format and return them (they are already filtered by time)
+        $wishlistIds = []; // You can pass wishlist IDs from request if needed
+
+        return $adminDeals->map(function ($product) use ($wishlistIds) {
+            $isWishlisted = in_array($product->id, $wishlistIds);
+            $isActiveDeal = $product->isActiveDealOfTheDay();
+
+            // Calculate discount percentage
+            $discountValue = max(
+                $product->retail_discount_value ?? 0,
+                $product->distributor_discount_value ?? 0
+            );
+            $discountType = $discountValue > 0 ?
+                ($product->retail_discount_type ?? $product->distributor_discount_type ?? 'percentage') :
+                'percentage';
+
+            // Get product reviews
+            $averageRating = ProductReview::where('product_id', $product->id)
+                ->avg('rating');
+            $totalReviews = ProductReview::where('product_id', $product->id)
+                ->count();
+
+            return [
+                'id' => $product->id,
+                'name' => $product->name,
+                'slug' => $product->slug,
+                'description' => $product->description,
+                'category' => $product->category ? [
+                    'id' => $product->category->id,
+                    'name' => $product->category->title,
+                    'slug' => $product->category->slug,
+                ] : null,
+
+                'retail_mrp' => $product->retail_mrp,
+                'retail_price' => $product->retail_price,
+                'retail_discount_value' => $product->retail_discount_value,  // ADD THIS
+                'retail_discount_type' => $product->retail_discount_type,    // ADD THIS
+                'distributor_mrp' => $product->distributor_mrp,
+                'distributor_price' => $product->distributor_price,
+                'distributor_discount_value' => $product->distributor_discount_value,  // ADD THIS
+                'distributor_discount_type' => $product->distributor_discount_type,    // ADD THIS
+
+                'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+                'is_active_deal' => $isActiveDeal,
+                'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+                'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+
+                // 'discount_value' => $discountValue,  // ADD THIS
+                // 'discount_type' => $discountType,    // ADD THIS
+                // 'discount_percentage' => $discountValue > 0 && $discountType === 'percentage' ?
+                //     $discountValue :
+                //     ($discountValue > 0 && $product->retail_mrp > 0 ?
+                //         round(($discountValue / $product->retail_mrp) * 100) :
+                //         0),  // ADD THIS
+                // 'has_discount' => $discountValue > 0,  // ADD THIS
+
+                'is_wishlisted' => $isWishlisted,
+                'is_trending' => (bool) $product->is_trending,
+                'is_published' => (bool) $product->is_published,
+
+                'reviews_summary' => [
+                    'average_rating' => round($averageRating, 1),
+                    'total_reviews' => $totalReviews,
+                ],
+
+                'primary_image_url' => $product->primaryImage ?
+                    asset('storage/' . $product->primaryImage->image) :
+                    null,
+            ];
+        })->values()->toArray();
     }
+
 
     protected function calculateDiscountPercentage($product, $type = 'retail')
     {
