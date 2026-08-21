@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Models\OrderLine;
 use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductReview;
@@ -1575,33 +1576,92 @@ class ProductController extends Controller
     /**
      * Get all active deal of the day products
      */
-    public function getDealOfTheDayProducts(Request $request)
+    // public function getDealOfTheDayProducts(Request $request)
+    // {
+    //     $now = now();
+
+    //     $products = Product::with(['category', 'taxCategory', 'images', 'primaryImage'])
+    //         ->where('is_published', true)
+    //         ->where('is_deal_of_the_day', true)
+    //         ->where(function ($query) use ($now) {
+    //             $query->whereNull('deal_of_the_day_starts_at')
+    //                 ->orWhere('deal_of_the_day_starts_at', '<=', $now);
+    //         })
+    //         ->where(function ($query) use ($now) {
+    //             $query->whereNull('deal_of_the_day_ends_at')
+    //                 ->orWhere('deal_of_the_day_ends_at', '>=', $now);
+    //         })
+    //         ->orderBy('deal_of_the_day_starts_at', 'asc')
+    //         ->paginate($request->get('per_page', 15));
+
+    //     return response()->json([
+    //         'data' => $this->formatProductCollection($products),
+    //         'meta' => [
+    //             'current_page' => $products->currentPage(),
+    //             'per_page' => $products->perPage(),
+    //             'total' => $products->total(),
+    //             'last_page' => $products->lastPage(),
+    //         ]
+    //     ]);
+    // }
+    protected function getDealOfTheDayProducts($wishlistIds = [])
     {
-        $now = now();
-
-        $products = Product::with(['category', 'taxCategory', 'images', 'primaryImage'])
-            ->where('is_published', true)
+        // 1. Admin-selected Deal of the Day products
+        $adminDeals = Product::with(['category', 'taxCategory', 'images'])
             ->where('is_deal_of_the_day', true)
-            ->where(function ($query) use ($now) {
-                $query->whereNull('deal_of_the_day_starts_at')
-                    ->orWhere('deal_of_the_day_starts_at', '<=', $now);
-            })
-            ->where(function ($query) use ($now) {
-                $query->whereNull('deal_of_the_day_ends_at')
-                    ->orWhere('deal_of_the_day_ends_at', '>=', $now);
-            })
-            ->orderBy('deal_of_the_day_starts_at', 'asc')
-            ->paginate($request->get('per_page', 15));
+            ->where('is_published', true)
+            ->orderBy('trending_sort_order')
+            ->get();
 
-        return response()->json([
-            'data' => $this->formatProductCollection($products),
-            'meta' => [
-                'current_page' => $products->currentPage(),
-                'per_page' => $products->perPage(),
-                'total' => $products->total(),
-                'last_page' => $products->lastPage(),
-            ]
-        ]);
+        // Already selected product IDs
+        $selectedIds = $adminDeals->pluck('id')->toArray();
+
+        // 2. If less than 2, get most ordered products
+        $required = 2 - $adminDeals->count();
+
+        if ($required > 0) {
+            $defaultProducts = OrderLine::query()
+                ->select('product_id', DB::raw('SUM(quantity) as total_quantity'))
+                ->whereNotNull('product_id')
+                ->whereNotIn('product_id', $selectedIds)
+                ->groupBy('product_id')
+                ->orderByDesc('total_quantity')
+                ->limit($required)
+                ->with('product')
+                ->get()
+                ->pluck('product')
+                ->filter(function ($product) {
+                    return $product
+                        && $product->is_published
+                        && $product->stock_quantity > 0;
+                });
+
+            $adminDeals = $adminDeals->concat($defaultProducts);
+        }
+
+        // 3. If still less than 2, fill from products
+        // (useful when there are not enough products in order_lines)
+        if ($adminDeals->count() < 2) {
+            $remaining = 2 - $adminDeals->count();
+
+            $fallbackProducts = Product::with(['category', 'taxCategory', 'images'])
+                ->where('is_published', true)
+                ->where('stock_quantity', '>', 0)
+                ->whereNotIn('id', $adminDeals->pluck('id')->toArray())
+                ->latest()
+                ->limit($remaining)
+                ->get();
+
+            $adminDeals = $adminDeals->concat($fallbackProducts);
+        }
+
+        return $adminDeals
+            ->take(2)
+            ->map(function ($product) use ($wishlistIds) {
+                return $this->formatProduct($product, $wishlistIds);
+            })
+            ->values()
+            ->toArray();
     }
 
     protected function calculateDiscountPercentage($product, $type = 'retail')
@@ -1990,6 +2050,199 @@ class ProductController extends Controller
             'success' => true,
             'message' => 'Trending products retrieved successfully.',
             'data' => $data,
+        ]);
+    }
+
+    public function getProductSections(Request $request)
+    {
+        // 1. NEW ARRIVALS - Products created within last 30 days
+        $newArrivals = Product::with(['category', 'taxCategory', 'images'])
+            ->where('is_published', true)
+            ->where('created_at', '>=', now()->subDays(30))
+            ->orderBy('created_at', 'desc')
+            ->limit(10)
+            ->get();
+
+        // 2. BEST SELLERS - Top 8 products from order_lines
+        $bestSellerIds = DB::table('order_lines')
+            ->select('product_id', DB::raw('COUNT(*) as order_count'))
+            ->whereNotNull('product_id')
+            ->groupBy('product_id')
+            ->orderBy('order_count', 'DESC')
+            ->limit(8)
+            ->pluck('product_id')
+            ->toArray();
+
+        $bestSellers = Product::with(['category', 'taxCategory', 'images'])
+            ->whereIn('id', $bestSellerIds)
+            ->where('is_published', true)
+            ->get();
+
+        // If no best sellers found, get default products
+        if ($bestSellers->isEmpty()) {
+            $bestSellers = Product::with(['category', 'taxCategory', 'images'])
+                ->where('is_published', true)
+                ->limit(8)
+                ->get();
+        }
+
+        // 3. BEST OFFERS - Products with discounts based on user type
+        $userType = $request->query('user_type', 'customer'); // 'customer' or 'distributor'
+
+        $bestOffers = Product::with(['category', 'taxCategory', 'images'])
+            ->where('is_published', true)
+            ->where(function ($query) use ($userType) {
+                if ($userType === 'distributor') {
+                    // Distributor discounts
+                    $query->whereNotNull('distributor_discount_value')
+                        ->where('distributor_discount_value', '>', 0);
+                } else {
+                    // Customer discounts (retail)
+                    $query->whereNotNull('retail_discount_value')
+                        ->where('retail_discount_value', '>', 0);
+                }
+            })
+            ->orderBy('created_at', 'desc')
+            ->limit(10) // You can adjust the limit
+            ->get();
+
+        // Get wishlist IDs for authenticated user
+        $userId = $request->query('user_id');
+        $wishlistIds = [];
+        if ($userId) {
+            $wishlistIds = DB::table('wishlists')
+                ->where('user_id', $userId)
+                ->pluck('product_id')
+                ->toArray();
+        }
+
+        // Format function for products
+        $formatProducts = function ($products, $wishlistIds, $sectionType) use ($userType) {
+            return $products->map(function ($product) use ($wishlistIds, $sectionType, $userType) {
+                $isWishlisted = in_array($product->id, $wishlistIds);
+                $isActiveDeal = $product->isActiveDealOfTheDay();
+
+                // Calculate discount based on user type
+                $discountValue = 0;
+                $discountType = null;
+                $discountedPrice = null;
+                $originalPrice = null;
+
+                if ($userType === 'distributor') {
+                    $originalPrice = $product->distributor_mrp ?? $product->retail_mrp;
+                    $discountValue = $product->distributor_discount_value ?? 0;
+                    $discountType = $product->distributor_discount_type ?? null;
+                    $currentPrice = $product->distributor_price ?? $product->retail_price;
+                } else {
+                    $originalPrice = $product->retail_mrp;
+                    $discountValue = $product->retail_discount_value ?? 0;
+                    $discountType = $product->retail_discount_type ?? null;
+                    $currentPrice = $product->retail_price;
+                }
+
+                // Calculate discounted price if discount exists
+                if ($discountValue > 0) {
+                    if ($discountType === 'percentage') {
+                        $discountedPrice = $originalPrice - ($originalPrice * $discountValue / 100);
+                    } else if ($discountType === 'fixed') {
+                        $discountedPrice = $originalPrice - $discountValue;
+                    } else {
+                        $discountedPrice = $currentPrice;
+                    }
+                    $discountedPrice = max(0, $discountedPrice);
+                }
+
+                // Get product reviews
+                $reviews = ProductReview::with([
+                    'user' => function ($query) {
+                        $query->select('id', 'full_name', 'profile_picture');
+                    },
+                    'images'
+                ])
+                    ->where('product_id', $product->id)
+                    ->orderBy('created_at', 'desc')
+                    ->limit(5)
+                    ->get();
+
+                $averageRating = ProductReview::where('product_id', $product->id)
+                    ->avg('rating');
+
+                $totalReviews = ProductReview::where('product_id', $product->id)
+                    ->count();
+
+                // Get order count for best sellers
+                $orderCount = DB::table('order_lines')
+                    ->where('product_id', $product->id)
+                    ->count();
+
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'slug' => $product->slug,
+                    'description' => $product->description,
+                    'category' => $product->category ? [
+                        'id' => $product->category->id,
+                        'name' => $product->category->title,
+                        'slug' => $product->category->slug,
+                    ] : null,
+
+                    // Price information based on user type
+                    'original_price' => $originalPrice,
+                    'current_price' => $currentPrice,
+                    'discounted_price' => $discountedPrice,
+                    // 'discount_value' => $discountValue,
+                    // 'discount_type' => $discountType,
+                    'discount_percentage' => $discountValue > 0 && $discountType === 'percentage' ? $discountValue : ($discountValue > 0 && $originalPrice > 0 ? round(($discountValue / $originalPrice) * 100) : 0),
+                    'has_discount' => $discountValue > 0,
+
+                    'is_published' => (bool) $product->is_published,
+                    'is_trending' => (bool) $product->is_trending,
+                    'is_wishlisted' => $isWishlisted,
+
+                    // Section specific flags
+                    'is_new_arrival' => $sectionType === 'new_arrivals',
+                    'is_best_seller' => $sectionType === 'best_sellers',
+                    'is_best_offer' => $sectionType === 'best_offers',
+
+                    // For best sellers
+                    'order_count' => $orderCount,
+
+                    'reviews_summary' => [
+                        'average_rating' => round($averageRating, 1),
+                        'total_reviews' => $totalReviews,
+                    ],
+
+                    'primary_image_url' => $product->primaryImage ? asset('storage/' . $product->primaryImage->image) : null,
+                ];
+            })->values()->toArray();
+        };
+
+        // Format each section
+        $newArrivalsFormatted = $formatProducts($newArrivals, $wishlistIds, 'new_arrivals');
+        $bestSellersFormatted = $formatProducts($bestSellers, $wishlistIds, 'best_sellers');
+        $bestOffersFormatted = $formatProducts($bestOffers, $wishlistIds, 'best_offers');
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Products sections retrieved successfully',
+            'user_type' => $userType,
+            'data' => [
+                'new_arrivals' => [
+                    'title' => 'New Arrivals',
+                    'count' => count($newArrivalsFormatted),
+                    'products' => $newArrivalsFormatted,
+                ],
+                'best_sellers' => [
+                    'title' => 'Best Sellers',
+                    'count' => count($bestSellersFormatted),
+                    'products' => $bestSellersFormatted,
+                ],
+                'best_offers' => [
+                    'title' => 'Best Offers',
+                    'count' => count($bestOffersFormatted),
+                    'products' => $bestOffersFormatted,
+                ],
+            ],
         ]);
     }
 }
