@@ -108,7 +108,7 @@ class UserDashboardController extends Controller
                 $images = $product->images->map(function ($image) {
                     return [
                         'id' => $image->id,
-                        'image_url' => asset('storage/products/' . $image->image),
+                        'image_url' => asset('storage/' . $image->image),
                         'is_primary' => $image->is_primary
                     ];
                 });
@@ -329,7 +329,7 @@ class UserDashboardController extends Controller
                     'images' => $product->images->map(function ($image) {
                         return [
                             'id' => $image->id,
-                            'image_url' => asset('storage/products/' . $image->image),
+                            'image_url' => asset('storage/' . $image->image),
                             'is_primary' => $image->is_primary
                         ];
                     }),
@@ -368,7 +368,7 @@ class UserDashboardController extends Controller
                     'images' => $product->images->map(function ($image) {
                         return [
                             'id' => $image->id,
-                            'image_url' => asset('storage/products/' . $image->image),
+                            'image_url' => asset('storage/' . $image->image),
                             'is_primary' => $image->is_primary
                         ];
                     })
