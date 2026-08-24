@@ -341,6 +341,7 @@ Route::get('/orders/statuses', [OrderController::class, 'statuses']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/dashboard', [UserDashboardController::class, 'dashboard']);
+    Route::get('/distributor-stats', [UserDashboardController::class, 'getDistributorStats']);
     Route::get('/invoice/order/{orderId}', [InvoiceController::class, 'getInvoiceByOrder']);
     // Distributor Ledger & Tax Summary
     Route::get('/distributor/ledger', [LedgerController::class, 'index']);

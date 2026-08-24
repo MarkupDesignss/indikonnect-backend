@@ -10,8 +10,10 @@ use App\Models\Product;
 use Carbon\Carbon;
 use App\Models\OrderLine;
 use App\Models\ProductReview;
+use App\Models\User;
 use App\Services\DistributorService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class UserDashboardController extends Controller
@@ -491,6 +493,90 @@ class UserDashboardController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function getDistributorStats(Request $request)
+    {
+        try {
+            // Get the authenticated user
+            $authUser = Auth::user();
+
+            // Check if user is authenticated
+            if (!$authUser) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthenticated. Please login first.',
+                    'data' => []
+                ], 401);
+            }
+
+            // Check if the authenticated user is a distributor
+            if ($authUser->account_type !== 'distributor') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Access denied. Only distributors can access this data.',
+                    'data' => []
+                ], 403);
+            }
+
+            // Get the authenticated user's ID
+            $userId = $authUser->id;
+
+            // Get the distributor user
+            $user = User::where('account_type', 'distributor')
+                ->where('id', $userId)
+                ->first();
+
+            // If user not found
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Distributor not found',
+                    'data' => []
+                ], 404);
+            }
+
+            // Calculate statistics using order_lines table
+            $stats = DB::table('orders as o')
+                ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
+                ->join('products as p', 'ol.product_id', '=', 'p.id')
+                ->where('o.user_id', $userId)
+                ->where('o.status', '!=', 'cancelled')
+                ->select([
+                    DB::raw('COUNT(DISTINCT o.id) as total_orders'),
+                    DB::raw('COALESCE(SUM(p.distributor_mrp * ol.quantity), 0) as total_amount_mrp'),
+                    DB::raw('COALESCE(SUM((p.distributor_mrp - p.distributor_price) * ol.quantity), 0) as total_savings'),
+                    DB::raw('COALESCE(SUM(o.coin_redeemed), 0) as total_coins_earned')
+                ])
+                ->first();
+
+            // Build the response data
+            $result = [
+                'user_id' => $user->id,
+                'full_name' => $user->full_name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+                'total_orders' => (int) $stats->total_orders,
+                'total_amount_mrp' => (float) $stats->total_amount_mrp,
+                'total_savings' => (float) $stats->total_savings,
+                'total_coins_earned' => (int) $stats->total_coins_earned,
+                'account_type' => $user->account_type,
+                'joined_at' => $user->created_at->toDateTimeString(),
+            ];
+
+            // Return response
+            return response()->json([
+                'success' => true,
+                'data' => $result,
+                'message' => 'Distributor stats retrieved successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve distributor stats',
+                'error' => $e->getMessage()
             ], 500);
         }
     }
