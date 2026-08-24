@@ -2323,4 +2323,129 @@ class ProductController extends Controller
 
         return $slug;
     }
+
+    /**
+     * ============================================================
+     * OUTBOUND API METHODS
+     * For external systems (Commission System)
+     * ============================================================
+     */
+
+    /**
+     * Get products for external systems.
+     * Supports pagination, last_sync marker, and filters.
+     * 
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function externalIndex(Request $request): JsonResponse
+    {
+        $perPage = (int) $request->input('per_page', 50);
+        $perPage = min($perPage, 100);
+
+        $lastSync = $request->input('last_sync');
+
+        $query = Product::with(['category', 'taxCategory', 'images'])
+            ->where('is_published', true);
+
+        // If last_sync provided, only get updated after that time
+        if ($lastSync) {
+            $query->where('updated_at', '>', $lastSync);
+        }
+
+        $products = $query->orderBy('updated_at', 'desc')->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => $products->items()->map(function ($product) {
+                return [
+                    'id' => $product->id,
+                    'product_code' => $product->product_code,
+                    'hsn_code' => $product->hsn_code,
+                    'name' => $product->name,
+                    'description' => $product->description,
+                    'specification' => $product->specification,
+                    'category' => [
+                        'id' => $product->category->id ?? null,
+                        'name' => $product->category->title ?? null,
+                    ],
+                    'tax_category' => [
+                        'id' => $product->taxCategory->id ?? null,
+                        'name' => $product->taxCategory->name ?? null,
+                        'rate' => (float) ($product->taxCategory->rate ?? 0),
+                    ],
+                    'pricing' => [
+                        'retail_price' => (float) $product->retail_price,
+                        'retail_mrp' => (float) $product->retail_mrp,
+                        'retail_discount_type' => $product->retail_discount_type,
+                        'retail_discount_value' => (float) $product->retail_discount_value,
+                        'distributor_price' => (float) $product->distributor_price,
+                        'distributor_mrp' => (float) $product->distributor_mrp,
+                        'distributor_discount_type' => $product->distributor_discount_type,
+                        'distributor_discount_value' => (float) $product->distributor_discount_value,
+                    ],
+                    'stock' => [
+                        'quantity' => $product->stock_quantity,
+                        'low_stock_threshold' => $product->low_stock_threshold,
+                    ],
+                    'images' => $product->images->map(function ($image) {
+                        return [
+                            'id' => $image->id,
+                            'url' => asset('storage/' . $image->image),
+                            'is_primary' => (bool) $image->is_primary,
+                            'sort_order' => $image->sort_order,
+                        ];
+                    }),
+                    'status' => [
+                        'is_published' => (bool) $product->is_published,
+                        'is_trending' => (bool) $product->is_trending,
+                        'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+                        'deal_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+                        'deal_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+                    ],
+                    'created_at' => $product->created_at->toISOString(),
+                    'updated_at' => $product->updated_at->toISOString(),
+                ];
+            }),
+            'meta' => [
+                'total' => $products->total(),
+                'per_page' => $products->perPage(),
+                'current_page' => $products->currentPage(),
+                'last_page' => $products->lastPage(),
+                'last_sync_marker' => $products->items()->isNotEmpty() 
+                    ? $products->items()->first()->updated_at->toISOString() 
+                    : null,
+            ],
+        ]);
+    }
+
+    /**
+     * Get single product by ID or product_code for external systems.
+     * 
+     * @param Request $request
+     * @param string $identifier
+     * @return JsonResponse
+     */
+    public function externalShow(Request $request, string $identifier): JsonResponse
+    {
+        $product = Product::with(['category', 'taxCategory', 'images'])
+            ->where(function ($query) use ($identifier) {
+                $query->where('id', $identifier)
+                    ->orWhere('product_code', $identifier);
+            })
+            ->where('is_published', true)
+            ->first();
+
+        if (!$product) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found.'
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $product,
+        ]);
+    }
 }

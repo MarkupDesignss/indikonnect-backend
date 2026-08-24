@@ -839,4 +839,132 @@ class OrderController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * ============================================================
+     * OUTBOUND API METHODS (FR-IN-003)
+     * For external systems (Commission System)
+     * ============================================================
+     */
+
+    /**
+     * Get orders for external systems.
+     * Supports date range, status filter, and pagination.
+     * 
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function externalIndex(Request $request): JsonResponse
+    {
+        $request->validate([
+            'from' => 'nullable|date',
+            'to' => 'nullable|date|after_or_equal:from',
+            'status' => 'nullable|string|in:pending,confirmed,processing,dispatched,delivered,cancelled,returned',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
+
+        $perPage = (int) $request->input('per_page', 50);
+
+        $query = Order::with(['user', 'lines.product', 'billingAddress', 'deliveryAddress'])
+            ->whereIn('status', ['confirmed', 'processing', 'dispatched', 'delivered']);
+
+        if ($request->has('from')) {
+            $query->where('created_at', '>=', $request->from . ' 00:00:00');
+        }
+        if ($request->has('to')) {
+            $query->where('created_at', '<=', $request->to . ' 23:59:59');
+        }
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $orders = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => $orders->items()->map(function ($order) {
+                return [
+                    'id' => $order->id,
+                    'order_reference' => $order->order_reference,
+                    'user_id' => $order->user_id,
+                    'distributor_id' => $order->user->distributor_id ?? null,
+                    'account_type' => $order->user->account_type ?? 'customer',
+                    'order_type' => $order->order_type,
+                    'status' => $order->status,
+                    'return_status' => $order->return_status,
+                    'total_payable' => (float) $order->total_payable,
+                    'subtotal' => (float) $order->subtotal,
+                    'total_gst' => (float) $order->total_gst,
+                    'shipping_charge' => (float) $order->shipping_charge,
+                    'coupon_code' => $order->coupon_code,
+                    'coupon_discount' => (float) $order->coupon_discount,
+                    'coin_redeemed' => (float) $order->coin_redeemed_amount,
+                    'commissionable_volume' => (float) $order->commissionable_volume,
+                    'lines' => $order->lines->map(function ($line) {
+                        return [
+                            'order_line_id' => $line->id,
+                            'product_id' => $line->product_id,
+                            'product_name' => $line->product->name ?? null,
+                            'product_code' => $line->product->product_code ?? null,
+                            'quantity' => $line->quantity,
+                            'unit_price' => (float) $line->unit_price,
+                            'gst_rate' => (float) $line->gst_rate,
+                            'gst_amount' => (float) $line->gst_amount,
+                            'line_total' => (float) $line->line_total,
+                            'commissionable_volume' => (float) $line->commissionable_volume,
+                            'return_status' => $line->return_status,
+                            'returned_quantity' => $line->returned_quantity,
+                        ];
+                    }),
+                    'delivery_address' => $order->deliveryAddress ? [
+                        'recipient_name' => $order->deliveryAddress->recipient_name,
+                        'address_line_1' => $order->deliveryAddress->address_line_1,
+                        'address_line_2' => $order->deliveryAddress->address_line_2,
+                        'city' => $order->deliveryAddress->city,
+                        'state' => $order->deliveryAddress->state,
+                        'postcode' => $order->deliveryAddress->postcode,
+                        'country' => $order->deliveryAddress->country,
+                    ] : null,
+                    'payment_gateway' => $order->payment_gateway,
+                    'gateway_transaction_id' => $order->gateway_transaction_id,
+                    'confirmed_at' => $order->confirmed_at?->toISOString(),
+                    'delivered_at' => $order->delivered_at?->toISOString(),
+                    'created_at' => $order->created_at->toISOString(),
+                    'updated_at' => $order->updated_at->toISOString(),
+                ];
+            }),
+            'meta' => [
+                'total' => $orders->total(),
+                'per_page' => $orders->perPage(),
+                'current_page' => $orders->currentPage(),
+                'last_page' => $orders->lastPage(),
+            ],
+        ]);
+    }
+
+    /**
+     * Get single order by order_reference for external systems.
+     * 
+     * @param Request $request
+     * @param string $orderReference
+     * @return JsonResponse
+     */
+    public function externalShow(Request $request, string $orderReference): JsonResponse
+    {
+        $order = Order::with(['user', 'lines.product', 'billingAddress', 'deliveryAddress'])
+            ->where('order_reference', $orderReference)
+            ->first();
+
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found.'
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $order,
+        ]);
+    }
 }
