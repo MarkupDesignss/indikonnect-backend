@@ -33,7 +33,8 @@ class CheckoutService
         GSTCalculator $gstCalculator,
         InvoiceService $invoiceService,
         RazorpayService $razorpayService,
-        PdfInvoiceService $pdfInvoiceService
+        PdfInvoiceService $pdfInvoiceService,
+        NotificationService $notificationService
     ) {
         $this->gstCalculator = $gstCalculator;
         $this->invoiceService = $invoiceService;
