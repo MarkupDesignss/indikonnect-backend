@@ -4,11 +4,10 @@ namespace App\Notifications;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Messages\BroadcastMessage;
 
-class DynamicNotification extends Notification implements ShouldQueue
+class DynamicNotification extends Notification
 {
     use Queueable;
 
@@ -23,13 +22,13 @@ class DynamicNotification extends Notification implements ShouldQueue
         string $title,
         string $message,
         array $placeholders = [],
-        array $extraData = []
+        array $extraData = []  // Add this parameter
     ) {
         $this->type = $type;
         $this->title = $title;
         $this->message = $message;
         $this->placeholders = $placeholders;
-        $this->extraData = $extraData;
+        $this->extraData = $extraData;  // Store extra data
     }
 
     /**
@@ -50,7 +49,7 @@ class DynamicNotification extends Notification implements ShouldQueue
             'title' => $this->title,
             'message' => $this->message,
             'placeholders' => $this->placeholders,
-            'extra_data' => $this->extraData,
+            'extra_data' => $this->extraData,  // Include extra data
             'icon' => $this->getIcon(),
             'color' => $this->getColor(),
         ];

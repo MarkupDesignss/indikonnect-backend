@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder;
 
 class AdminNotification extends Model
 {
@@ -18,13 +19,23 @@ class AdminNotification extends Model
         return $this->belongsTo(Admin::class);
     }
 
-    public function markAsRead()
-    {
-        $this->update(['read_at' => now()]);
+    public function scopeForAdmin(
+        \Illuminate\Database\Eloquent\Builder $query,
+        int $adminId
+    ): \Illuminate\Database\Eloquent\Builder {
+        return $query->where('admin_id', $adminId);
     }
 
-    public function scopeUnread($query)
+    public function markAsRead()
     {
+        $this->update([
+            'read_at' => now(),
+        ]);
+    }
+
+    public function scopeUnread(
+        \Illuminate\Database\Eloquent\Builder $query
+    ): \Illuminate\Database\Eloquent\Builder {
         return $query->whereNull('read_at');
     }
 }

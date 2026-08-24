@@ -35,6 +35,7 @@ use App\Http\Controllers\API\LedgerController;
 use App\Http\Controllers\API\BeneficiaryController;
 use App\Http\Controllers\API\GenealogyController;
 use App\Http\Controllers\API\BuybackController;
+use App\Http\Controllers\API\NotificationController;
 use App\Http\Controllers\API\UserNotificationController;
 use App\Http\Controllers\API\CoolingOffController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
@@ -343,6 +344,7 @@ Route::get('/orders/statuses', [OrderController::class, 'statuses']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/dashboard', [UserDashboardController::class, 'dashboard']);
+    Route::get('/distributor-stats', [UserDashboardController::class, 'getDistributorStats']);
     Route::get('/invoice/order/{orderId}', [InvoiceController::class, 'getInvoiceByOrder']);
     // Distributor Ledger & Tax Summary
     Route::get('/distributor/ledger', [LedgerController::class, 'index']);
@@ -498,4 +500,13 @@ Route::prefix('external')->middleware(['outbound.api'])->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
     // Cooling-Off Withdrawal
     Route::post('/orders/{orderReference}/cooling-off-withdraw', [CoolingOffController::class, 'withdraw']);
+});
+
+Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
+    Route::get('notifications', [NotificationController::class, 'index']);
+    Route::get('notifications/{id}', [NotificationController::class, 'show']);
+    Route::put('notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::put('notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+    Route::delete('notifications/{id}', [NotificationController::class, 'destroy']);
+    Route::delete('notifications', [NotificationController::class, 'destroyAll']);
 });

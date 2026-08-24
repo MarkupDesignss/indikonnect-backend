@@ -110,10 +110,10 @@ class UserNotificationController extends Controller
             'message' => 'Notification deleted successfully'
         ]);
     }
-    public function deleteAll($id): JsonResponse
+    public function deleteAll(): JsonResponse
     {
         $user = auth()->user();
-        $notification = $user->notifications()->find($id);
+        $notification = $user->notifications();
 
         if (!$notification) {
             return response()->json([
