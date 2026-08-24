@@ -126,7 +126,7 @@ class NotificationService
                                 'url' => $image->url ?? $image->image_url ?? '',
                                 'path' => $image->path ?? '',
                             ] : null,
-                            'product_data' => $product->toArray()
+                            // 'product_data' => $product->toArray()
                         ];
                     })->toArray()
                 ];
@@ -138,7 +138,7 @@ class NotificationService
             $rendered['subject'],
             $rendered['body'],
             $template->placeholders ?? [],
-            $extraData  // Pass extra data
+            $extraData
         ));
     }
 
