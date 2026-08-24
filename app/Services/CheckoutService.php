@@ -1663,7 +1663,7 @@ class CheckoutService
                     // Send notification using dynamic template system
                     $this->notificationService->sendUserNotification(
                         $user,
-                        'order_confirmed', // Event type matching template
+                        'order_confirmed',
                         $templateData,
                         ['database', 'mail']
                     );
