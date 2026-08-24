@@ -132,6 +132,8 @@ Route::prefix('categories')->group(function () {
 // Contact us
 Route::prefix('contact')->group(function () {
     // Public route
+    Route::post('/send-request', [ContactController::class, 'store']);
+    
     // Protected routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/', [ContactController::class, 'index']);
@@ -139,7 +141,6 @@ Route::prefix('contact')->group(function () {
         Route::delete('/{id}', [ContactController::class, 'destroy']);
         Route::post('/bulk-delete', [ContactController::class, 'bulkDelete']);
     });
-    Route::post('/', [ContactController::class, 'store']);
 });
 
 // Newsletters

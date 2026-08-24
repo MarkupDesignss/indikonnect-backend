@@ -13,6 +13,32 @@ use Illuminate\Support\Facades\Validator;
 class ContactController extends Controller
 {
     // Store new contact message
+    // public function store(Request $request)
+    // {
+    //     try {
+    //         $data = $request->validate([
+    //             'name' => 'required|string|max:255',
+    //             'email' => 'required|email|max:255',
+    //             'phone' => 'nullable|string|max:20',
+    //             'message' => 'required|string|min:10|max:5000',
+    //         ]);
+    //         $contact = Contact::create($data);
+
+    //         Mail::to($contact->email)->send(new ContactConfirmation($contact));
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Your message has been sent successfully!',
+    //             'data' => $contact
+    //         ], 201);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to send message. Please try again later.',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function store(Request $request)
     {
         try {
@@ -22,19 +48,22 @@ class ContactController extends Controller
                 'phone' => 'nullable|string|max:20',
                 'message' => 'required|string|min:10|max:5000',
             ]);
+            
             $contact = Contact::create($data);
-
-            Mail::to($contact->email)->send(new ContactConfirmation($contact));
-
+            
+            // TEMPORARILY COMMENT MAIL
+            // Mail::to($contact->email)->send(new ContactConfirmation($contact));
+            
             return response()->json([
                 'success' => true,
                 'message' => 'Your message has been sent successfully!',
                 'data' => $contact
             ], 201);
+            
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to send message. Please try again later.',
+                'message' => 'Failed to send message.',
                 'error' => $e->getMessage()
             ], 500);
         }
