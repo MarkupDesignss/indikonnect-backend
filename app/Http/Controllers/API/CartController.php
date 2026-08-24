@@ -188,7 +188,7 @@ class CartController extends Controller
 
         $productId = $request->product_id;
         $quantity = $request->quantity ?? 1;
-        $fromWishlist = $request->boolean('from_wishlist');
+        $fromWishlist = $request->boolean('from_wishlist') ?? false;
 
         $product = Product::find($productId);
 

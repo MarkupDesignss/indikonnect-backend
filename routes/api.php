@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\ContentController;
 use App\Http\Controllers\Admin\MenuController;
+use App\Http\Controllers\Admin\NotificationTemplateController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\Admin\PayoutController;
@@ -34,6 +35,7 @@ use App\Http\Controllers\API\LedgerController;
 use App\Http\Controllers\API\BeneficiaryController;
 use App\Http\Controllers\API\GenealogyController;
 use App\Http\Controllers\API\BuybackController;
+use App\Http\Controllers\API\UserNotificationController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 
 Route::get('/login', function () {
@@ -102,6 +104,8 @@ Route::prefix('contents')->group(function () {
     Route::get('/{slug}', [ContentController::class, 'show']);
     // Protected routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+        Route::get('/admins/all', [ContentController::class, 'adminindex']);
+        Route::get('/admin/{slug}', [ContentController::class, 'adminindex']);
         Route::post('/add', [ContentController::class, 'store']);
         Route::post('/update/{id}', [ContentController::class, 'update']);
         Route::delete('/delete/{id}', [ContentController::class, 'destroy']);
@@ -439,11 +443,39 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::middleware('auth:sanctum')->group(function () {
-    // Buyback             
     Route::prefix('distributor/buyback')->group(function () {
         Route::get('/eligible', [BuybackController::class, 'eligibleStock']);
         Route::post('/initiate', [BuybackController::class, 'initiate']);
         Route::get('/history', [BuybackController::class, 'history']);
         Route::get('/summary', [BuybackController::class, 'summary']);
     });
+});
+
+// Admin routes with authentication
+// Admin routes with authentication
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    // CRUD routes
+    Route::get('/notification-templates', [NotificationTemplateController::class, 'index']);
+    Route::post('/notification-templates', [NotificationTemplateController::class, 'store']);
+    Route::get('/notification-templates/{id}', [NotificationTemplateController::class, 'show']);
+    Route::post('/notification-templates/{id}', [NotificationTemplateController::class, 'update']);
+    Route::delete('/notification-templates/{id}', [NotificationTemplateController::class, 'destroy']);
+
+    // Additional routes
+    Route::post('/notification-templates/{id}/activate', [NotificationTemplateController::class, 'activate']);
+    Route::post('/notification-templates/{id}/preview', [NotificationTemplateController::class, 'preview']);
+    Route::get('/notification-template/event-types', [NotificationTemplateController::class, 'eventTypes']);
+    Route::get('/notification-template/channels', [NotificationTemplateController::class, 'channels']);
+});
+
+// Public route for getting active template
+Route::get('/notification-templates/active/{eventType}/{channel}', [NotificationTemplateController::class, 'getActiveTemplate']);
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/notifications', [UserNotificationController::class, 'index']);
+    Route::get('/notifications/unread', [UserNotificationController::class, 'unreadNotifications']);
+    Route::post('/notifications/{id}/read', [UserNotificationController::class, 'markAsRead']);
+    Route::post('/notifications/read-all', [UserNotificationController::class, 'markAllAsRead']);
+    Route::delete('/notifications/delete-all', [UserNotificationController::class, 'deleteAll']);
+    Route::delete('/notifications/{id}', [UserNotificationController::class, 'destroy']);
 });

@@ -26,6 +26,7 @@ class CheckoutService
     protected GSTCalculator $gstCalculator;
     protected InvoiceService $invoiceService;
     protected RazorpayService $razorpayService;
+    protected NotificationService $notificationService;
     protected $pdfInvoiceService;
 
     public function __construct(
@@ -38,6 +39,7 @@ class CheckoutService
         $this->invoiceService = $invoiceService;
         $this->razorpayService = $razorpayService;
         $this->pdfInvoiceService = $pdfInvoiceService;
+        $this->notificationService = $notificationService;
     }
 
     /**
@@ -1519,6 +1521,11 @@ class CheckoutService
                     'order_id' => $order->id,
                 ]);
 
+                // ========== UPDATE ORDER LINE DELIVERY STATUS ==========
+                $line->update([
+                    'delivery_status' => 'confirmed'
+                ]);
+
                 // ========== LOW STOCK NOTIFICATION ==========
                 // Refresh product to get updated stock
                 $product->refresh();
@@ -1634,6 +1641,52 @@ class CheckoutService
                 ]);
             }
             // ==================================================
+            // ========== SEND DYNAMIC NOTIFICATION TO CUSTOMER ==========
+            try {
+                $user = $order->user;
+
+                if ($user) {
+                    // Prepare data for template placeholders
+                    $templateData = [
+                        'order_reference' => $order->order_reference,
+                        'total_payable' => number_format($order->total_payable, 2),
+                        'order_date' => $order->created_at->format('d M Y, h:i A'),
+                        'customer_name' => $user->full_name ?? $user->name ?? 'Customer',
+                        'order_id' => $order->id,
+                        'confirmed_at' => now()->format('d M Y, h:i A'),
+                        'payment_gateway' => $gatewayData['gateway'],
+                        'transaction_id' => $gatewayData['transaction_id'],
+                        'amount_paid' => number_format($order->total_payable, 2),
+                    ];
+
+                    // Send notification using dynamic template system
+                    $this->notificationService->sendUserNotification(
+                        $user,
+                        'order_confirmed', // Event type matching template
+                        $templateData,
+                        ['database', 'mail']
+                    );
+
+                    Log::info('Dynamic order confirmation notification sent to customer', [
+                        'order_id' => $order->id,
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                        'event_type' => 'order_confirmed'
+                    ]);
+                } else {
+                    Log::warning('No user found for order confirmation notification', [
+                        'order_id' => $order->id
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error('Failed to send dynamic notification to customer: ' . $e->getMessage(), [
+                    'order_id' => $order->id,
+                    'user_id' => $order->user_id ?? null
+                ]);
+            }
+            // ==========================================================
+
+
 
             return [
                 'success' => true,

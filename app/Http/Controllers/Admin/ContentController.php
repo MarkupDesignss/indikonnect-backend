@@ -19,6 +19,31 @@ class ContentController extends Controller
     public function index(Request $request)
     {
         try {
+            $query = Content::with(['blocks.media'])
+                ->where('status', 'published');
+
+            // Filter by status
+            if ($request->has('status')) {
+                $query->where('status', $request->status);
+            }
+
+            $contents = $query->orderBy('created_at', 'desc')->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $this->formatContents($contents)
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch contents',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    public function adminindex(Request $request)
+    {
+        try {
             $query = Content::with(['blocks.media']);
 
             // Filter by status
@@ -69,6 +94,7 @@ class ContentController extends Controller
         }
     }
 
+
     /**
      * Store a newly created content
      */
@@ -102,7 +128,8 @@ class ContentController extends Controller
             $content = Content::create([
                 'title' => $request->title,
                 'slug' => $request->slug ?? null,
-                'status' => $request->status ?? 'draft'
+                'status' => $request->status ?? 'draft',
+                'current_version' => 1,
             ]);
 
             // Create blocks
@@ -170,6 +197,218 @@ class ContentController extends Controller
     /**
      * Update the specified content
      */
+    // public function update(Request $request, $id)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'title' => 'nullable|string|max:255',
+    //             'status' => 'nullable|in:draft,published',
+    //             'blocks' => 'nullable|array|min:1',
+    //             'blocks.*.heading' => 'nullable|string|max:255',
+    //             'blocks.*.short_description' => 'nullable|string',
+    //             'blocks.*.description' => 'nullable|string',
+    //             'blocks.*.images' => 'nullable|array',
+    //             'blocks.*.images.*' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp',
+    //             'blocks.*.videos' => 'nullable|array',
+    //             'blocks.*.videos.*' => 'nullable|file|mimes:mp4,avi,mov,wmv',
+    //             'blocks.*.existing_images' => 'nullable|array',
+    //             'blocks.*.existing_images.*' => 'nullable|exists:content_media,id',
+    //             'blocks.*.existing_videos' => 'nullable|array',
+    //             'blocks.*.existing_videos.*' => 'nullable|exists:content_media,id',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Validation failed',
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $content = Content::find($id);
+
+    //         if (!$content) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Content not found'
+    //             ], 404);
+    //         }
+
+    //         DB::beginTransaction();
+
+    //         // Update content
+    //         $content->update($request->only(['title', 'status']));
+
+    //         // ONLY process blocks if they are sent in the request
+    //         if ($request->has('blocks') && is_array($request->blocks) && count($request->blocks) > 0) {
+    //             $processedBlockIds = [];
+    //             $blockSortOrder = 0;
+
+    //             foreach ($request->blocks as $blockData) {
+    //                 $block = null;
+
+    //                 if (isset($blockData['id'])) {
+    //                     // Find existing block
+    //                     $block = ContentBlock::find($blockData['id']);
+
+    //                     // Ensure the block belongs to this content
+    //                     if ($block && $block->content_id === $content->id) {
+    //                         // Update existing block
+    //                         $block->update([
+    //                             'heading' => $blockData['heading'] ?? null,
+    //                             'short_description' => $blockData['short_description'] ?? null,
+    //                             'description' => $blockData['description'] ?? null,
+    //                             'sort_order' => $blockSortOrder++
+    //                         ]);
+    //                         $processedBlockIds[] = $block->id;
+    //                     }
+    //                 } else {
+    //                     // Create new block
+    //                     $block = $content->blocks()->create([
+    //                         'heading' => $blockData['heading'] ?? null,
+    //                         'short_description' => $blockData['short_description'] ?? null,
+    //                         'description' => $blockData['description'] ?? null,
+    //                         'sort_order' => $blockSortOrder++
+    //                     ]);
+    //                     $processedBlockIds[] = $block->id;
+    //                 }
+
+    //                 // Only proceed if we have a valid block
+    //                 if (!$block) {
+    //                     continue;
+    //                 }
+
+    //                 // Handle media deletions
+    //                 if (isset($blockData['delete_media']) && is_array($blockData['delete_media'])) {
+    //                     foreach ($blockData['delete_media'] as $mediaId) {
+    //                         $media = ContentMedia::find($mediaId);
+    //                         if ($media && $media->content_block_id === $block->id) {
+    //                             Storage::disk('public')->delete($media->path);
+    //                             $media->delete();
+    //                         }
+    //                     }
+    //                 }
+
+    //                 // Handle existing images - ONLY if existing_images is sent
+    //                 if (isset($blockData['existing_images']) && is_array($blockData['existing_images'])) {
+    //                     $keepImageIds = $blockData['existing_images'];
+
+    //                     // Update sort order for existing images
+    //                     foreach ($keepImageIds as $sortIndex => $mediaId) {
+    //                         $media = ContentMedia::find($mediaId);
+    //                         if ($media && $media->content_block_id === $block->id) {
+    //                             $media->update([
+    //                                 'sort_order' => $sortIndex,
+    //                                 'is_primary' => $sortIndex === 0
+    //                             ]);
+    //                         }
+    //                     }
+
+    //                     // Delete images that are not in the keep list
+    //                     $block->media()
+    //                         ->where('type', 'image')
+    //                         ->whereNotIn('id', $keepImageIds)
+    //                         ->each(function ($media) {
+    //                             Storage::disk('public')->delete($media->path);
+    //                             $media->delete();
+    //                         });
+    //                 }
+    //                 // If existing_images is NOT sent, keep all existing images
+    //                 // Do nothing - images will be preserved
+
+    //                 // Handle existing videos - ONLY if existing_videos is sent
+    //                 if (isset($blockData['existing_videos']) && is_array($blockData['existing_videos'])) {
+    //                     $keepVideoIds = $blockData['existing_videos'];
+
+    //                     // Update sort order for existing videos
+    //                     foreach ($keepVideoIds as $sortIndex => $mediaId) {
+    //                         $media = ContentMedia::find($mediaId);
+    //                         if ($media && $media->content_block_id === $block->id) {
+    //                             $media->update([
+    //                                 'sort_order' => $sortIndex
+    //                             ]);
+    //                         }
+    //                     }
+
+    //                     // Delete videos that are not in the keep list
+    //                     $block->media()
+    //                         ->where('type', 'video')
+    //                         ->whereNotIn('id', $keepVideoIds)
+    //                         ->each(function ($media) {
+    //                             Storage::disk('public')->delete($media->path);
+    //                             $media->delete();
+    //                         });
+    //                 }
+    //                 // If existing_videos is NOT sent, keep all existing videos
+    //                 // Do nothing - videos will be preserved
+
+    //                 // Upload new images
+    //                 if (isset($blockData['images']) && is_array($blockData['images'])) {
+    //                     $currentImageCount = $block->media()->where('type', 'image')->count();
+
+    //                     foreach ($blockData['images'] as $index => $image) {
+    //                         if ($image instanceof \Illuminate\Http\UploadedFile && $image->isValid()) {
+    //                             $path = $image->store('content/images', 'public');
+    //                             $block->media()->create([
+    //                                 'type' => 'image',
+    //                                 'path' => $path,
+    //                                 'is_primary' => $currentImageCount === 0 && $index === 0,
+    //                                 'sort_order' => $currentImageCount + $index
+    //                             ]);
+    //                         }
+    //                     }
+    //                 }
+
+    //                 // Upload new videos
+    //                 if (isset($blockData['videos']) && is_array($blockData['videos'])) {
+    //                     $currentVideoCount = $block->media()->where('type', 'video')->count();
+
+    //                     foreach ($blockData['videos'] as $index => $video) {
+    //                         if ($video instanceof \Illuminate\Http\UploadedFile && $video->isValid()) {
+    //                             $path = $video->store('content/videos', 'public');
+    //                             $block->media()->create([
+    //                                 'type' => 'video',
+    //                                 'path' => $path,
+    //                                 'sort_order' => $currentVideoCount + $index
+    //                             ]);
+    //                         }
+    //                     }
+    //                 }
+    //             }
+
+    //             // Delete blocks that are no longer present
+    //             ContentBlock::where('content_id', $content->id)
+    //                 ->whereNotIn('id', $processedBlockIds)
+    //                 ->each(function ($block) {
+    //                     // Delete all associated media files
+    //                     foreach ($block->media as $media) {
+    //                         Storage::disk('public')->delete($media->path);
+    //                         $media->delete();
+    //                     }
+    //                     // Now delete the block
+    //                     $block->delete();
+    //                 });
+    //         }
+
+    //         DB::commit();
+
+    //         // Load relationships
+    //         $content->load(['blocks.media']);
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Content updated successfully',
+    //             'data' => $this->formatContent($content)
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to update content',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function update(Request $request, $id)
     {
         try {
@@ -198,9 +437,9 @@ class ContentController extends Controller
                 ], 422);
             }
 
-            $content = Content::find($id);
-
-            if (!$content) {
+            // Find the content to update
+            $originalContent = Content::find($id);
+            if (!$originalContent) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Content not found'
@@ -209,44 +448,66 @@ class ContentController extends Controller
 
             DB::beginTransaction();
 
-            // Update content
-            $content->update($request->only(['title', 'status']));
+            // STEP 1: Mark current content as draft
+            $originalContent->status = 'draft';
+            $originalContent->updated_at = now();
+            $originalContent->save();
 
-            // ONLY process blocks if they are sent in the request
+            // STEP 2: Get the latest version number from all versions with same slug
+            $allVersions = Content::where('slug', $originalContent->slug)
+                ->orderBy('id', 'desc')
+                ->get();
+
+            // Calculate next version
+            $latestVersion = $allVersions->first()->current_version ?? '1.0';
+            $newVersion = $this->calculateNextVersion($latestVersion);
+
+            // STEP 3: Create new version with published status
+            $newContent = $originalContent->replicate();
+
+            // Clear the ID so it creates a new record
+            $newContent->id = null;
+
+            // Set new version details
+            $newContent->current_version = $newVersion;
+            $newContent->status = 'published'; // New version is always published
+            $newContent->title = $request->input('title', $originalContent->title);
+            $newContent->slug = $originalContent->slug; // Keep the same slug
+            $newContent->created_at = now();
+            $newContent->updated_at = now();
+            $newContent->save();
+
+            // STEP 4: Handle blocks
             if ($request->has('blocks') && is_array($request->blocks) && count($request->blocks) > 0) {
-                $processedBlockIds = [];
                 $blockSortOrder = 0;
 
                 foreach ($request->blocks as $blockData) {
                     $block = null;
 
                     if (isset($blockData['id'])) {
-                        // Find existing block
-                        $block = ContentBlock::find($blockData['id']);
+                        // Find the original block
+                        $originalBlock = ContentBlock::find($blockData['id']);
 
-                        // Ensure the block belongs to this content
-                        if ($block && $block->content_id === $content->id) {
-                            // Update existing block
-                            $block->update([
-                                'heading' => $blockData['heading'] ?? null,
-                                'short_description' => $blockData['short_description'] ?? null,
-                                'description' => $blockData['description'] ?? null,
+                        if ($originalBlock && $originalBlock->content_id === $originalContent->id) {
+                            // Create new block from original
+                            $block = $newContent->blocks()->create([
+                                'heading' => $blockData['heading'] ?? $originalBlock->heading,
+                                'short_description' => $blockData['short_description'] ?? $originalBlock->short_description,
+                                'description' => $blockData['description'] ?? $originalBlock->description,
                                 'sort_order' => $blockSortOrder++
                             ]);
-                            $processedBlockIds[] = $block->id;
+                            $this->copyMedia($originalBlock, $block);
                         }
                     } else {
                         // Create new block
-                        $block = $content->blocks()->create([
+                        $block = $newContent->blocks()->create([
                             'heading' => $blockData['heading'] ?? null,
                             'short_description' => $blockData['short_description'] ?? null,
                             'description' => $blockData['description'] ?? null,
                             'sort_order' => $blockSortOrder++
                         ]);
-                        $processedBlockIds[] = $block->id;
                     }
 
-                    // Only proceed if we have a valid block
                     if (!$block) {
                         continue;
                     }
@@ -262,11 +523,10 @@ class ContentController extends Controller
                         }
                     }
 
-                    // Handle existing images - ONLY if existing_images is sent
+                    // Handle existing images
                     if (isset($blockData['existing_images']) && is_array($blockData['existing_images'])) {
                         $keepImageIds = $blockData['existing_images'];
 
-                        // Update sort order for existing images
                         foreach ($keepImageIds as $sortIndex => $mediaId) {
                             $media = ContentMedia::find($mediaId);
                             if ($media && $media->content_block_id === $block->id) {
@@ -277,7 +537,6 @@ class ContentController extends Controller
                             }
                         }
 
-                        // Delete images that are not in the keep list
                         $block->media()
                             ->where('type', 'image')
                             ->whereNotIn('id', $keepImageIds)
@@ -286,14 +545,11 @@ class ContentController extends Controller
                                 $media->delete();
                             });
                     }
-                    // If existing_images is NOT sent, keep all existing images
-                    // Do nothing - images will be preserved
 
-                    // Handle existing videos - ONLY if existing_videos is sent
+                    // Handle existing videos
                     if (isset($blockData['existing_videos']) && is_array($blockData['existing_videos'])) {
                         $keepVideoIds = $blockData['existing_videos'];
 
-                        // Update sort order for existing videos
                         foreach ($keepVideoIds as $sortIndex => $mediaId) {
                             $media = ContentMedia::find($mediaId);
                             if ($media && $media->content_block_id === $block->id) {
@@ -303,7 +559,6 @@ class ContentController extends Controller
                             }
                         }
 
-                        // Delete videos that are not in the keep list
                         $block->media()
                             ->where('type', 'video')
                             ->whereNotIn('id', $keepVideoIds)
@@ -312,8 +567,6 @@ class ContentController extends Controller
                                 $media->delete();
                             });
                     }
-                    // If existing_videos is NOT sent, keep all existing videos
-                    // Do nothing - videos will be preserved
 
                     // Upload new images
                     if (isset($blockData['images']) && is_array($blockData['images'])) {
@@ -348,30 +601,30 @@ class ContentController extends Controller
                         }
                     }
                 }
-
-                // Delete blocks that are no longer present
-                ContentBlock::where('content_id', $content->id)
-                    ->whereNotIn('id', $processedBlockIds)
-                    ->each(function ($block) {
-                        // Delete all associated media files
-                        foreach ($block->media as $media) {
-                            Storage::disk('public')->delete($media->path);
-                            $media->delete();
-                        }
-                        // Now delete the block
-                        $block->delete();
-                    });
+            } else {
+                // Copy all blocks from original to new content
+                foreach ($originalContent->blocks as $originalBlock) {
+                    $newBlock = $newContent->blocks()->create([
+                        'heading' => $originalBlock->heading,
+                        'short_description' => $originalBlock->short_description,
+                        'description' => $originalBlock->description,
+                        'sort_order' => $originalBlock->sort_order
+                    ]);
+                    $this->copyMedia($originalBlock, $newBlock);
+                }
             }
 
             DB::commit();
 
-            // Load relationships
-            $content->load(['blocks.media']);
+            $newContent->load(['blocks.media']);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Content updated successfully',
-                'data' => $this->formatContent($content)
+                'data' => $this->formatContent($newContent),
+                'version' => $newVersion,
+                'previous_version_id' => $originalContent->id,
+                'previous_version_status' => 'draft'
             ], 200);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -382,6 +635,46 @@ class ContentController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Calculate next version number
+     */
+    private function calculateNextVersion($currentVersion)
+    {
+        if (empty($currentVersion)) {
+            return '1.0';
+        }
+
+        $parts = explode('.', $currentVersion);
+        $major = (int) $parts[0];
+        $minor = isset($parts[1]) ? (int) $parts[1] : 0;
+
+        $minor++;
+
+        if ($minor >= 10) {
+            $major++;
+            $minor = 0;
+        }
+
+        return $major . '.' . $minor;
+    }
+
+    /**
+     * Copy media from original block to new block
+     */
+    private function copyMedia($originalBlock, $newBlock)
+    {
+        foreach ($originalBlock->media as $media) {
+            $newBlock->media()->create([
+                'type' => $media->type,
+                'path' => $media->path,
+                'alt_text' => $media->alt_text,
+                'is_primary' => $media->is_primary,
+                'sort_order' => $media->sort_order
+            ]);
+        }
+    }
+
     /**
      * Remove the specified content
      */
@@ -435,6 +728,7 @@ class ContentController extends Controller
             'title' => $content->title,
             'slug' => $content->slug,
             'status' => $content->status,
+            'version' => $content->current_version,
             'created_at' => $content->created_at->toISOString(),
             'updated_at' => $content->updated_at->toISOString(),
             'blocks' => $content->blocks->map(function ($block) {
