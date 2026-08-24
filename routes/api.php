@@ -480,3 +480,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('/notifications/delete-all', [UserNotificationController::class, 'deleteAll']);
     Route::delete('/notifications/{id}', [UserNotificationController::class, 'destroy']);
 });
+
+
+Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
+    Route::get('notifications', [Notifi::class, 'index']);
+    Route::get('notifications/{id}', [NotificationController::class, 'show']);
+    Route::put('notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::put('notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+    Route::delete('notifications/{id}', [NotificationController::class, 'destroy']);
+    Route::delete('notifications', [NotificationController::class, 'destroyAll']);
+});
