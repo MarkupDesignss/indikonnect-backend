@@ -12,6 +12,7 @@ use App\Models\Cart;
 use App\Models\Address;
 use App\Models\User;
 use App\Models\Product;
+use Illuminate\Support\Facades\Storage;
 use App\Services\PaymentGateway\RazorpayService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -1643,6 +1644,7 @@ class CheckoutService
             }
             // ==================================================
             // ========== SEND DYNAMIC NOTIFICATION TO CUSTOMER ==========
+            // In confirmOrder method, before calling sendUserNotification
             try {
                 $user = $order->user;
 
@@ -1660,24 +1662,38 @@ class CheckoutService
                         'amount_paid' => number_format($order->total_payable, 2),
                     ];
 
-                    // Send notification using dynamic template system
+                    // Build extra data for notification
+                    $extraNotificationData = [
+                        'order_id' => $order->id,
+                        'order_reference' => $order->order_reference,
+                        'total_payable' => $order->total_payable,
+                        'confirmed_at' => now()->toDateTimeString(),
+                        'items' => $order->lines->map(function ($line) {
+                            $product = $line->product;
+                            $image = $product->images->first();
+
+                            return [
+                                'product_id' => $product->id,
+                                'product_name' => $product->name,
+                                'product_slug' => $product->slug ?? '',
+                                'quantity' => $line->quantity,
+                                'price' => $line->price,
+                                'total' => $line->quantity * $line->price,
+                                'image_url' => $image
+                                    ? ($image->url ?? ($image->image_url ? Storage::url($image->image_url) : null))
+                                    : null,
+                            ];
+                        })->toArray()
+                    ];
+
+                    // Send notification using dynamic template system with extra data
                     $this->notificationService->sendUserNotification(
                         $user,
                         'order_confirmed',
                         $templateData,
-                        ['database', 'mail']
+                        ['database', 'mail'],
+                        $extraNotificationData  // Pass extra data
                     );
-
-                    Log::info('Dynamic order confirmation notification sent to customer', [
-                        'order_id' => $order->id,
-                        'user_id' => $user->id,
-                        'email' => $user->email,
-                        'event_type' => 'order_confirmed'
-                    ]);
-                } else {
-                    Log::warning('No user found for order confirmation notification', [
-                        'order_id' => $order->id
-                    ]);
                 }
             } catch (\Exception $e) {
                 Log::error('Failed to send dynamic notification to customer: ' . $e->getMessage(), [
