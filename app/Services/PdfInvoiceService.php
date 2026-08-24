@@ -29,6 +29,35 @@ class PdfInvoiceService
         return $pdf;
     }
 
+    // public function generateAndSendInvoice(Order $order, Invoice $invoice)
+    // {
+    //     try {
+    //         $pdf = $this->generateInvoicePDF($invoice);
+
+    //         $pdfContent = $pdf->output();
+    //         $pdfPath = 'invoices/invoice_' . $invoice->invoice_number . '.pdf';
+
+    //         // Save PDF to storage
+    //         Storage::disk('local')->put($pdfPath, $pdfContent);
+
+    //         // Send email with PDF attachment
+    //         Mail::to($order->user->email)->send(new InvoiceMail($order, $invoice, $pdfContent));
+
+    //         // Update invoice with PDF path
+    //         $invoice->update([
+    //             'pdf_path' => $pdfPath
+    //         ]);
+
+    //         return $pdfPath;
+    //     } catch (Exception $e) {
+    //         Log::error('Failed to generate and send invoice: ' . $e->getMessage(), [
+    //             'order_id' => $order->id,
+    //             'invoice_id' => $invoice->id
+    //         ]);
+    //         throw $e;
+    //     }
+    // }
+
     public function generateAndSendInvoice(Order $order, Invoice $invoice)
     {
         try {
@@ -37,15 +66,15 @@ class PdfInvoiceService
             $pdfContent = $pdf->output();
             $pdfPath = 'invoices/invoice_' . $invoice->invoice_number . '.pdf';
 
-            // Save PDF to storage
-            Storage::disk('local')->put($pdfPath, $pdfContent);
+            // Save PDF to public storage (storage/app/public/invoices/)
+            Storage::disk('public')->put($pdfPath, $pdfContent);
 
             // Send email with PDF attachment
             Mail::to($order->user->email)->send(new InvoiceMail($order, $invoice, $pdfContent));
 
-            // Update invoice with PDF path
+            // Update invoice with PDF path (store the public path)
             $invoice->update([
-                'pdf_path' => $pdfPath
+                'pdf_path' => $pdfPath // or Storage::url($pdfPath) for full URL
             ]);
 
             return $pdfPath;
