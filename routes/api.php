@@ -35,6 +35,7 @@ use App\Http\Controllers\API\LedgerController;
 use App\Http\Controllers\API\BeneficiaryController;
 use App\Http\Controllers\API\GenealogyController;
 use App\Http\Controllers\API\BuybackController;
+use App\Http\Controllers\API\NotificationController;
 use App\Http\Controllers\API\UserNotificationController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 
@@ -483,7 +484,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 
 Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
-    Route::get('notifications', [Notifi::class, 'index']);
+    Route::get('notifications', [NotificationController::class, 'index']);
     Route::get('notifications/{id}', [NotificationController::class, 'show']);
     Route::put('notifications/{id}/read', [NotificationController::class, 'markAsRead']);
     Route::put('notifications/read-all', [NotificationController::class, 'markAllAsRead']);
