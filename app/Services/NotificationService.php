@@ -51,6 +51,10 @@ class NotificationService
                 $this->sendMailNotification($user, $template, $rendered);
             }
 
+            Log::info('Dynamic order confirmation notification sent to customer', [
+                'event_type' => 'order_confirmed'
+            ]);
+
             return true;
         } catch (\Exception $e) {
             Log::error('Failed to send notification: ' . $e->getMessage(), [
@@ -74,7 +78,9 @@ class NotificationService
             $subject = str_replace('{{' . $key . '}}', $value, $subject);
             $body = str_replace('{{' . $key . '}}', $value, $body);
         }
-
+        Log::info('Dynamic order confirmation notification sent to customer', [
+            'event_type' => 'order_confirmm'
+        ]);
         return [
             'subject' => $subject,
             'body' => $body,
