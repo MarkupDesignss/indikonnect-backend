@@ -312,16 +312,762 @@ class CheckoutService
     //     ];
     // }
 
+    // public function calculateSummary(
+    //     int $userId,
+    //     int $addressId = null,
+    //     ?string $couponCode = null,
+    //     ?int $shippingMethodId = null,
+    //     ?int $coinsToRedeem = null,
+    //     ?int $buyNowProductId = null,
+    //     ?int $buyNowQuantity = null
+    // ): array {
+    //     if ($address != null) {
+    //         $address = Address::findOrFail($addressId);
+    //     }
+    //     $user = User::findOrFail($userId);
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Cart / Buy Now
+    // |--------------------------------------------------------------------------
+    // |
+    // | Existing cart flow remains unchanged.
+    // |
+    // | If $buyNowProductId is provided:
+    // |     Use only that product + quantity.
+    // |
+    // | Otherwise:
+    // |     Use the user's cart items.
+    // |
+    // */
+
+    //     $isBuyNow = $buyNowProductId !== null;
+
+    //     if ($isBuyNow) {
+
+    //         if (!$buyNowQuantity || $buyNowQuantity < 1) {
+    //             throw new Exception('Invalid product quantity');
+    //         }
+
+    //         $product = Product::with([
+    //             'taxCategory',
+    //             'images',
+    //             'primaryImage',
+    //         ])->findOrFail($buyNowProductId);
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Create temporary item object
+    //     |--------------------------------------------------------------------------
+    //     |
+    //     | We don't add anything to the cart.
+    //     | This object only allows the existing calculation logic
+    //     | to work for Buy Now.
+    //     |
+    //     */
+
+    //         $item = new \stdClass();
+
+    //         $item->product_id = $product->id;
+    //         $item->quantity = $buyNowQuantity;
+    //         $item->product = $product;
+
+    //         $cartItems = collect([$item]);
+    //     } else {
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Existing Cart Flow
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $cart = Cart::with([
+    //             'items.product.taxCategory',
+    //             'items.product.images',
+    //             'items.product.primaryImage',
+    //         ])
+    //             ->where('user_id', $userId)
+    //             ->firstOrFail();
+
+    //         if ($cart->items->isEmpty()) {
+    //             throw new Exception('Cart is empty');
+    //         }
+
+    //         $cartItems = $cart->items;
+    //     }
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Calculate Subtotal
+    // |--------------------------------------------------------------------------
+    // */
+
+    //     $subtotal = 0;
+    //     $productDetails = [];
+
+    //     foreach ($cartItems as $item) {
+
+    //         $unitPrice = $user->isDistributor()
+    //             ? ($item->product->distributor_price ?? $item->product->retail_price)
+    //             : $item->product->retail_price;
+
+    //         $lineTotal = $unitPrice * $item->quantity;
+
+    //         $subtotal += $lineTotal;
+
+    //         $taxRate = $item->product->taxCategory?->rate ?? 0;
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Product Images
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $productImages = [];
+
+    //         if ($item->product->images) {
+    //             foreach ($item->product->images as $image) {
+    //                 $productImages[] = [
+    //                     'id' => $image->id,
+    //                     'image' => $image->image,
+    //                     'image_url' => asset('storage/' . $image->image),
+    //                     'is_primary' => $image->is_primary,
+    //                     'sort_order' => $image->sort_order,
+    //                 ];
+    //             }
+    //         }
+
+    //         $productDetails[] = [
+    //             'item' => $item,
+    //             'unitPrice' => $unitPrice,
+    //             'lineTotal' => $lineTotal,
+    //             'taxRate' => $taxRate,
+    //             'taxCategoryName' => $item->product->taxCategory?->name ?? 'No Tax',
+    //             'images' => $productImages,
+    //             'primary_image' => $item->product->primaryImage
+    //                 ? asset('storage/' . $item->product->primaryImage->image)
+    //                 : null,
+    //         ];
+    //     }
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Coupon
+    // |--------------------------------------------------------------------------
+    // */
+
+    //     $couponDiscount = 0;
+    //     $couponData = null;
+
+    //     if ($couponCode) {
+
+    //         $coupon = Coupon::where(
+    //             'code',
+    //             strtoupper($couponCode)
+    //         )->first();
+
+    //         if (
+    //             $coupon &&
+    //             $coupon->isValid() &&
+    //             $this->validateCouponForUser($coupon, $userId)
+    //         ) {
+
+    //             $couponDiscount = $this->calculateCouponDiscount(
+    //                 $coupon,
+    //                 $subtotal
+    //             );
+
+    //             $couponData = [
+    //                 'code' => $coupon->code,
+    //                 'title' => $coupon->title,
+    //                 'type' => $coupon->type,
+    //                 'value' => (string) $coupon->value,
+    //                 'discount_amount' => round($couponDiscount, 2),
+    //             ];
+    //         } else {
+
+    //             throw new Exception('Invalid coupon code');
+    //         }
+    //     }
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Subtotal After Discount
+    // |--------------------------------------------------------------------------
+    // */
+
+    //     $subtotalAfterDiscount = $subtotal - $couponDiscount;
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Shipping
+    // |--------------------------------------------------------------------------
+    // */
+
+    //     $shippingCost = 0;
+    //     $shippingData = null;
+
+    //     if ($shippingMethodId) {
+
+    //         $shippingMethod = ShippingMethod::find($shippingMethodId);
+
+    //         if ($shippingMethod && $shippingMethod->is_active) {
+
+    //             if (
+    //                 $shippingMethod->min_order_amount &&
+    //                 $subtotalAfterDiscount < $shippingMethod->min_order_amount
+    //             ) {
+    //                 throw new Exception(
+    //                     "Minimum order amount for this shipping method is ₹" .
+    //                         $shippingMethod->min_order_amount
+    //                 );
+    //             }
+
+    //             if (
+    //                 $shippingMethod->max_order_amount &&
+    //                 $subtotalAfterDiscount > $shippingMethod->max_order_amount
+    //             ) {
+    //                 throw new Exception(
+    //                     "Order amount exceeds maximum limit for this shipping method"
+    //                 );
+    //             }
+
+    //             $shippingCost = $this->calculateShippingCost(
+    //                 $shippingMethod,
+    //                 $subtotalAfterDiscount
+    //             );
+
+    //             $shippingData = [
+    //                 'id' => $shippingMethod->id,
+    //                 'name' => $shippingMethod->name,
+    //                 'code' => $shippingMethod->code,
+    //                 'estimated_days' => $shippingMethod->estimated_days,
+    //                 'cost' => round($shippingCost, 2),
+    //             ];
+    //         } else {
+
+    //             throw new Exception('Invalid shipping method');
+    //         }
+    //     }
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Tax Variables
+    // |--------------------------------------------------------------------------
+    // */
+
+    //     $productTaxTotal = 0;
+    //     $productGstTotal = 0;
+    //     $productOtherTaxTotal = 0;
+
+    //     $itemsWithTax = [];
+    //     $taxBreakdown = [];
+    //     $taxByCategory = [];
+    //     $productTaxBreakdown = [];
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Product Tax Calculation
+    // |--------------------------------------------------------------------------
+    // */
+
+    //     foreach ($productDetails as $index => $product) {
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Discount Distribution
+    //     |--------------------------------------------------------------------------
+    //     |
+    //     | Coupon discount is distributed proportionally across products.
+    //     |
+    //     */
+
+    //         $proportion = $subtotal > 0
+    //             ? $product['lineTotal'] / $subtotal
+    //             : 0;
+
+    //         $discountedLineTotal =
+    //             $product['lineTotal'] -
+    //             ($couponDiscount * $proportion);
+
+    //         $taxRate = $product['taxRate'];
+
+    //         $taxAmount = ($discountedLineTotal * $taxRate) / 100;
+
+    //         $productTaxTotal += $taxAmount;
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | GST / Other Tax
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         if ($taxRate == 18) {
+
+    //             $productGstTotal += $taxAmount;
+    //         } else {
+
+    //             $productOtherTaxTotal += $taxAmount;
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Product Information
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $productName = $product['item']->product->name;
+
+    //         $productKey =
+    //             'product_' .
+    //             ($index + 1) .
+    //             '_' .
+    //             str_replace(
+    //                 ' ',
+    //                 '_',
+    //                 strtolower($productName)
+    //             );
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Product Tax Breakdown
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $productTaxBreakdown[$productKey] = [
+    //             'product_id' => $product['item']->product_id,
+    //             'product_name' => $productName,
+    //             'product_code' => $product['item']->product->product_code,
+    //             'quantity' => $product['item']->quantity,
+    //             'unit_price' => round($product['unitPrice'], 2),
+    //             'tax_category' => $product['taxCategoryName'],
+    //             'tax_rate' => (string) $taxRate . '%',
+    //             'taxable_value' => round($discountedLineTotal, 2),
+    //             'tax_amount' => round($taxAmount, 2),
+    //             'line_total_after_tax' => round(
+    //                 $discountedLineTotal + $taxAmount,
+    //                 2
+    //             ),
+    //             'images' => $product['images'],
+    //             'primary_image' => $product['primary_image'],
+    //         ];
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | CGST / SGST / IGST
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $supplierState = config(
+    //             'app.supplier_state',
+    //             'Maharashtra'
+    //         );
+
+    //         $deliveryState = $address->state;
+
+    //         if (
+    //             strtolower($deliveryState) ===
+    //             strtolower($supplierState)
+    //         ) {
+
+    //             $cgst = $taxAmount / 2;
+    //             $sgst = $taxAmount / 2;
+    //             $igst = 0;
+    //         } else {
+
+    //             $cgst = 0;
+    //             $sgst = 0;
+    //             $igst = $taxAmount;
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Items With Tax
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $itemsWithTax[] = [
+    //             'product_id' => $product['item']->product_id,
+    //             'product_name' => $product['item']->product->name,
+    //             'product_code' => $product['item']->product->product_code,
+    //             'quantity' => $product['item']->quantity,
+    //             'unit_price' => round($product['unitPrice'], 2),
+    //             'tax_category' => $product['taxCategoryName'],
+    //             'tax_rate' => (string) $taxRate . '%',
+    //             'taxable_value' => round($discountedLineTotal, 2),
+    //             'cgst' => round($cgst, 2),
+    //             'sgst' => round($sgst, 2),
+    //             'igst' => round($igst, 2),
+    //             'total_tax' => round($taxAmount, 2),
+    //             'line_total' => round(
+    //                 $discountedLineTotal + $taxAmount,
+    //                 2
+    //             ),
+    //             'images' => $product['images'],
+    //             'primary_image' => $product['primary_image'],
+    //         ];
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Tax Breakdown
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $taxBreakdown[] = [
+    //             'product_name' => $product['item']->product->name,
+    //             'tax_category' => $product['taxCategoryName'],
+    //             'rate' => (string) $taxRate . '%',
+    //             'cgst' => round($cgst, 2),
+    //             'sgst' => round($sgst, 2),
+    //             'igst' => round($igst, 2),
+    //         ];
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Tax By Category
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $categoryKey =
+    //             $product['taxCategoryName'] .
+    //             '_' .
+    //             $taxRate;
+
+    //         if (!isset($taxByCategory[$categoryKey])) {
+
+    //             $taxByCategory[$categoryKey] = [
+    //                 'category' => $product['taxCategoryName'],
+    //                 'rate' => (string) $taxRate,
+    //                 'taxable_amount' => 0,
+    //                 'tax_amount' => 0,
+    //                 'cgst' => 0,
+    //                 'sgst' => 0,
+    //                 'igst' => 0,
+    //                 'is_gst' => ($taxRate == 18),
+    //             ];
+    //         }
+
+    //         $taxByCategory[$categoryKey]['taxable_amount']
+    //             += $discountedLineTotal;
+
+    //         $taxByCategory[$categoryKey]['tax_amount']
+    //             += $taxAmount;
+
+    //         $taxByCategory[$categoryKey]['cgst']
+    //             += $cgst;
+
+    //         $taxByCategory[$categoryKey]['sgst']
+    //             += $sgst;
+
+    //         $taxByCategory[$categoryKey]['igst']
+    //             += $igst;
+    //     }
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Total Tax
+    // |--------------------------------------------------------------------------
+    // */
+
+    //     $totalTax = $productTaxTotal;
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Subtotal + Tax + Shipping
+    // |--------------------------------------------------------------------------
+    // */
+
+    //     $subtotalAfterDiscountAndTax =
+    //         $subtotalAfterDiscount +
+    //         $totalTax +
+    //         $shippingCost;
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Coins
+    // |--------------------------------------------------------------------------
+    // */
+
+    //     $coinRedemptionData = null;
+
+    //     $coinsUsed = 0;
+    //     $amountRedeemed = 0;
+    //     $coinBalance = 0;
+    //     $maxCoinsRedeemable = 0;
+
+    //     if ($user->isDistributor()) {
+
+    //         $coinBalance = $this->getCoinBalance($userId);
+
+    //         $maxCoinsRedeemable = min(
+    //             $coinBalance,
+    //             floor($subtotalAfterDiscountAndTax / 10)
+    //         );
+
+    //         if ($coinsToRedeem != null && $coinsToRedeem > 0) {
+
+    //             if ($coinsToRedeem > $coinBalance) {
+
+    //                 throw new Exception(
+    //                     'Insufficient coin balance. You have ' .
+    //                         $coinBalance .
+    //                         ' coins.'
+    //                 );
+    //             }
+
+    //             if ($coinsToRedeem > $maxCoinsRedeemable) {
+
+    //                 throw new Exception(
+    //                     'Cannot redeem more than ' .
+    //                         $maxCoinsRedeemable .
+    //                         ' coins for this order.'
+    //                 );
+    //             }
+
+    //             $coinsUsed = $coinsToRedeem;
+
+    //             $amountRedeemed = $coinsToRedeem * 10;
+
+    //             $coinRedemptionData = [
+    //                 'coins_used' => $coinsUsed,
+    //                 'amount_redeemed' => $amountRedeemed,
+    //                 'remaining_coins' =>
+    //                 $coinBalance - $coinsUsed,
+    //             ];
+    //         }
+    //     }
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Grand Total
+    // |--------------------------------------------------------------------------
+    // */
+
+    //     $grandTotal = round(
+    //         $subtotalAfterDiscountAndTax -
+    //             $amountRedeemed,
+    //         2
+    //     );
+
+    //     /*
+    // |--------------------------------------------------------------------------
+    // | Final Response
+    // |--------------------------------------------------------------------------
+    // */
+
+    //     return [
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Checkout Type
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         'checkout_type' => $isBuyNow
+    //             ? 'buy_now'
+    //             : 'cart',
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Basic Summary
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         'subtotal' => round($subtotal, 2),
+
+    //         'coupon_discount' => round(
+    //             $couponDiscount,
+    //             2
+    //         ),
+
+    //         'coupon' => $couponData,
+
+    //         'subtotal_after_discount' => round(
+    //             $subtotalAfterDiscount,
+    //             2
+    //         ),
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Product Tax
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         'product_tax_breakdown' => $productTaxBreakdown,
+
+    //         'tax_summary' => [
+    //             'gst_18_percent' => round(
+    //                 $productGstTotal,
+    //                 2
+    //             ),
+
+    //             'other_tax' => round(
+    //                 $productOtherTaxTotal,
+    //                 2
+    //             ),
+
+    //             'total_product_tax' => round(
+    //                 $productTaxTotal,
+    //                 2
+    //             ),
+    //         ],
+
+    //         'total_tax' => round(
+    //             $totalTax,
+    //             2
+    //         ),
+
+    //         'tax_by_category' => array_values(
+    //             $taxByCategory
+    //         ),
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Shipping
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         'shipping_cost' => round(
+    //             $shippingCost,
+    //             2
+    //         ),
+
+    //         'shipping_method' => $shippingData,
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Total Before Coins
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         'subtotal_after_discount_and_tax' => round(
+    //             $subtotalAfterDiscountAndTax,
+    //             2
+    //         ),
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Coins
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         'coin_balance' => $coinBalance,
+
+    //         'max_coins_redeemable' => $maxCoinsRedeemable,
+
+    //         'coins_used' => $coinsUsed,
+
+    //         'amount_redeemed' => $amountRedeemed,
+
+    //         'coin_redemption' => $coinRedemptionData,
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Grand Total
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         'grand_total' => $grandTotal,
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Items
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         // 'items' => $itemsWithTax,
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Tax Breakdown
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         'tax_breakdown' => $taxBreakdown,
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Delivery Address
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         'delivery_address' => [
+    //             'id' => $address->id,
+    //             'full_address' => $this->formatAddress($address),
+    //             'state' => $address->state,
+    //         ],
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Final Summary
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         'summary' => [
+
+    //             'subtotal' => round(
+    //                 $subtotal,
+    //                 2
+    //             ),
+
+    //             'less_coupon' => round(
+    //                 $couponDiscount,
+    //                 2
+    //             ),
+
+    //             'net_subtotal' => round(
+    //                 $subtotalAfterDiscount,
+    //                 2
+    //             ),
+
+    //             'product_gst_18' => round(
+    //                 $productGstTotal,
+    //                 2
+    //             ),
+
+    //             'product_other_tax' => round(
+    //                 $productOtherTaxTotal,
+    //                 2
+    //             ),
+
+    //             'total_tax' => round(
+    //                 $totalTax,
+    //                 2
+    //             ),
+
+    //             'plus_shipping' => round(
+    //                 $shippingCost,
+    //                 2
+    //             ),
+
+    //             'less_coins' => round(
+    //                 $amountRedeemed,
+    //                 2
+    //             ),
+
+    //             'grand_total' => $grandTotal,
+    //         ],
+    //     ];
+    // }
+
     public function calculateSummary(
         int $userId,
-        int $addressId,
+        int $addressId = null,
         ?string $couponCode = null,
         ?int $shippingMethodId = null,
         ?int $coinsToRedeem = null,
         ?int $buyNowProductId = null,
         ?int $buyNowQuantity = null
     ): array {
-        $address = Address::findOrFail($addressId);
+        // Fetch address if ID is provided
+        $address = null;
+        if ($addressId !== null) {
+            $address = Address::find($addressId);
+            if (!$address) {
+                throw new Exception('Invalid address ID');
+            }
+        }
+
         $user = User::findOrFail($userId);
 
         /*
@@ -569,6 +1315,12 @@ class CheckoutService
     |--------------------------------------------------------------------------
     */
 
+        // Get supplier state from config
+        $supplierState = config('app.supplier_state', 'Maharashtra');
+
+        // Get delivery state from address if available, otherwise use a default or null
+        $deliveryState = $address ? $address->state : null;
+
         foreach ($productDetails as $index => $product) {
 
             /*
@@ -656,26 +1408,26 @@ class CheckoutService
         |--------------------------------------------------------------------------
         */
 
-            $supplierState = config(
-                'app.supplier_state',
-                'Maharashtra'
-            );
+            // Initialize tax components
+            $cgst = 0;
+            $sgst = 0;
+            $igst = 0;
 
-            $deliveryState = $address->state;
-
-            if (
-                strtolower($deliveryState) ===
-                strtolower($supplierState)
-            ) {
-
-                $cgst = $taxAmount / 2;
-                $sgst = $taxAmount / 2;
-                $igst = 0;
+            // Only calculate GST if we have a delivery state
+            if ($deliveryState) {
+                if (
+                    strtolower($deliveryState) ===
+                    strtolower($supplierState)
+                ) {
+                    $cgst = $taxAmount / 2;
+                    $sgst = $taxAmount / 2;
+                } else {
+                    $igst = $taxAmount;
+                }
             } else {
-
-                $cgst = 0;
-                $sgst = 0;
-                $igst = $taxAmount;
+                // If no address, treat as inter-state (IGST) or calculate as GST
+                // You can modify this logic based on your business rules
+                $igst = $taxAmount; // Default to IGST if no address
             }
 
             /*
@@ -989,11 +1741,11 @@ class CheckoutService
         |--------------------------------------------------------------------------
         */
 
-            'delivery_address' => [
+            'delivery_address' => $address ? [
                 'id' => $address->id,
                 'full_address' => $this->formatAddress($address),
                 'state' => $address->state,
-            ],
+            ] : null,
 
             /*
         |--------------------------------------------------------------------------
@@ -1047,6 +1799,7 @@ class CheckoutService
             ],
         ];
     }
+
 
     /**
      * Calculate coupon discount
