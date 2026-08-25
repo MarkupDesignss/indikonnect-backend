@@ -19,6 +19,8 @@ class CoolingOffController extends Controller
      * Initiate cooling-off withdrawal for an order.
      * POST /api/orders/{orderReference}/cooling-off-withdraw
      * 
+     * 30 days from date of purchase (NOT delivery)
+     * 
      * @param Request $request
      * @param string $orderReference
      * @return JsonResponse
@@ -40,30 +42,22 @@ class CoolingOffController extends Controller
             ], 404);
         }
 
-        // 2. Check if order is delivered
-        if ($order->status !== 'delivered') {
+        // 2. Check if order is already cancelled or returned
+        if (in_array($order->status, ['cancelled', 'returned'])) {
             return response()->json([
                 'success' => false,
-                'message' => 'Cooling-off withdrawal is only available for delivered orders.'
+                'message' => 'This order is already cancelled or returned.'
             ], 422);
         }
 
-        // 3. Check cooling-off period (configurable from settings)
+        // 3. Check cooling-off period (from PURCHASE date, not delivery)
         $coolingOffDays = (int) setting('cooling_off_days', 30);
+        $daysSincePurchase = $order->created_at->diffInDays(now());
 
-        if (!$order->delivered_at) {
+        if ($daysSincePurchase > $coolingOffDays) {
             return response()->json([
                 'success' => false,
-                'message' => 'Order delivery date not found.'
-            ], 422);
-        }
-
-        $daysSinceDelivery = $order->delivered_at->diffInDays(now());
-
-        if ($daysSinceDelivery > $coolingOffDays) {
-            return response()->json([
-                'success' => false,
-                'message' => "Cooling-off period has expired. You can only withdraw within {$coolingOffDays} days of delivery. ({$daysSinceDelivery} days passed)"
+                'message' => "Cooling-off period has expired. You can only withdraw within {$coolingOffDays} days of purchase. ({$daysSincePurchase} days passed)"
             ], 422);
         }
 
@@ -87,18 +81,13 @@ class CoolingOffController extends Controller
             ], 422);
         }
 
-        // 6. Prepare return items (all delivered items)
+        // 6. Prepare return items (all items in the order)
         $returnItems = [];
         $totalRefund = 0;
         $totalCvReversed = 0;
         $processedLineIds = [];
 
         foreach ($order->lines as $line) {
-            // Only delivered items can be returned
-            if ($line->delivery_status !== 'delivered') {
-                continue;
-            }
-
             $availableQty = $line->quantity - ($line->returned_quantity ?? 0);
             if ($availableQty <= 0) {
                 continue;
@@ -133,7 +122,7 @@ class CoolingOffController extends Controller
         if (empty($returnItems)) {
             return response()->json([
                 'success' => false,
-                'message' => 'No deliverable items found in this order.'
+                'message' => 'No items available for return in this order.'
             ], 422);
         }
 
@@ -146,13 +135,18 @@ class CoolingOffController extends Controller
                 'user_id' => $user->id,
                 'type' => 'cooling_off',
                 'items' => $returnItems,
-                'status' => OrderReturn::STATUS_PENDING,
+                'status' => 'pending',
                 'reason' => 'Cooling-off withdrawal (no reason required)',
                 'refund_subtotal' => $totalRefund,
                 'refund_tax' => 0,
                 'refund_shipping' => 0,
                 'total_refund_amount' => $totalRefund,
                 'total_cv_reversed' => $totalCvReversed,
+                'extra_data' => [
+                    'cooling_off_days' => $coolingOffDays,
+                    'days_since_purchase' => $daysSincePurchase,
+                    'withdrawal_initiated_at' => now()->toDateTimeString(),
+                ],
             ]);
 
             // Update order lines
@@ -192,9 +186,11 @@ class CoolingOffController extends Controller
                 'data' => [
                     'return_id' => $returnOrder->id,
                     'order_reference' => $order->order_reference,
-                    'status' => OrderReturn::STATUS_PENDING,
+                    'status' => 'pending',
                     'refund_amount' => $totalRefund,
                     'items_count' => count($returnItems),
+                    'remaining_days' => max(0, $coolingOffDays - $daysSincePurchase),
+                    'expiry_date' => $order->created_at->addDays($coolingOffDays)->toDateString(),
                     'created_at' => $returnOrder->created_at->toDateTimeString(),
                 ],
             ]);
@@ -212,6 +208,82 @@ class CoolingOffController extends Controller
                 'message' => 'Failed to initiate cooling-off withdrawal: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Get cooling-off eligibility for an order.
+     * GET /api/orders/{orderReference}/cooling-off-eligibility
+     */
+    public function eligibility(Request $request, string $orderReference): JsonResponse
+    {
+        $user = Auth::user();
+        $order = Order::where('order_reference', $orderReference)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found.'
+            ], 404);
+        }
+
+        $coolingOffDays = (int) setting('cooling_off_days', 30);
+        $daysSincePurchase = $order->created_at->diffInDays(now());
+        $isEligible = $order->created_at->diffInDays(now()) <= $coolingOffDays
+            && !$order->hasPendingReturn()
+            && !$order->hasApprovedReturn()
+            && !in_array($order->status, ['cancelled', 'returned']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'order_reference' => $order->order_reference,
+                'is_eligible' => $isEligible,
+                'cooling_off_days' => $coolingOffDays,
+                'days_since_purchase' => $daysSincePurchase,
+                'remaining_days' => max(0, $coolingOffDays - $daysSincePurchase),
+                'expiry_date' => $order->created_at->addDays($coolingOffDays)->toDateString(),
+                'order_status' => $order->status,
+                'has_pending_return' => $order->hasPendingReturn(),
+                'has_approved_return' => $order->hasApprovedReturn(),
+            ]
+        ]);
+    }
+
+    /**
+     * Get history of cooling-off withdrawals for the authenticated user.
+     * GET /api/cooling-off/history
+     */
+    public function history(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        $returns = OrderReturn::where('user_id', $user->id)
+            ->where('type', 'cooling_off')
+            ->with('order')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $returns->map(function ($return) {
+                return [
+                    'id' => $return->id,
+                    'order_reference' => $return->order->order_reference ?? null,
+                    'status' => $return->status,
+                    'items_count' => count($return->items),
+                    'total_refund' => (float) $return->total_refund_amount,
+                    'reason' => $return->reason,
+                    'admin_notes' => $return->admin_notes,
+                    'rejection_reason' => $return->rejection_reason,
+                    'created_at' => $return->created_at->toDateTimeString(),
+                    'approved_at' => $return->approved_at?->toDateTimeString(),
+                    'completed_at' => $return->completed_at?->toDateTimeString(),
+                    'refund_processed_at' => $return->refund_processed_at?->toDateTimeString(),
+                ];
+            }),
+            'total' => $returns->count(),
+        ]);
     }
 
     /**

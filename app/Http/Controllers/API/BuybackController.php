@@ -5,7 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\OrderLine;
-use App\Models\Return as OrderReturn;
+use App\Models\OrderReturn;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -16,11 +16,10 @@ class BuybackController extends Controller
 {
     /**
      * List eligible stock for buy-back.
-     * Rules:
-     * - Order must be delivered (status = 'delivered' and delivered_at within window)
-     * - Item delivery_status = 'delivered'
-     * - Item not already returned (return_status = 'none' or 'rejected')
-     * - Available quantity > 0
+     * 30 days from date of PURCHASE (not delivery).
+     * Orders must be confirmed, processing, shipped, or delivered.
+     * 
+     * GET /distributor/buyback/eligible
      */
     public function eligibleStock(Request $request)
     {
@@ -37,19 +36,19 @@ class BuybackController extends Controller
         $buybackWindow = (int) setting('buyback_window_days', 30);
         $deductionPercent = (float) setting('buyback_deduction_percent', 0);
 
-        // Get all delivered orders within the window
+        // Get all eligible orders: within window, not cancelled/returned
         $orders = Order::where('user_id', $user->id)
-            ->where('status', 'delivered')
-            ->where('delivered_at', '>=', now()->subDays($buybackWindow))
+            ->whereIn('status', ['confirmed', 'processing', 'shipped', 'delivered'])
+            ->where('created_at', '>=', now()->subDays($buybackWindow))
             ->with(['lines.product'])
-            ->orderBy('delivered_at', 'desc')
+            ->orderBy('created_at', 'desc')
             ->get();
 
         if ($orders->isEmpty()) {
             return response()->json([
                 'success' => true,
                 'data' => [],
-                'message' => "No eligible stock found. Only purchases delivered within the last {$buybackWindow} days are eligible.",
+                'message' => "No eligible stock found. Only purchases made within the last {$buybackWindow} days are eligible.",
                 'meta' => [
                     'buyback_window_days' => $buybackWindow,
                     'deduction_percent' => $deductionPercent,
@@ -62,13 +61,13 @@ class BuybackController extends Controller
 
         foreach ($orders as $order) {
             foreach ($order->lines as $line) {
-                // Only delivered items are eligible
+                // Only delivered items are physically available
                 if ($line->delivery_status !== 'delivered') {
                     continue;
                 }
 
-                // Check item-level delivered_at within window
-                if ($line->delivered_at && $line->delivered_at->diffInDays(now()) > $buybackWindow) {
+                // Check purchase date (line created_at) within window
+                if ($line->created_at->diffInDays(now()) > $buybackWindow) {
                     continue;
                 }
 
@@ -95,8 +94,8 @@ class BuybackController extends Controller
                     // Order info
                     'order_reference' => $order->order_reference,
                     'order_date' => $order->created_at->toDateString(),
-                    'delivered_at' => $line->delivered_at?->toDateString(),
-                    'days_since_delivery' => $line->delivered_at ? $line->delivered_at->diffInDays(now()) : 0,
+                    'purchase_date' => $line->created_at->toDateString(),
+                    'days_since_purchase' => $line->created_at->diffInDays(now()),
 
                     // Product info
                     'order_line_id' => $line->id,
@@ -140,6 +139,9 @@ class BuybackController extends Controller
 
     /**
      * Initiate buy-back request.
+     * Requires distributor declaration for unsold, unused, marketable.
+     * 
+     * POST /distributor/buyback/initiate
      */
     public function initiate(Request $request)
     {
@@ -158,6 +160,10 @@ class BuybackController extends Controller
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.reason' => 'nullable|string|max:500',
             'return_reason' => 'nullable|string|max:1000',
+            // Mandatory declarations
+            'declares_marketable' => 'required|boolean|accepted',
+            'declares_unsold' => 'required|boolean|accepted',
+            'declares_unused' => 'required|boolean|accepted',
         ]);
 
         if ($validator->fails()) {
@@ -202,8 +208,9 @@ class BuybackController extends Controller
                     throw new \Exception("Item '{$orderLine->product->name}' has not been delivered.");
                 }
 
-                if ($orderLine->delivered_at && $orderLine->delivered_at->diffInDays(now()) > $buybackWindow) {
-                    throw new \Exception("Item '{$orderLine->product->name}' is outside the buy-back window ({$buybackWindow} days).");
+                // Check buy-back window from purchase date (created_at)
+                if ($orderLine->created_at->diffInDays(now()) > $buybackWindow) {
+                    throw new \Exception("Item '{$orderLine->product->name}' is outside the buy-back window ({$buybackWindow} days from purchase).");
                 }
 
                 if (in_array($orderLine->return_status, ['pending', 'approved', 'returned'])) {
@@ -234,7 +241,7 @@ class BuybackController extends Controller
                     'quantity' => (int) $itemData['quantity'],
                     'unit_price' => (float) $orderLine->unit_price,
                     'gst_rate' => (float) $orderLine->gst_rate,
-                    'subtotal' => $itemTotal, // line total excluding tax if needed
+                    'subtotal' => $itemTotal,
                     'tax' => 0,
                     'line_total' => $itemTotal,
                     'reason' => $itemData['reason'] ?? 'Buy-back request',
@@ -266,7 +273,7 @@ class BuybackController extends Controller
             $order = Order::find($orderId);
             $refundShipping = 0;
             if ($order && $order->shipping_charge > 0 && $order->subtotal > 0) {
-                $refundSubtotal = $totalRefund; // we treat totalRefund as the subtotal of returned items
+                $refundSubtotal = $totalRefund;
                 $returnedProportion = min($refundSubtotal / $order->subtotal, 1);
                 $refundShipping = round($order->shipping_charge * $returnedProportion, 2);
             }
@@ -284,9 +291,20 @@ class BuybackController extends Controller
                 'refund_shipping' => $refundShipping,
                 'total_refund_amount' => $totalRefund + $refundShipping,
                 'total_cv_reversed' => $totalCvReversed,
+                // Store declarations in extra_data
+                'extra_data' => [
+                    'declares_marketable' => (bool) $data['declares_marketable'],
+                    'declares_unsold' => (bool) $data['declares_unsold'],
+                    'declares_unused' => (bool) $data['declares_unused'],
+                    'declared_at' => now()->toDateTimeString(),
+                    'deduction_percent' => $deductionPercent,
+                    'deduction_amount' => $totalDeduction,
+                    'buyback_window_days' => $buybackWindow,
+                    'days_since_purchase' => $orderLine->created_at->diffInDays(now()) ?? 0,
+                ],
             ]);
 
-            // Optionally, update order return status
+            // Update order return status
             $this->updateOrderReturnStatus($order);
 
             DB::commit();
@@ -310,6 +328,11 @@ class BuybackController extends Controller
                         'deduction_percent' => $deductionPercent,
                         'cv_reversed' => $totalCvReversed,
                     ],
+                    'declarations' => [
+                        'marketable' => (bool) $data['declares_marketable'],
+                        'unsold' => (bool) $data['declares_unsold'],
+                        'unused' => (bool) $data['declares_unused'],
+                    ],
                     'items' => $returnItems,
                     'created_at' => $return->created_at->toDateTimeString(),
                 ],
@@ -330,6 +353,7 @@ class BuybackController extends Controller
 
     /**
      * History of buy-back requests.
+     * GET /distributor/buyback/history
      */
     public function history(Request $request)
     {
@@ -350,7 +374,7 @@ class BuybackController extends Controller
                     'status' => $return->status,
                     'items_count' => count($return->items),
                     'total_refund' => (float) $return->total_refund_amount,
-                    'deduction_amount' => (float) $return->refund_subtotal * (setting('buyback_deduction_percent', 0) / 100), // approximate
+                    'deduction_amount' => (float) ($return->extra_data['deduction_amount'] ?? 0),
                     'reason' => $return->reason,
                     'admin_notes' => $return->admin_notes,
                     'rejection_reason' => $return->rejection_reason,
@@ -365,6 +389,7 @@ class BuybackController extends Controller
 
     /**
      * Summary of buy-back requests.
+     * GET /distributor/buyback/summary
      */
     public function summary()
     {
@@ -383,7 +408,7 @@ class BuybackController extends Controller
                 'rejected' => $returns->where('status', 'rejected')->count(),
                 'completed' => $returns->where('status', 'completed')->count(),
                 'total_refund_amount' => (float) $returns->whereIn('status', ['approved', 'completed'])->sum('total_refund_amount'),
-                'total_deduction_amount' => 0, // can calculate later
+                'total_deduction_amount' => (float) $returns->sum('extra_data.deduction_amount') ?? 0,
             ],
         ]);
     }

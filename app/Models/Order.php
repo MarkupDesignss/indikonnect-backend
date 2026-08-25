@@ -123,4 +123,45 @@ class Order extends Model
             ->whereIn('status', ['approved', 'received', 'completed'])
             ->exists();
     }
+
+     /**
+     * Check if order is within cooling-off period (30 days from purchase date).
+     * FR-CO-013
+     */
+    public function isWithinCoolingOff(): bool
+    {
+        $coolingOffDays = (int) setting('cooling_off_days', 30);
+        return $this->created_at->diffInDays(now()) <= $coolingOffDays;
+    }
+
+    /**
+     * Check if order is within buy-back window (30 days from purchase date).
+    */
+
+    public function isWithinBuybackWindow(): bool
+    {
+        $buybackWindow = (int) setting('buyback_window_days', 30);
+        return $this->created_at->diffInDays(now()) <= $buybackWindow;
+    }
+
+    /**
+     * Get remaining days for cooling-off.
+    */
+    public function getRemainingCoolingOffDays(): int
+    {
+        $coolingOffDays = (int) setting('cooling_off_days', 30);
+        $daysPassed = $this->created_at->diffInDays(now());
+        return max(0, $coolingOffDays - $daysPassed);
+    }
+
+    
+    /**
+     * Get remaining days for buy-back.
+    */
+    public function getRemainingBuybackDays(): int
+    {
+        $buybackWindow = (int) setting('buyback_window_days', 30);
+        $daysPassed = $this->created_at->diffInDays(now());
+        return max(0, $buybackWindow - $daysPassed);
+    }
 }
