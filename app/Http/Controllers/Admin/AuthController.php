@@ -10,9 +10,11 @@ use App\Models\AdminPasswordOtp;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use App\Mail\DistributorStatusMail;
 use Carbon\Carbon;
 use App\Models\User;
 use App\Models\BusinessProfile;
+use Illuminate\Validation\Rule;
 use App\Models\RejectedUser;
 use Illuminate\Validation\ValidationException;
 
@@ -448,5 +450,63 @@ class AuthController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    public function updateStatus(Request $request, int $id)
+    {
+        $request->validate([
+            'distributor_status' => [
+                'required',
+                Rule::in(['active', 'suspended']),
+            ],
+        ]);
+
+        $distributor = User::where('id', $id)
+            ->where('account_type', 'distributor')
+            ->first();
+
+        if (!$distributor) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Distributor not found.',
+            ], 404);
+        }
+
+        $newStatus = $request->distributor_status;
+
+        // No change
+        if ($distributor->distributor_status === $newStatus) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Distributor status is already ' . $newStatus . '.',
+                'data' => [
+                    'id' => $distributor->id,
+                    'distributor_status' => $distributor->distributor_status,
+                ],
+            ], 200);
+        }
+
+        // Update status
+        $distributor->distributor_status = $newStatus;
+        $distributor->save();
+
+        // Send email to distributor
+        if (!empty($distributor->email)) {
+            Mail::to($distributor->email)
+                ->send(new DistributorStatusMail(
+                    $distributor,
+                    $newStatus
+                ));
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Distributor status updated successfully.',
+            'data' => [
+                'id' => $distributor->id,
+                'account_type' => $distributor->account_type,
+                'distributor_status' => $distributor->distributor_status,
+            ],
+        ], 200);
     }
 }

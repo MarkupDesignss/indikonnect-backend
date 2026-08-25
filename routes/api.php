@@ -59,6 +59,7 @@ Route::prefix('admin')->group(function () {
         Route::get('/update-user-status/{id}', [AuthController::class, 'toggleUserStatus']);
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
+        Route::post('distributors/{id}/status', [AuthController::class, 'updateStatus']);
         Route::post('/update', [AuthController::class, 'update']);
 
         //Payout Run routes
@@ -68,6 +69,9 @@ Route::prefix('admin')->group(function () {
         Route::post('/payouts/{id}/release', [PayoutController::class, 'release']);
         Route::post('/payouts/entries/{entryId}/hold', [PayoutController::class, 'holdEntry']);
         Route::get('/payouts/{id}/export', [PayoutController::class, 'export']);
+
+        Route::get('/all-orders', [OrderController::class, 'allOrder']);
+        Route::get('/get-order-details/{id}', [OrderController::class, 'getOrderDetails']);
 
         // Payout Notifications
         Route::post('/payouts/{id}/notify', [PayoutController::class, 'sendNotifications']);
@@ -134,7 +138,7 @@ Route::prefix('categories')->group(function () {
 Route::prefix('contact')->group(function () {
     // Public route
     Route::post('/send-request', [ContactController::class, 'store']);
-    
+
     // Protected routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/', [ContactController::class, 'index']);
