@@ -1796,6 +1796,7 @@ class CheckoutService
                 ),
 
                 'grand_total' => $grandTotal,
+                'coupon_code' => $couponData['code'] ?? null,
             ],
         ];
     }

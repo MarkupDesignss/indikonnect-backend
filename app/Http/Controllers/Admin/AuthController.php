@@ -20,6 +20,105 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    // public function login(Request $request)
+    // {
+    //     // Validate input
+    //     $request->validate([
+    //         'email'    => 'required|email',
+    //         'password' => 'required|string',
+    //         'remember' => 'nullable|boolean',
+    //     ]);
+
+    //     $credentials = $request->only('email', 'password');
+    //     $remember = $request->boolean('remember');
+
+    //     // Attempt login with admin guard
+    //     if (Auth::guard('admin')->attempt($credentials, $remember)) {
+
+    //         $admin = Auth::guard('admin')->user();
+
+    //         $token = $admin->createToken('admin-auth-token', ['admin'])->plainTextToken;
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Login successful',
+    //             'data' => [
+    //                 'admin' => $admin,
+    //                 'token' => $token,
+    //                 'token_type' => 'Bearer'
+    //             ]
+    //         ], 200);
+    //     }
+
+    //     // Check if admin exists for better error messages
+    //     $admin = \App\Models\Admin::where('email', $request->email)->first();
+
+    //     if (!$admin) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Admin not found with this email address',
+    //             'errors' => [
+    //                 'email' => ['Admin not found with this email address']
+    //             ]
+    //         ], 404);
+    //     }
+
+    //     if (!Hash::check($request->password, $admin->password)) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Incorrect password provided',
+    //             'errors' => [
+    //                 'password' => ['Incorrect password provided']
+    //             ]
+    //         ], 422);
+    //     }
+
+    //     // Fallback
+    //     return response()->json([
+    //         'success' => false,
+    //         'message' => 'Invalid credentials provided',
+    //         'errors' => [
+    //             'email' => ['Invalid credentials provided']
+    //         ]
+    //     ], 422);
+    // }
+
+    // public function logout(Request $request)
+    // {
+    //     try {
+    //         // Revoke the current access token
+    //         $request->user()->currentAccessToken()->delete();
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Logout successful'
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to logout, please try again'
+    //         ], 500);
+    //     }
+    // }
+    // public function me(Request $request)
+    // {
+    //     try {
+    //         $admin = $request->user();
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => [
+    //                 'admin' => $admin
+    //             ]
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to get user data'
+    //         ], 422);
+    //     }
+    // }
+
     public function login(Request $request)
     {
         // Validate input
@@ -34,24 +133,43 @@ class AuthController extends Controller
 
         // Attempt login with admin guard
         if (Auth::guard('admin')->attempt($credentials, $remember)) {
-
             $admin = Auth::guard('admin')->user();
+            // Load roles and permissions
+            $admin->load('roles.permissions');
 
+            // Get all permissions for the admin
+            $permissions = $this->getAdminPermissions($admin);
+
+            // Create token
             $token = $admin->createToken('admin-auth-token', ['admin'])->plainTextToken;
 
             return response()->json([
                 'success' => true,
                 'message' => 'Login successful',
                 'data' => [
-                    'admin' => $admin,
+                    'admin' => [
+                        'id' => $admin->id,
+                        'name' => $admin->name,
+                        'email' => $admin->email,
+                        'roles' => $admin->roles->map(function ($role) {
+                            return [
+                                'id' => $role->id,
+                                'name' => $role->name,
+                                'slug' => $role->slug,
+                            ];
+                        }),
+                        'created_at' => $admin->created_at,
+                        'updated_at' => $admin->updated_at,
+                    ],
                     'token' => $token,
-                    'token_type' => 'Bearer'
+                    'token_type' => 'Bearer',
+                    'permissions' => $permissions
                 ]
             ], 200);
         }
 
         // Check if admin exists for better error messages
-        $admin = \App\Models\Admin::where('email', $request->email)->first();
+        $admin = Admin::where('email', $request->email)->first();
 
         if (!$admin) {
             return response()->json([
@@ -87,7 +205,11 @@ class AuthController extends Controller
     {
         try {
             // Revoke the current access token
-            $request->user()->currentAccessToken()->delete();
+            $admin = $request->user('admin');
+
+            if ($admin && $admin->currentAccessToken()) {
+                $admin->currentAccessToken()->delete();
+            }
 
             return response()->json([
                 'success' => true,
@@ -96,7 +218,8 @@ class AuthController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to logout, please try again'
+                'message' => 'Failed to logout, please try again',
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -106,24 +229,199 @@ class AuthController extends Controller
      *
      * @return \Illuminate\Http\JsonResponse
      */
+    // public function me(Request $request)
+    // {
+    //     try {
+    //         $admin = $request->user('admin');
+
+    //         if (!$admin) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Unauthorized'
+    //             ], 401);
+    //         }
+
+    //         // Load roles and permissions
+    //         $admin->load('roles.permissions');
+
+    //         // Get all permissions for the admin
+    //         $permissions = $this->getAdminPermissions($admin);
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => [
+    //                 'admin' => [
+    //                     'id' => $admin->id,
+    //                     'name' => $admin->name,
+    //                     'email' => $admin->email,
+    //                     'roles' => $admin->roles->map(function ($role) {
+    //                         return [
+    //                             'id' => $role->id,
+    //                             'name' => $role->name,
+    //                             'slug' => $role->slug,
+    //                             'description' => $role->description,
+    //                         ];
+    //                     }),
+    //                     'created_at' => $admin->created_at,
+    //                     'updated_at' => $admin->updated_at,
+    //                 ],
+    //                 'permissions' => $permissions
+    //             ]
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to get user data',
+    //             'error' => $e->getMessage()
+    //         ], 422);
+    //     }
+    // }
     public function me(Request $request)
     {
         try {
             $admin = $request->user();
 
+            if (!$admin || !$admin instanceof \App\Models\Admin) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized'
+                ], 401);
+            }
+
+            $admin->load('roles.permissions');
+
+            $permissions = $this->getAdminPermissions($admin);
+
+            $detailedPermissions = $this->getDetailedPermissions($admin);
+
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'admin' => $admin
+                    'admin' => [
+                        'id' => $admin->id,
+                        'name' => $admin->name,
+                        'email' => $admin->email,
+
+                        'roles' => $admin->roles->map(function ($role) {
+                            return [
+                                'id' => $role->id,
+                                'name' => $role->name,
+                                'slug' => $role->slug,
+                                'description' => $role->description,
+
+                                'permissions' => $role->permissions->map(function ($permission) {
+                                    return [
+                                        'id' => $permission->id,
+                                        'name' => $permission->name,
+                                        'slug' => $permission->slug,
+                                        'module' => $permission->module,
+                                        'action' => $permission->action,
+                                    ];
+                                }),
+                            ];
+                        }),
+
+                        'created_at' => $admin->created_at,
+                        'updated_at' => $admin->updated_at,
+                    ],
+
+                    // 'permissions' => $permissions,
+                    // 'permissions_details' => $detailedPermissions,
+                    'permissions_grouped' => $this->getGroupedPermissions($admin),
                 ]
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to get user data'
+                'message' => 'Failed to get admin data',
+                'error' => $e->getMessage()
             ], 422);
         }
     }
+
+    private function getAdminPermissions($admin)
+    {
+        $permissions = [];
+        foreach ($admin->roles as $role) {
+            foreach ($role->permissions as $permission) {
+                $permissions[] = $permission->slug;
+            }
+        }
+        return array_values(array_unique($permissions));
+    }
+
+    /**
+     * Get detailed permission objects for an admin.
+     */
+    private function getDetailedPermissions($admin)
+    {
+        $permissions = [];
+        $seen = [];
+
+        foreach ($admin->roles as $role) {
+            foreach ($role->permissions as $permission) {
+                if (!in_array($permission->id, $seen)) {
+                    $permissions[] = [
+                        'id' => $permission->id,
+                        'name' => $permission->name,
+                        'slug' => $permission->slug,
+                        'module' => $permission->module,
+                        'action' => $permission->action,
+                        'created_at' => $permission->created_at,
+                        'updated_at' => $permission->updated_at,
+                    ];
+                    $seen[] = $permission->id;
+                }
+            }
+        }
+
+        return $permissions;
+    }
+
+    /**
+     * Get permissions grouped by module.
+     */
+    private function getGroupedPermissions($admin)
+    {
+        $grouped = [];
+        $seen = [];
+
+        foreach ($admin->roles as $role) {
+            foreach ($role->permissions as $permission) {
+                if (!in_array($permission->id, $seen)) {
+                    if (!isset($grouped[$permission->module])) {
+                        $grouped[$permission->module] = [];
+                    }
+                    $grouped[$permission->module][] = [
+                        'id' => $permission->id,
+                        'name' => $permission->name,
+                        'slug' => $permission->slug,
+                        'action' => $permission->action,
+                    ];
+                    $seen[] = $permission->id;
+                }
+            }
+        }
+
+        return $grouped;
+    }
+
+    /**
+     * Get all permissions for an admin.
+     *
+     * @param \App\Models\Admin $admin
+     * @return array
+     */
+    // private function getAdminPermissions($admin)
+    // {
+    //     $permissions = [];
+    //     foreach ($admin->roles as $role) {
+    //         foreach ($role->permissions as $permission) {
+    //             $permissions[] = $permission->slug;
+    //         }
+    //     }
+    //     return array_values(array_unique($permissions));
+    // }
 
     public function sendResetOtp(Request $request)
     {
