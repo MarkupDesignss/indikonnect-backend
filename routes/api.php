@@ -450,16 +450,6 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 });
 
-Route::middleware('auth:sanctum')->group(function () {
-    Route::prefix('distributor/buyback')->group(function () {
-        Route::get('/eligible', [BuybackController::class, 'eligibleStock']);
-        Route::post('/initiate', [BuybackController::class, 'initiate']);
-        Route::get('/history', [BuybackController::class, 'history']);
-        Route::get('/summary', [BuybackController::class, 'summary']);
-    });
-});
-
-// Admin routes with authentication
 // Admin routes with authentication
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     // CRUD routes
@@ -501,9 +491,21 @@ Route::prefix('external')->middleware(['outbound.api'])->group(function () {
     Route::get('/orders/{orderReference}', [OrderController::class, 'externalShow']);
 });
 
+// Cooling-Off
 Route::middleware('auth:sanctum')->group(function () {
-    // Cooling-Off Withdrawal
+    Route::get('/orders/{orderReference}/cooling-off-eligibility', [CoolingOffController::class, 'eligibility']);
     Route::post('/orders/{orderReference}/cooling-off-withdraw', [CoolingOffController::class, 'withdraw']);
+    Route::get('/cooling-off/history', [CoolingOffController::class, 'history']);
+});
+
+// Buyback
+Route::middleware('auth:sanctum')->group(function () {
+    Route::prefix('distributor/buyback')->group(function () {
+        Route::get('/eligible', [BuybackController::class, 'eligibleStock']);
+        Route::post('/initiate', [BuybackController::class, 'initiate']);
+        Route::get('/history', [BuybackController::class, 'history']);
+        Route::get('/summary', [BuybackController::class, 'summary']);
+    });
 });
 
 Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
