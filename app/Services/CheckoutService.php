@@ -1797,6 +1797,13 @@ class CheckoutService
 
                 'grand_total' => $grandTotal,
                 'coupon_code' => $couponData['code'] ?? null,
+                'tax_breakdown' => array_map(function ($item) {
+                    return [
+                        'product_name' => $item['product_name'],
+                        'tax_category' => $item['tax_category'],
+                        'rate' => (float) str_replace('%', '', $item['rate']), // Remove % and convert to float
+                    ];
+                }, $taxBreakdown),
             ],
         ];
     }
@@ -2055,6 +2062,170 @@ class CheckoutService
     //     });
     // }
 
+    // public function placeOrder(int $userId, array $data): array
+    // {
+    //     $address = Address::findOrFail($data['address_id']);
+    //     $cart = Cart::with('items.product.taxCategory')->where('user_id', $userId)->firstOrFail();
+    //     $user = User::findOrFail($userId);
+
+    //     // Extract summary data
+    //     $summary = $data['summary_data'] ?? [];
+
+    //     // Check stock
+    //     foreach ($cart->items as $item) {
+    //         if ($item->product->stock_quantity < $item->quantity) {
+    //             throw new Exception("Insufficient stock for: {$item->product->name}");
+    //         }
+    //     }
+
+    //     // Use the grand total from request
+    //     $grandTotal = $data['grand_total'];
+
+    //     // Handle coin redemption
+    //     $coinRedemption = null;
+    //     $coinsUsed = 0;
+    //     $coinRedeemedAmount = 0;
+
+    //     if (isset($data['redemption_id'])) {
+    //         $coinRedemption = CoinRedemption::where('id', $data['redemption_id'])
+    //             ->where('user_id', $userId)
+    //             ->where('status', 'authorized')
+    //             ->first();
+    //         if (!$coinRedemption) {
+    //             throw new Exception('Invalid or expired coin redemption');
+    //         }
+
+    //         $coinsUsed = $coinRedemption->coins_used ?? 0;
+    //         $coinRedeemedAmount = $coinRedemption->amount_redeemed ?? 0;
+    //     }
+
+    //     return DB::transaction(function () use ($user, $address, $cart, $coinRedemption, $coinsUsed, $coinRedeemedAmount, $grandTotal, $data, $summary) {
+
+    //         // Calculate totals from cart
+    //         $subtotal = 0;
+    //         $totalTax = 0;
+    //         $orderItemsData = [];
+    //         $taxBreakdown = []; // Initialize tax breakdown array
+
+    //         foreach ($cart->items as $item) {
+    //             $unitPrice = $user->isDistributor()
+    //                 ? ($item->product->distributor_price ?? $item->product->retail_price)
+    //                 : $item->product->retail_price;
+
+    //             $lineTotal = $unitPrice * $item->quantity;
+    //             $subtotal += $lineTotal;
+
+    //             $taxRate = $item->product->taxCategory?->rate ?? 0;
+    //             $taxAmount = ($lineTotal * $taxRate) / 100;
+    //             $totalTax += $taxAmount;
+
+    //             // Build tax breakdown for this item
+    //             $taxCategoryName = $item->product->taxCategory?->name ?? 'Default';
+    //             $taxBreakdown[] = [
+    //                 'product_id' => $item->product_id,
+    //                 'product_name' => $item->product->name,
+    //                 'product_code' => $item->product->product_code ?? null,
+    //                 'quantity' => $item->quantity,
+    //                 'unit_price' => $unitPrice,
+    //                 'line_total_before_tax' => $lineTotal,
+    //                 'tax_category' => $taxCategoryName,
+    //                 'tax_rate' => $taxRate,
+    //                 'tax_amount' => $taxAmount,
+    //                 'line_total_after_tax' => $lineTotal + $taxAmount,
+    //             ];
+
+    //             $orderItemsData[] = [
+    //                 'item' => $item,
+    //                 'unit_price' => $unitPrice,
+    //                 'tax_rate' => $taxRate,
+    //                 'tax_amount' => $taxAmount,
+    //                 'line_total' => $lineTotal + $taxAmount,
+    //             ];
+    //         }
+
+    //         // Get values from summary data with fallbacks
+    //         $shippingCharge = $summary['shipping_charge'] ?? $data['shipping_cost'] ?? 0;
+    //         $couponDiscount = $summary['coupon_discount'] ?? 0;
+    //         $amountRedeemed = $summary['amount_redeemed'] ?? $coinRedeemedAmount ?? 0;
+    //         $netSubtotal = $summary['net_subtotal'] ?? $subtotal;
+    //         $couponCode = $summary['coupon_code'] ?? null;
+    //         $shippingMethodId = $summary['shipping_method_id'] ?? null;
+
+    //         // Add tax summary to the breakdown
+    //         $taxBreakdownSummary = [
+    //             'items' => $taxBreakdown,
+    //             'summary' => [
+    //                 'subtotal' => $subtotal,
+    //                 'total_tax' => $totalTax,
+    //                 'shipping_charge' => $shippingCharge,
+    //                 'coupon_discount' => $couponDiscount,
+    //                 'coin_redeemed' => $coinsUsed,
+    //                 'coin_redeemed_amount' => $amountRedeemed,
+    //                 'net_subtotal' => $netSubtotal,
+    //                 'grand_total' => $grandTotal,
+    //             ],
+    //             'tax_by_category' => $this->calculateTaxByCategory($taxBreakdown),
+    //         ];
+
+    //         // Create the order
+    //         $order = Order::create([
+    //             'order_reference' => 'ORD-' . strtoupper(uniqid()),
+    //             'user_id' => $user->id,
+    //             'billing_address_id' => $data['address_id'],
+    //             'delivery_address_id' => $data['address_id'],
+    //             'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
+    //             'subtotal' => $subtotal,
+    //             'total_gst' => $totalTax,
+    //             'shipping_charge' => $shippingCharge,
+    //             'shipping_method_id' => $shippingMethodId,
+    //             'coupon_code' => $couponCode,
+    //             'coupon_discount' => $couponDiscount,
+    //             'coin_redeemed' => $summary['coin_redeemed'] ?? $coinsUsed,
+    //             'coin_redeemed_amount' => $amountRedeemed,
+    //             'total_payable' => $grandTotal,
+    //             'amount_paid' => 0,
+    //             'status' => 'pending',
+    //             'tax_breakdown' => json_encode($taxBreakdownSummary), // Store full tax breakdown
+    //             'summary_data' => json_encode($summary), // Store the summary data as well
+    //             'payment_gateway' => $data['payment_gateway'] ?? null,
+    //         ]);
+
+    //         // Create order lines
+    //         foreach ($orderItemsData as $itemData) {
+    //             OrderLine::create([
+    //                 'order_id' => $order->id,
+    //                 'product_id' => $itemData['item']->product_id,
+    //                 'quantity' => $itemData['item']->quantity,
+    //                 'unit_price' => $itemData['unit_price'],
+    //                 'gst_rate' => $itemData['tax_rate'],
+    //                 'gst_amount' => $itemData['tax_amount'],
+    //                 'line_total' => $itemData['line_total'],
+    //                 'commissionable_volume' => $itemData['item']->product->commissionable_volume ?? 0,
+    //             ]);
+    //         }
+
+    //         // Update coin redemption with order
+    //         if ($coinRedemption) {
+    //             $coinRedemption->update([
+    //                 'order_id' => $order->id,
+    //                 'status' => 'used'
+    //             ]);
+    //         }
+
+    //         // Create Razorpay order
+    //         $razorpayOrder = $this->razorpayService->createOrder($order);
+
+    //         return [
+    //             'order_id' => $order->id,
+    //             'order_reference' => $order->order_reference,
+    //             'amount' => $order->total_payable,
+    //             'razorpay_order_id' => $razorpayOrder['id'],
+    //             'razorpay_key' => config('services.razorpay.key_id'),
+    //             'status' => 'pending',
+    //         ];
+    //     });
+    // }
+
     public function placeOrder(int $userId, array $data): array
     {
         $address = Address::findOrFail($data['address_id']);
@@ -2097,8 +2268,17 @@ class CheckoutService
             // Calculate totals from cart
             $subtotal = 0;
             $totalTax = 0;
+            $totalAfterDiscount = 0;
             $orderItemsData = [];
-            $taxBreakdown = []; // Initialize tax breakdown array
+            $taxBreakdown = [];
+
+            // Get coupon discount from summary
+            $couponDiscount = $summary['coupon_discount'] ?? 0;
+            $couponCode = $summary['coupon_code'] ?? null;
+
+            // First pass: Calculate subtotal and determine discount distribution
+            $itemsWithPrices = [];
+            $totalSubtotal = 0;
 
             foreach ($cart->items as $item) {
                 $unitPrice = $user->isDistributor()
@@ -2106,11 +2286,39 @@ class CheckoutService
                     : $item->product->retail_price;
 
                 $lineTotal = $unitPrice * $item->quantity;
-                $subtotal += $lineTotal;
+                $totalSubtotal += $lineTotal;
 
+                $itemsWithPrices[] = [
+                    'item' => $item,
+                    'unitPrice' => $unitPrice,
+                    'lineTotal' => $lineTotal,
+                ];
+            }
+
+            // Second pass: Apply coupon discount proportionally and calculate tax
+            foreach ($itemsWithPrices as $index => $itemData) {
+                $item = $itemData['item'];
+                $unitPrice = $itemData['unitPrice'];
+                $lineTotal = $itemData['lineTotal'];
+
+                // Calculate proportional discount for this item
+                $proportion = $totalSubtotal > 0 ? $lineTotal / $totalSubtotal : 0;
+                $itemDiscount = $couponDiscount * $proportion;
+
+                // Apply discount to get discounted line total
+                $discountedLineTotal = $lineTotal - $itemDiscount;
+
+                // Calculate tax on discounted amount
                 $taxRate = $item->product->taxCategory?->rate ?? 0;
-                $taxAmount = ($lineTotal * $taxRate) / 100;
+                $taxAmount = ($discountedLineTotal * $taxRate) / 100;
+
+                // Calculate final line total (after discount + tax)
+                $finalLineTotal = $discountedLineTotal + $taxAmount;
+
+                // Accumulate totals
+                $subtotal += $lineTotal;
                 $totalTax += $taxAmount;
+                $totalAfterDiscount += $discountedLineTotal;
 
                 // Build tax breakdown for this item
                 $taxCategoryName = $item->product->taxCategory?->name ?? 'Default';
@@ -2120,11 +2328,12 @@ class CheckoutService
                     'product_code' => $item->product->product_code ?? null,
                     'quantity' => $item->quantity,
                     'unit_price' => $unitPrice,
-                    'line_total_before_tax' => $lineTotal,
+                    'line_total_before_discount' => $lineTotal,
+                    'line_total_after_discount' => round($discountedLineTotal, 2),
                     'tax_category' => $taxCategoryName,
                     'tax_rate' => $taxRate,
-                    'tax_amount' => $taxAmount,
-                    'line_total_after_tax' => $lineTotal + $taxAmount,
+                    'tax_amount' => round($taxAmount, 2),
+                    'line_total_after_tax' => round($finalLineTotal, 2),
                 ];
 
                 $orderItemsData[] = [
@@ -2132,32 +2341,34 @@ class CheckoutService
                     'unit_price' => $unitPrice,
                     'tax_rate' => $taxRate,
                     'tax_amount' => $taxAmount,
-                    'line_total' => $lineTotal + $taxAmount,
+                    'line_total_after_discount' => $discountedLineTotal,
+                    'line_total' => $finalLineTotal,
                 ];
             }
 
             // Get values from summary data with fallbacks
             $shippingCharge = $summary['shipping_charge'] ?? $data['shipping_cost'] ?? 0;
-            $couponDiscount = $summary['coupon_discount'] ?? 0;
             $amountRedeemed = $summary['amount_redeemed'] ?? $coinRedeemedAmount ?? 0;
             $netSubtotal = $summary['net_subtotal'] ?? $subtotal;
-            $couponCode = $summary['coupon_code'] ?? null;
             $shippingMethodId = $summary['shipping_method_id'] ?? null;
+
+            // Calculate tax by category
+            $taxByCategory = $this->calculateTaxByCategory($taxBreakdown);
 
             // Add tax summary to the breakdown
             $taxBreakdownSummary = [
                 'items' => $taxBreakdown,
                 'summary' => [
-                    'subtotal' => $subtotal,
-                    'total_tax' => $totalTax,
-                    'shipping_charge' => $shippingCharge,
-                    'coupon_discount' => $couponDiscount,
+                    'subtotal' => round($subtotal, 2),
+                    'coupon_discount' => round($couponDiscount, 2),
+                    'subtotal_after_discount' => round($totalAfterDiscount, 2),
+                    'total_tax' => round($totalTax, 2),
+                    'shipping_charge' => round($shippingCharge, 2),
                     'coin_redeemed' => $coinsUsed,
-                    'coin_redeemed_amount' => $amountRedeemed,
-                    'net_subtotal' => $netSubtotal,
-                    'grand_total' => $grandTotal,
+                    'coin_redeemed_amount' => round($amountRedeemed, 2),
+                    'grand_total' => round($grandTotal, 2),
                 ],
-                'tax_by_category' => $this->calculateTaxByCategory($taxBreakdown),
+                'tax_by_category' => $taxByCategory,
             ];
 
             // Create the order
@@ -2167,32 +2378,35 @@ class CheckoutService
                 'billing_address_id' => $data['address_id'],
                 'delivery_address_id' => $data['address_id'],
                 'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
-                'subtotal' => $subtotal,
-                'total_gst' => $totalTax,
-                'shipping_charge' => $shippingCharge,
+                'subtotal' => round($subtotal, 2),
+                'total_gst' => round($totalTax, 2),
+                'shipping_charge' => round($shippingCharge, 2),
                 'shipping_method_id' => $shippingMethodId,
                 'coupon_code' => $couponCode,
-                'coupon_discount' => $couponDiscount,
+                'coupon_discount' => round($couponDiscount, 2),
                 'coin_redeemed' => $summary['coin_redeemed'] ?? $coinsUsed,
-                'coin_redeemed_amount' => $amountRedeemed,
-                'total_payable' => $grandTotal,
+                'coin_redeemed_amount' => round($amountRedeemed, 2),
+                'total_payable' => round($grandTotal, 2),
                 'amount_paid' => 0,
                 'status' => 'pending',
-                'tax_breakdown' => json_encode($taxBreakdownSummary), // Store full tax breakdown
-                'summary_data' => json_encode($summary), // Store the summary data as well
+                'tax_breakdown' => json_encode($taxBreakdownSummary),
+                'summary_data' => json_encode($summary),
                 'payment_gateway' => $data['payment_gateway'] ?? null,
             ]);
 
-            // Create order lines
+            // Create order lines using existing columns
             foreach ($orderItemsData as $itemData) {
                 OrderLine::create([
                     'order_id' => $order->id,
                     'product_id' => $itemData['item']->product_id,
                     'quantity' => $itemData['item']->quantity,
-                    'unit_price' => $itemData['unit_price'],
+                    // Store the discounted unit price (after coupon) in unit_price
+                    'unit_price' => round($itemData['unit_price'] - ($itemData['unit_price'] * ($couponDiscount / $totalSubtotal)), 2),
+                    // Store tax on discounted amount
                     'gst_rate' => $itemData['tax_rate'],
-                    'gst_amount' => $itemData['tax_amount'],
-                    'line_total' => $itemData['line_total'],
+                    'gst_amount' => round($itemData['tax_amount'], 2),
+                    // Store final line total (after discount + tax)
+                    'line_total' => round($itemData['line_total'], 2),
                     'commissionable_volume' => $itemData['item']->product->commissionable_volume ?? 0,
                 ]);
             }
@@ -2237,7 +2451,8 @@ class CheckoutService
                 ];
             }
 
-            $taxByCategory[$category]['total_taxable_amount'] += $item['line_total_before_tax'];
+            // Use line_total_after_discount as taxable amount (after coupon discount)
+            $taxByCategory[$category]['total_taxable_amount'] += $item['line_total_after_discount'] ?? $item['line_total_before_discount'] ?? 0;
             $taxByCategory[$category]['total_tax_amount'] += $item['tax_amount'];
             $taxByCategory[$category]['items'][] = $item['product_name'];
         }
