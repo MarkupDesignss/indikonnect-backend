@@ -2557,7 +2557,9 @@ class AuthController extends Controller
                 'registration_completed' => 1,
                 'submitted_at' => now(),
                 'terms_accepted_at' => now(),
-                'kyc_status' => 'verified'
+                //'kyc_status' => 'verified'
+                'kyc_status' => 'pending', // Will be updated by admin after review
+                'application_status' => 'submitted',
             ]);
 
             // Assign role
@@ -3510,5 +3512,81 @@ class AuthController extends Controller
                 'message' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Get distributor application status for authenticated user.
+     * GET /api/user/application-status
+     */
+    public function applicationStatus(Request $request)
+    {
+        $user = Auth::user();
+
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unauthorized'
+            ], 401);
+        }
+
+        // If user is customer, no distributor application
+        if ($user->account_type === 'customer') {
+            return response()->json([
+                'status' => true,
+                'account_type' => 'customer',
+                'application_status' => null,
+                'message' => 'You are registered as a customer.'
+            ]);
+        }
+
+        $profile = DistributorProfile::where('user_id', $user->id)->first();
+
+        if (!$profile) {
+            return response()->json([
+                'status' => true,
+                'account_type' => 'distributor',
+                'application_status' => 'draft',
+                'message' => 'Distributor application not found. Please complete registration.'
+            ]);
+        }
+
+        $status = $profile->application_status ?? 'draft';
+        $messages = [
+            'draft' => 'Your application is incomplete. Please complete all steps.',
+            'submitted' => 'Your application has been submitted and is awaiting review.',
+            'under_review' => 'Your application is currently being reviewed by our team.',
+            'returned' => 'Your application needs corrections. Please check the reason provided.',
+            'approved' => 'Congratulations! Your application is approved. You can now access your distributor dashboard.',
+            'rejected' => 'Your application was rejected. Please contact support for more information.'
+        ];
+
+        // Get reviewer name if reviewed
+        $reviewerName = null;
+        if ($profile->reviewed_by) {
+            $admin = Admin::find($profile->reviewed_by);
+            $reviewerName = $admin ? $admin->name : null;
+        }
+
+        $response = [
+            'status' => true,
+            'account_type' => 'distributor',
+            'application_status' => $status,
+            'message' => $messages[$status] ?? 'Unknown status',
+            'submitted_at' => $profile->submitted_at?->toDateTimeString(),
+            'reviewed_at' => $profile->reviewed_at?->toDateTimeString(),
+            'reviewed_by' => $reviewerName,
+            'rejection_reason' => $profile->rejection_reason,
+            'kyc_status' => $profile->kyc_status,
+            'is_editable' => in_array($status, ['draft', 'returned']),
+            'can_resubmit' => $status === 'returned',
+            'is_completed' => in_array($status, ['approved', 'rejected']),
+        ];
+
+        // If returned, include correction details
+        if ($status === 'returned' && $profile->rejection_reason) {
+            $response['correction_needed'] = $profile->rejection_reason;
+        }
+
+        return response()->json($response);
     }
 }
