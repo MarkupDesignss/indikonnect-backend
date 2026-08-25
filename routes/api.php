@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\Admin\PayoutController;
 use App\Http\Controllers\Admin\ReconciliationController;
+use App\Http\Controllers\Admin\KycController;
 use App\Http\Controllers\API\AddressController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
@@ -250,6 +251,7 @@ Route::group(['prefix' => 'user'], function () {
         Route::post('profile', [APIAuthController::class, 'updateProfile'])->name('update-profile');
         Route::delete('profile-picture', [APIAuthController::class, 'removeProfilePicture'])->name('remove-profile-picture');
         Route::post('change-password', [APIAuthController::class, 'changePassword'])->name('change-password');
+        Route::get('/user/application-status', [APIAuthController::class, 'applicationStatus']);
         Route::post('logout', [APIAuthController::class, 'logout'])->name('logout');
     });
 });
@@ -515,4 +517,13 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::put('notifications/read-all', [NotificationController::class, 'markAllAsRead']);
     Route::delete('notifications/{id}', [NotificationController::class, 'destroy']);
     Route::delete('notifications', [NotificationController::class, 'destroyAll']);
+});
+
+Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
+    // ========== KYC Application Management ==========
+    Route::get('/kyc/applications', [KycController::class, 'pendingApplications']);
+    Route::get('/kyc/applications/{userId}', [KycController::class, 'show']);
+    Route::post('/kyc/applications/{userId}/approve', [KycController::class, 'approve']);
+    Route::post('/kyc/applications/{userId}/reject', [KycController::class, 'reject']);
+    Route::post('/kyc/applications/{userId}/return', [KycController::class, 'returnForCorrection']);
 });
