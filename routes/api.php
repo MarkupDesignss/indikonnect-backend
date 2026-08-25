@@ -40,6 +40,9 @@ use App\Http\Controllers\API\NotificationController;
 use App\Http\Controllers\API\UserNotificationController;
 use App\Http\Controllers\API\CoolingOffController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
+use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Admin\RoleController;
+use App\Http\Controllers\Admin\PermissionController;
 
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
@@ -176,6 +179,8 @@ Route::prefix('products')->group(function () {
     // Admin protected routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/', [ProductController::class, 'store']);
+        // Route::post('/', [ProductController::class, 'store'])
+        //     ->middleware('permission:product.view');
         Route::put('/{product}', [ProductController::class, 'update']);
         Route::delete('/{product}', [ProductController::class, 'destroy']);
         Route::delete('/{product}/images', [ProductController::class, 'deleteImages']);
@@ -526,4 +531,30 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
     Route::post('/kyc/applications/{userId}/approve', [KycController::class, 'approve']);
     Route::post('/kyc/applications/{userId}/reject', [KycController::class, 'reject']);
     Route::post('/kyc/applications/{userId}/return', [KycController::class, 'returnForCorrection']);
+});
+
+Route::prefix('admin')->group(function () {
+    Route::middleware(['auth:sanctum'])->group(function () {
+
+        // Admin Management
+        Route::get('/get', [AdminController::class, 'index']);
+        Route::get('/admins/{id}', [AdminController::class, 'show']);
+        Route::post('/create', [AdminController::class, 'store']);
+        Route::post('/update/{id}', [AdminController::class, 'update']);
+        Route::delete('/delete/{id}', [AdminController::class, 'destroy']);
+
+        // Role Management
+        Route::get('/roles', [RoleController::class, 'index']);
+        Route::get('/roles/{id}', [RoleController::class, 'show']);
+        Route::post('/roles', [RoleController::class, 'store']);
+        Route::post('/roles/{id}', [RoleController::class, 'update']);
+        Route::delete('/roles/{id}', [RoleController::class, 'destroy']);
+
+        // Permission Management
+        Route::get('/permissions', [PermissionController::class, 'index']);
+        Route::get('/permissions/modules', [PermissionController::class, 'getModules']);
+        Route::post('/permissions', [PermissionController::class, 'store']);
+        Route::post('/permissions/{id}', [PermissionController::class, 'update']);
+        Route::delete('/permissions/{id}', [PermissionController::class, 'destroy']);
+    });
 });

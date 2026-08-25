@@ -385,6 +385,7 @@ class CheckoutController extends Controller
 
             'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
 
+            // Change from summary_data to summary
             'summary_data' => 'required|array',
             'summary_data.subtotal' => 'sometimes|numeric|min:0',
             'summary_data.total_tax' => 'sometimes|numeric|min:0',
@@ -395,8 +396,13 @@ class CheckoutController extends Controller
             'summary_data.coin_redeemed' => 'nullable|numeric|min:0',
             'summary_data.amount_redeemed' => 'nullable|numeric|min:0',
             'summary_data.net_subtotal' => 'nullable|numeric|min:0',
-        ]);
 
+            // Tax breakdown validation
+            'summary_data.tax_breakdown' => 'sometimes|array',
+            'summary_data.tax_breakdown.*.product_name' => 'required_with:summary_data.tax_breakdown|string|max:255',
+            'summary_data.tax_breakdown.*.tax_category' => 'required_with:summary_data.tax_breakdown|string|max:100',
+            'summary_data.tax_breakdown.*.rate' => 'required_with:summary_data.tax_breakdown|numeric|min:0',
+        ]);
         try {
             $result = $this->checkoutService->placeOrder(
                 auth()->id(),
