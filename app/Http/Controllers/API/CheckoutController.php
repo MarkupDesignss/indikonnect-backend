@@ -182,28 +182,28 @@ class CheckoutController extends Controller
             // Get or find address
             $addressId = $validated['address_id'] ?? null;
 
-            if (!$addressId) {
-                $defaultAddress = Address::where('user_id', auth()->id())
-                    ->where(function ($query) {
-                        $query->where('is_default', true)
-                            ->orWhere('is_billing', true);
-                    })
-                    ->first();
+            // if (!$addressId) {
+            //     $defaultAddress = Address::where('user_id', auth()->id())
+            //         ->where(function ($query) {
+            //             $query->where('is_default', true)
+            //                 ->orWhere('is_billing', true);
+            //         })
+            //         ->first();
 
-                if ($defaultAddress) {
-                    $addressId = $defaultAddress->id;
-                } else {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'No delivery address found. Please add an address first.',
-                        'data' => [
-                            'needs_address' => true,
-                            'has_coupon' => !empty($validated['coupon_code']),
-                            'coupon_applied' => false,
-                        ]
-                    ], 400);
-                }
-            }
+            //     if ($defaultAddress) {
+            //         $addressId = $defaultAddress->id;
+            //     } else {
+            //         return response()->json([
+            //             'success' => false,
+            //             'message' => 'No delivery address found. Please add an address first.',
+            //             'data' => [
+            //                 'needs_address' => true,
+            //                 'has_coupon' => !empty($validated['coupon_code']),
+            //                 'coupon_applied' => false,
+            //             ]
+            //         ], 400);
+            //     }
+            // }
 
             // Buy Now if product_id is provided
             $isBuyNow = isset($validated['product_id']);
