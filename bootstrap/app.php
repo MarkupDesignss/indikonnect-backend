@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'admin' => EnsureAdmin::class,
             'optional.auth' => \App\Http\Middleware\OptionalAuth::class,
+            'permission' => \App\Http\Middleware\AdminPermission::class,
             'outbound.api' => OutboundApiAuth::class,
         ]);
     })
