@@ -40,12 +40,18 @@ class OrderReturn extends Model
         'admin_notes',
         'rejection_reason',
 
+        // ADDED: Return type (return, cooling_off, buyback)
+        'type',
+
+        // ADDED: Extra metadata (buy-back declarations, etc.)
+        'extra_data',
+
         // Status timestamps
         'approved_at',
         'received_at',
         'completed_at',
 
-        // Laravel timestamps
+        // timestamps
         'created_at',
         'updated_at',
         'deleted_at',
@@ -58,6 +64,9 @@ class OrderReturn extends Model
         // JSON columns
         'items' => 'array',
         'general_images' => 'array',
+
+        // ADDED: Cast extra_data to array
+        'extra_data' => 'array',
 
         // Date/time columns
         'approved_at' => 'datetime',
@@ -75,59 +84,25 @@ class OrderReturn extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Return Status Constants
-    |--------------------------------------------------------------------------
-    */
-
-    public const STATUS_PENDING = 'pending';
-    public const STATUS_APPROVED = 'approved';
-    public const STATUS_REJECTED = 'rejected';
-    public const STATUS_RECEIVED = 'received';
-    public const STATUS_COMPLETED = 'completed';
-
-    /*
-    |--------------------------------------------------------------------------
-    | Refund Status Constants
-    |--------------------------------------------------------------------------
-    */
-
-    public const REFUND_STATUS_PROCESSING = 'processing';
-    public const REFUND_STATUS_COMPLETED = 'completed';
-    public const REFUND_STATUS_FAILED = 'failed';
-
-    /*
-    |--------------------------------------------------------------------------
     | Relationships
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Return belongs to an order.
-     */
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class, 'order_id');
     }
 
-    /**
-     * Return belongs to a user/customer.
-     */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
     }
 
-    /**
-     * Return was processed by an admin.
-     */
     public function admin(): BelongsTo
     {
         return $this->belongsTo(User::class, 'admin_id');
     }
 
-    /**
-     * Return has one refund.
-     */
     public function refund(): HasOne
     {
         return $this->hasOne(Refund::class, 'return_id');
@@ -139,12 +114,6 @@ class OrderReturn extends Model
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Get return items with product details.
-     *
-     * Usage:
-     * $return->return_items_with_details
-     */
     public function getReturnItemsWithDetailsAttribute(): array
     {
         $items = $this->items ?? [];
@@ -156,17 +125,11 @@ class OrderReturn extends Model
         $result = [];
 
         foreach ($items as $item) {
-
-            if (
-                !isset($item['order_line_id']) ||
-                !isset($item['quantity'])
-            ) {
+            if (!isset($item['order_line_id']) || !isset($item['quantity'])) {
                 continue;
             }
 
-            $orderLine = OrderLine::with([
-                'product.primaryImage'
-            ])->find($item['order_line_id']);
+            $orderLine = OrderLine::with(['product.primaryImage'])->find($item['order_line_id']);
 
             if (!$orderLine || !$orderLine->product) {
                 continue;
@@ -174,38 +137,19 @@ class OrderReturn extends Model
 
             $result[] = [
                 'order_line_id' => $orderLine->id,
-
                 'product' => [
                     'id' => $orderLine->product->id,
                     'name' => $orderLine->product->name,
                     'product_code' => $orderLine->product->product_code,
                     'image' => $orderLine->product->primaryImage?->image_url,
                 ],
-
                 'quantity' => (int) $item['quantity'],
-
-                'unit_price' => (float) (
-                    $item['unit_price']
-                    ?? $orderLine->unit_price
-                ),
-
-                'subtotal' => (float) (
-                    $item['subtotal']
-                    ?? (
-                        (float) $orderLine->unit_price
-                        * (int) $item['quantity']
-                    )
-                ),
-
+                'unit_price' => (float) ($item['unit_price'] ?? $orderLine->unit_price),
+                'subtotal' => (float) ($item['subtotal'] ?? ((float) $orderLine->unit_price * (int) $item['quantity'])),
                 'tax' => (float) ($item['tax'] ?? 0),
-
                 'reason' => $item['reason'] ?? null,
-
                 'image_paths' => $item['image_paths'] ?? [],
-
-                'image_urls' => $this->getImageUrls(
-                    $item['image_paths'] ?? []
-                ),
+                'image_urls' => $this->getImageUrls($item['image_paths'] ?? []),
             ];
         }
 
@@ -214,85 +158,180 @@ class OrderReturn extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Return Status Checks
+    | TYPE HELPERS (Direct Strings)
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Check if return can be completed.
-     */
-    public function canComplete(): bool
+    public function isCoolingOff(): bool
     {
-        return $this->status === self::STATUS_RECEIVED;
+        return $this->type === 'cooling_off';
     }
 
-    /**
-     * Check if return can be approved.
-     */
-    public function canApprove(): bool
+    public function isBuyback(): bool
     {
-        return $this->status === self::STATUS_PENDING;
+        return $this->type === 'buyback';
     }
 
-    /**
-     * Check if return can be rejected.
-     */
-    public function canReject(): bool
+    public function isReturn(): bool
     {
-        return $this->status === self::STATUS_PENDING;
-    }
-
-    /**
-     * Check if return can be marked as received.
-     */
-    public function canMarkReceived(): bool
-    {
-        return $this->status === self::STATUS_APPROVED;
+        return $this->type === 'return';
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Image Helpers
+    | STATUS HELPERS (Direct Strings)
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Get all return image paths.
-     */
+    public function isPending(): bool
+    {
+        return $this->status === 'pending';
+    }
+
+    public function isApproved(): bool
+    {
+        return $this->status === 'approved';
+    }
+
+    public function isRejected(): bool
+    {
+        return $this->status === 'rejected';
+    }
+
+    public function isReceived(): bool
+    {
+        return $this->status === 'received';
+    }
+
+    public function isCompleted(): bool
+    {
+        return $this->status === 'completed';
+    }
+
+    public function isApprovedOrCompleted(): bool
+    {
+        return in_array($this->status, ['approved', 'received', 'completed']);
+    }
+
+    public function hasBeenProcessed(): bool
+    {
+        return $this->status !== 'pending';
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | TRANSITION CHECKS (Direct Strings)
+    |--------------------------------------------------------------------------
+    */
+
+    public function canApprove(): bool
+    {
+        return $this->status === 'pending';
+    }
+
+    public function canReject(): bool
+    {
+        return $this->status === 'pending';
+    }
+
+    public function canMarkReceived(): bool
+    {
+        return $this->status === 'approved';
+    }
+
+    public function canComplete(): bool
+    {
+        return $this->status === 'received';
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | REFUND STATUS HELPERS (Direct Strings)
+    |--------------------------------------------------------------------------
+    */
+
+    public function isRefundProcessing(): bool
+    {
+        return $this->refund_status === 'processing';
+    }
+
+    public function isRefundCompleted(): bool
+    {
+        return $this->refund_status === 'completed';
+    }
+
+    public function isRefundFailed(): bool
+    {
+        return $this->refund_status === 'failed';
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | DECLARATION HELPERS (Buy-Back)
+    |--------------------------------------------------------------------------
+    */
+
+    public function getDeclaration(string $key, $default = null)
+    {
+        return $this->extra_data[$key] ?? $default;
+    }
+
+    public function hasAllDeclarations(): bool
+    {
+        return $this->getDeclaration('declares_marketable') === true
+            && $this->getDeclaration('declares_unsold') === true
+            && $this->getDeclaration('declares_unused') === true;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ITEM HELPERS
+    |--------------------------------------------------------------------------
+    */
+
+    public function getItemsCount(): int
+    {
+        return count($this->items ?? []);
+    }
+
+    public function getTotalQuantity(): int
+    {
+        $total = 0;
+        foreach ($this->items ?? [] as $item) {
+            $total += (int) ($item['quantity'] ?? 0);
+        }
+        return $total;
+    }
+
+    public function getLineIds(): array
+    {
+        $ids = [];
+        foreach ($this->items ?? [] as $item) {
+            if (isset($item['order_line_id'])) {
+                $ids[] = $item['order_line_id'];
+            }
+        }
+        return $ids;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | IMAGE HELPERS
+    |--------------------------------------------------------------------------
+    */
+
     public function getAllImages(): array
     {
         $images = [];
 
-        /*
-         * General return images
-         */
-        if (
-            !empty($this->general_images) &&
-            is_array($this->general_images)
-        ) {
-            $images = array_merge(
-                $images,
-                $this->general_images
-            );
+        if (!empty($this->general_images) && is_array($this->general_images)) {
+            $images = array_merge($images, $this->general_images);
         }
 
-        /*
-         * Item-specific images
-         */
-        if (
-            !empty($this->items) &&
-            is_array($this->items)
-        ) {
+        if (!empty($this->items) && is_array($this->items)) {
             foreach ($this->items as $item) {
-
-                if (
-                    !empty($item['image_paths']) &&
-                    is_array($item['image_paths'])
-                ) {
-                    $images = array_merge(
-                        $images,
-                        $item['image_paths']
-                    );
+                if (!empty($item['image_paths']) && is_array($item['image_paths'])) {
+                    $images = array_merge($images, $item['image_paths']);
                 }
             }
         }
@@ -300,43 +339,26 @@ class OrderReturn extends Model
         return array_values($images);
     }
 
-    /**
-     * Get all return image URLs.
-     */
     public function getAllImageUrls(): array
     {
-        return $this->getImageUrls(
-            $this->getAllImages()
-        );
+        return $this->getImageUrls($this->getAllImages());
     }
 
-    /**
-     * Convert image paths to public URLs.
-     */
     private function getImageUrls(array $images): array
     {
         $urls = [];
 
         foreach ($images as $image) {
-
             if (empty($image)) {
                 continue;
             }
 
-            /*
-             * If already a full URL, don't prepend storage.
-             */
-            if (
-                str_starts_with($image, 'http://') ||
-                str_starts_with($image, 'https://')
-            ) {
+            if (str_starts_with($image, 'http://') || str_starts_with($image, 'https://')) {
                 $urls[] = $image;
                 continue;
             }
 
-            $urls[] = asset(
-                'storage/' . ltrim($image, '/')
-            );
+            $urls[] = asset('storage/' . ltrim($image, '/'));
         }
 
         return $urls;
@@ -344,71 +366,39 @@ class OrderReturn extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Refund Status Checks
+    | LABEL HELPERS (Direct Strings)
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Check if refund is processing.
-     */
-    public function isRefundProcessing(): bool
+    public function getStatusLabel(): string
     {
-        return $this->refund_status === self::REFUND_STATUS_PROCESSING;
+        return match ($this->status) {
+            'pending' => 'Pending',
+            'approved' => 'Approved',
+            'rejected' => 'Rejected',
+            'received' => 'Received',
+            'completed' => 'Completed',
+            default => 'Unknown',
+        };
     }
 
-    /**
-     * Check if refund is completed.
-     */
-    public function isRefundCompleted(): bool
+    public function getTypeLabel(): string
     {
-        return $this->refund_status === self::REFUND_STATUS_COMPLETED;
+        return match ($this->type) {
+            'return' => 'Return',
+            'cooling_off' => 'Cooling-Off Withdrawal',
+            'buyback' => 'Buy-Back',
+            default => 'Unknown',
+        };
     }
 
-    /**
-     * Check if refund failed.
-     */
-    public function isRefundFailed(): bool
+    public function getRefundStatusLabel(): string
     {
-        return $this->refund_status === self::REFUND_STATUS_FAILED;
-    }
-
-    /**
-     * Check if return is pending.
-     */
-    public function isPending(): bool
-    {
-        return $this->status === self::STATUS_PENDING;
-    }
-
-    /**
-     * Check if return is approved.
-     */
-    public function isApproved(): bool
-    {
-        return $this->status === self::STATUS_APPROVED;
-    }
-
-    /**
-     * Check if return is rejected.
-     */
-    public function isRejected(): bool
-    {
-        return $this->status === self::STATUS_REJECTED;
-    }
-
-    /**
-     * Check if return is received.
-     */
-    public function isReceived(): bool
-    {
-        return $this->status === self::STATUS_RECEIVED;
-    }
-
-    /**
-     * Check if return is completed.
-     */
-    public function isCompleted(): bool
-    {
-        return $this->status === self::STATUS_COMPLETED;
+        return match ($this->refund_status) {
+            'processing' => 'Processing',
+            'completed' => 'Completed',
+            'failed' => 'Failed',
+            default => 'Not Initiated',
+        };
     }
 }
