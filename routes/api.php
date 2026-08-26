@@ -352,6 +352,7 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::get('/orders/statuses', [OrderController::class, 'statuses']);
+Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/dashboard', [UserDashboardController::class, 'dashboard']);

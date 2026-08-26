@@ -3049,7 +3049,7 @@ class AuthController extends Controller
 
             return response()->json([
                 'status' => true,
-                'message' => 'Password changed successfully'
+                'message' => 'Password changed successfully',
             ], 200);
         } catch (\Exception $e) {
             Log::error('changePassword error', [

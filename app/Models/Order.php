@@ -124,7 +124,7 @@ class Order extends Model
             ->exists();
     }
 
-     /**
+    /**
      * Check if order is within cooling-off period (30 days from purchase date).
      * FR-CO-013
      */
@@ -136,7 +136,7 @@ class Order extends Model
 
     /**
      * Check if order is within buy-back window (30 days from purchase date).
-    */
+     */
 
     public function isWithinBuybackWindow(): bool
     {
@@ -146,7 +146,7 @@ class Order extends Model
 
     /**
      * Get remaining days for cooling-off.
-    */
+     */
     public function getRemainingCoolingOffDays(): int
     {
         $coolingOffDays = (int) setting('cooling_off_days', 30);
@@ -154,14 +154,129 @@ class Order extends Model
         return max(0, $coolingOffDays - $daysPassed);
     }
 
-    
+
     /**
      * Get remaining days for buy-back.
-    */
+     */
     public function getRemainingBuybackDays(): int
     {
         $buybackWindow = (int) setting('buyback_window_days', 30);
         $daysPassed = $this->created_at->diffInDays(now());
         return max(0, $buybackWindow - $daysPassed);
+    }
+    public function updateOrderStatus(): void
+    {
+        $lines = $this->lines;
+        $totalLines = $lines->count();
+
+        if ($totalLines === 0) {
+            $this->update(['status' => 'pending']);
+            return;
+        }
+
+        $deliveryCounts = [
+            'pending' => 0,
+            'confirmed' => 0,
+            'shipped' => 0,
+            'delivered' => 0,
+            'cancelled' => 0,
+            'returned' => 0,
+        ];
+
+        foreach ($lines as $line) {
+            $status = $line->delivery_status ?? 'pending';
+            if (isset($deliveryCounts[$status])) {
+                $deliveryCounts[$status]++;
+            }
+        }
+
+        // Determine delivery status
+        $deliveryStatus = $this->calculateDeliveryStatus($deliveryCounts, $totalLines);
+
+        // Check return status for delivered items
+        $returnStatus = $this->calculateReturnStatus($lines);
+
+        // Combine delivery and return status
+        $finalStatus = $this->combineStatuses($deliveryStatus, $returnStatus, $deliveryCounts, $totalLines);
+
+        $this->update(['status' => $finalStatus]);
+    }
+
+    private function calculateDeliveryStatus(array $counts, int $total): string
+    {
+        if ($counts['delivered'] === $total) {
+            return 'delivered';
+        }
+
+        if ($counts['delivered'] > 0) {
+            return 'partial_delivered';
+        }
+
+        if ($counts['shipped'] === $total) {
+            return 'shipped';
+        }
+
+        if ($counts['shipped'] > 0) {
+            return 'partial_shipped';
+        }
+
+        if ($counts['confirmed'] === $total) {
+            return 'confirmed';
+        }
+
+        if ($counts['confirmed'] > 0) {
+            return 'partial_confirmed';
+        }
+
+        if ($counts['returned'] > 0) {
+            // All items returned
+            if ($counts['returned'] === $total) {
+                return 'returned';
+            }
+            return 'partial_returned';
+        }
+
+        return 'pending';
+    }
+
+    private function calculateReturnStatus($lines): array
+    {
+        $deliveredLines = $lines->where('delivery_status', 'delivered');
+        $deliveredCount = $deliveredLines->count();
+
+        if ($deliveredCount === 0) {
+            return ['has_returns' => false, 'all_returned' => false];
+        }
+
+        $returnedCount = $deliveredLines->where('return_status', 'returned')->count();
+        $pendingReturns = $deliveredLines->whereIn('return_status', ['pending', 'approved'])->count();
+
+        return [
+            'has_returns' => $returnedCount > 0 || $pendingReturns > 0,
+            'all_returned' => $returnedCount === $deliveredCount && $deliveredCount > 0
+        ];
+    }
+
+    private function combineStatuses(string $deliveryStatus, array $returnStatus, array $counts, int $total): string
+    {
+        // If all delivered items are returned and all items are delivered
+        if ($returnStatus['all_returned'] && $counts['delivered'] === $total) {
+            return 'returned';
+        }
+
+        // If all delivered items are returned but some items not delivered
+        if ($returnStatus['all_returned'] && $counts['delivered'] > 0) {
+            return 'partial_return';
+        }
+
+        // If some delivered items are returned
+        if ($returnStatus['has_returns'] && $counts['delivered'] > 0) {
+            if ($deliveryStatus === 'delivered') {
+                return 'partial_returned';
+            }
+            return $deliveryStatus;
+        }
+
+        return $deliveryStatus;
     }
 }

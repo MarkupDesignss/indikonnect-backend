@@ -9,7 +9,7 @@ if (!function_exists('setting')) {
      *
      * @param string $key
      * @param mixed $default
-     * @return mixed
+     * @return mixed    
      */
     function setting(string $key, mixed $default = null): mixed
     {

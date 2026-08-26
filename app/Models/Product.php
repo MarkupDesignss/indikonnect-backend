@@ -21,6 +21,7 @@ class Product extends Model
         'is_deal_of_the_day' => 'boolean',
         'deal_of_the_day_starts_at' => 'datetime',
         'deal_of_the_day_ends_at' => 'datetime',
+        'is_trending' => 'boolean',
     ];
 
     protected $attributes = [
@@ -33,12 +34,6 @@ class Product extends Model
     {
         return $this->belongsTo(Category::class);
     }
-    public function review()
-    {
-        return $this->belongsTo(ProductReview::class);
-    }
-
-
 
     public function taxCategory()
     {
@@ -50,25 +45,35 @@ class Product extends Model
         return $this->hasMany(ProductReview::class);
     }
 
+    public function variants()
+    {
+        return $this->hasMany(ProductVariant::class);
+    }
+
     public function images()
     {
         return $this->hasMany(ProductImage::class, 'product_id')
             ->orderBy('sort_order');
     }
+
     public function primaryImage()
     {
         return $this->hasOne(ProductImage::class)->where('is_primary', true);
     }
 
-    // Accessors
-    public function getImageUrlsAttribute()
+    public function wishlists()
     {
-        if ($this->images && is_array($this->images)) {
-            return array_map(function ($image) {
-                return asset('storage/' . $image);
-            }, $this->images);
-        }
-        return [];
+        return $this->hasMany(Wishlist::class);
+    }
+
+    public function orderLines()
+    {
+        return $this->hasMany(OrderLine::class);
+    }
+
+    public function stockMovements()
+    {
+        return $this->hasMany(StockMovement::class);
     }
 
     // Scopes
@@ -87,6 +92,12 @@ class Product extends Model
         return $query->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
     }
 
+    public function scopeOutOfStock($query)
+    {
+        return $query->where('stock_quantity', '=', 0);
+    }
+
+    // Accessors
     public function getStockStatusAttribute()
     {
         if ($this->stock_quantity <= 0) {
@@ -100,35 +111,9 @@ class Product extends Model
         return 'in_stock';
     }
 
-    public function scopeOutOfStock($query)
-    {
-        return $query->where('stock_quantity', '=', 0);
-    }
-
-    // In Product.php, add this relationship
-    public function wishlists()
-    {
-        return $this->hasMany(Wishlist::class);
-    }
-
-    // Add accessor for is_wishlisted
-    protected $appends = ['is_wishlisted'];
-
     public function getIsWishlistedAttribute()
     {
-        // This will be set dynamically based on the logged-in user
-        // We'll set it manually in the controller
         return false;
-    }
-
-    public function orderLines()
-    {
-        return $this->hasMany(OrderLine::class);
-    }
-
-    public function stockMovements()
-    {
-        return $this->hasMany(StockMovement::class);
     }
 
     public function isActiveDealOfTheDay(): bool
@@ -150,6 +135,7 @@ class Product extends Model
         return true;
     }
 
+    // Boot method
     protected static function boot()
     {
         parent::boot();
@@ -167,9 +153,6 @@ class Product extends Model
         });
     }
 
-    /**
-     * Generate unique slug
-     */
     public function generateUniqueSlug()
     {
         $baseSlug = $this->createSlug($this->name);
@@ -184,9 +167,6 @@ class Product extends Model
         return $slug;
     }
 
-    /**
-     * Create base slug from string
-     */
     private function createSlug($text)
     {
         $text = strtolower(trim($text));
@@ -195,9 +175,6 @@ class Product extends Model
         return trim($text, '-');
     }
 
-    /**
-     * Get product URL attribute
-     */
     public function getProductUrlAttribute()
     {
         return url("/product/{$this->slug}");

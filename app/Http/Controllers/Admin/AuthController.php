@@ -456,6 +456,7 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'OTP sent successfully to your email address',
+            'otp'     => $otp,
             'data' => [
                 'email' => $request->email,
                 'expires_in' => '10 minutes'
