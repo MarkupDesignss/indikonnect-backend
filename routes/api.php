@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\Admin\PayoutController;
 use App\Http\Controllers\Admin\ReconciliationController;
 use App\Http\Controllers\Admin\KycController;
+use App\Http\Controllers\Admin\AttributeController;
 use App\Http\Controllers\API\AddressController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
@@ -490,11 +491,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
 // OUTBOUND API
 // ============================
 Route::prefix('external')->middleware(['outbound.api'])->group(function () {
-    // Products (FR-IN-002)
+    // Products
     Route::get('/products', [ProductController::class, 'externalIndex']);
     Route::get('/products/{identifier}', [ProductController::class, 'externalShow']);
 
-    // Orders (FR-IN-003)
+    // Orders
     Route::get('/orders', [OrderController::class, 'externalIndex']);
     Route::get('/orders/{orderReference}', [OrderController::class, 'externalShow']);
 });
@@ -559,3 +560,25 @@ Route::prefix('admin')->group(function () {
         Route::delete('/permissions/{id}', [PermissionController::class, 'destroy']);
     });
 });
+
+Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
+
+    // Individual routes (NO resource)
+    Route::get('attributes', [AttributeController::class, 'index']);
+    Route::post('attributes', [AttributeController::class, 'store']);
+    Route::get('attributes/{id}', [AttributeController::class, 'show']);
+    Route::put('attributes/{id}', [AttributeController::class, 'update']);
+    Route::delete('attributes/{id}', [AttributeController::class, 'destroy']);
+
+    // Custom routes for values
+    Route::get('attributes/{attributeId}/values', [AttributeController::class, 'getValues']);
+    Route::post('attributes/{attributeId}/values', [AttributeController::class, 'storeValue']);
+    Route::put('attributes/{attributeId}/values/{valueId}', [AttributeController::class, 'updateValue']);
+    Route::delete('attributes/{attributeId}/values/{valueId}', [AttributeController::class, 'destroyValue']);
+    Route::post('attributes/{attributeId}/values/bulk', [AttributeController::class, 'bulkStoreValues']);
+
+    // Helper routes
+    Route::get('attributes-dropdown', [AttributeController::class, 'getForDropdown']);
+});
+
+Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);

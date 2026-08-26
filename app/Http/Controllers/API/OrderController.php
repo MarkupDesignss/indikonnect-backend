@@ -23,59 +23,59 @@ class OrderController extends Controller
      * FR-CO-008: Get order history
      * GET /api/order/history
      */
-    public function history(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'status' => 'nullable|in:pending,confirmed,processing,dispatched,delivered,cancelled,returned',
-            'from_date' => 'nullable|date',
-            'to_date' => 'nullable|date|after_or_equal:from_date',
-            'order_type' => 'nullable|in:retail,distributor',
-            'per_page' => 'nullable|integer|min:1|max:100',
-        ]);
+    // public function history(Request $request): JsonResponse
+    // {
+    //     $validated = $request->validate([
+    //         'status' => 'nullable|in:pending,confirmed,processing,dispatched,delivered,cancelled,returned',
+    //         'from_date' => 'nullable|date',
+    //         'to_date' => 'nullable|date|after_or_equal:from_date',
+    //         'order_type' => 'nullable|in:retail,distributor',
+    //         'per_page' => 'nullable|integer|min:1|max:100',
+    //     ]);
 
-        try {
-            $history = $this->checkoutService->getOrderHistory(
-                auth()->id(),
-                $validated
-            );
+    //     try {
+    //         $history = $this->checkoutService->getOrderHistory(
+    //             auth()->id(),
+    //             $validated
+    //         );
 
-            return response()->json([
-                'success' => true,
-                'data' => $history,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ], 400);
-        }
-    }
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $history,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
 
     /**
      * FR-CO-008: Get order detail
      * GET /api/order/{orderReference}
      */
-    public function show(string $orderReference): JsonResponse
-    {
-        // No additional validation needed; the service will handle not found
+    // public function show(string $orderReference): JsonResponse
+    // {
+    //     // No additional validation needed; the service will handle not found
 
-        try {
-            $order = $this->checkoutService->getOrderDetail(
-                auth()->id(),
-                $orderReference
-            );
+    //     try {
+    //         $order = $this->checkoutService->getOrderDetail(
+    //             auth()->id(),
+    //             $orderReference
+    //         );
 
-            return response()->json([
-                'success' => true,
-                'data' => $order,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ], 404);
-        }
-    }
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $order,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 404);
+    //     }
+    // }
 
     /**
      * FR-CO-010: Cancel order (before dispatch)
@@ -1247,42 +1247,6 @@ class OrderController extends Controller
             ], 500);
         }
     }
-    public function orderstatuses(): JsonResponse
-    {
-        try {
-            $result = DB::select("
-            SHOW COLUMNS FROM orders WHERE Field = 'status'
-        ");
-
-            if (empty($result)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Delivery status column not found.',
-                ], 404);
-            }
-
-            $type = $result[0]->Type;
-
-            // Extract enum values
-            preg_match('/^enum\((.*)\)$/', $type, $matches);
-
-            $statuses = [];
-
-            if (isset($matches[1])) {
-                $statuses = str_getcsv($matches[1], ',', "'");
-            }
-
-            return response()->json([
-                'success' => true,
-                'data' => $statuses,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ], 500);
-        }
-    }
 
     /**
      * ============================================================
@@ -1410,5 +1374,42 @@ class OrderController extends Controller
             'success' => true,
             'data' => $order,
         ]);
+    }
+
+    public function orderstatuses(): JsonResponse
+    {
+        try {
+            $result = DB::select("
+            SHOW COLUMNS FROM orders WHERE Field = 'status'
+        ");
+
+            if (empty($result)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Delivery status column not found.',
+                ], 404);
+            }
+
+            $type = $result[0]->Type;
+
+            // Extract enum values
+            preg_match('/^enum\((.*)\)$/', $type, $matches);
+
+            $statuses = [];
+
+            if (isset($matches[1])) {
+                $statuses = str_getcsv($matches[1], ',', "'");
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $statuses,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
     }
 }
