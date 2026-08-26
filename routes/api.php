@@ -489,11 +489,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
 // OUTBOUND API
 // ============================
 Route::prefix('external')->middleware(['outbound.api'])->group(function () {
-    // Products (FR-IN-002)
+    // Products
     Route::get('/products', [ProductController::class, 'externalIndex']);
     Route::get('/products/{identifier}', [ProductController::class, 'externalShow']);
 
-    // Orders (FR-IN-003)
+    // Orders
     Route::get('/orders', [OrderController::class, 'externalIndex']);
     Route::get('/orders/{orderReference}', [OrderController::class, 'externalShow']);
 });
@@ -556,5 +556,17 @@ Route::prefix('admin')->group(function () {
         Route::post('/permissions', [PermissionController::class, 'store']);
         Route::post('/permissions/{id}', [PermissionController::class, 'update']);
         Route::delete('/permissions/{id}', [PermissionController::class, 'destroy']);
+    });
+
+    Route::prefix('admin')->group(function () {
+        Route::resource('attributes', AttributeController::class);
+        // Custom routes for values
+        Route::get('attributes/{attributeId}/values', [AttributeController::class, 'getValues']);
+        Route::post('attributes/{attributeId}/values', [AttributeController::class, 'storeValue']);
+        Route::put('attributes/{attributeId}/values/{valueId}', [AttributeController::class, 'updateValue']);
+        Route::delete('attributes/{attributeId}/values/{valueId}', [AttributeController::class, 'destroyValue']);
+        Route::post('attributes/{attributeId}/values/bulk', [AttributeController::class, 'bulkStoreValues']);
+        // Helper routes
+        Route::get('attributes-dropdown', [AttributeController::class, 'getForDropdown']);
     });
 });
