@@ -11,14 +11,22 @@ use Illuminate\Validation\Rule;
 
 class AttributeController extends Controller
 {
-    // GET /api/admin/attributes
+    /**
+     * GET /api/admin/attributes
+     */
     public function index()
     {
         $attributes = AttributeMaster::with('values')->get();
-        return response()->json(['success' => true, 'data' => $attributes]);
+        
+        return response()->json([
+            'success' => true,
+            'data' => $attributes
+        ]);
     }
 
-    // POST /api/admin/attributes
+    /**
+     * POST /api/admin/attributes
+     */
     public function store(Request $request)
     {
         $validator = \Validator::make($request->all(), [
@@ -28,16 +36,21 @@ class AttributeController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
         }
 
         DB::beginTransaction();
         try {
+            // Create attribute
             $attribute = AttributeMaster::create([
                 'attribute_key' => strtolower(trim($request->attribute_key))
             ]);
 
-            if ($request->has('values')) {
+            // Add values if provided
+            if ($request->has('values') && !empty($request->values)) {
                 foreach ($request->values as $value) {
                     AttributeValue::create([
                         'attribute_master_id' => $attribute->id,
@@ -47,134 +60,295 @@ class AttributeController extends Controller
             }
 
             DB::commit();
+
             return response()->json([
                 'success' => true,
-                'message' => 'Attribute created',
+                'message' => 'Attribute created successfully',
                 'data' => $attribute->load('values')
             ], 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create attribute',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 
-    // GET /api/admin/attributes/{id}
+    /**
+     * GET /api/admin/attributes/{id}
+     */
     public function show($id)
     {
         $attribute = AttributeMaster::with('values')->find($id);
+
         if (!$attribute) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'Attribute not found'
+            ], 404);
         }
-        return response()->json(['success' => true, 'data' => $attribute]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $attribute
+        ]);
     }
 
-    // PUT /api/admin/attributes/{id}
+    /**
+     * PUT /api/admin/attributes/{id}
+     */
     public function update(Request $request, $id)
     {
         $attribute = AttributeMaster::find($id);
+
         if (!$attribute) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'Attribute not found'
+            ], 404);
         }
 
         $validator = \Validator::make($request->all(), [
-            'attribute_key' => ['required', 'string', 'max:100', Rule::unique('attribute_masters')->ignore($id)]
+            'attribute_key' => [
+                'required',
+                'string',
+                'max:100',
+                Rule::unique('attribute_masters', 'attribute_key')->ignore($id)
+            ]
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
         }
 
-        $attribute->update(['attribute_key' => strtolower(trim($request->attribute_key))]);
-        return response()->json(['success' => true, 'message' => 'Updated', 'data' => $attribute->load('values')]);
+        try {
+            $attribute->update([
+                'attribute_key' => strtolower(trim($request->attribute_key))
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Attribute updated successfully',
+                'data' => $attribute->load('values')
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update attribute',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
-    // DELETE /api/admin/attributes/{id}
+    /**
+     * DELETE /api/admin/attributes/{id}
+     */
     public function destroy($id)
     {
         $attribute = AttributeMaster::find($id);
+
         if (!$attribute) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'Attribute not found'
+            ], 404);
         }
 
-        $attribute->delete();
-        return response()->json(['success' => true, 'message' => 'Deleted']);
+        try {
+            $attribute->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Attribute deleted successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete attribute',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
-    // ============ VALUES ============
+    // ==================== VALUE MANAGEMENT ====================
 
-    // GET /api/admin/attributes/{attributeId}/values
+    /**
+     * GET /api/admin/attributes/{attributeId}/values
+     */
     public function getValues($attributeId)
     {
         $attribute = AttributeMaster::with('values')->find($attributeId);
+
         if (!$attribute) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'Attribute not found'
+            ], 404);
         }
-        return response()->json(['success' => true, 'data' => $attribute->values]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $attribute->values
+        ]);
     }
 
-    // POST /api/admin/attributes/{attributeId}/values
+    /**
+     * POST /api/admin/attributes/{attributeId}/values
+     */
     public function storeValue(Request $request, $attributeId)
     {
         $attribute = AttributeMaster::find($attributeId);
+
         if (!$attribute) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'Attribute not found'
+            ], 404);
         }
 
         $validator = \Validator::make($request->all(), [
-            'value' => ['required', 'string', 'max:191', Rule::unique('attribute_values', 'value')->where('attribute_master_id', $attributeId)]
+            'value' => [
+                'required',
+                'string',
+                'max:191',
+                Rule::unique('attribute_values', 'value')
+                    ->where('attribute_master_id', $attributeId)
+            ]
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
         }
 
-        $value = AttributeValue::create([
-            'attribute_master_id' => $attributeId,
-            'value' => trim($request->value)
-        ]);
+        try {
+            $value = AttributeValue::create([
+                'attribute_master_id' => $attributeId,
+                'value' => trim($request->value)
+            ]);
 
-        return response()->json(['success' => true, 'message' => 'Value added', 'data' => $value], 201);
+            return response()->json([
+                'success' => true,
+                'message' => 'Value added successfully',
+                'data' => $value
+            ], 201);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to add value',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
-    // PUT /api/admin/attributes/{attributeId}/values/{valueId}
+    /**
+     * PUT /api/admin/attributes/{attributeId}/values/{valueId}
+     */
     public function updateValue(Request $request, $attributeId, $valueId)
     {
-        $value = AttributeValue::where('attribute_master_id', $attributeId)->find($valueId);
+        $value = AttributeValue::where('attribute_master_id', $attributeId)
+            ->find($valueId);
+
         if (!$value) {
-            return response()->json(['success' => false, 'message' => 'Value not found'], 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'Value not found'
+            ], 404);
         }
 
         $validator = \Validator::make($request->all(), [
-            'value' => ['required', 'string', 'max:191', Rule::unique('attribute_values', 'value')->where('attribute_master_id', $attributeId)->ignore($valueId)]
+            'value' => [
+                'required',
+                'string',
+                'max:191',
+                Rule::unique('attribute_values', 'value')
+                    ->where('attribute_master_id', $attributeId)
+                    ->ignore($valueId)
+            ]
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
         }
 
-        $value->update(['value' => trim($request->value)]);
-        return response()->json(['success' => true, 'message' => 'Value updated', 'data' => $value]);
+        try {
+            $value->update([
+                'value' => trim($request->value)
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Value updated successfully',
+                'data' => $value
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update value',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
-    // DELETE /api/admin/attributes/{attributeId}/values/{valueId}
+    /**
+     * DELETE /api/admin/attributes/{attributeId}/values/{valueId}
+     */
     public function destroyValue($attributeId, $valueId)
     {
-        $value = AttributeValue::where('attribute_master_id', $attributeId)->find($valueId);
+        $value = AttributeValue::where('attribute_master_id', $attributeId)
+            ->find($valueId);
+
         if (!$value) {
-            return response()->json(['success' => false, 'message' => 'Value not found'], 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'Value not found'
+            ], 404);
         }
 
-        $value->delete();
-        return response()->json(['success' => true, 'message' => 'Value deleted']);
+        try {
+            $value->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Value deleted successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete value',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
-    // POST /api/admin/attributes/{attributeId}/values/bulk
+    /**
+     * POST /api/admin/attributes/{attributeId}/values/bulk
+     */
     public function bulkStoreValues(Request $request, $attributeId)
     {
         $attribute = AttributeMaster::find($attributeId);
+
         if (!$attribute) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'Attribute not found'
+            ], 404);
         }
 
         $validator = \Validator::make($request->all(), [
@@ -183,35 +357,57 @@ class AttributeController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
         }
 
-        $created = [];
-        foreach ($request->values as $value) {
-            $created[] = AttributeValue::create([
-                'attribute_master_id' => $attributeId,
-                'value' => trim($value)
-            ]);
+        DB::beginTransaction();
+        try {
+            $created = [];
+            foreach ($request->values as $value) {
+                $created[] = AttributeValue::create([
+                    'attribute_master_id' => $attributeId,
+                    'value' => trim($value)
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => count($created) . ' values added successfully',
+                'data' => $created
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to add values',
+                'error' => $e->getMessage()
+            ], 500);
         }
+    }
+
+    /**
+     * GET /api/admin/attributes-dropdown
+     */
+    public function getForDropdown()
+    {
+        $attributes = AttributeMaster::orderBy('id')->get()
+            ->map(function($attr) {
+                return [
+                    'id' => $attr->id,
+                    'key' => $attr->attribute_key,
+                    'display_name' => ucwords(str_replace('_', ' ', $attr->attribute_key)),
+                ];
+            });
 
         return response()->json([
             'success' => true,
-            'message' => count($created) . ' values added',
-            'data' => $created
-        ], 201);
-    }
-
-    // GET /api/admin/attributes-dropdown
-    public function getForDropdown()
-    {
-        $attributes = AttributeMaster::all()->map(function($attr) {
-            return [
-                'id' => $attr->id,
-                'key' => $attr->attribute_key,
-                'display_name' => ucwords(str_replace('_', ' ', $attr->attribute_key))
-            ];
-        });
-
-        return response()->json(['success' => true, 'data' => $attributes]);
+            'data' => $attributes
+        ]);
     }
 }
