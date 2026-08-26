@@ -1025,11 +1025,10 @@ class ReturnService
             $this->updateOrderReturnStatus($returnOrder->order);
             $this->updateOrderMainStatus($returnOrder->order);
 
-            // ========== REVERSAL TRIGGER (UPDATED) ==========
+            // ========== REVERSAL TRIGGER (FIXED) ==========
             try {
                 $order = $returnOrder->order;
 
-                // Build payload with all required fields
                 $reversalPayload = new \App\Services\Commission\ReversalPayload(
                     eventId: 'evt_' . \Illuminate\Support\Str::random(24),
                     action: 'REVERSAL',
@@ -1043,14 +1042,15 @@ class ReturnService
                     eventTimestamp: now()->toIso8601String(),
                 );
 
-                $response = $this->commissionService->postReversalEvent($reversalPayload);
+                // Call the commission service
+                $this->commissionService->postReversalEvent($reversalPayload);
 
+                // ✅ Log success without calling getEventId()
                 Log::info('Reversal event posted for return #' . $returnOrder->id, [
-                    'event_id' => $response->getEventId() ?? 'N/A',
                     'return_id' => $returnOrder->id,
+                    'order_reference' => $order->order_reference,
                 ]);
             } catch (\Exception $e) {
-                // Log error but DO NOT block the approval flow
                 Log::error('Failed to post reversal for return #' . $returnOrder->id, [
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
@@ -1068,13 +1068,6 @@ class ReturnService
                 'admin_id' => $adminId,
                 'refund_amount' => $returnOrder->total_refund_amount,
                 'order_status' => $returnOrder->order->status,
-                'items' => array_map(function ($item) {
-                    return [
-                        'order_line_id' => $item['order_line_id'],
-                        'product_name' => $item['product_name'] ?? 'Unknown',
-                        'status' => 'approved'
-                    ];
-                }, $returnOrder->items),
             ]);
 
             // 6. Return response
@@ -1087,13 +1080,6 @@ class ReturnService
                 'status' => 'approved',
                 'refund_amount' => (float) $returnOrder->total_refund_amount,
                 'admin_notes' => $adminNotes,
-                'items' => array_map(function ($item) {
-                    return [
-                        'order_line_id' => $item['order_line_id'],
-                        'product_name' => $item['product_name'] ?? 'Unknown',
-                        'return_status' => 'approved'
-                    ];
-                }, $returnOrder->items),
             ];
         });
     }
