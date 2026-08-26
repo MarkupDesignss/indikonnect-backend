@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\OrderReturn;
 use App\Models\AdminNotification;
+use App\Models\CommissionApiEvent;
 use App\Services\PaymentGateway\RazorpayService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -906,86 +907,8 @@ class ReturnService
     /**
      * Admin: Approve return request
      */
-    // public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
-    // {
-    //     $returnOrder = OrderReturn::with(['order', 'user'])
-    //         ->findOrFail($returnId);
 
-    //     if (!$returnOrder->canApprove()) {
-    //         throw new Exception('This return request cannot be approved (already processed).');
-    //     }
-
-    //     return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
-    //         $returnOrder->update([
-    //             'status' => OrderReturn::STATUS_APPROVED,
-    //             'admin_id' => $adminId,
-    //             'admin_notes' => $adminNotes,
-    //             'approved_at' => now(),
-    //         ]);
-
-    //         // Update individual order lines
-    //         foreach ($returnOrder->items as $item) {
-    //             $orderLine = OrderLine::find($item['order_line_id']);
-    //             if ($orderLine && $orderLine->return_status === 'pending') {
-    //                 if ($orderLine->delivery_status !== 'return_pending') {
-    //                     throw new Exception(
-    //                         "Cannot approve return for '{$orderLine->product->name}' - item is not delivered."
-    //                     );
-    //                 }
-
-    //                 $orderLine->update([
-    //                     'return_status' => 'approved',
-    //                     'delivery_status' => 'return_approved',
-    //                     'return_approved_at' => now(),
-    //                 ]);
-    //             }
-    //         }
-
-    //         // Update order-level return status
-    //         $this->updateOrderReturnStatus($returnOrder->order);
-
-    //         // Update order main status
-    //         $this->updateOrderMainStatus($returnOrder->order);
-
-    //         // Create notifications
-    //         $this->createReturnNotification($returnOrder, 'approved');
-    //         $this->sendUserNotification($returnOrder, 'approved');
-
-    //         Log::info('Return approved', [
-    //             'return_id' => $returnOrder->id,
-    //             'admin_id' => $adminId,
-    //             'refund_amount' => $returnOrder->total_refund_amount,
-    //             'order_status' => $returnOrder->order->status, // Now shows partial_returned or returned
-    //             'items' => array_map(function ($item) {
-    //                 return [
-    //                     'order_line_id' => $item['order_line_id'],
-    //                     'product_name' => $item['product_name'] ?? 'Unknown',
-    //                     'status' => 'approved'
-    //                 ];
-    //             }, $returnOrder->items),
-    //         ]);
-
-    //         return [
-    //             'success' => true,
-    //             'message' => 'Return request approved successfully.',
-    //             'return_id' => $returnOrder->id,
-    //             'order_status' => $returnOrder->order->status, // Important: shows the main status
-    //             'order_return_status' => $returnOrder->order->return_status,
-    //             'status' => 'approved',
-    //             'refund_amount' => (float) $returnOrder->total_refund_amount,
-    //             'admin_notes' => $adminNotes,
-    //             'items' => array_map(function ($item) {
-    //                 return [
-    //                     'order_line_id' => $item['order_line_id'],
-    //                     'product_name' => $item['product_name'] ?? 'Unknown',
-    //                     'return_status' => 'approved'
-    //                 ];
-    //             }, $returnOrder->items),
-    //         ];
-    //     });
-    // }
-
-     public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
+    public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
     {
         $returnOrder = OrderReturn::with(['order', 'user'])
             ->findOrFail($returnId);
@@ -1019,7 +942,7 @@ class ReturnService
             $this->updateOrderReturnStatus($returnOrder->order);
             $this->updateOrderMainStatus($returnOrder->order);
 
-            // ========== REVERSAL TRIGGER WITH DATABASE SAVE ==========
+            // ========== REVERSAL TRIGGER ==========
             try {
                 $order = $returnOrder->order;
 
@@ -1037,25 +960,23 @@ class ReturnService
                     'eventTimestamp' => now()->toIso8601String(),
                 ];
 
-                // CREATE EVENT IN DATABASE
-                $event = \App\Models\CommissionApiEvent::create([
+                // ✅ INSERT INTO DATABASE
+                $event = CommissionApiEvent::create([
                     'event_type' => 'reversal',
                     'order_id' => $order->id,
                     'payload' => json_encode($payload),
                     'status' => 'pending',
                     'retry_count' => 0,
                     'max_retries' => 5,
-                    'created_at' => now(),
-                    'updated_at' => now(),
                 ]);
 
-                Log::info('Reversal event created in database for return #' . $returnOrder->id, [
+                Log::info('Reversal event SAVED in database', [
                     'event_id' => $event->id,
                     'return_id' => $returnOrder->id,
                     'order_reference' => $order->order_reference,
                 ]);
 
-                // Send to Commission API (optional)
+                // Send to Commission API
                 try {
                     $reversalPayload = new \App\Services\Commission\ReversalPayload(
                         eventId: $payload['eventId'],
@@ -1072,28 +993,32 @@ class ReturnService
 
                     $this->commissionService->postReversalEvent($reversalPayload);
 
-                    $event->update([
-                        'status' => 'sent',
-                        'last_attempt' => now(),
+                    // Update event status after successful API call
+                    $event->update(['status' => 'sent']);
+
+                    Log::info('Reversal event posted successfully', [
+                        'return_id' => $returnOrder->id,
+                        'event_id' => $event->id,
                     ]);
 
-                    Log::info('Reversal sent to Commission API for return #' . $returnOrder->id);
                 } catch (\Exception $e) {
+                    // Update event with failure
                     $event->update([
                         'status' => 'failed',
                         'error_message' => $e->getMessage(),
                         'last_attempt' => now(),
                     ]);
 
-                    Log::error('Failed to send reversal to Commission API for return #' . $returnOrder->id, [
+                    Log::error('Failed to send reversal to Commission API', [
+                        'return_id' => $returnOrder->id,
                         'error' => $e->getMessage(),
                     ]);
                 }
 
             } catch (\Exception $e) {
-                Log::error('Failed to create reversal event for return #' . $returnOrder->id, [
+                Log::error('Failed to create reversal event', [
+                    'return_id' => $returnOrder->id,
                     'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
                 ]);
             }
             // ========== END REVERSAL TRIGGER ==========
