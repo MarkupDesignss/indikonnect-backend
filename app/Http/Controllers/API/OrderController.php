@@ -1375,4 +1375,41 @@ class OrderController extends Controller
             'data' => $order,
         ]);
     }
+
+    public function orderstatuses(): JsonResponse
+    {
+        try {
+            $result = DB::select("
+            SHOW COLUMNS FROM orders WHERE Field = 'status'
+        ");
+
+            if (empty($result)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Delivery status column not found.',
+                ], 404);
+            }
+
+            $type = $result[0]->Type;
+
+            // Extract enum values
+            preg_match('/^enum\((.*)\)$/', $type, $matches);
+
+            $statuses = [];
+
+            if (isset($matches[1])) {
+                $statuses = str_getcsv($matches[1], ',', "'");
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $statuses,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
 }
