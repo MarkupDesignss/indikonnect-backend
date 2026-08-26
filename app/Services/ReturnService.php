@@ -1080,7 +1080,7 @@ class ReturnService
 
         return DB::transaction(function () use ($returnOrder, $adminId, $rejectionReason) {
             $returnOrder->update([
-                'status' => OrderReturn::STATUS_REJECTED,
+                'status' => 'rejected',
                 'admin_id' => $adminId,
                 'rejection_reason' => $rejectionReason,
                 'rejected_at' => now(),
@@ -1259,7 +1259,7 @@ class ReturnService
          * 1. Mark return as received
          */
             $returnOrder->update([
-                'status' => OrderReturn::STATUS_RECEIVED,
+                'status' => 'received',
                 'received_at' => now(),
             ]);
 
@@ -1410,7 +1410,7 @@ class ReturnService
             }
 
             $returnOrder->update([
-                'status' => OrderReturn::STATUS_COMPLETED,
+                'status' => 'completed',
                 'completed_at' => now(),
             ]);
 
@@ -1481,115 +1481,6 @@ class ReturnService
     /**
      * Process refund for return
      */
-
-    // protected function processRefund(OrderReturn $returnOrder): array
-    // {
-    //     $order = $returnOrder->order;
-
-    //     if (!$order) {
-    //         throw new Exception(
-    //             'Order not found for this return.'
-    //         );
-    //     }
-
-    //     $gateway = $order->payment_gateway ?? 'razorpay';
-
-    //     $paymentId = $order->gateway_transaction_id;
-
-    //     $refundAmount = (float) $returnOrder->total_refund_amount;
-
-    //     /*
-    //  * Validate refund amount
-    //  */
-    //     if ($refundAmount <= 0) {
-    //         throw new Exception(
-    //             'Refund amount must be greater than zero.'
-    //         );
-    //     }
-
-    //     /*
-    //  * Validate gateway
-    //  */
-    //     if ($gateway !== 'razorpay') {
-    //         throw new Exception(
-    //             'Refund is not supported for payment gateway: ' . $gateway
-    //         );
-    //     }
-
-    //     /*
-    //  * Validate Razorpay payment ID
-    //  */
-    //     if (empty($paymentId)) {
-    //         throw new Exception(
-    //             'Razorpay payment ID is missing for this order.'
-    //         );
-    //     }
-
-    //     try {
-
-    //         Log::info('Starting Razorpay refund', [
-    //             'return_id' => $returnOrder->id,
-    //             'order_id' => $order->id,
-    //             'payment_id' => $paymentId,
-    //             'refund_amount' => $refundAmount,
-    //             'amount_in_paise' => (int) round($refundAmount * 100),
-    //         ]);
-
-    //         /*
-    //      * Call Razorpay
-    //      */
-    //         $refundResponse = $this->razorpayService->refundPayment(
-    //             $paymentId,
-    //             $refundAmount
-    //         );
-
-    //         /*
-    //      * Razorpay MUST return a refund ID
-    //      */
-    //         if (
-    //             !is_array($refundResponse) ||
-    //             empty($refundResponse['refund_id'])
-    //         ) {
-    //             throw new Exception(
-    //                 'Razorpay refund failed. No refund ID was returned.'
-    //             );
-    //         }
-
-    //         /*
-    //      * Save actual Razorpay refund details
-    //      */
-    //         $returnOrder->update([
-    //             'refund_transaction_id' => $refundResponse['refund_id'],
-    //             'refund_status' => $refundResponse['status'] ?? 'processing',
-    //             'refund_processed_at' => now(),
-    //         ]);
-
-    //         Log::info('Refund successfully processed via Razorpay', [
-    //             'return_id' => $returnOrder->id,
-    //             'payment_id' => $paymentId,
-    //             'refund_id' => $refundResponse['refund_id'],
-    //             'refund_status' => $refundResponse['status'] ?? null,
-    //             'amount' => $refundAmount,
-    //         ]);
-
-    //         return $refundResponse;
-    //     } catch (\Throwable $e) {
-
-    //         Log::error('Refund failed for return', [
-    //             'return_id' => $returnOrder->id,
-    //             'order_id' => $order->id,
-    //             'payment_id' => $paymentId,
-    //             'refund_amount' => $refundAmount,
-    //             'error' => $e->getMessage(),
-    //         ]);
-
-    //         throw new Exception(
-    //             'Failed to process refund: ' . $e->getMessage(),
-    //             0,
-    //             $e
-    //         );
-    //     }
-    // }
     protected function processRefund(OrderReturn $returnOrder): array
     {
         $order = $returnOrder->order;
