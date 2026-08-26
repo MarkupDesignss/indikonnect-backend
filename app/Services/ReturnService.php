@@ -985,7 +985,7 @@ class ReturnService
     //     });
     // }
 
-    public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
+     public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
     {
         $returnOrder = OrderReturn::with(['order', 'user'])
             ->findOrFail($returnId);
@@ -1007,12 +1007,6 @@ class ReturnService
             foreach ($returnOrder->items as $item) {
                 $orderLine = OrderLine::find($item['order_line_id']);
                 if ($orderLine && $orderLine->return_status === 'pending') {
-                    if ($orderLine->delivery_status !== 'return_pending') {
-                        throw new Exception(
-                            "Cannot approve return for '{$orderLine->product->name}' - item is not delivered."
-                        );
-                    }
-
                     $orderLine->update([
                         'return_status' => 'approved',
                         'delivery_status' => 'return_approved',
@@ -1025,33 +1019,79 @@ class ReturnService
             $this->updateOrderReturnStatus($returnOrder->order);
             $this->updateOrderMainStatus($returnOrder->order);
 
-            // ========== REVERSAL TRIGGER (FIXED) ==========
+            // ========== REVERSAL TRIGGER WITH DATABASE SAVE ==========
             try {
                 $order = $returnOrder->order;
 
-                $reversalPayload = new \App\Services\Commission\ReversalPayload(
-                    eventId: 'evt_' . \Illuminate\Support\Str::random(24),
-                    action: 'REVERSAL',
-                    orderReference: $order->order_reference,
-                    reason: $returnOrder->reason ?? 'Return approved by admin',
-                    lines: $this->buildReversalLines($returnOrder),
-                    reversedValue: (float) $returnOrder->total_refund_amount,
-                    originalCv: (float) ($order->commissionable_volume ?? 0),
-                    purchaserIdentifier: (string) $returnOrder->user_id,
-                    accountType: $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
-                    eventTimestamp: now()->toIso8601String(),
-                );
+                // Build payload
+                $payload = [
+                    'eventId' => 'evt_' . \Illuminate\Support\Str::random(24),
+                    'action' => 'REVERSAL',
+                    'orderReference' => $order->order_reference,
+                    'reason' => $returnOrder->reason ?? 'Return approved by admin',
+                    'lines' => $this->buildReversalLines($returnOrder),
+                    'reversedValue' => (float) $returnOrder->total_refund_amount,
+                    'originalCv' => (float) ($order->commissionable_volume ?? 0),
+                    'purchaserIdentifier' => (string) $returnOrder->user_id,
+                    'accountType' => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
+                    'eventTimestamp' => now()->toIso8601String(),
+                ];
 
-                // Call the commission service
-                $this->commissionService->postReversalEvent($reversalPayload);
+                // CREATE EVENT IN DATABASE
+                $event = \App\Models\CommissionApiEvent::create([
+                    'event_type' => 'reversal',
+                    'order_id' => $order->id,
+                    'payload' => json_encode($payload),
+                    'status' => 'pending',
+                    'retry_count' => 0,
+                    'max_retries' => 5,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
-                // ✅ Log success without calling getEventId()
-                Log::info('Reversal event posted for return #' . $returnOrder->id, [
+                Log::info('Reversal event created in database for return #' . $returnOrder->id, [
+                    'event_id' => $event->id,
                     'return_id' => $returnOrder->id,
                     'order_reference' => $order->order_reference,
                 ]);
+
+                // Send to Commission API (optional)
+                try {
+                    $reversalPayload = new \App\Services\Commission\ReversalPayload(
+                        eventId: $payload['eventId'],
+                        action: $payload['action'],
+                        orderReference: $payload['orderReference'],
+                        reason: $payload['reason'],
+                        lines: $payload['lines'],
+                        reversedValue: $payload['reversedValue'],
+                        originalCv: $payload['originalCv'],
+                        purchaserIdentifier: $payload['purchaserIdentifier'],
+                        accountType: $payload['accountType'],
+                        eventTimestamp: $payload['eventTimestamp'],
+                    );
+
+                    $this->commissionService->postReversalEvent($reversalPayload);
+
+                    $event->update([
+                        'status' => 'sent',
+                        'last_attempt' => now(),
+                    ]);
+
+                    Log::info('Reversal sent to Commission API for return #' . $returnOrder->id);
+                } catch (\Exception $e) {
+                    $event->update([
+                        'status' => 'failed',
+                        'error_message' => $e->getMessage(),
+                        'last_attempt' => now(),
+                    ]);
+
+                    Log::error('Failed to send reversal to Commission API for return #' . $returnOrder->id, [
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+
             } catch (\Exception $e) {
-                Log::error('Failed to post reversal for return #' . $returnOrder->id, [
+                Log::error('Failed to create reversal event for return #' . $returnOrder->id, [
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
                 ]);
@@ -1062,15 +1102,7 @@ class ReturnService
             $this->createReturnNotification($returnOrder, 'approved');
             $this->sendUserNotification($returnOrder, 'approved');
 
-            // 5. Logging
-            Log::info('Return approved', [
-                'return_id' => $returnOrder->id,
-                'admin_id' => $adminId,
-                'refund_amount' => $returnOrder->total_refund_amount,
-                'order_status' => $returnOrder->order->status,
-            ]);
-
-            // 6. Return response
+            // 5. Return response
             return [
                 'success' => true,
                 'message' => 'Return request approved successfully.',
