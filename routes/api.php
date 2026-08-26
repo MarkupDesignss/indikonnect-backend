@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\Admin\PayoutController;
 use App\Http\Controllers\Admin\ReconciliationController;
 use App\Http\Controllers\Admin\KycController;
+use App\Http\Controllers\Admin\AttributeController;
 use App\Http\Controllers\API\AddressController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
