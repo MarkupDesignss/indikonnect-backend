@@ -57,6 +57,13 @@ class OrderReturn extends Model
         'deleted_at',
     ];
 
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_APPROVED = 'approved';
+    public const STATUS_PARTIALLY_APPROVED = 'partially_approved';
+    public const STATUS_REJECTED = 'rejected';
+    public const STATUS_RECEIVED = 'received';
+    public const STATUS_COMPLETED = 'completed';
+
     /**
      * Attribute casting.
      */

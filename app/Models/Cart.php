@@ -51,4 +51,15 @@ class Cart extends Model
     {
         return $query->where('session_id', $sessionId);
     }
+
+    // Get cart total with dynamic pricing
+    public function getDynamicTotal($user = null)
+    {
+        $total = 0;
+        foreach ($this->items as $item) {
+            $price = $item->getCurrentPrice($user);
+            $total += $price * $item->quantity;
+        }
+        return $total;
+    }
 }

@@ -353,6 +353,7 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::get('/orders/statuses', [OrderController::class, 'statuses']);
+Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/dashboard', [UserDashboardController::class, 'dashboard']);
@@ -557,28 +558,27 @@ Route::prefix('admin')->group(function () {
         Route::post('/permissions', [PermissionController::class, 'store']);
         Route::post('/permissions/{id}', [PermissionController::class, 'update']);
         Route::delete('/permissions/{id}', [PermissionController::class, 'destroy']);
-    });   
-
+    });
 });
 
 Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
-        
-        // Individual routes (NO resource)
-        Route::get('attributes', [AttributeController::class, 'index']);
-        Route::post('attributes', [AttributeController::class, 'store']);
-        Route::get('attributes/{id}', [AttributeController::class, 'show']);
-        Route::put('attributes/{id}', [AttributeController::class, 'update']);
-        Route::delete('attributes/{id}', [AttributeController::class, 'destroy']);
-        
-        // Custom routes for values
-        Route::get('attributes/{attributeId}/values', [AttributeController::class, 'getValues']);
-        Route::post('attributes/{attributeId}/values', [AttributeController::class, 'storeValue']);
-        Route::put('attributes/{attributeId}/values/{valueId}', [AttributeController::class, 'updateValue']);
-        Route::delete('attributes/{attributeId}/values/{valueId}', [AttributeController::class, 'destroyValue']);
-        Route::post('attributes/{attributeId}/values/bulk', [AttributeController::class, 'bulkStoreValues']);
-        
-        // Helper routes
-        Route::get('attributes-dropdown', [AttributeController::class, 'getForDropdown']);
-    });
 
-    Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);
+    // Individual routes (NO resource)
+    Route::get('attributes', [AttributeController::class, 'index']);
+    Route::post('attributes', [AttributeController::class, 'store']);
+    Route::get('attributes/{id}', [AttributeController::class, 'show']);
+    Route::put('attributes/{id}', [AttributeController::class, 'update']);
+    Route::delete('attributes/{id}', [AttributeController::class, 'destroy']);
+
+    // Custom routes for values
+    Route::get('attributes/{attributeId}/values', [AttributeController::class, 'getValues']);
+    Route::post('attributes/{attributeId}/values', [AttributeController::class, 'storeValue']);
+    Route::put('attributes/{attributeId}/values/{valueId}', [AttributeController::class, 'updateValue']);
+    Route::delete('attributes/{attributeId}/values/{valueId}', [AttributeController::class, 'destroyValue']);
+    Route::post('attributes/{attributeId}/values/bulk', [AttributeController::class, 'bulkStoreValues']);
+
+    // Helper routes
+    Route::get('attributes-dropdown', [AttributeController::class, 'getForDropdown']);
+});
+
+Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);
