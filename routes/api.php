@@ -559,7 +559,7 @@ Route::prefix('admin')->group(function () {
         Route::delete('/permissions/{id}', [PermissionController::class, 'destroy']);
     });
 
-    Route::prefix('admin')->group(function () {
+    Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::resource('attributes', AttributeController::class);
         // Custom routes for values
         Route::get('attributes/{attributeId}/values', [AttributeController::class, 'getValues']);
@@ -569,5 +569,6 @@ Route::prefix('admin')->group(function () {
         Route::post('attributes/{attributeId}/values/bulk', [AttributeController::class, 'bulkStoreValues']);
         // Helper routes
         Route::get('attributes-dropdown', [AttributeController::class, 'getForDropdown']);
-    });
+   });
+
 });

@@ -12,12 +12,13 @@ use Illuminate\Validation\Rule;
 class AttributeController extends Controller
 {
     /**
-     * Display a listing of attributes with their values.
+     * GET /api/admin/attributes
+     * Display a listing of attributes.
      */
     public function index()
     {
         $attributes = AttributeMaster::with('values')
-            ->orderBy('sort_order')
+            ->orderBy('id', 'desc')
             ->get();
 
         return response()->json([
@@ -27,31 +28,15 @@ class AttributeController extends Controller
     }
 
     /**
-     * Show the form for creating a new attribute.
-     */
-    public function create()
-    {
-        // Return view for creating attribute
-        // return view('admin.attributes.create');
-    }
-
-    /**
+     * POST /api/admin/attributes
      * Store a newly created attribute.
      */
     public function store(Request $request)
     {
         $validator = \Validator::make($request->all(), [
-            'attribute_key' => [
-                'required',
-                'string',
-                'max:100',
-                'regex:/^[a-z_]+$/',
-                Rule::unique('attribute_masters', 'attribute_key')
-            ],
-            'is_required' => 'nullable|boolean',
-            'sort_order' => 'nullable|integer|min:0',
+            'attribute_key' => 'required|string|max:100|unique:attribute_masters,attribute_key',
             'values' => 'nullable|array',
-            'values.*' => 'required|string|max:191'
+            'values.*' => 'string|max:191'
         ]);
 
         if ($validator->fails()) {
@@ -66,8 +51,6 @@ class AttributeController extends Controller
             // Create attribute
             $attribute = AttributeMaster::create([
                 'attribute_key' => strtolower(trim($request->attribute_key)),
-                'is_required' => $request->is_required ?? false,
-                'sort_order' => $request->sort_order ?? 0,
             ]);
 
             // Add values if provided
@@ -76,7 +59,6 @@ class AttributeController extends Controller
                     AttributeValue::create([
                         'attribute_master_id' => $attribute->id,
                         'value' => trim($value),
-                        'sort_order' => 0,
                     ]);
                 }
             }
@@ -100,6 +82,7 @@ class AttributeController extends Controller
     }
 
     /**
+     * GET /api/admin/attributes/{id}
      * Display the specified attribute.
      */
     public function show($id)
@@ -120,16 +103,7 @@ class AttributeController extends Controller
     }
 
     /**
-     * Show the form for editing the specified attribute.
-     */
-    public function edit($id)
-    {
-        // Return view for editing attribute
-        // $attribute = AttributeMaster::with('values')->find($id);
-        // return view('admin.attributes.edit', compact('attribute'));
-    }
-
-    /**
+     * PUT/PATCH /api/admin/attributes/{id}
      * Update the specified attribute.
      */
     public function update(Request $request, $id)
@@ -148,11 +122,8 @@ class AttributeController extends Controller
                 'required',
                 'string',
                 'max:100',
-                'regex:/^[a-z_]+$/',
                 Rule::unique('attribute_masters', 'attribute_key')->ignore($id)
-            ],
-            'is_required' => 'nullable|boolean',
-            'sort_order' => 'nullable|integer|min:0',
+            ]
         ]);
 
         if ($validator->fails()) {
@@ -164,9 +135,7 @@ class AttributeController extends Controller
 
         try {
             $attribute->update([
-                'attribute_key' => strtolower(trim($request->attribute_key)),
-                'is_required' => $request->is_required ?? $attribute->is_required,
-                'sort_order' => $request->sort_order ?? $attribute->sort_order,
+                'attribute_key' => strtolower(trim($request->attribute_key))
             ]);
 
             return response()->json([
@@ -185,6 +154,7 @@ class AttributeController extends Controller
     }
 
     /**
+     * DELETE /api/admin/attributes/{id}
      * Remove the specified attribute.
      */
     public function destroy($id)
@@ -199,7 +169,6 @@ class AttributeController extends Controller
         }
 
         try {
-            // This will cascade delete values due to foreign key constraint
             $attribute->delete();
 
             return response()->json([
@@ -219,6 +188,28 @@ class AttributeController extends Controller
     // ==================== VALUE MANAGEMENT ====================
 
     /**
+     * GET /api/admin/attributes/{attributeId}/values
+     * Get all values for an attribute.
+     */
+    public function getValues($attributeId)
+    {
+        $attribute = AttributeMaster::with('values')->find($attributeId);
+
+        if (!$attribute) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Attribute not found'
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $attribute->values
+        ]);
+    }
+
+    /**
+     * POST /api/admin/attributes/{attributeId}/values
      * Store a new value for an attribute.
      */
     public function storeValue(Request $request, $attributeId)
@@ -239,8 +230,7 @@ class AttributeController extends Controller
                 'max:191',
                 Rule::unique('attribute_values', 'value')
                     ->where('attribute_master_id', $attributeId)
-            ],
-            'sort_order' => 'nullable|integer|min:0',
+            ]
         ]);
 
         if ($validator->fails()) {
@@ -254,7 +244,6 @@ class AttributeController extends Controller
             $value = AttributeValue::create([
                 'attribute_master_id' => $attributeId,
                 'value' => trim($request->value),
-                'sort_order' => $request->sort_order ?? 0,
             ]);
 
             return response()->json([
@@ -273,6 +262,7 @@ class AttributeController extends Controller
     }
 
     /**
+     * PUT /api/admin/attributes/{attributeId}/values/{valueId}
      * Update a value.
      */
     public function updateValue(Request $request, $attributeId, $valueId)
@@ -295,8 +285,7 @@ class AttributeController extends Controller
                 Rule::unique('attribute_values', 'value')
                     ->where('attribute_master_id', $attributeId)
                     ->ignore($valueId)
-            ],
-            'sort_order' => 'nullable|integer|min:0',
+            ]
         ]);
 
         if ($validator->fails()) {
@@ -308,8 +297,7 @@ class AttributeController extends Controller
 
         try {
             $value->update([
-                'value' => trim($request->value),
-                'sort_order' => $request->sort_order ?? $value->sort_order,
+                'value' => trim($request->value)
             ]);
 
             return response()->json([
@@ -328,6 +316,7 @@ class AttributeController extends Controller
     }
 
     /**
+     * DELETE /api/admin/attributes/{attributeId}/values/{valueId}
      * Delete a value.
      */
     public function destroyValue($attributeId, $valueId)
@@ -359,54 +348,8 @@ class AttributeController extends Controller
         }
     }
 
-    // ==================== HELPERS ====================
-
     /**
-     * Get all attributes for dropdown.
-     */
-    public function getForDropdown()
-    {
-        $attributes = AttributeMaster::orderBy('sort_order')
-            ->get()
-            ->map(function($attr) {
-                return [
-                    'id' => $attr->id,
-                    'key' => $attr->attribute_key,
-                    'display_name' => $attr->display_name,
-                    'is_required' => $attr->is_required,
-                ];
-            });
-
-        return response()->json([
-            'success' => true,
-            'data' => $attributes
-        ]);
-    }
-
-    /**
-     * Get values for a specific attribute.
-     */
-    public function getValues($attributeId)
-    {
-        $attribute = AttributeMaster::with('values')->find($attributeId);
-
-        if (!$attribute) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Attribute not found'
-            ], 404);
-        }
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'attribute' => $attribute,
-                'values' => $attribute->values,
-            ]
-        ]);
-    }
-
-    /**
+     * POST /api/admin/attributes/{attributeId}/values/bulk
      * Bulk add values to an attribute.
      */
     public function bulkStoreValues(Request $request, $attributeId)
@@ -439,7 +382,6 @@ class AttributeController extends Controller
                 $created[] = AttributeValue::create([
                     'attribute_master_id' => $attributeId,
                     'value' => trim($value),
-                    'sort_order' => 0,
                 ]);
             }
 
@@ -459,5 +401,26 @@ class AttributeController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * GET /api/admin/attributes-dropdown
+     * Get all attributes for dropdown (helper).
+     */
+    public function getForDropdown()
+    {
+        $attributes = AttributeMaster::orderBy('id')->get()
+            ->map(function($attr) {
+                return [
+                    'id' => $attr->id,
+                    'key' => $attr->attribute_key,
+                    'display_name' => ucwords(str_replace('_', ' ', $attr->attribute_key)),
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $attributes
+        ]);
     }
 }
