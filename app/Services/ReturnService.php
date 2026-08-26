@@ -12,14 +12,19 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Exception;
 use Carbon\Carbon;
+use App\Services\Commission\CommissionServiceInterface;
 
 class ReturnService
 {
     protected RazorpayService $razorpayService;
+    protected CommissionServiceInterface $commissionService;
 
-    public function __construct(RazorpayService $razorpayService)
-    {
+    public function __construct(
+        RazorpayService $razorpayService,
+        CommissionServiceInterface $commissionService
+    ) {
         $this->razorpayService = $razorpayService;
+        $this->commissionService = $commissionService;
     }
 
     /**
@@ -901,6 +906,85 @@ class ReturnService
     /**
      * Admin: Approve return request
      */
+    // public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
+    // {
+    //     $returnOrder = OrderReturn::with(['order', 'user'])
+    //         ->findOrFail($returnId);
+
+    //     if (!$returnOrder->canApprove()) {
+    //         throw new Exception('This return request cannot be approved (already processed).');
+    //     }
+
+    //     return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
+    //         $returnOrder->update([
+    //             'status' => OrderReturn::STATUS_APPROVED,
+    //             'admin_id' => $adminId,
+    //             'admin_notes' => $adminNotes,
+    //             'approved_at' => now(),
+    //         ]);
+
+    //         // Update individual order lines
+    //         foreach ($returnOrder->items as $item) {
+    //             $orderLine = OrderLine::find($item['order_line_id']);
+    //             if ($orderLine && $orderLine->return_status === 'pending') {
+    //                 if ($orderLine->delivery_status !== 'return_pending') {
+    //                     throw new Exception(
+    //                         "Cannot approve return for '{$orderLine->product->name}' - item is not delivered."
+    //                     );
+    //                 }
+
+    //                 $orderLine->update([
+    //                     'return_status' => 'approved',
+    //                     'delivery_status' => 'return_approved',
+    //                     'return_approved_at' => now(),
+    //                 ]);
+    //             }
+    //         }
+
+    //         // Update order-level return status
+    //         $this->updateOrderReturnStatus($returnOrder->order);
+
+    //         // Update order main status
+    //         $this->updateOrderMainStatus($returnOrder->order);
+
+    //         // Create notifications
+    //         $this->createReturnNotification($returnOrder, 'approved');
+    //         $this->sendUserNotification($returnOrder, 'approved');
+
+    //         Log::info('Return approved', [
+    //             'return_id' => $returnOrder->id,
+    //             'admin_id' => $adminId,
+    //             'refund_amount' => $returnOrder->total_refund_amount,
+    //             'order_status' => $returnOrder->order->status, // Now shows partial_returned or returned
+    //             'items' => array_map(function ($item) {
+    //                 return [
+    //                     'order_line_id' => $item['order_line_id'],
+    //                     'product_name' => $item['product_name'] ?? 'Unknown',
+    //                     'status' => 'approved'
+    //                 ];
+    //             }, $returnOrder->items),
+    //         ]);
+
+    //         return [
+    //             'success' => true,
+    //             'message' => 'Return request approved successfully.',
+    //             'return_id' => $returnOrder->id,
+    //             'order_status' => $returnOrder->order->status, // Important: shows the main status
+    //             'order_return_status' => $returnOrder->order->return_status,
+    //             'status' => 'approved',
+    //             'refund_amount' => (float) $returnOrder->total_refund_amount,
+    //             'admin_notes' => $adminNotes,
+    //             'items' => array_map(function ($item) {
+    //                 return [
+    //                     'order_line_id' => $item['order_line_id'],
+    //                     'product_name' => $item['product_name'] ?? 'Unknown',
+    //                     'return_status' => 'approved'
+    //                 ];
+    //             }, $returnOrder->items),
+    //         ];
+    //     });
+    // }
+
     public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
     {
         $returnOrder = OrderReturn::with(['order', 'user'])
@@ -911,14 +995,15 @@ class ReturnService
         }
 
         return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
+            // 1. Update return status
             $returnOrder->update([
-                'status' => OrderReturn::STATUS_APPROVED,
+                'status' => 'approved',
                 'admin_id' => $adminId,
                 'admin_notes' => $adminNotes,
                 'approved_at' => now(),
             ]);
 
-            // Update individual order lines
+            // 2. Update individual order lines
             foreach ($returnOrder->items as $item) {
                 $orderLine = OrderLine::find($item['order_line_id']);
                 if ($orderLine && $orderLine->return_status === 'pending') {
@@ -936,21 +1021,53 @@ class ReturnService
                 }
             }
 
-            // Update order-level return status
+            // 3. Update order-level return status
             $this->updateOrderReturnStatus($returnOrder->order);
-
-            // Update order main status
             $this->updateOrderMainStatus($returnOrder->order);
 
-            // Create notifications
+            // ========== REVERSAL TRIGGER (UPDATED) ==========
+            try {
+                $order = $returnOrder->order;
+
+                // Build payload with all required fields
+                $reversalPayload = new \App\Services\Commission\ReversalPayload(
+                    eventId: 'evt_' . \Illuminate\Support\Str::random(24),
+                    action: 'REVERSAL',
+                    orderReference: $order->order_reference,
+                    reason: $returnOrder->reason ?? 'Return approved by admin',
+                    lines: $this->buildReversalLines($returnOrder),
+                    reversedValue: (float) $returnOrder->total_refund_amount,
+                    originalCv: (float) ($order->commissionable_volume ?? 0),
+                    purchaserIdentifier: (string) $returnOrder->user_id,
+                    accountType: $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
+                    eventTimestamp: now()->toIso8601String(),
+                );
+
+                $response = $this->commissionService->postReversalEvent($reversalPayload);
+
+                Log::info('Reversal event posted for return #' . $returnOrder->id, [
+                    'event_id' => $response->getEventId() ?? 'N/A',
+                    'return_id' => $returnOrder->id,
+                ]);
+            } catch (\Exception $e) {
+                // Log error but DO NOT block the approval flow
+                Log::error('Failed to post reversal for return #' . $returnOrder->id, [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+            }
+            // ========== END REVERSAL TRIGGER ==========
+
+            // 4. Create notifications
             $this->createReturnNotification($returnOrder, 'approved');
             $this->sendUserNotification($returnOrder, 'approved');
 
+            // 5. Logging
             Log::info('Return approved', [
                 'return_id' => $returnOrder->id,
                 'admin_id' => $adminId,
                 'refund_amount' => $returnOrder->total_refund_amount,
-                'order_status' => $returnOrder->order->status, // Now shows partial_returned or returned
+                'order_status' => $returnOrder->order->status,
                 'items' => array_map(function ($item) {
                     return [
                         'order_line_id' => $item['order_line_id'],
@@ -960,11 +1077,12 @@ class ReturnService
                 }, $returnOrder->items),
             ]);
 
+            // 6. Return response
             return [
                 'success' => true,
                 'message' => 'Return request approved successfully.',
                 'return_id' => $returnOrder->id,
-                'order_status' => $returnOrder->order->status, // Important: shows the main status
+                'order_status' => $returnOrder->order->status,
                 'order_return_status' => $returnOrder->order->return_status,
                 'status' => 'approved',
                 'refund_amount' => (float) $returnOrder->total_refund_amount,
@@ -978,6 +1096,31 @@ class ReturnService
                 }, $returnOrder->items),
             ];
         });
+    }
+
+    /**
+     * Build reversal lines for Commission API
+     */
+    private function buildReversalLines(OrderReturn $returnOrder): array
+    {
+        $lines = [];
+        $items = $returnOrder->items ?? [];
+
+        foreach ($items as $item) {
+            // Fetch exact order line by ID
+            $orderLine = OrderLine::find($item['order_line_id']);
+            if (!$orderLine) {
+                continue; // or log warning
+            }
+
+            $lines[] = [
+                'productIdentifier' => (string) $orderLine->product_id,
+                'quantity' => (int) $item['quantity'],
+                'unitPriceCharged' => number_format((float) $orderLine->unit_price, 2, '.', ''),
+                'taxCategory' => 'GST', // Consider dynamic if needed
+            ];
+        }
+        return $lines;
     }
 
     /**
