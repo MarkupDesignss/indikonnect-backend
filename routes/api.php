@@ -580,3 +580,5 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
         // Helper routes
         Route::get('attributes-dropdown', [AttributeController::class, 'getForDropdown']);
     });
+
+    Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);
