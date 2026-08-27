@@ -5,10 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\OrderLine;
+use App\Models\OrderShippingDetail;
 use App\Services\CheckoutService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Exception;
+use Illuminate\Support\Facades\Validator;
 
 class OrderController extends Controller
 {
@@ -1000,10 +1003,22 @@ class OrderController extends Controller
                     'coin_redeemed_amount' => (float) $order->coin_redeemed_amount,
                     'total_payable' => (float) $order->total_payable,
 
+                    // Shipping
+                    'shipping_address' => $order->deliveryAddress ? [
+                        'id' => $order->deliveryAddress->id,
+                        'address_line_1' => $order->deliveryAddress->address_line_1,
+                        'address_line_2' => $order->deliveryAddress->address_line_2,
+                        'city' => $order->deliveryAddress->city,
+                        'state' => $order->deliveryAddress->state,
+                        'postal_code' => $order->deliveryAddress->postal_code,
+                        'country' => $order->deliveryAddress->country ?? 'India',
+                        'full_address' => $this->formatAddress($order->deliveryAddress),
+                    ] : null,
+
                     // User Info
                     'user' => [
                         'id' => $order->user->id,
-                        'name' => $order->user->name,
+                        'name' => $order->user->full_name,
                         'email' => $order->user->email,
                         'phone' => $order->user->phone ?? null,
                         'is_distributor' => $order->user->isDistributor(),
@@ -1410,6 +1425,358 @@ class OrderController extends Controller
                 'success' => false,
                 'message' => $e->getMessage(),
             ], 500);
+        }
+    }
+
+    /**
+     * Dispatch order items or entire order
+     */
+    public function dispatch(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'order_reference' => 'required|string|exists:orders,order_reference',
+            'items' => 'nullable|array|min:1',
+            'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
+            'courier_tracking_number' => 'nullable|string|max:100',
+            'courier_company' => 'nullable|string|max:100',
+            'delivery_notes' => 'nullable|string|max:500',
+            'courier_delivery_date' => 'nullable|date',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()->first()], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
+
+            // Determine which items to dispatch
+            $itemsToDispatch = $this->getItemsToProcess($order, $request->items ?? []);
+
+            if (empty($itemsToDispatch)) {
+                throw new Exception('No valid items found to dispatch. Items must be confirmed.');
+            }
+
+            $processedItems = [];
+
+            foreach ($itemsToDispatch as $orderLine) {
+                $this->validateDispatchable($orderLine);
+
+                $orderLine->update([
+                    'delivery_status' => 'dispatched',
+                    'dispatched_at' => now(),
+                ]);
+
+                $processedItems[] = [
+                    'order_line_id' => $orderLine->id,
+                    'product_name' => $orderLine->product->name ?? 'Unknown',
+                    'status' => 'dispatched'
+                ];
+
+                $this->createShippingDetail($order, $orderLine, $request, 'dispatched');
+            }
+
+            $order->updateOrderStatus();
+
+            DB::commit();
+
+            $message = count($processedItems) === $order->lines->count()
+                ? 'Entire order dispatched successfully'
+                : count($processedItems) . ' item(s) dispatched successfully';
+
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'order_reference' => $order->order_reference,
+                'order_status' => $order->fresh()->status,
+                'processed_items' => $processedItems,
+            ]);
+        } catch (Exception $e) {
+            DB::rollBack();
+            return response()->json(['error' => $e->getMessage()], 400);
+        }
+    }
+
+    /**
+     * Ship order items or entire order
+     */
+    public function ship(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'order_reference' => 'required|string|exists:orders,order_reference',
+            'items' => 'nullable|array|min:1',
+            'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
+            'courier_tracking_number' => 'nullable|string|max:100',
+            'courier_company' => 'nullable|string|max:100',
+            'delivery_notes' => 'nullable|string|max:500',
+            'courier_delivery_date' => 'nullable|date',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()->first()], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
+
+            // Determine which items to ship
+            $itemsToShip = $this->getItemsToProcess($order, $request->items ?? []);
+
+            if (empty($itemsToShip)) {
+                throw new Exception('No valid items found to ship. Items must be dispatched.');
+            }
+
+            $processedItems = [];
+
+            foreach ($itemsToShip as $orderLine) {
+                $this->validateShippable($orderLine);
+
+                $orderLine->update([
+                    'delivery_status' => 'shipped',
+                    'shipped_at' => now(),
+                ]);
+
+                $processedItems[] = [
+                    'order_line_id' => $orderLine->id,
+                    'product_name' => $orderLine->product->name ?? 'Unknown',
+                    'status' => 'shipped'
+                ];
+
+                $this->updateShippingDetail($order, $orderLine, $request, 'shipped');
+            }
+
+            $order->updateOrderStatus();
+
+            DB::commit();
+
+            $message = count($processedItems) === $order->lines->count()
+                ? 'Entire order shipped successfully'
+                : count($processedItems) . ' item(s) shipped successfully';
+
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'order_reference' => $order->order_reference,
+                'order_status' => $order->fresh()->status,
+                'processed_items' => $processedItems,
+            ]);
+        } catch (Exception $e) {
+            DB::rollBack();
+            return response()->json(['error' => $e->getMessage()], 400);
+        }
+    }
+
+    /**
+     * Deliver order items or entire order
+     */
+    public function deliver(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'order_reference' => 'required|string|exists:orders,order_reference',
+            'items' => 'nullable|array|min:1',
+            'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
+            'delivery_notes' => 'nullable|string|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()->first()], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
+
+            // Determine which items to deliver
+            $itemsToDeliver = $this->getItemsToProcess($order, $request->items ?? []);
+
+            if (empty($itemsToDeliver)) {
+                throw new Exception('No valid items found to deliver. Items must be shipped or dispatched.');
+            }
+
+            $processedItems = [];
+
+            foreach ($itemsToDeliver as $orderLine) {
+                $this->validateDeliverable($orderLine);
+
+                $orderLine->update([
+                    'delivery_status' => 'delivered',
+                    'delivered_at' => now(),
+                ]);
+
+                $processedItems[] = [
+                    'order_line_id' => $orderLine->id,
+                    'product_name' => $orderLine->product->name ?? 'Unknown',
+                    'status' => 'delivered'
+                ];
+
+                $this->updateShippingDetail($order, $orderLine, $request, 'delivered');
+            }
+
+            $order->updateOrderStatus();
+
+            DB::commit();
+
+            $message = count($processedItems) === $order->lines->count()
+                ? 'Entire order delivered successfully'
+                : count($processedItems) . ' item(s) delivered successfully';
+
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'order_reference' => $order->order_reference,
+                'order_status' => $order->fresh()->status,
+                'processed_items' => $processedItems,
+            ]);
+        } catch (Exception $e) {
+            DB::rollBack();
+            return response()->json(['error' => $e->getMessage()], 400);
+        }
+    }
+
+    /**
+     * Get items to process based on request
+     * If items array is empty, process entire order
+     * If items array is provided, process only those items
+     */
+    private function getItemsToProcess(Order $order, array $requestedItems = []): array
+    {
+        // If no specific items requested, process entire order
+        if (empty($requestedItems)) {
+            return $order->lines->all();
+        }
+
+        // Process only requested items
+        $lineIds = array_column($requestedItems, 'order_line_id');
+        $processedItems = [];
+
+        foreach ($lineIds as $lineId) {
+            $orderLine = $order->lines->firstWhere('id', $lineId);
+            if ($orderLine) {
+                $processedItems[] = $orderLine;
+            }
+        }
+
+        return $processedItems;
+    }
+
+    /**
+     * Get order shipping details
+     */
+    public function getShippingDetails($orderReference)
+    {
+        $order = Order::where('order_reference', $orderReference)->firstOrFail();
+
+        $shippingDetails = OrderShippingDetail::where('order_id', $order->id)
+            ->with('orderLine.product')
+            ->get();
+
+        return response()->json([
+            'order_reference' => $order->order_reference,
+            'order_status' => $order->status,
+            'shipping_details' => $shippingDetails->map(function ($detail) {
+                return [
+                    'id' => $detail->id,
+                    'order_line_id' => $detail->order_line_id,
+                    'product_name' => $detail->orderLine->product->name ?? 'Unknown',
+                    'courier_company' => $detail->courier_company,
+                    'courier_tracking_number' => $detail->courier_tracking_number,
+                    'delivery_notes' => $detail->delivery_notes,
+                    'courier_delivery_date' => $detail->courier_delivery_date,
+                    'status' => $detail->status,
+                    'created_at' => $detail->created_at,
+                    'updated_at' => $detail->updated_at,
+                ];
+            })
+        ]);
+    }
+
+    // Validation Methods
+    private function validateDispatchable(OrderLine $orderLine)
+    {
+        if ($orderLine->delivery_status !== 'confirmed') {
+            throw new Exception(
+                "Item '{$orderLine->product->name}' must be confirmed before dispatch. Current status: {$orderLine->delivery_status}"
+            );
+        }
+
+        if (in_array($orderLine->delivery_status, ['dispatched', 'shipped', 'delivered'])) {
+            throw new Exception(
+                "Item '{$orderLine->product->name}' has already been dispatched/shipped/delivered."
+            );
+        }
+
+        if ($orderLine->delivery_status === 'cancelled') {
+            throw new Exception(
+                "Item '{$orderLine->product->name}' is cancelled and cannot be dispatched."
+            );
+        }
+    }
+
+    private function validateShippable(OrderLine $orderLine)
+    {
+        if ($orderLine->delivery_status !== 'dispatched') {
+            throw new Exception(
+                "Item '{$orderLine->product->name}' must be dispatched before shipping. Current status: {$orderLine->delivery_status}"
+            );
+        }
+
+        if ($orderLine->delivery_status === 'delivered') {
+            throw new Exception(
+                "Item '{$orderLine->product->name}' is already delivered."
+            );
+        }
+    }
+
+    private function validateDeliverable(OrderLine $orderLine)
+    {
+        if (!in_array($orderLine->delivery_status, ['dispatched', 'shipped'])) {
+            throw new Exception(
+                "Item '{$orderLine->product->name}' must be dispatched or shipped before delivery. Current status: {$orderLine->delivery_status}"
+            );
+        }
+
+        if ($orderLine->delivery_status === 'delivered') {
+            throw new Exception(
+                "Item '{$orderLine->product->name}' is already delivered."
+            );
+        }
+    }
+
+    // Helper Methods
+    private function createShippingDetail(Order $order, OrderLine $orderLine, Request $request, string $status)
+    {
+        return OrderShippingDetail::create([
+            'order_id' => $order->id,
+            'order_line_id' => $orderLine->id,
+            'courier_tracking_number' => $request->courier_tracking_number,
+            'courier_company' => $request->courier_company,
+            'delivery_notes' => $request->delivery_notes,
+            'courier_delivery_date' => $request->courier_delivery_date,
+            'status' => $status,
+        ]);
+    }
+
+    private function updateShippingDetail(Order $order, OrderLine $orderLine, Request $request, string $status)
+    {
+        $detail = OrderShippingDetail::where('order_id', $order->id)
+            ->where('order_line_id', $orderLine->id)
+            ->first();
+
+        if ($detail) {
+            $detail->update([
+                'courier_tracking_number' => $request->courier_tracking_number ?? $detail->courier_tracking_number,
+                'courier_company' => $request->courier_company ?? $detail->courier_company,
+                'delivery_notes' => $request->delivery_notes ?? $detail->delivery_notes,
+                'courier_delivery_date' => $request->courier_delivery_date ?? $detail->courier_delivery_date,
+                'status' => $status,
+            ]);
+        } else {
+            $this->createShippingDetail($order, $orderLine, $request, $status);
         }
     }
 }

@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('order_shipping_details', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('order_id');
-            $table->unsignedBigInteger('order_line_id')->nullable(); // null for whole order dispatch
+            $table->unsignedBigInteger('order_line_id')->nullable();
             $table->string('courier_tracking_number')->nullable();
             $table->string('courier_company')->nullable();
             $table->text('delivery_notes')->nullable();

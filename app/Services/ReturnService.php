@@ -603,48 +603,154 @@ class ReturnService
     /**
      * Update the order's delivery status based on all its lines.
      */
+    // private function updateOrderDeliveryStatus(Order $order): void
+    // {
+    //     $lines = $order->lines;
+    //     $totalLines = $lines->count();
+
+    //     if ($totalLines === 0) {
+    //         $order->update(['delivery_status' => 'pending']);
+    //         return;
+    //     }
+
+    //     $statusCounts = [
+    //         'pending' => 0,
+    //         'shipped' => 0,
+    //         'delivered' => 0,
+    //         'cancelled' => 0,
+    //     ];
+
+    //     foreach ($lines as $line) {
+    //         $status = $line->delivery_status ?? 'pending';
+    //         if (isset($statusCounts[$status])) {
+    //             $statusCounts[$status]++;
+    //         }
+    //     }
+
+    //     // Determine overall order delivery status
+    //     $deliveryStatus = 'pending';
+
+    //     // If all items are delivered
+    //     if ($statusCounts['delivered'] === $totalLines) {
+    //         $deliveryStatus = 'delivered';
+    //     }
+    //     // If some items are delivered
+    //     elseif ($statusCounts['delivered'] > 0) {
+    //         $deliveryStatus = 'partial_delivered';
+    //     }
+    //     // If all items are shipped
+    //     elseif ($statusCounts['shipped'] === $totalLines) {
+    //         $deliveryStatus = 'shipped';
+    //     }
+    //     // If some items are shipped
+    //     elseif ($statusCounts['shipped'] > 0) {
+    //         $deliveryStatus = 'processing'; // Mixed pending and shipped
+    //     }
+
+    //     $order->update(['delivery_status' => $deliveryStatus]);
+    // }
     private function updateOrderDeliveryStatus(Order $order): void
     {
-        $lines = $order->lines;
-        $totalLines = $lines->count();
+        $allLines = $order->lines;
+        $totalLines = $allLines->count();
 
         if ($totalLines === 0) {
             $order->update(['delivery_status' => 'pending']);
             return;
         }
 
-        $statusCounts = [
+        // Get active lines (excluding returned and cancelled)
+        $activeLines = $allLines->filter(function ($line) {
+            return !in_array($line->delivery_status, ['returned', 'cancelled']);
+        });
+
+        $activeCount = $activeLines->count();
+
+        if ($activeCount === 0) {
+            $order->update(['delivery_status' => 'returned']);
+            return;
+        }
+
+        // Count delivery statuses (including return_pending)
+        $deliveryCounts = [
             'pending' => 0,
+            'confirmed' => 0,
+            'dispatched' => 0,
             'shipped' => 0,
             'delivered' => 0,
-            'cancelled' => 0,
+            'return_pending' => 0,
         ];
 
-        foreach ($lines as $line) {
+        foreach ($activeLines as $line) {
             $status = $line->delivery_status ?? 'pending';
-            if (isset($statusCounts[$status])) {
-                $statusCounts[$status]++;
+            if (isset($deliveryCounts[$status])) {
+                $deliveryCounts[$status]++;
             }
         }
 
-        // Determine overall order delivery status
         $deliveryStatus = 'pending';
 
-        // If all items are delivered
-        if ($statusCounts['delivered'] === $totalLines) {
-            $deliveryStatus = 'delivered';
-        }
-        // If some items are delivered
-        elseif ($statusCounts['delivered'] > 0) {
-            $deliveryStatus = 'partial_delivered';
-        }
-        // If all items are shipped
-        elseif ($statusCounts['shipped'] === $totalLines) {
-            $deliveryStatus = 'shipped';
-        }
-        // If some items are shipped
-        elseif ($statusCounts['shipped'] > 0) {
-            $deliveryStatus = 'processing'; // Mixed pending and shipped
+        // Check if any return_pending exists
+        if ($deliveryCounts['return_pending'] > 0) {
+            // For delivery_status, we want to show the delivery progress
+            // Return pending items should not affect delivery status negatively
+            // Remove return_pending from active count for delivery determination
+            $activeWithoutReturn = $activeCount - $deliveryCounts['return_pending'];
+
+            if ($activeWithoutReturn === 0) {
+                $deliveryStatus = 'pending'; // All items are pending return
+            } elseif ($deliveryCounts['delivered'] === $activeWithoutReturn && $deliveryCounts['return_pending'] > 0) {
+                $deliveryStatus = 'partial_delivered';
+            } else {
+                // Fall back to normal logic but exclude return_pending from count
+                $normalActiveCount = $activeWithoutReturn;
+                $deliveredCount = $deliveryCounts['delivered'];
+                $shippedCount = $deliveryCounts['shipped'];
+                $dispatchedCount = $deliveryCounts['dispatched'];
+                $confirmedCount = $deliveryCounts['confirmed'];
+                $pendingCount = $deliveryCounts['pending'];
+
+                if ($normalActiveCount === 0) {
+                    $deliveryStatus = 'pending';
+                } elseif ($deliveredCount === $normalActiveCount) {
+                    $deliveryStatus = 'delivered';
+                } elseif ($deliveredCount > 0) {
+                    $deliveryStatus = 'partial_delivered';
+                } elseif ($shippedCount === $normalActiveCount) {
+                    $deliveryStatus = 'shipped';
+                } elseif ($shippedCount > 0) {
+                    $deliveryStatus = 'partial_shipped';
+                } elseif ($dispatchedCount === $normalActiveCount) {
+                    $deliveryStatus = 'dispatched';
+                } elseif ($dispatchedCount > 0) {
+                    $deliveryStatus = 'partial_dispatched';
+                } elseif ($confirmedCount === $normalActiveCount) {
+                    $deliveryStatus = 'confirmed';
+                } elseif ($confirmedCount > 0) {
+                    $deliveryStatus = 'partial_confirmed';
+                } else {
+                    $deliveryStatus = 'pending';
+                }
+            }
+        } else {
+            // No return_pending, use original logic
+            if ($deliveryCounts['delivered'] === $activeCount) {
+                $deliveryStatus = 'delivered';
+            } elseif ($deliveryCounts['delivered'] > 0) {
+                $deliveryStatus = 'partial_delivered';
+            } elseif ($deliveryCounts['shipped'] === $activeCount) {
+                $deliveryStatus = 'shipped';
+            } elseif ($deliveryCounts['shipped'] > 0) {
+                $deliveryStatus = 'partial_shipped';
+            } elseif ($deliveryCounts['dispatched'] === $activeCount) {
+                $deliveryStatus = 'dispatched';
+            } elseif ($deliveryCounts['dispatched'] > 0) {
+                $deliveryStatus = 'partial_dispatched';
+            } elseif ($deliveryCounts['confirmed'] === $activeCount) {
+                $deliveryStatus = 'confirmed';
+            } elseif ($deliveryCounts['confirmed'] > 0) {
+                $deliveryStatus = 'partial_confirmed';
+            }
         }
 
         $order->update(['delivery_status' => $deliveryStatus]);
@@ -653,65 +759,115 @@ class ReturnService
     /**
      * Update the order's return status based on all its lines.
      */
+    // private function updateOrderReturnStatus(Order $order): void
+    // {
+    //     $lines = $order->lines;
+    //     $totalLines = $lines->count();
+    //     $deliveredLines = $lines->where('delivery_status', 'delivered')->count();
+
+    //     if ($totalLines === 0 || $deliveredLines === 0) {
+    //         $order->update(['return_status' => 'none']);
+    //         return;
+    //     }
+
+    //     $statusCounts = [
+    //         'pending' => 0,
+    //         'approved' => 0,
+    //         'rejected' => 0,
+    //         'returned' => 0,
+    //         'none' => 0,
+    //     ];
+
+    //     foreach ($lines as $line) {
+    //         // Only consider delivered items for return status
+    //         if ($line->delivery_status !== 'delivered') {
+    //             continue;
+    //         }
+
+    //         $status = $line->return_status ?? 'none';
+    //         if (isset($statusCounts[$status])) {
+    //             $statusCounts[$status]++;
+    //         }
+    //     }
+
+    //     $deliveredCount = array_sum($statusCounts);
+
+    //     // Determine overall order return status
+    //     $returnStatus = 'none';
+
+    //     // If all delivered items are returned
+    //     if ($statusCounts['returned'] === $deliveredCount && $deliveredCount > 0) {
+    //         $returnStatus = 'fully_returned';
+    //     }
+    //     // If some delivered items are returned
+    //     elseif ($statusCounts['returned'] > 0) {
+    //         // Check if any other statuses exist among delivered items
+    //         if ($statusCounts['pending'] > 0) {
+    //             $returnStatus = 'partial_pending';
+    //         } elseif ($statusCounts['approved'] > 0) {
+    //             $returnStatus = 'partial_approved';
+    //         } elseif ($statusCounts['rejected'] > 0) {
+    //             $returnStatus = 'partial_rejected';
+    //         } else {
+    //             $returnStatus = 'partial_return';
+    //         }
+    //     }
+    //     // If no items are returned but some are pending/approved/rejected
+    //     elseif ($statusCounts['pending'] > 0) {
+    //         $returnStatus = 'pending';
+    //     } elseif ($statusCounts['approved'] > 0) {
+    //         $returnStatus = 'approved';
+    //     } elseif ($statusCounts['rejected'] > 0) {
+    //         $returnStatus = 'rejected';
+    //     }
+
+    //     $order->update(['return_status' => $returnStatus]);
+    // }
     private function updateOrderReturnStatus(Order $order): void
     {
         $lines = $order->lines;
         $totalLines = $lines->count();
-        $deliveredLines = $lines->where('delivery_status', 'delivered')->count();
 
-        if ($totalLines === 0 || $deliveredLines === 0) {
+        // Count returned items
+        $returnedCount = $lines->where('delivery_status', 'returned')->count();
+        $pendingReturns = $lines->where('return_status', 'pending')->count();
+        $approvedReturns = $lines->where('return_status', 'approved')->count();
+        $rejectedReturns = $lines->where('return_status', 'rejected')->count();
+
+        // Count delivered items (active + returned)
+        $deliveredCount = $lines->where('delivery_status', 'delivered')->count();
+        $returnedDeliveredCount = $lines->where('delivery_status', 'returned')->count();
+        $totalDelivered = $deliveredCount + $returnedDeliveredCount;
+
+        if ($totalLines === 0 || $totalDelivered === 0) {
             $order->update(['return_status' => 'none']);
             return;
         }
 
-        $statusCounts = [
-            'pending' => 0,
-            'approved' => 0,
-            'rejected' => 0,
-            'returned' => 0,
-            'none' => 0,
-        ];
-
-        foreach ($lines as $line) {
-            // Only consider delivered items for return status
-            if ($line->delivery_status !== 'delivered') {
-                continue;
-            }
-
-            $status = $line->return_status ?? 'none';
-            if (isset($statusCounts[$status])) {
-                $statusCounts[$status]++;
-            }
-        }
-
-        $deliveredCount = array_sum($statusCounts);
-
-        // Determine overall order return status
         $returnStatus = 'none';
 
         // If all delivered items are returned
-        if ($statusCounts['returned'] === $deliveredCount && $deliveredCount > 0) {
+        if ($returnedCount === $totalDelivered && $totalDelivered > 0) {
             $returnStatus = 'fully_returned';
         }
         // If some delivered items are returned
-        elseif ($statusCounts['returned'] > 0) {
-            // Check if any other statuses exist among delivered items
-            if ($statusCounts['pending'] > 0) {
+        elseif ($returnedCount > 0) {
+            if ($pendingReturns > 0) {
                 $returnStatus = 'partial_pending';
-            } elseif ($statusCounts['approved'] > 0) {
+            } elseif ($approvedReturns > 0) {
                 $returnStatus = 'partial_approved';
-            } elseif ($statusCounts['rejected'] > 0) {
+            } elseif ($rejectedReturns > 0) {
                 $returnStatus = 'partial_rejected';
             } else {
                 $returnStatus = 'partial_return';
             }
         }
         // If no items are returned but some are pending/approved/rejected
-        elseif ($statusCounts['pending'] > 0) {
+        elseif ($pendingReturns > 0) {
             $returnStatus = 'pending';
-        } elseif ($statusCounts['approved'] > 0) {
+        } elseif ($approvedReturns > 0) {
             $returnStatus = 'approved';
-        } elseif ($statusCounts['rejected'] > 0) {
+        } elseif ($rejectedReturns > 0) {
             $returnStatus = 'rejected';
         }
 
@@ -755,8 +911,6 @@ class ReturnService
             )
         );
     }
-
-
 
     /**
      * Admin: Get all return requests
@@ -1000,7 +1154,6 @@ class ReturnService
                         'return_id' => $returnOrder->id,
                         'event_id' => $event->id,
                     ]);
-
                 } catch (\Exception $e) {
                     // Update event with failure
                     $event->update([
@@ -1014,7 +1167,6 @@ class ReturnService
                         'error' => $e->getMessage(),
                     ]);
                 }
-
             } catch (\Exception $e) {
                 Log::error('Failed to create reversal event', [
                     'return_id' => $returnOrder->id,
@@ -1152,92 +1304,209 @@ class ReturnService
     /**
      * Update the order's main status based on delivery and return status.
      */
+    // private function updateOrderMainStatus(Order $order): void
+    // {
+    //     $lines = $order->lines;
+    //     $totalLines = $lines->count();
+
+    //     if ($totalLines === 0) {
+    //         $order->update(['status' => 'pending']);
+    //         return;
+    //     }
+
+    //     // First, determine delivery status
+    //     $deliveryCounts = [
+    //         'pending' => 0,
+    //         'shipped' => 0,
+    //         'delivered' => 0,
+    //         'cancelled' => 0,
+    //     ];
+
+    //     foreach ($lines as $line) {
+    //         $status = $line->delivery_status ?? 'pending';
+    //         if (isset($deliveryCounts[$status])) {
+    //             $deliveryCounts[$status]++;
+    //         }
+    //     }
+
+    //     // Determine delivery status
+    //     $deliveryStatus = 'pending';
+    //     if ($deliveryCounts['delivered'] === $totalLines) {
+    //         $deliveryStatus = 'delivered';
+    //     } elseif ($deliveryCounts['delivered'] > 0) {
+    //         $deliveryStatus = 'partial_delivered';
+    //     } elseif ($deliveryCounts['shipped'] === $totalLines) {
+    //         $deliveryStatus = 'shipped';
+    //     } elseif ($deliveryCounts['shipped'] > 0) {
+    //         $deliveryStatus = 'processing';
+    //     }
+
+    //     // Now, determine return status based on delivered items only
+    //     $deliveredLines = $lines->where('delivery_status', 'delivered');
+    //     $deliveredCount = $deliveredLines->count();
+
+    //     if ($deliveredCount === 0) {
+    //         // If no items delivered, just use delivery status
+    //         $order->update(['status' => $deliveryStatus]);
+    //         return;
+    //     }
+
+    //     $returnCounts = [
+    //         'pending' => 0,
+    //         'approved' => 0,
+    //         'rejected' => 0,
+    //         'returned' => 0,
+    //         'none' => 0,
+    //     ];
+
+    //     foreach ($deliveredLines as $line) {
+    //         $status = $line->return_status ?? 'none';
+    //         if (isset($returnCounts[$status])) {
+    //             $returnCounts[$status]++;
+    //         }
+    //     }
+
+    //     // Determine final order status (combining delivery and return)
+    //     $finalStatus = $deliveryStatus;
+
+    //     // If ALL delivered items are returned
+    //     if ($returnCounts['returned'] === $deliveredCount && $deliveredCount > 0) {
+    //         // Check if all items are delivered and returned
+    //         if ($deliveryCounts['delivered'] === $totalLines) {
+    //             $finalStatus = 'returned'; // Full order returned
+    //         } else {
+    //             // Some items are not delivered, but all delivered ones are returned
+    //             $finalStatus = 'partial_return';
+    //         }
+    //     }
+    //     // If SOME delivered items are returned
+    //     elseif ($returnCounts['returned'] > 0) {
+    //         $finalStatus = 'partial_returned';
+    //     }
+    //     // If no delivered items are returned but some have pending/approved/rejected
+    //     elseif ($returnCounts['pending'] > 0 || $returnCounts['approved'] > 0 || $returnCounts['rejected'] > 0) {
+    //         // Keep the delivery status, but we could add a prefix if needed
+    //         // For now, keep delivery status as is
+    //     }
+
+    //     $order->update(['status' => $finalStatus]);
+    // }
     private function updateOrderMainStatus(Order $order): void
     {
-        $lines = $order->lines;
-        $totalLines = $lines->count();
+        $lines = $order->lines()->get();
 
-        if ($totalLines === 0) {
+        if ($lines->isEmpty()) {
             $order->update(['status' => 'pending']);
             return;
         }
 
-        // First, determine delivery status
-        $deliveryCounts = [
-            'pending' => 0,
-            'shipped' => 0,
-            'delivered' => 0,
-            'cancelled' => 0,
-        ];
+        // Exclude cancelled lines from main status calculation
+        $activeLines = $lines->filter(function ($line) {
+            return $line->delivery_status !== 'cancelled';
+        });
 
-        foreach ($lines as $line) {
-            $status = $line->delivery_status ?? 'pending';
-            if (isset($deliveryCounts[$status])) {
-                $deliveryCounts[$status]++;
-            }
-        }
+        $activeCount = $activeLines->count();
 
-        // Determine delivery status
-        $deliveryStatus = 'pending';
-        if ($deliveryCounts['delivered'] === $totalLines) {
-            $deliveryStatus = 'delivered';
-        } elseif ($deliveryCounts['delivered'] > 0) {
-            $deliveryStatus = 'partial_delivered';
-        } elseif ($deliveryCounts['shipped'] === $totalLines) {
-            $deliveryStatus = 'shipped';
-        } elseif ($deliveryCounts['shipped'] > 0) {
-            $deliveryStatus = 'processing';
-        }
-
-        // Now, determine return status based on delivered items only
-        $deliveredLines = $lines->where('delivery_status', 'delivered');
-        $deliveredCount = $deliveredLines->count();
-
-        if ($deliveredCount === 0) {
-            // If no items delivered, just use delivery status
-            $order->update(['status' => $deliveryStatus]);
+        if ($activeCount === 0) {
+            $order->update(['status' => 'cancelled']);
             return;
         }
 
-        $returnCounts = [
-            'pending' => 0,
-            'approved' => 0,
-            'rejected' => 0,
-            'returned' => 0,
-            'none' => 0,
-        ];
+        $returnPendingCount = $activeLines
+            ->whereIn('delivery_status', ['return_pending', 'returned'])
+            ->count();
 
-        foreach ($deliveredLines as $line) {
-            $status = $line->return_status ?? 'none';
-            if (isset($returnCounts[$status])) {
-                $returnCounts[$status]++;
-            }
-        }
+        $deliveredCount = $activeLines
+            ->where('delivery_status', 'delivered')
+            ->count();
 
-        // Determine final order status (combining delivery and return)
-        $finalStatus = $deliveryStatus;
+        $shippedCount = $activeLines
+            ->where('delivery_status', 'shipped')
+            ->count();
 
-        // If ALL delivered items are returned
-        if ($returnCounts['returned'] === $deliveredCount && $deliveredCount > 0) {
-            // Check if all items are delivered and returned
-            if ($deliveryCounts['delivered'] === $totalLines) {
-                $finalStatus = 'returned'; // Full order returned
-            } else {
-                // Some items are not delivered, but all delivered ones are returned
-                $finalStatus = 'partial_return';
-            }
-        }
-        // If SOME delivered items are returned
-        elseif ($returnCounts['returned'] > 0) {
+        $dispatchedCount = $activeLines
+            ->where('delivery_status', 'dispatched')
+            ->count();
+
+        $confirmedCount = $activeLines
+            ->where('delivery_status', 'confirmed')
+            ->count();
+
+        $pendingCount = $activeLines
+            ->where('delivery_status', 'pending')
+            ->count();
+
+        /*
+     * RETURN HAS PRIORITY
+     */
+        if ($returnPendingCount === $activeCount) {
+            $finalStatus = 'returned';
+        } elseif ($returnPendingCount > 0) {
             $finalStatus = 'partial_returned';
         }
-        // If no delivered items are returned but some have pending/approved/rejected
-        elseif ($returnCounts['pending'] > 0 || $returnCounts['approved'] > 0 || $returnCounts['rejected'] > 0) {
-            // Keep the delivery status, but we could add a prefix if needed
-            // For now, keep delivery status as is
+
+        /*
+     * NORMAL DELIVERY FLOW
+     */ elseif ($deliveredCount === $activeCount) {
+            $finalStatus = 'delivered';
+        } elseif ($deliveredCount > 0) {
+            $finalStatus = 'partial_delivered';
+        } elseif ($shippedCount === $activeCount) {
+            $finalStatus = 'shipped';
+        } elseif ($shippedCount > 0) {
+            $finalStatus = 'partial_shipped';
+        } elseif ($dispatchedCount === $activeCount) {
+            $finalStatus = 'dispatched';
+        } elseif ($dispatchedCount > 0) {
+            $finalStatus = 'partial_dispatched';
+        } elseif ($confirmedCount === $activeCount) {
+            $finalStatus = 'confirmed';
+        } elseif ($confirmedCount > 0) {
+            $finalStatus = 'partial_confirmed';
+        } else {
+            $finalStatus = 'pending';
         }
 
-        $order->update(['status' => $finalStatus]);
+        $order->update([
+            'status' => $finalStatus,
+        ]);
+    }
+
+    private function determineOrderStatus(array $deliveryCounts, int $activeCount): string
+    {
+        // Check for return_pending items
+        $hasReturnPending = ($deliveryCounts['return_pending'] ?? 0) > 0;
+
+        // Remove return_pending from consideration for delivery status
+        $deliveryCountsWithoutReturn = $deliveryCounts;
+        unset($deliveryCountsWithoutReturn['return_pending']);
+
+        $nonReturnCount = array_sum($deliveryCountsWithoutReturn);
+
+        if ($nonReturnCount === 0) {
+            return 'returned';
+        }
+
+        // Check delivery statuses (excluding return_pending items)
+        if (($deliveryCounts['delivered'] ?? 0) === $nonReturnCount) {
+            return $hasReturnPending ? 'partial_returned' : 'delivered';
+        } elseif (($deliveryCounts['delivered'] ?? 0) > 0) {
+            return $hasReturnPending ? 'partial_returned' : 'partial_delivered';
+        } elseif (($deliveryCounts['shipped'] ?? 0) === $nonReturnCount) {
+            return $hasReturnPending ? 'partial_returned' : 'shipped';
+        } elseif (($deliveryCounts['shipped'] ?? 0) > 0) {
+            return $hasReturnPending ? 'partial_returned' : 'partial_shipped';
+        } elseif (($deliveryCounts['dispatched'] ?? 0) === $nonReturnCount) {
+            return $hasReturnPending ? 'partial_returned' : 'dispatched';
+        } elseif (($deliveryCounts['dispatched'] ?? 0) > 0) {
+            return $hasReturnPending ? 'partial_returned' : 'partial_dispatched';
+        } elseif (($deliveryCounts['confirmed'] ?? 0) === $nonReturnCount) {
+            return $hasReturnPending ? 'partial_returned' : 'confirmed';
+        } elseif (($deliveryCounts['confirmed'] ?? 0) > 0) {
+            return $hasReturnPending ? 'partial_returned' : 'partial_confirmed';
+        }
+
+        return 'pending';
     }
 
     public function markReturnReceived(int $returnId): array
