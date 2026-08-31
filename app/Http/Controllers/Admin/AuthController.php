@@ -853,7 +853,7 @@ class AuthController extends Controller
     //         ],
     //     ], 200);
     // }
-    public function updateKycStatus(Request $request, int $id)
+    public function updateStatus(Request $request, int $id)
     {
         $request->validate([
             'kyc_status' => [
