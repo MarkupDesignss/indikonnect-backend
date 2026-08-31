@@ -61,7 +61,7 @@ Route::prefix('admin')->group(function () {
 
     // Protected Routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
-        Route::get('/update-user-status/{id}', [AuthController::class, 'toggleUserStatus']);
+        Route::post('/update-user-status/{id}', [AuthController::class, 'toggleUserStatus']);
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('distributors/{id}/status', [AuthController::class, 'updateStatus']);
@@ -313,6 +313,7 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::get('/products/{product}/reviews', [ReviewController::class, 'index']);
 Route::get('/products/{product}/reviews/average', [ReviewController::class, 'getAverageRating']);
 Route::post('/admin/product-reviews/{id}/action', [ReviewController::class, 'updateReviewAction']);
+Route::get('/admin/product-reviews', [ReviewController::class, 'getAllReviews']);
 
 // Authenticated user routes
 Route::middleware('auth:sanctum')->group(function () {

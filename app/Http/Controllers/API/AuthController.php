@@ -2558,7 +2558,7 @@ class AuthController extends Controller
                 'submitted_at' => now(),
                 'terms_accepted_at' => now(),
                 //'kyc_status' => 'verified'
-                'kyc_status' => 'pending', // Will be updated by admin after review
+                'kyc_status' => 'pending',
                 'application_status' => 'submitted',
             ]);
 

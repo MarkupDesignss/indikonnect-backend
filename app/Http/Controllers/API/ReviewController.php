@@ -381,4 +381,83 @@ class ReviewController extends Controller
             ], 500);
         }
     }
+
+    public function getAllReviews()
+    {
+        try {
+            $reviews = ProductReview::with([
+                'images:id,product_review_id,image_path',
+                'user:id,full_name,email',
+                'product:id,name,product_code,slug',
+                'product.images:id,product_id,image,sort_order,is_primary'
+            ])
+                ->latest()
+                ->get();
+
+            $formattedReviews = $reviews->map(function ($review) {
+                return [
+                    'id' => $review->id,
+
+                    'rating' => $review->rating,
+                    'review_text' => $review->review_text,
+                    'status' => $review->status,
+
+                    // Review Images with Full Path
+                    'images' => $review->images
+                        ->map(function ($image) {
+                            return [
+                                'id' => $image->id,
+                                'image_path' => $image->image_path
+                                    ? asset('storage/' . ltrim($image->image_path, '/'))
+                                    : null,
+                            ];
+                        })
+                        ->values(),
+
+                    'user' => $review->user ? [
+                        'id' => $review->user->id,
+                        'name' => $review->user->full_name,
+                        'email' => $review->user->email,
+                    ] : null,
+
+                    'product' => $review->product ? [
+                        'id' => $review->product->id,
+                        'name' => $review->product->name,
+                        'product_code' => $review->product->product_code,
+                        'slug' => $review->product->slug,
+
+                        // Product Images with Full Path
+                        'product_images' => $review->product->images
+                            ->sortBy('sort_order')
+                            ->values()
+                            ->map(function ($image) {
+                                return [
+                                    'id' => $image->id,
+                                    'image' => $image->image
+                                        ? asset('storage/' . ltrim($image->image, '/'))
+                                        : null,
+                                    'sort_order' => $image->sort_order,
+                                    'is_primary' => (bool) $image->is_primary,
+                                ];
+                            }),
+                    ] : null,
+
+                    'created_at' => $review->created_at?->format('Y-m-d H:i:s'),
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Product reviews fetched successfully',
+                'data' => $formattedReviews,
+            ], 200);
+        } catch (\Throwable $e) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Something went wrong',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
 }
