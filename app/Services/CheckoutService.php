@@ -2132,7 +2132,6 @@ class CheckoutService
 
                     // Line totals
                     'line_total' => round($itemData['final_line_total'], 2),
-                    'base_price' => round($itemData['discounted_line_total'], 2),
                     'commissionable_volume' => $itemData['product']->commissionable_volume ?? 0,
                 ];
 
@@ -2146,7 +2145,7 @@ class CheckoutService
                     'status' => 'used'
                 ]);
             }
-
+            $userId = Auth::user()->id;
             // Clear cart only if it's not buy now
             if (!$isBuyNow) {
                 $cart = Cart::where('user_id', $userId)->first();
