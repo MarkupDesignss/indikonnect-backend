@@ -2147,13 +2147,13 @@ class CheckoutService
             }
             $userId = Auth::user()->id;
             // Clear cart only if it's not buy now
-            if (!$isBuyNow) {
-                $cart = Cart::where('user_id', $userId)->first();
-                if ($cart) {
-                    $cart->items()->delete();
-                    $cart->delete();
-                }
-            }
+            // if (!$isBuyNow) {
+            //     $cart = Cart::where('user_id', $userId)->first();
+            //     if ($cart) {
+            //         $cart->items()->delete();
+            //         $cart->delete();
+            //     }
+            // }
 
             // Create Razorpay order
             $razorpayOrder = $this->razorpayService->createOrder($order);
