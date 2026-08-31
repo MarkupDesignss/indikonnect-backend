@@ -582,3 +582,15 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
 });
 
 Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);
+
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::prefix('orders')->group(function () {
+        Route::post('/dispatch', [OrderController::class, 'dispatch']);
+        Route::post('/ship', [OrderController::class, 'ship']);
+        Route::post('/deliver', [OrderController::class, 'deliver']);
+        Route::get('/{orderReference}/shipping-details', [OrderController::class, 'getShippingDetails']);
+    });
+});
+
+
+Route::post('/stock/update', [ProductController::class, 'updateStock']);

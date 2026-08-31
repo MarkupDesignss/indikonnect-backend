@@ -73,7 +73,7 @@ class KycController extends Controller
         $profile->kyc_status = 'verified';
         $profile->reviewed_at = now();
         $profile->reviewed_by = Auth::id();
-        $profile->rejection_reason = null; // clear previous rejection reason if any
+        $profile->rejection_reason = null;
         $profile->save();
 
         // Activate distributor account
