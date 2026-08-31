@@ -599,4 +599,100 @@ class ProductReviewController extends Controller
         $order = Order::find($orderId);
         return $order && $order->status === 'delivered';
     }
+
+
+    public function getAllReviews(Request $request)
+    {
+        try {
+            // Build query with relationships
+            $query = Review::with([
+                'user' => function ($q) {
+                    $q->select('id', 'name', 'email', 'role', 'company', 'total_orders', 'total_reviews', 'account_status');
+                },
+                'product' => function ($q) {
+                    $q->select('id', 'name', 'sku', 'description', 'category', 'price', 'average_rating', 'total_reviews');
+                },
+                'moderator' => function ($q) {
+                    $q->select('id', 'name', 'email');
+                }
+            ]);
+
+            // Filter by status
+            if ($request->has('status') && in_array($request->status, ['pending', 'approved', 'rejected'])) {
+                $query->where('status', $request->status);
+            }
+
+            // Filter by product
+            if ($request->has('product_id')) {
+                $query->where('product_id', $request->product_id);
+            }
+
+            // Filter by user
+            if ($request->has('user_id')) {
+                $query->where('user_id', $request->user_id);
+            }
+
+            // Search by product name or user name
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->whereHas('product', function ($subQ) use ($search) {
+                        $subQ->where('name', 'LIKE', "%{$search}%");
+                    })->orWhereHas('user', function ($subQ) use ($search) {
+                        $subQ->where('name', 'LIKE', "%{$search}%");
+                    });
+                });
+            }
+
+            // Filter by rating
+            if ($request->has('rating')) {
+                $query->where('rating', $request->rating);
+            }
+
+            // Filter by date range
+            if ($request->has('from_date')) {
+                $query->whereDate('created_at', '>=', $request->from_date);
+            }
+            if ($request->has('to_date')) {
+                $query->whereDate('created_at', '<=', $request->to_date);
+            }
+
+            // Sorting
+            $sortField = $request->get('sort_by', 'created_at');
+            $sortOrder = $request->get('sort_order', 'desc');
+            $query->orderBy($sortField, $sortOrder);
+
+            // Pagination
+            $perPage = $request->get('per_page', 15);
+            $reviews = $query->paginate($perPage);
+
+            // Format response
+            return response()->json([
+                'success' => true,
+                'message' => 'Reviews retrieved successfully',
+                'data' => $reviews->items(),
+                'pagination' => [
+                    'current_page' => $reviews->currentPage(),
+                    'per_page' => $reviews->perPage(),
+                    'total' => $reviews->total(),
+                    'last_page' => $reviews->lastPage(),
+                    'next_page_url' => $reviews->nextPageUrl(),
+                    'prev_page_url' => $reviews->previousPageUrl(),
+                ],
+                'filters' => [
+                    'status' => $request->status,
+                    'search' => $request->search,
+                    'product_id' => $request->product_id,
+                    'user_id' => $request->user_id,
+                    'rating' => $request->rating,
+                ]
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve reviews',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

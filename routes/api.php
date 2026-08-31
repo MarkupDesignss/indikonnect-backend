@@ -313,6 +313,7 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::get('/products/{product}/reviews', [ReviewController::class, 'index']);
 Route::get('/products/{product}/reviews/average', [ReviewController::class, 'getAverageRating']);
 Route::post('/admin/product-reviews/{id}/action', [ReviewController::class, 'updateReviewAction']);
+Route::get('/admin/product-reviews', [ReviewController::class, 'getAllReviews']);
 
 // Authenticated user routes
 Route::middleware('auth:sanctum')->group(function () {
