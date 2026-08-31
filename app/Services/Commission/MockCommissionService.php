@@ -131,6 +131,8 @@ class MockCommissionService implements CommissionServiceInterface
                 'description' => 'Step commission for order #123',
                 'amount' => 300.00,
                 'status' => 'released',
+                'gross' => 300.00,
+                'tds' => 0,
             ],
             [
                 'date' => now()->subDays(3)->toDateString(),
@@ -138,6 +140,8 @@ class MockCommissionService implements CommissionServiceInterface
                 'description' => 'Team bonus',
                 'amount' => 200.00,
                 'status' => 'pending',
+                'gross' => 200.00,
+                'tds' => 0,
             ],
         ];
 
@@ -147,7 +151,38 @@ class MockCommissionService implements CommissionServiceInterface
             'closing_balance' => 1500.00,
         ];
     }
-    
+
+    // NEW: Get Commissionable Volume with left/right legs
+    public function getCV(int $userId): array
+    {
+        return [
+            'total' => 75000,
+            'left_leg' => 45000,
+            'right_leg' => 30000,
+            'weaker_leg' => 30000,
+            'target' => 100000,
+            'progress' => '75%',
+            'period' => date('Y-m'),
+        ];
+    }
+
+    //  NEW: Get downline/genealogy data
+    public function getDownline(int $userId): array
+    {
+        // Query genealogy_placements table for actual data
+        $downlineCount = \App\Models\GenealogyPlacement::where('sponsor_id', $userId)->count();
+        
+        // Mock data - in production, this would come from your genealogy system
+        return [
+            'total' => $downlineCount > 0 ? $downlineCount : 25,
+            'left_leg_count' => 15,
+            'right_leg_count' => 10,
+            'new_this_month' => 5,
+            'active' => 18,
+            'inactive' => 7,
+        ];
+    }
+
     // -------- Health Check --------
 
     public function healthCheck(): bool
@@ -163,12 +198,11 @@ class MockCommissionService implements CommissionServiceInterface
         $entries = [];
         foreach ($distributors as $dist) {
             $gross = rand(1000, 50000); // Mock commission
-            //$tds = round($gross * 0.02, 2); // 2% TDS
             $tdsRate = setting('tds_rate_percent', 2);
             $tds = round($gross * ($tdsRate / 100), 2);
             $entries[] = [
                 'distributor_id' => $dist->id,
-                'name' => $dist->name,
+                'name' => $dist->full_name ?? $dist->name,
                 'gross_commission' => $gross,
                 'tds' => $tds,
                 'net_payable' => $gross - $tds,
