@@ -361,16 +361,19 @@ class WishlistController extends Controller
             'images'
         ])
             ->where('product_id', $product->id)
+            ->where('status', 'approved')
             ->orderBy('created_at', 'desc')
             ->limit(5)
             ->get();
 
         // Average rating
         $averageRating = ProductReview::where('product_id', $product->id)
+            ->where('status', 'approved')
             ->avg('rating');
 
         // Total approved reviews
         $totalReviews = ProductReview::where('product_id', $product->id)
+            ->where('status', 'approved')
             ->count();
 
         return [
@@ -611,7 +614,7 @@ class WishlistController extends Controller
             'cart_id'    => $cart->id,
             'product_id' => $productId,
             'quantity'   => $quantity,
-            'unit_price' => $currentPrice, 
+            'unit_price' => $currentPrice,
         ]);
     }
 

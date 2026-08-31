@@ -303,4 +303,82 @@ class ReviewController extends Controller
         $orderLine = OrderLine::find($orderLineId);
         return $orderLine && $orderLine->delivery_status === 'delivered';
     }
+
+    public function updateReviewAction(Request $request, int $id)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'action' => 'required|in:approved,rejected,delete',
+                'rejection_reason' => 'nullable|string|max:500',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $review = ProductReview::find($id);
+            if (!$review) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Review not found',
+                ], 404);
+            }
+
+            // ================= DELETE =================
+            if ($request->action === 'delete') {
+
+                $review->delete();
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Review deleted successfully',
+                ], 200);
+            }
+
+            // ================= APPROVE =================
+            if ($request->action === 'approved') {
+
+                $review->update([
+                    'status' => 'approved',
+                    'moderated_by' => auth()->id(),
+                    'moderated_at' => now(),
+                    'rejection_reason' => null,
+                ]);
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Review approved successfully',
+                    'data' => $review->fresh(),
+                ], 200);
+            }
+
+            // ================= REJECT =================
+            if ($request->action === 'rejected') {
+
+                $review->update([
+                    'status' => 'rejected',
+                    'moderated_by' => auth()->id(),
+                    'moderated_at' => now(),
+                    'rejection_reason' => $request->rejection_reason,
+                ]);
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Review rejected successfully',
+                    'data' => $review->fresh(),
+                ], 200);
+            }
+        } catch (\Throwable $e) {
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Something went wrong',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
 }

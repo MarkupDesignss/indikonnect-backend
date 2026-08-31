@@ -380,9 +380,11 @@ class ProductController extends Controller
 
             // Get product reviews
             $averageRating = ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
                 ->avg('rating');
 
             $totalReviews = ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
                 ->count();
 
             $primaryImage = $product->images->where('is_primary', true)->first()
@@ -1927,9 +1929,11 @@ class ProductController extends Controller
         $data = $products->map(function ($product) {
             // Get reviews for trending products
             $averageRating = ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
                 ->avg('rating');
 
             $totalReviews = ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
                 ->count();
 
             $primaryImage = $product->images->where('is_primary', true)->first()
@@ -2102,9 +2106,11 @@ class ProductController extends Controller
 
                 // Get product reviews
                 $averageRating = ProductReview::where('product_id', $product->id)
+                    ->where('status', 'approved')
                     ->avg('rating');
 
                 $totalReviews = ProductReview::where('product_id', $product->id)
+                    ->where('status', 'approved')
                     ->count();
 
                 // Get order count for best sellers
