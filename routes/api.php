@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\PayoutController;
 use App\Http\Controllers\Admin\ReconciliationController;
 use App\Http\Controllers\Admin\KycController;
 use App\Http\Controllers\Admin\AttributeController;
+use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\API\AddressController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
@@ -594,5 +595,10 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     });
 });
 
+Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
+    // Audit Log
+    Route::get('/audit-log', [AuditLogController::class, 'index']);
+    Route::get('/audit-log/export', [AuditLogController::class, 'export']);
+});
 
 Route::post('/stock/update', [ProductController::class, 'updateStock']);
