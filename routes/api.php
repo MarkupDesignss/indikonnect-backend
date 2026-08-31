@@ -402,6 +402,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Admin routes
     Route::middleware('admin')->prefix('admin')->group(function () {
+
+        // ========== COOLING-OFF ADMIN ROUTES ==========
+        Route::post('/cooling-off/{returnId}/approve', [ReturnController::class, 'approveCoolingOff']);
+        Route::post('/cooling-off/{returnId}/reject', [ReturnController::class, 'rejectCoolingOff']);
+
         Route::get('/returns', [ReturnController::class, 'adminIndex']);
         Route::get('/returns/{id}', [ReturnController::class, 'adminShow']);
         Route::post('/returns/{id}/approve', [ReturnController::class, 'adminApprove']);
