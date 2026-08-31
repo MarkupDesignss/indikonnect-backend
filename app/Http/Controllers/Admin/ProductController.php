@@ -372,6 +372,90 @@ class ProductController extends Controller
     /**
      * Format product collection
      */
+    // protected function formatProductCollection($products, $wishlistIds = [])
+    // {
+    //     return $products->map(function ($product) use ($wishlistIds) {
+    //         $isWishlisted = in_array($product->id, $wishlistIds);
+    //         $isActiveDeal = $product->isActiveDealOfTheDay();
+
+    //         // Get product reviews
+    //         $averageRating = ProductReview::where('product_id', $product->id)
+    //             ->where('status', 'approved')
+    //             ->avg('rating');
+
+    //         $totalReviews = ProductReview::where('product_id', $product->id)
+    //             ->where('status', 'approved')
+    //             ->count();
+
+    //         $primaryImage = $product->images->where('is_primary', true)->first()
+    //             ?? $product->images->first();
+
+    //         return [
+    //             'id' => $product->id,
+    //             'product_code' => $product->product_code,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'description' => $product->description,
+    //             'specification' => $product->specification,
+    //             'category_id' => $product->category_id,
+    //             'category' => $product->category ? [
+    //                 'id' => $product->category->id,
+    //                 'name' => $product->category->title,
+    //                 'slug' => $product->category->slug,
+    //             ] : null,
+    //             'tax_category_id' => $product->tax_category_id,
+    //             'tax_category' => $product->taxCategory ? [
+    //                 'id' => $product->taxCategory->id,
+    //                 'name' => $product->taxCategory->name,
+    //                 'rate' => $product->taxCategory->rate,
+    //             ] : null,
+
+    //             'retail_mrp' => $product->retail_mrp,
+    //             'retail_price' => $product->retail_price,
+    //             'retail_discount_percentage' => $product->retail_mrp > 0
+    //                 ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
+    //                 : 0,
+
+    //             'distributor_mrp' => $product->distributor_mrp,
+    //             'distributor_price' => $product->distributor_price,
+
+    //             'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+    //             'is_active_deal' => $isActiveDeal,
+    //             'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+    //             'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+    //             'sale_type' => $product->sale_type,
+
+    //             'stock_quantity' => (int) $product->stock_quantity,
+    //             'low_stock_threshold' => (int) $product->low_stock_threshold,
+    //             'stock_status' => $this->getProductStatus($product),
+    //             'is_published' => (bool) $product->is_published,
+    //             'is_trending' => (bool) $product->is_trending,
+    //             'trending_sort_order' => (int) $product->trending_sort_order,
+    //             'is_wishlisted' => $isWishlisted,
+
+    //             // Product Reviews Summary
+    //             'reviews_summary' => [
+    //                 'average_rating' => round($averageRating, 1),
+    //                 'total_reviews' => $totalReviews,
+    //             ],
+
+    //             // Images
+    //             'images' => $product->images->map(function ($image) {
+    //                 return [
+    //                     'id' => $image->id,
+    //                     'image_url' => asset('storage/' . $image->image),
+    //                     'is_primary' => (bool) $image->is_primary,
+    //                     'sort_order' => $image->sort_order,
+    //                 ];
+    //             })->values()->toArray(),
+    //             'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+
+    //             // Variants summary (min/max prices)
+    //             'variants_summary' => $this->getVariantsSummary($product->variants),
+    //         ];
+    //     })->values()->toArray();
+    // }
+
     protected function formatProductCollection($products, $wishlistIds = [])
     {
         return $products->map(function ($product) use ($wishlistIds) {
@@ -450,8 +534,47 @@ class ProductController extends Controller
                 })->values()->toArray(),
                 'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
 
-                // Variants summary (min/max prices)
-                'variants_summary' => $this->getVariantsSummary($product->variants),
+                // Full variants with their images
+                'variants' => $product->variants->map(function ($variant) {
+                    // Get primary variant image
+                    $primaryVariantImage = $variant->images->where('is_primary', true)->first()
+                        ?? $variant->images->first();
+
+                    // Parse attributes if it's stored as JSON string
+                    $attributes = $variant->attributes;
+                    if (is_string($attributes)) {
+                        $attributes = json_decode($attributes, true);
+                    }
+
+                    return [
+                        'id' => $variant->id,
+                        'product_id' => $variant->product_id,
+                        'sku' => $variant->sku,
+                        'attributes' => $attributes,
+                        'retail_price' => $variant->retail_price,
+                        'retail_mrp' => $variant->retail_mrp,
+                        'retail_discount_type' => $variant->retail_discount_type,
+                        'retail_discount_value' => $variant->retail_discount_value,
+                        'distributor_price' => $variant->distributor_price,
+                        'distributor_mrp' => $variant->distributor_mrp,
+                        'distributor_discount_type' => $variant->distributor_discount_type,
+                        'distributor_discount_value' => $variant->distributor_discount_value,
+                        'stock_quantity' => (int) $variant->stock_quantity,
+                        'low_stock_threshold' => (int) $variant->low_stock_threshold,
+                        'sort_order' => (int) $variant->sort_order,
+                        'is_active' => (bool) $variant->is_active,
+                        'images' => $variant->images->map(function ($image) {
+                            return [
+                                'id' => $image->id,
+                                'variant_id' => $image->variant_id,
+                                'image_url' => asset('storage/' . $image->image),
+                                'sort_order' => $image->sort_order,
+                                'is_primary' => (bool) $image->is_primary,
+                            ];
+                        })->values()->toArray(),
+                        'primary_image_url' => $primaryVariantImage ? asset('storage/' . $primaryVariantImage->image) : null,
+                    ];
+                })->values()->toArray(),
             ];
         })->values()->toArray();
     }
