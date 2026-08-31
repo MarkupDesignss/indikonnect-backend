@@ -591,3 +591,6 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/{orderReference}/shipping-details', [OrderController::class, 'getShippingDetails']);
     });
 });
+
+
+Route::post('/stock/update', [ProductController::class, 'updateStock']);

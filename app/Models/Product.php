@@ -50,6 +50,15 @@ class Product extends Model
         return $this->hasMany(ProductVariant::class);
     }
 
+    public function updateStockFromVariants()
+    {
+        $totalStock = $this->variants()->sum('stock_quantity');
+        $this->stock_quantity = $totalStock;
+        $this->save();
+
+        return $totalStock;
+    }
+
     public function images()
     {
         return $this->hasMany(ProductImage::class, 'product_id')
