@@ -713,9 +713,51 @@ class AuthController extends Controller
         }
     }
 
-    public function toggleUserStatus($id)
+    // public function toggleUserStatus($id)
+    // {
+    //     try {
+    //         $user = User::find($id);
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'User not found.',
+    //                 'errors' => [
+    //                     'user_id' => ['User not found.']
+    //                 ]
+    //             ], 404);
+    //         }
+    //         // Toggle status
+    //         $user->is_active = !$user->is_active;
+    //         $user->save();
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => $user->is_active
+    //                 ? 'User activated successfully.'
+    //                 : 'User deactivated successfully.',
+    //             'data' => [
+    //                 'user_id' => $user->id,
+    //                 'is_active' => (bool) $user->is_active,
+    //                 'status' => $user->is_active ? 'active' : 'inactive'
+    //             ]
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to update user status.',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
+    public function toggleUserStatus(Request $request, $id)
     {
         try {
+            $request->validate([
+                'is_active' => 'required|boolean',
+            ]);
+
             $user = User::find($id);
 
             if (!$user) {
@@ -727,8 +769,9 @@ class AuthController extends Controller
                     ]
                 ], 404);
             }
-            // Toggle status
-            $user->is_active = !$user->is_active;
+
+            // Update status from request
+            $user->is_active = $request->is_active;
             $user->save();
 
             return response()->json([
@@ -743,6 +786,7 @@ class AuthController extends Controller
                 ]
             ], 200);
         } catch (\Exception $e) {
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update user status.',
@@ -751,61 +795,145 @@ class AuthController extends Controller
         }
     }
 
-    public function updateStatus(Request $request, int $id)
+
+    // public function updateStatus(Request $request, int $id)
+    // {
+    //     $request->validate([
+    //         'distributor_status' => [
+    //             'required',
+    //             Rule::in(['active', 'suspended']),
+    //         ],
+    //     ]);
+
+    //     $distributor = User::where('id', $id)
+    //         ->where('account_type', 'distributor')
+    //         ->first();
+
+    //     if (!$distributor) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Distributor not found.',
+    //         ], 404);
+    //     }
+
+    //     $newStatus = $request->distributor_status;
+
+    //     // No change
+    //     if ($distributor->distributor_status === $newStatus) {
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Distributor status is already ' . $newStatus . '.',
+    //             'data' => [
+    //                 'id' => $distributor->id,
+    //                 'distributor_status' => $distributor->distributor_status,
+    //             ],
+    //         ], 200);
+    //     }
+
+    //     // Update status
+    //     $distributor->distributor_status = $newStatus;
+    //     $distributor->save();
+
+    //     // Send email to distributor
+    //     if (!empty($distributor->email)) {
+    //         Mail::to($distributor->email)
+    //             ->send(new DistributorStatusMail(
+    //                 $distributor,
+    //                 $newStatus
+    //             ));
+    //     }
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'Distributor status updated successfully.',
+    //         'data' => [
+    //             'id' => $distributor->id,
+    //             'account_type' => $distributor->account_type,
+    //             'distributor_status' => $distributor->distributor_status,
+    //         ],
+    //     ], 200);
+    // }
+    public function updateKycStatus(Request $request, int $id)
     {
         $request->validate([
-            'distributor_status' => [
+            'kyc_status' => [
                 'required',
-                Rule::in(['active', 'suspended']),
+                Rule::in(['verified', 'rejected']),
             ],
         ]);
 
-        $distributor = User::where('id', $id)
-            ->where('account_type', 'distributor')
-            ->first();
+        try {
+            // Find distributor
+            $distributor = User::where('id', $id)
+                ->where('account_type', 'distributor')
+                ->first();
 
-        if (!$distributor) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Distributor not found.',
-            ], 404);
-        }
+            if (!$distributor) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Distributor not found.',
+                ], 404);
+            }
 
-        $newStatus = $request->distributor_status;
+            // Find business profile
+            $businessProfile = BusinessProfile::where('user_id', $distributor->id)
+                ->first();
 
-        // No change
-        if ($distributor->distributor_status === $newStatus) {
+            if (!$businessProfile) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Business profile not found.',
+                ], 404);
+            }
+
+            $newKycStatus = $request->kyc_status;
+
+            // Automatically determine distributor status
+            $newDistributorStatus = match ($newKycStatus) {
+                'verified' => 'active',
+                'rejected' => 'suspended',
+            };
+
+            // Check if both statuses are already same
+            if (
+                $businessProfile->kyc_status === $newKycStatus &&
+                $distributor->distributor_status === $newDistributorStatus
+            ) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'KYC and distributor status are already updated.',
+                    'data' => [
+                        'user_id' => $distributor->id,
+                        'kyc_status' => $businessProfile->kyc_status,
+                        'distributor_status' => $distributor->distributor_status,
+                    ],
+                ], 200);
+            }
+
+            // Update KYC status
+            $businessProfile->kyc_status = $newKycStatus;
+            $businessProfile->save();
+
+            // Automatically update distributor status
+            $distributor->distributor_status = $newDistributorStatus;
+            $distributor->save();
+
             return response()->json([
                 'success' => true,
-                'message' => 'Distributor status is already ' . $newStatus . '.',
+                'message' => 'KYC and distributor status updated successfully.',
                 'data' => [
-                    'id' => $distributor->id,
+                    'user_id' => $distributor->id,
+                    'kyc_status' => $businessProfile->kyc_status,
                     'distributor_status' => $distributor->distributor_status,
                 ],
             ], 200);
+        } catch (\Throwable $e) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Something went wrong.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        // Update status
-        $distributor->distributor_status = $newStatus;
-        $distributor->save();
-
-        // Send email to distributor
-        if (!empty($distributor->email)) {
-            Mail::to($distributor->email)
-                ->send(new DistributorStatusMail(
-                    $distributor,
-                    $newStatus
-                ));
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Distributor status updated successfully.',
-            'data' => [
-                'id' => $distributor->id,
-                'account_type' => $distributor->account_type,
-                'distributor_status' => $distributor->distributor_status,
-            ],
-        ], 200);
     }
 }
