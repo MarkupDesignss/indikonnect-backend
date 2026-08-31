@@ -149,54 +149,67 @@ class AdminController extends Controller
     {
         $now = now();
 
-        // This Week (Monday to Sunday)
+        // This Week (Monday to Sunday) - Daily Breakdown
         $startOfWeek = $now->copy()->startOfWeek();
         $endOfWeek = $now->copy()->endOfWeek();
 
-        // Last Week
+        // Last Week - Daily Breakdown
         $startOfLastWeek = $now->copy()->subWeek()->startOfWeek();
         $endOfLastWeek = $now->copy()->subWeek()->endOfWeek();
 
-        // This Month
+        // This Month - Weekly Breakdown
         $startOfMonth = $now->copy()->startOfMonth();
         $endOfMonth = $now->copy()->endOfMonth();
 
+        // Previous Month for comparison
+        $startOfLastMonth = $now->copy()->subMonth()->startOfMonth();
+        $endOfLastMonth = $now->copy()->subMonth()->endOfMonth();
+
         return [
             'this_week' => [
-                'revenue' => Order::where('status', '!=', 'pending')
-                    ->where('status', '!=', 'cancelled')
-                    ->whereBetween('created_at', [$startOfWeek, $endOfWeek])
-                    ->sum('total_payable'),
-                'orders' => Order::where('status', '!=', 'pending')
-                    ->where('status', '!=', 'cancelled')
-                    ->whereBetween('created_at', [$startOfWeek, $endOfWeek])
-                    ->count(),
-                'start_date' => $startOfWeek->toDateString(),
-                'end_date' => $endOfWeek->toDateString(),
+                'summary' => [
+                    'revenue' => Order::where('status', '!=', 'pending')
+                        ->where('status', '!=', 'cancelled')
+                        ->whereBetween('created_at', [$startOfWeek, $endOfWeek])
+                        ->sum('total_payable'),
+                    'orders' => Order::where('status', '!=', 'pending')
+                        ->where('status', '!=', 'cancelled')
+                        ->whereBetween('created_at', [$startOfWeek, $endOfWeek])
+                        ->count(),
+                    'start_date' => $startOfWeek->toDateString(),
+                    'end_date' => $endOfWeek->toDateString(),
+                ],
+                'daily_breakdown' => $this->getDailyBreakdown($startOfWeek, $endOfWeek),
             ],
             'last_week' => [
-                'revenue' => Order::where('status', '!=', 'pending')
-                    ->where('status', '!=', 'cancelled')
-                    ->whereBetween('created_at', [$startOfLastWeek, $endOfLastWeek])
-                    ->sum('total_payable'),
-                'orders' => Order::where('status', '!=', 'pending')
-                    ->where('status', '!=', 'cancelled')
-                    ->whereBetween('created_at', [$startOfLastWeek, $endOfLastWeek])
-                    ->count(),
-                'start_date' => $startOfLastWeek->toDateString(),
-                'end_date' => $endOfLastWeek->toDateString(),
+                'summary' => [
+                    'revenue' => Order::where('status', '!=', 'pending')
+                        ->where('status', '!=', 'cancelled')
+                        ->whereBetween('created_at', [$startOfLastWeek, $endOfLastWeek])
+                        ->sum('total_payable'),
+                    'orders' => Order::where('status', '!=', 'pending')
+                        ->where('status', '!=', 'cancelled')
+                        ->whereBetween('created_at', [$startOfLastWeek, $endOfLastWeek])
+                        ->count(),
+                    'start_date' => $startOfLastWeek->toDateString(),
+                    'end_date' => $endOfLastWeek->toDateString(),
+                ],
+                'daily_breakdown' => $this->getDailyBreakdown($startOfLastWeek, $endOfLastWeek),
             ],
             'this_month' => [
-                'revenue' => Order::where('status', '!=', 'pending')
-                    ->where('status', '!=', 'cancelled')
-                    ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
-                    ->sum('total_payable'),
-                'orders' => Order::where('status', '!=', 'pending')
-                    ->where('status', '!=', 'cancelled')
-                    ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
-                    ->count(),
-                'start_date' => $startOfMonth->toDateString(),
-                'end_date' => $endOfMonth->toDateString(),
+                'summary' => [
+                    'revenue' => Order::where('status', '!=', 'pending')
+                        ->where('status', '!=', 'cancelled')
+                        ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
+                        ->sum('total_payable'),
+                    'orders' => Order::where('status', '!=', 'pending')
+                        ->where('status', '!=', 'cancelled')
+                        ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
+                        ->count(),
+                    'start_date' => $startOfMonth->toDateString(),
+                    'end_date' => $endOfMonth->toDateString(),
+                ],
+                'weekly_breakdown' => $this->getWeeklyBreakdown($startOfMonth, $endOfMonth),
             ],
             'percentage_change' => [
                 'week_over_week' => $this->calculatePercentageChange(
@@ -212,7 +225,7 @@ class AdminController extends Controller
                 'month_over_month' => $this->calculatePercentageChange(
                     Order::where('status', '!=', 'pending')
                         ->where('status', '!=', 'cancelled')
-                        ->whereBetween('created_at', [$now->copy()->subMonth()->startOfMonth(), $now->copy()->subMonth()->endOfMonth()])
+                        ->whereBetween('created_at', [$startOfLastMonth, $endOfLastMonth])
                         ->sum('total_payable'),
                     Order::where('status', '!=', 'pending')
                         ->where('status', '!=', 'cancelled')
@@ -223,6 +236,94 @@ class AdminController extends Controller
         ];
     }
 
+    private function getDailyBreakdown($startDate, $endDate)
+    {
+        $dailyData = [];
+        $currentDate = $startDate->copy();
+
+        while ($currentDate <= $endDate) {
+            $dayStart = $currentDate->copy()->startOfDay();
+            $dayEnd = $currentDate->copy()->endOfDay();
+
+            $revenue = Order::where('status', '!=', 'pending')
+                ->where('status', '!=', 'cancelled')
+                ->whereBetween('created_at', [$dayStart, $dayEnd])
+                ->sum('total_payable');
+
+            $orders = Order::where('status', '!=', 'pending')
+                ->where('status', '!=', 'cancelled')
+                ->whereBetween('created_at', [$dayStart, $dayEnd])
+                ->count();
+
+            $dailyData[] = [
+                'date' => $currentDate->toDateString(),
+                'day' => $currentDate->format('l'), // Monday, Tuesday, etc.
+                'revenue' => $revenue,
+                'orders' => $orders,
+            ];
+
+            $currentDate->addDay();
+        }
+
+        return $dailyData;
+    }
+
+    private function getWeeklyBreakdown($startDate, $endDate)
+    {
+        $weeklyData = [];
+        $currentDate = $startDate->copy();
+        $weekNumber = 1;
+
+        while ($currentDate <= $endDate) {
+            $weekStart = $currentDate->copy()->startOfWeek();
+            $weekEnd = $currentDate->copy()->endOfWeek();
+
+            // If week end is beyond month end, adjust
+            if ($weekEnd > $endDate) {
+                $weekEnd = $endDate->copy();
+            }
+
+            // If week start is before month start, adjust
+            if ($weekStart < $startDate) {
+                $weekStart = $startDate->copy();
+            }
+
+            $revenue = Order::where('status', '!=', 'pending')
+                ->where('status', '!=', 'cancelled')
+                ->whereBetween('created_at', [$weekStart->copy()->startOfDay(), $weekEnd->copy()->endOfDay()])
+                ->sum('total_payable');
+
+            $orders = Order::where('status', '!=', 'pending')
+                ->where('status', '!=', 'cancelled')
+                ->whereBetween('created_at', [$weekStart->copy()->startOfDay(), $weekEnd->copy()->endOfDay()])
+                ->count();
+
+            $weeklyData[] = [
+                'week_number' => $weekNumber,
+                'start_date' => $weekStart->toDateString(),
+                'end_date' => $weekEnd->toDateString(),
+                'revenue' => $revenue,
+                'orders' => $orders,
+            ];
+
+            // Move to next week
+            $currentDate->addWeek();
+            $weekNumber++;
+        }
+
+        return $weeklyData;
+    }
+
+    private function calculatePercentageChange($previous, $current)
+    {
+        if ($previous == 0) {
+            return $current > 0 ? 100 : 0;
+        }
+
+        $change = (($current - $previous) / $previous) * 100;
+        return round($change, 2);
+    }
+
     private function getTopCategories()
     {
         return DB::table('categories')
@@ -231,7 +332,8 @@ class AdminController extends Controller
                 'categories.id',
                 'categories.title as name',
                 'categories.slug',
-                DB::raw('COUNT(products.id) as product_count')
+                DB::raw('COUNT(products.id) as product_count'),
+                DB::raw('MAX(products.retail_price) as max_price')
             )
             ->whereNull('products.deleted_at')
             ->groupBy('categories.id', 'categories.title', 'categories.slug')
@@ -244,6 +346,7 @@ class AdminController extends Controller
                     'name' => $category->name,
                     'slug' => $category->slug,
                     'product_count' => (int) $category->product_count,
+                    'max_price' => $category->max_price ? (float) $category->max_price : 0,
                 ];
             });
     }
@@ -252,7 +355,7 @@ class AdminController extends Controller
     {
         return BusinessProfile::where('kyc_status', 'pending')
             ->with(['user' => function ($query) {
-                $query->select('id', 'name', 'email', 'phone', 'account_type');
+                $query->select('id', 'full_name', 'email', 'phone', 'account_type');
             }])
             ->orderBy('created_at', 'DESC')
             ->limit(10)
@@ -261,7 +364,7 @@ class AdminController extends Controller
                 return [
                     'id' => $profile->id,
                     'user_id' => $profile->user_id,
-                    'user_name' => $profile->user?->name,
+                    'user_name' => $profile->user?->full_name,
                     'user_email' => $profile->user?->email,
                     'user_phone' => $profile->user?->phone,
                     'account_type' => $profile->user?->account_type,
@@ -349,15 +452,5 @@ class AdminController extends Controller
                 'created_at' => $contact->created_at?->toISOString(),
             ];
         });
-    }
-
-    private function calculatePercentageChange($previous, $current)
-    {
-        if ($previous == 0) {
-            return $current > 0 ? 100 : 0;
-        }
-
-        $change = (($current - $previous) / $previous) * 100;
-        return round($change, 2);
     }
 }

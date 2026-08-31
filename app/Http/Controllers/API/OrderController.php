@@ -1040,17 +1040,18 @@ class OrderController extends Controller
     public function allOrder()
     {
         try {
-            $orders = Order::with([
+           $orders = Order::with([
                 'user',
                 'billingAddress',
                 'deliveryAddress',
                 'shippingMethod',
                 'invoice',
                 'returns',
-                'lines',  // relation name 'lines'
+                'lines',
                 'lines.product',
                 'lines.product.images'
             ])
+                ->where('status', '!=', 'pending')
                 ->latest('id')
                 ->get();
 
@@ -1267,9 +1268,9 @@ class OrderController extends Controller
                             'country' => $order->deliveryAddress->country ?? 'India',
                             'full_address' => $this->formatAddress($order->deliveryAddress),
                         ] : null,
-                    ],
                     'items' => $formattedItems,
                     'returns' => $returns,
+                    ],
                 ];
             }
 
