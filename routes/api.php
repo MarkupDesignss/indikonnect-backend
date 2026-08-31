@@ -49,7 +49,7 @@ use App\Http\Controllers\Admin\PermissionController;
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
 })->name('login');
-
+Route::get('/admin/dashboard', [AdminController::class, 'dashboard']);
 // Auth
 Route::prefix('admin')->group(function () {
     // Public Routes
