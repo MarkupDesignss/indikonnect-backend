@@ -2,9 +2,9 @@
 
 namespace App\Services;
 
-use App\Models\User;                           // ← Users table
-use App\Models\DistributorProfile;             // ← distributor_profiles table
-use App\Models\CommissionLedger;               // ← commission_ledger table
+use App\Models\User;
+use App\Models\DistributorProfile;
+use App\Models\CommissionLedger;
 use App\Services\Commission\CommissionServiceInterface;
 
 class DistributorService
@@ -216,7 +216,7 @@ class DistributorService
             'current_period' => $now->format('Y-m'),
             'start_date' => $startDate->format('Y-m-d'),
             'end_date' => $endDate->format('Y-m-d'),
-            'days_remaining' => $now->diffInDays($endDate),
+            'days_remaining' => (int) $now->diffInDays($endDate),
             'period_progress' => round(($now->day / $endDate->day) * 100) . '%',
         ];
     }
