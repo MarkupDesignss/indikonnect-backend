@@ -859,7 +859,7 @@ class ReturnService
             } elseif ($rejectedReturns > 0) {
                 $returnStatus = 'partial_rejected';
             } else {
-                $returnStatus = 'partial_return';
+                $returnStatus = 'partial_returned';
             }
         }
         // If no items are returned but some are pending/approved/rejected
