@@ -93,7 +93,7 @@ class AdminController extends Controller
         // Total Revenue (from completed orders)
         $totalRevenue = Order::where('status', '!=', 'pending')
             ->where('status', '!=', 'cancelled')
-            ->sum('total_amount');
+            ->sum('total_payable');
 
         // Total Orders (excluding pending)
         $totalOrders = Order::where('status', '!=', 'pending')
@@ -166,7 +166,7 @@ class AdminController extends Controller
                 'revenue' => Order::where('status', '!=', 'pending')
                     ->where('status', '!=', 'cancelled')
                     ->whereBetween('created_at', [$startOfWeek, $endOfWeek])
-                    ->sum('total_amount'),
+                    ->sum('total_payable'),
                 'orders' => Order::where('status', '!=', 'pending')
                     ->where('status', '!=', 'cancelled')
                     ->whereBetween('created_at', [$startOfWeek, $endOfWeek])
@@ -178,7 +178,7 @@ class AdminController extends Controller
                 'revenue' => Order::where('status', '!=', 'pending')
                     ->where('status', '!=', 'cancelled')
                     ->whereBetween('created_at', [$startOfLastWeek, $endOfLastWeek])
-                    ->sum('total_amount'),
+                    ->sum('total_payable'),
                 'orders' => Order::where('status', '!=', 'pending')
                     ->where('status', '!=', 'cancelled')
                     ->whereBetween('created_at', [$startOfLastWeek, $endOfLastWeek])
@@ -190,7 +190,7 @@ class AdminController extends Controller
                 'revenue' => Order::where('status', '!=', 'pending')
                     ->where('status', '!=', 'cancelled')
                     ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
-                    ->sum('total_amount'),
+                    ->sum('total_payable'),
                 'orders' => Order::where('status', '!=', 'pending')
                     ->where('status', '!=', 'cancelled')
                     ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
@@ -203,21 +203,21 @@ class AdminController extends Controller
                     Order::where('status', '!=', 'pending')
                         ->where('status', '!=', 'cancelled')
                         ->whereBetween('created_at', [$startOfLastWeek, $endOfLastWeek])
-                        ->sum('total_amount'),
+                        ->sum('total_payable'),
                     Order::where('status', '!=', 'pending')
                         ->where('status', '!=', 'cancelled')
                         ->whereBetween('created_at', [$startOfWeek, $endOfWeek])
-                        ->sum('total_amount')
+                        ->sum('total_payable')
                 ),
                 'month_over_month' => $this->calculatePercentageChange(
                     Order::where('status', '!=', 'pending')
                         ->where('status', '!=', 'cancelled')
                         ->whereBetween('created_at', [$now->copy()->subMonth()->startOfMonth(), $now->copy()->subMonth()->endOfMonth()])
-                        ->sum('total_amount'),
+                        ->sum('total_payable'),
                     Order::where('status', '!=', 'pending')
                         ->where('status', '!=', 'cancelled')
                         ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
-                        ->sum('total_amount')
+                        ->sum('total_payable')
                 ),
             ]
         ];
