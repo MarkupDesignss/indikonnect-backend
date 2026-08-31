@@ -2021,4 +2021,233 @@ class ReturnService
             'status' => $status,
         ]);
     }
+
+    /**
+     * Admin: Approve Cooling-Off Withdrawal
+     * 
+     * @param int $returnId
+     * @param int $adminId
+     * @param string|null $adminNotes
+     * @return array
+     * @throws Exception
+     */
+    public function approveCoolingOff(int $returnId, int $adminId, ?string $adminNotes = null): array
+    {
+        $returnOrder = OrderReturn::with(['order', 'user'])
+            ->where('type', 'cooling_off')
+            ->findOrFail($returnId);
+
+        if (!$returnOrder->canApprove()) {
+            throw new Exception('This cooling-off request cannot be approved (already processed).');
+        }
+
+        return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
+            // 1. Update return status
+            $returnOrder->update([
+                'status' => 'approved',
+                'admin_id' => $adminId,
+                'admin_notes' => $adminNotes,
+                'approved_at' => now(),
+            ]);
+
+            // 2. Update order lines
+            foreach ($returnOrder->items as $item) {
+                $orderLine = OrderLine::find($item['order_line_id']);
+                if ($orderLine && $orderLine->return_status === 'pending') {
+                    $orderLine->update([
+                        'return_status' => 'approved',
+                        'delivery_status' => 'return_approved',
+                        'return_approved_at' => now(),
+                    ]);
+                }
+            }
+
+            // 3. Update order-level return status
+            $this->updateOrderReturnStatus($returnOrder->order);
+            $this->updateOrderMainStatus($returnOrder->order);
+
+            // 4. Update distributor status (if distributor)
+            if ($returnOrder->user->account_type === 'distributor') {
+                $returnOrder->user->update([
+                    'distributor_status' => 'withdrawn',
+                    'is_active' => false,
+                ]);
+
+                Log::info('Distributor withdrawn via cooling-off', [
+                    'user_id' => $returnOrder->user->id,
+                    'return_id' => $returnOrder->id,
+                ]);
+            }
+
+            // ========== REVERSAL TRIGGER ==========
+            try {
+                $order = $returnOrder->order;
+
+                // Build payload
+                $payload = [
+                    'eventId' => 'evt_' . \Illuminate\Support\Str::random(24),
+                    'action' => 'REVERSAL',
+                    'orderReference' => $order->order_reference,
+                    'reason' => 'Cooling-off withdrawal',
+                    'lines' => $this->buildReversalLines($returnOrder),
+                    'reversedValue' => (float) $returnOrder->total_refund_amount,
+                    'originalCv' => (float) ($order->commissionable_volume ?? 0),
+                    'purchaserIdentifier' => (string) $returnOrder->user_id,
+                    'accountType' => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
+                    'eventTimestamp' => now()->toIso8601String(),
+                ];
+
+                // Save event in database
+                $event = CommissionApiEvent::create([
+                    'event_type' => 'reversal',
+                    'order_id' => $order->id,
+                    'payload' => json_encode($payload),
+                    'status' => 'pending',
+                    'retry_count' => 0,
+                    'max_retries' => 5,
+                ]);
+
+                Log::info('Cooling-off reversal event saved in database', [
+                    'event_id' => $event->id,
+                    'return_id' => $returnOrder->id,
+                ]);
+
+                // Send to Commission API
+                try {
+                    $reversalPayload = new \App\Services\Commission\ReversalPayload(
+                        eventId: $payload['eventId'],
+                        action: $payload['action'],
+                        orderReference: $payload['orderReference'],
+                        reason: $payload['reason'],
+                        lines: $payload['lines'],
+                        reversedValue: $payload['reversedValue'],
+                        originalCv: $payload['originalCv'],
+                        purchaserIdentifier: $payload['purchaserIdentifier'],
+                        accountType: $payload['accountType'],
+                        eventTimestamp: $payload['eventTimestamp'],
+                    );
+
+                    $this->commissionService->postReversalEvent($reversalPayload);
+                    $event->update(['status' => 'sent']);
+
+                    Log::info('Cooling-off reversal sent to Commission API', [
+                        'return_id' => $returnOrder->id,
+                        'event_id' => $event->id,
+                    ]);
+
+                } catch (\Exception $e) {
+                    $event->update([
+                        'status' => 'failed',
+                        'error_message' => $e->getMessage(),
+                        'last_attempt' => now(),
+                    ]);
+
+                    Log::error('Cooling-off reversal API call failed', [
+                        'return_id' => $returnOrder->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+
+            } catch (\Exception $e) {
+                Log::error('Cooling-off reversal event creation failed', [
+                    'return_id' => $returnOrder->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+            // ========== END REVERSAL TRIGGER ==========
+
+            // 5. Create notifications
+            $this->createReturnNotification($returnOrder, 'approved');
+            $this->sendUserNotification($returnOrder, 'approved');
+
+            // 6. Logging
+            Log::info('Cooling-off withdrawal approved', [
+                'return_id' => $returnOrder->id,
+                'admin_id' => $adminId,
+                'refund_amount' => $returnOrder->total_refund_amount,
+                'user_id' => $returnOrder->user_id,
+            ]);
+
+            return [
+                'success' => true,
+                'message' => 'Cooling-off withdrawal approved successfully. Refund will be processed within 5-7 business days.',
+                'return_id' => $returnOrder->id,
+                'status' => 'approved',
+                'refund_amount' => (float) $returnOrder->total_refund_amount,
+                'admin_notes' => $adminNotes,
+            ];
+        });
+    }
+
+    /**
+     * Admin: Reject Cooling-Off Withdrawal
+     * 
+     * @param int $returnId
+     * @param int $adminId
+     * @param string $rejectionReason
+     * @return array
+     * @throws Exception
+     */
+    public function rejectCoolingOff(int $returnId, int $adminId, string $rejectionReason): array
+    {
+        $returnOrder = OrderReturn::with(['order', 'user'])
+            ->where('type', 'cooling_off')
+            ->findOrFail($returnId);
+
+        if (!$returnOrder->canReject()) {
+            throw new Exception('This cooling-off request cannot be rejected (already processed).');
+        }
+
+        return DB::transaction(function () use ($returnOrder, $adminId, $rejectionReason) {
+            // 1. Update return status
+            $returnOrder->update([
+                'status' => 'rejected',
+                'admin_id' => $adminId,
+                'rejection_reason' => $rejectionReason,
+                'rejected_at' => now(),
+            ]);
+
+            // 2. Reset order lines
+            foreach ($returnOrder->items as $item) {
+                $orderLine = OrderLine::find($item['order_line_id']);
+                if ($orderLine && $orderLine->return_status === 'pending') {
+                    $currentReturnedQuantity = (int) ($orderLine->returned_quantity ?? 0);
+                    $returnQuantity = (int) ($item['quantity'] ?? 0);
+                    $newReturnedQuantity = max(0, $currentReturnedQuantity - $returnQuantity);
+
+                    $orderLine->update([
+                        'return_status' => 'rejected',
+                        'delivery_status' => 'return_rejected',
+                        'return_rejected_at' => now(),
+                        'return_rejection_reason' => $rejectionReason,
+                        'return_requested_at' => null,
+                        'returned_quantity' => $newReturnedQuantity,
+                    ]);
+                }
+            }
+
+            // 3. Update order-level return status
+            $this->updateOrderReturnStatus($returnOrder->order);
+            $this->updateOrderMainStatus($returnOrder->order);
+
+            // 4. Create notifications
+            $this->createReturnNotification($returnOrder, 'rejected');
+            $this->sendUserNotification($returnOrder, 'rejected');
+
+            // 5. Logging
+            Log::info('Cooling-off withdrawal rejected', [
+                'return_id' => $returnOrder->id,
+                'admin_id' => $adminId,
+                'reason' => $rejectionReason,
+            ]);
+
+            return [
+                'success' => true,
+                'message' => 'Cooling-off withdrawal rejected.',
+                'return_id' => $returnOrder->id,
+                'status' => 'rejected',
+                'rejection_reason' => $rejectionReason,
+            ];
+        });
+    }
 }

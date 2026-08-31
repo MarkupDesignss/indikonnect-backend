@@ -496,4 +496,66 @@ class ReturnController extends Controller
             ], 400);
         }
     }
+
+    /**
+     * Admin: Approve Cooling-Off Withdrawal
+     * POST /api/admin/cooling-off/{returnId}/approve
+    */
+    public function approveCoolingOff(Request $request, int $returnId): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'admin_notes' => 'nullable|string|max:500',
+            ]);
+
+            $result = $this->returnService->approveCoolingOff(
+                $returnId,
+                auth()->id(),
+                $validated['admin_notes'] ?? null
+            );
+
+            return response()->json($result);
+        } catch (\Exception $e) {
+            Log::error('Cooling-off approval failed', [
+                'return_id' => $returnId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    /**
+     * Admin: Reject Cooling-Off Withdrawal
+     * POST /api/admin/cooling-off/{returnId}/reject
+    */
+    public function rejectCoolingOff(Request $request, int $returnId): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'rejection_reason' => 'required|string|max:500',
+            ]);
+
+            $result = $this->returnService->rejectCoolingOff(
+                $returnId,
+                auth()->id(),
+                $validated['rejection_reason']
+            );
+
+            return response()->json($result);
+        } catch (\Exception $e) {
+            Log::error('Cooling-off rejection failed', [
+                'return_id' => $returnId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        }
+    }
 }
