@@ -1217,6 +1217,115 @@ class ReturnService
         }
         return $lines;
     }
+    
+    /**
+     * Restore stock for a return
+     * Handles both simple products and product variants
+     */
+    protected function restoreStockForReturn(OrderReturn $returnOrder): void
+    {
+        $items = $returnOrder->items ?? [];
+        $order = $returnOrder->order;
+        
+        Log::info('Starting stock restore', [
+            'return_id' => $returnOrder->id,
+            'type' => $returnOrder->type,
+            'order_reference' => $order->order_reference ?? null,
+            'items_count' => count($items),
+        ]);
+
+        foreach ($items as $item) {
+            $orderLine = OrderLine::find($item['order_line_id']);
+            if (!$orderLine) {
+                Log::warning('Order line not found for stock restore', [
+                    'return_id' => $returnOrder->id,
+                    'order_line_id' => $item['order_line_id'],
+                ]);
+                continue;
+            }
+
+            $quantity = (int) ($item['quantity'] ?? 0);
+            $productId = $orderLine->product_id;
+            $variantId = $orderLine->variant_id;
+
+            if ($quantity <= 0) {
+                continue;
+            }
+
+            // Restore stock based on variant or product
+            if ($variantId) {
+                // Product with variant
+                $variant = \App\Models\ProductVariant::find($variantId);
+                if ($variant) {
+                    $variant->stock_quantity += $quantity;
+                    $variant->save();
+                    
+                    Log::info('Variant stock restored', [
+                        'return_id' => $returnOrder->id,
+                        'variant_id' => $variantId,
+                        'sku' => $variant->sku,
+                        'quantity_restored' => $quantity,
+                        'new_stock' => $variant->stock_quantity,
+                    ]);
+                } else {
+                    Log::warning('Variant not found for stock restore', [
+                        'variant_id' => $variantId,
+                    ]);
+                }
+            } else {
+                // Simple product
+                $product = \App\Models\Product::find($productId);
+                if ($product) {
+                    $product->stock_quantity += $quantity;
+                    $product->save();
+                    
+                    Log::info('Product stock restored', [
+                        'return_id' => $returnOrder->id,
+                        'product_id' => $productId,
+                        'product_name' => $product->name,
+                        'quantity_restored' => $quantity,
+                        'new_stock' => $product->stock_quantity,
+                    ]);
+                } else {
+                    Log::warning('Product not found for stock restore', [
+                        'product_id' => $productId,
+                    ]);
+                }
+            }
+
+            // Create stock movement record
+            $availableAfter = $variantId 
+                ? (\App\Models\ProductVariant::find($variantId)?->stock_quantity ?? 0)
+                : (\App\Models\Product::find($productId)?->stock_quantity ?? 0);
+
+            $reason = match($returnOrder->type) {
+                'cooling_off' => 'Cooling-off withdrawal approved: ' . ($order->order_reference ?? ''),
+                'buyback' => 'Buy-back approved: ' . ($order->order_reference ?? ''),
+                default => 'Return approved: ' . ($order->order_reference ?? ''),
+            };
+
+            \App\Models\StockMovement::create([
+                'product_id' => $productId,
+                'variant_id' => $variantId,
+                'quantity' => $quantity,
+                'available_quantity_after' => $availableAfter,
+                'reason' => $reason,
+                'admin_id' => auth()->id() ?? 1,
+                'order_id' => $order->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            // Update order line returned_quantity
+            $orderLine->returned_quantity += $quantity;
+            $orderLine->save();
+        }
+
+        Log::info('Stock restore completed', [
+            'return_id' => $returnOrder->id,
+            'items_restored' => count($items),
+        ]);
+    }
 
     /**
      * Admin: Reject return request
@@ -2009,6 +2118,85 @@ class ReturnService
     }
 
     /**
+     * Send notification to user for cooling-off
+     */
+    protected function sendCoolingOffNotification(OrderReturn $returnOrder, string $status): void
+    {
+        $user = $returnOrder->user;
+        $order = $returnOrder->order;
+        
+        if (!$user) {
+            Log::warning('User not found for cooling-off notification', [
+                'return_id' => $returnOrder->id,
+                'user_id' => $returnOrder->user_id,
+            ]);
+            return;
+        }
+
+        // Build notification data
+        $notificationData = [
+            'type' => 'cooling_off_' . $status,
+            'extra_data' => [
+                'return_id' => $returnOrder->id,
+                'order_id' => $order->id,
+                'order_reference' => $order->order_reference,
+                'refund_amount' => (float) $returnOrder->total_refund_amount,
+                'status' => $status,
+            ],
+        ];
+
+        if ($status === 'approved') {
+            $notificationData['title'] = 'Cooling-Off Withdrawal Approved';
+            $notificationData['message'] = "Your cooling-off withdrawal for Order #{$order->order_reference} has been approved. Stock has been restored and refund of ₹{$returnOrder->total_refund_amount} will be processed within 5-7 business days.";
+            $notificationData['icon'] = 'check-circle';
+            $notificationData['color'] = 'success';
+            
+            Log::info('Cooling-off approval notification sent to user', [
+                'user_id' => $user->id,
+                'return_id' => $returnOrder->id,
+                'notification_type' => 'cooling_off_approved',
+            ]);
+        } elseif ($status === 'rejected') {
+            $notificationData['title'] = 'Cooling-Off Withdrawal Rejected';
+            $notificationData['message'] = "Your cooling-off withdrawal for Order #{$order->order_reference} has been rejected. Reason: " . ($returnOrder->rejection_reason ?? 'Not specified');
+            $notificationData['icon'] = 'x-circle';
+            $notificationData['color'] = 'danger';
+            
+            Log::info('Cooling-off rejection notification sent to user', [
+                'user_id' => $user->id,
+                'return_id' => $returnOrder->id,
+                'notification_type' => 'cooling_off_rejected',
+            ]);
+        } else {
+            // Pending status
+            $notificationData['title'] = 'Cooling-Off Withdrawal Initiated';
+            $notificationData['message'] = "Your cooling-off withdrawal for Order #{$order->order_reference} has been initiated. Awaiting admin approval.";
+            $notificationData['icon'] = 'clock';
+            $notificationData['color'] = 'warning';
+            
+            Log::info('Cooling-off initiated notification sent to user', [
+                'user_id' => $user->id,
+                'return_id' => $returnOrder->id,
+                'notification_type' => 'cooling_off_initiated',
+            ]);
+        }
+
+        // Store in database notifications table
+        \DB::table('notifications')->insert([
+            'id' => (string) \Illuminate\Support\Str::uuid(),
+            'type' => 'App\\Notifications\\DynamicNotification',
+            'notifiable_type' => 'App\\Models\\User',
+            'notifiable_id' => $user->id,
+            'data' => json_encode($notificationData),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Optional: Send email/SMS notification
+        // Add email notification here if needed
+    }
+
+    /**
      * Send notification to user
      */
     protected function sendUserNotification(OrderReturn $returnOrder, string $status): void
@@ -2061,6 +2249,24 @@ class ReturnService
                     ]);
                 }
             }
+
+            // ========== NEW: STOCK RESTORE ==========
+            try {
+                $this->restoreStockForReturn($returnOrder);
+                Log::info('Stock restored successfully for cooling-off', [
+                    'return_id' => $returnOrder->id,
+                    'order_reference' => $returnOrder->order->order_reference ?? null,
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Stock restore failed for cooling-off', [
+                    'return_id' => $returnOrder->id,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                // Don't throw - allow the process to continue
+                // Stock restore failure should not block the refund
+            }
+            // ========== END STOCK RESTORE ==========
 
             // 3. Update order-level return status
             $this->updateOrderReturnStatus($returnOrder->order);
@@ -2156,9 +2362,23 @@ class ReturnService
             }
             // ========== END REVERSAL TRIGGER ==========
 
-            // 5. Create notifications
+            // ========== NEW: USER NOTIFICATIONS ==========
+            try {
+                $this->sendCoolingOffNotification($returnOrder, 'approved');
+                Log::info('Cooling-off approval notification sent to user', [
+                    'return_id' => $returnOrder->id,
+                    'user_id' => $returnOrder->user_id,
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Failed to send cooling-off notification', [
+                    'return_id' => $returnOrder->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+            // ========== END USER NOTIFICATIONS ==========
+
+            // 5. Admin notification (existing)
             $this->createReturnNotification($returnOrder, 'approved');
-            $this->sendUserNotification($returnOrder, 'approved');
 
             // 6. Logging
             Log::info('Cooling-off withdrawal approved', [
@@ -2166,15 +2386,17 @@ class ReturnService
                 'admin_id' => $adminId,
                 'refund_amount' => $returnOrder->total_refund_amount,
                 'user_id' => $returnOrder->user_id,
+                'stock_restored' => true,
             ]);
 
             return [
                 'success' => true,
-                'message' => 'Cooling-off withdrawal approved successfully. Refund will be processed within 5-7 business days.',
+                'message' => 'Cooling-off withdrawal approved successfully. Stock restored and refund will be processed within 5-7 business days.',
                 'return_id' => $returnOrder->id,
                 'status' => 'approved',
                 'refund_amount' => (float) $returnOrder->total_refund_amount,
                 'admin_notes' => $adminNotes,
+                'stock_restored' => true,
             ];
         });
     }
@@ -2230,9 +2452,23 @@ class ReturnService
             $this->updateOrderReturnStatus($returnOrder->order);
             $this->updateOrderMainStatus($returnOrder->order);
 
-            // 4. Create notifications
+            // ========== NEW: USER NOTIFICATION ==========
+            try {
+                $this->sendCoolingOffNotification($returnOrder, 'rejected');
+                Log::info('Cooling-off rejection notification sent to user', [
+                    'return_id' => $returnOrder->id,
+                    'user_id' => $returnOrder->user_id,
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Failed to send cooling-off rejection notification', [
+                    'return_id' => $returnOrder->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+            // ========== END USER NOTIFICATION ==========
+
+            // 4. Admin notification (existing)
             $this->createReturnNotification($returnOrder, 'rejected');
-            $this->sendUserNotification($returnOrder, 'rejected');
 
             // 5. Logging
             Log::info('Cooling-off withdrawal rejected', [
