@@ -10,7 +10,20 @@ class PermissionController extends Controller
 {
     public function index()
     {
-        return response()->json(AdminPermission::all());
+        $permissions = AdminPermission::select(
+            'id',
+            'name',
+            'slug',
+            'module',
+            'action'
+        )
+            ->get()
+            ->groupBy('module');
+
+        return response()->json([
+            'success' => true,
+            'data' => $permissions,
+        ]);
     }
 
     public function store(Request $request)
