@@ -95,6 +95,7 @@ Route::prefix('admin')->group(function () {
         Route::delete('/settings/{key}', [SettingController::class, 'destroy']);
     });
 });
+Route::get('/payment-management', [PayoutController::class, 'paymentManagement']);
 
 // Header menu
 Route::prefix('header')->group(function () {
@@ -211,7 +212,10 @@ Route::prefix('tax-categories')->group(function () {
         // Route::post('/bulk-delete', [TaxCategoryController::class, 'bulkDelete']);
     });
 });
-
+Route::post(
+    '/trending-products/{id}',
+    [ProductController::class, 'updateTrendingStatus']
+);
 // Distributer and user
 Route::prefix('distributor')->group(function () {
     Route::post('check-status', [APIAuthController::class, 'checkUserStatus']);
