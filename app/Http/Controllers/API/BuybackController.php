@@ -38,7 +38,7 @@ class BuybackController extends Controller
 
         // Get all eligible orders: within window, not cancelled/returned
         $orders = Order::where('user_id', $user->id)
-            ->whereIn('status', ['confirmed', 'processing', 'shipped', 'delivered'])
+            ->whereNotIn('status', ['cancelled', 'returned', 'fully_returned'])
             ->where('created_at', '>=', now()->subDays($buybackWindow))
             ->with(['lines.product'])
             ->orderBy('created_at', 'desc')
@@ -66,13 +66,18 @@ class BuybackController extends Controller
                     continue;
                 }
 
-                // Check purchase date (line created_at) within window
-                if ($line->created_at->diffInDays(now()) > $buybackWindow) {
+                // Check purchase date (order created_at) within window
+                if ($order->created_at->diffInDays(now()) > $buybackWindow) {
                     continue;
                 }
 
                 // Skip if already returned, pending, or approved
                 if (in_array($line->return_status, ['pending', 'approved', 'returned'])) {
+                    continue;
+                }
+
+                // Skip if delivery status is returned
+                if ($line->delivery_status === 'returned') {
                     continue;
                 }
 
@@ -94,8 +99,8 @@ class BuybackController extends Controller
                     // Order info
                     'order_reference' => $order->order_reference,
                     'order_date' => $order->created_at->toDateString(),
-                    'purchase_date' => $line->created_at->toDateString(),
-                    'days_since_purchase' => $line->created_at->diffInDays(now()),
+                    'purchase_date' => $order->created_at->toDateString(),
+                    'days_since_purchase' => $order->created_at->diffInDays(now()),
 
                     // Product info
                     'order_line_id' => $line->id,
@@ -160,7 +165,6 @@ class BuybackController extends Controller
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.reason' => 'nullable|string|max:500',
             'return_reason' => 'nullable|string|max:1000',
-            // Mandatory declarations
             'declares_marketable' => 'required|boolean|accepted',
             'declares_unsold' => 'required|boolean|accepted',
             'declares_unused' => 'required|boolean|accepted',
@@ -181,6 +185,7 @@ class BuybackController extends Controller
         $totalRefund = 0;
         $totalDeduction = 0;
         $totalCvReversed = 0;
+        $totalTax = 0;
         $processedLineIds = [];
         $orderId = null;
 
@@ -198,6 +203,11 @@ class BuybackController extends Controller
                     throw new \Exception("Item '{$orderLine->product->name}' does not belong to you.");
                 }
 
+                // Validate order status
+                if (!in_array($orderLine->order->status, ['confirmed', 'processing', 'shipped', 'delivered', 'partial_delivered'])) {
+                    throw new \Exception("Order is not in a valid status for buyback.");
+                }
+
                 if (!$orderId) {
                     $orderId = $orderLine->order_id;
                 } elseif ($orderId !== $orderLine->order_id) {
@@ -208,13 +218,28 @@ class BuybackController extends Controller
                     throw new \Exception("Item '{$orderLine->product->name}' has not been delivered.");
                 }
 
-                // Check buy-back window from purchase date (created_at)
-                if ($orderLine->created_at->diffInDays(now()) > $buybackWindow) {
+                // Check buy-back window from order created_at
+                if ($orderLine->order->created_at->diffInDays(now()) > $buybackWindow) {
                     throw new \Exception("Item '{$orderLine->product->name}' is outside the buy-back window ({$buybackWindow} days from purchase).");
+                }
+
+                // Check if already returned
+                if ($orderLine->delivery_status === 'returned') {
+                    throw new \Exception("Item '{$orderLine->product->name}' has already been returned.");
                 }
 
                 if (in_array($orderLine->return_status, ['pending', 'approved', 'returned'])) {
                     throw new \Exception("Item '{$orderLine->product->name}' already has a return in progress.");
+                }
+
+                // Check if there's already a pending request for this line
+                $existingReturn = OrderReturn::where('type', 'buyback')
+                    ->whereJsonContains('items', [['order_line_id' => $orderLine->id]])
+                    ->whereIn('status', ['pending', 'approved'])
+                    ->exists();
+
+                if ($existingReturn) {
+                    throw new \Exception("Item '{$orderLine->product->name}' already has a pending buyback request.");
                 }
 
                 $purchasedQty = (int) $orderLine->quantity;
@@ -225,9 +250,15 @@ class BuybackController extends Controller
                     throw new \Exception("Only {$availableQty} units of '{$orderLine->product->name}' are available.");
                 }
 
-                // Calculate refund
+                // Calculate refund with GST
                 $perUnitLineTotal = (float) $orderLine->line_total / $purchasedQty;
+                $perUnitSubtotal = (float) $orderLine->unit_price;
+                $perUnitTax = $perUnitLineTotal - $perUnitSubtotal;
+
                 $itemTotal = $perUnitLineTotal * $itemData['quantity'];
+                $itemSubtotal = $perUnitSubtotal * $itemData['quantity'];
+                $itemTax = $perUnitTax * $itemData['quantity'];
+
                 $deductionAmount = round($itemTotal * ($deductionPercent / 100), 2);
                 $refundAmount = round($itemTotal - $deductionAmount, 2);
 
@@ -241,9 +272,9 @@ class BuybackController extends Controller
                     'quantity' => (int) $itemData['quantity'],
                     'unit_price' => (float) $orderLine->unit_price,
                     'gst_rate' => (float) $orderLine->gst_rate,
-                    'subtotal' => $itemTotal,
-                    'tax' => 0,
-                    'line_total' => $itemTotal,
+                    'subtotal' => round($itemSubtotal, 2),
+                    'tax' => round($itemTax, 2),
+                    'line_total' => round($itemTotal, 2),
                     'reason' => $itemData['reason'] ?? 'Buy-back request',
                     'image_paths' => [],
                     'return_status' => 'pending',
@@ -253,6 +284,7 @@ class BuybackController extends Controller
                 $totalRefund += $refundAmount;
                 $totalDeduction += $deductionAmount;
                 $totalCvReversed += $cvReversed;
+                $totalTax += $itemTax;
                 $processedLineIds[] = $orderLine->id;
 
                 // Update order line status
@@ -268,6 +300,7 @@ class BuybackController extends Controller
             $totalRefund = round($totalRefund, 2);
             $totalDeduction = round($totalDeduction, 2);
             $totalCvReversed = round($totalCvReversed, 2);
+            $totalTax = round($totalTax, 2);
 
             // Proportional shipping refund
             $order = Order::find($orderId);
@@ -287,11 +320,10 @@ class BuybackController extends Controller
                 'status' => 'pending',
                 'reason' => $data['return_reason'] ?? 'Buy-back request',
                 'refund_subtotal' => $totalRefund,
-                'refund_tax' => 0,
+                'refund_tax' => $totalTax,
                 'refund_shipping' => $refundShipping,
                 'total_refund_amount' => $totalRefund + $refundShipping,
                 'total_cv_reversed' => $totalCvReversed,
-                // Store declarations in extra_data
                 'extra_data' => [
                     'declares_marketable' => (bool) $data['declares_marketable'],
                     'declares_unsold' => (bool) $data['declares_unsold'],
@@ -300,7 +332,7 @@ class BuybackController extends Controller
                     'deduction_percent' => $deductionPercent,
                     'deduction_amount' => $totalDeduction,
                     'buyback_window_days' => $buybackWindow,
-                    'days_since_purchase' => $orderLine->created_at->diffInDays(now()) ?? 0,
+                    'days_since_purchase' => $order->created_at->diffInDays(now()) ?? 0,
                 ],
             ]);
 
@@ -321,7 +353,7 @@ class BuybackController extends Controller
                     'order_reference' => $order->order_reference ?? null,
                     'refund_details' => [
                         'subtotal' => $totalRefund,
-                        'tax' => 0,
+                        'tax' => $totalTax,
                         'shipping' => $refundShipping,
                         'total' => $totalRefund + $refundShipping,
                         'deduction_amount' => $totalDeduction,
@@ -359,11 +391,18 @@ class BuybackController extends Controller
     {
         $user = Auth::user();
 
-        $returns = OrderReturn::where('user_id', $user->id)
+        $query = OrderReturn::where('user_id', $user->id)
             ->where('type', 'buyback')
-            ->with(['order'])
-            ->orderBy('created_at', 'desc')
-            ->get();
+            ->with(['order']);
+
+        // Status filter
+        if ($request->has('status') && in_array($request->status, ['pending', 'approved', 'rejected', 'received', 'completed'])) {
+            $query->where('status', $request->status);
+        }
+
+        // Pagination
+        $perPage = $request->input('per_page', 20);
+        $returns = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         return response()->json([
             'success' => true,
@@ -375,15 +414,22 @@ class BuybackController extends Controller
                     'items_count' => count($return->items),
                     'total_refund' => (float) $return->total_refund_amount,
                     'deduction_amount' => (float) ($return->extra_data['deduction_amount'] ?? 0),
+                    'deduction_percent' => (float) ($return->extra_data['deduction_percent'] ?? 0),
                     'reason' => $return->reason,
                     'admin_notes' => $return->admin_notes,
                     'rejection_reason' => $return->rejection_reason,
                     'created_at' => $return->created_at->toDateTimeString(),
                     'approved_at' => $return->approved_at?->toDateTimeString(),
+                    'received_at' => $return->received_at?->toDateTimeString(),
                     'completed_at' => $return->completed_at?->toDateTimeString(),
                 ];
             }),
-            'total' => $returns->count(),
+            'pagination' => [
+                'current_page' => $returns->currentPage(),
+                'per_page' => $returns->perPage(),
+                'total' => $returns->total(),
+                'last_page' => $returns->lastPage(),
+            ],
         ]);
     }
 
@@ -406,9 +452,13 @@ class BuybackController extends Controller
                 'pending' => $returns->where('status', 'pending')->count(),
                 'approved' => $returns->where('status', 'approved')->count(),
                 'rejected' => $returns->where('status', 'rejected')->count(),
+                'received' => $returns->where('status', 'received')->count(),
                 'completed' => $returns->where('status', 'completed')->count(),
-                'total_refund_amount' => (float) $returns->whereIn('status', ['approved', 'completed'])->sum('total_refund_amount'),
-                'total_deduction_amount' => (float) $returns->sum('extra_data.deduction_amount') ?? 0,
+                'total_refund_amount' => (float) $returns->whereIn('status', ['approved', 'received', 'completed'])->sum('total_refund_amount'),
+                'total_deduction_amount' => (float) $returns->sum(function($return) {
+                    return $return->extra_data['deduction_amount'] ?? 0;
+                }),
+                'total_cv_reversed' => (float) $returns->whereIn('status', ['approved', 'received', 'completed'])->sum('total_cv_reversed'),
             ],
         ]);
     }
@@ -430,10 +480,10 @@ class BuybackController extends Controller
     private function updateOrderReturnStatus($order): void
     {
         $lines = $order->lines;
-        $deliveredLines = $lines->where('delivery_status', 'delivered');
-        $deliveredCount = $deliveredLines->count();
+        $deliverableLines = $lines->whereIn('delivery_status', ['delivered', 'partial_delivered', 'return_initiated', 'return_pending']);
+        $deliverableCount = $deliverableLines->count();
 
-        if ($deliveredCount === 0) {
+        if ($deliverableCount === 0) {
             $order->update(['return_status' => 'none']);
             return;
         }
@@ -446,7 +496,7 @@ class BuybackController extends Controller
             'none' => 0,
         ];
 
-        foreach ($deliveredLines as $line) {
+        foreach ($deliverableLines as $line) {
             $status = $line->return_status ?? 'none';
             if (isset($statusCounts[$status])) {
                 $statusCounts[$status]++;
@@ -454,7 +504,7 @@ class BuybackController extends Controller
         }
 
         $returnStatus = 'none';
-        if ($statusCounts['returned'] === $deliveredCount) {
+        if ($statusCounts['returned'] === $deliverableCount) {
             $returnStatus = 'fully_returned';
         } elseif ($statusCounts['returned'] > 0) {
             $returnStatus = 'partial_return';
