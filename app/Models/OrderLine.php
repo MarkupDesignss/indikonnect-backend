@@ -38,9 +38,18 @@ class OrderLine extends Model
         return $this->belongsTo(Product::class);
     }
 
+    // public function shippingDetails()
+    // {
+    //     return $this->hasMany(OrderShippingDetail::class);
+    // }
+
     public function shippingDetails()
     {
-        return $this->hasMany(OrderShippingDetail::class);
+        return $this->hasOne(
+            OrderShippingDetail::class,
+            'order_line_id',
+            'id'
+        );
     }
 
     // Status check methods

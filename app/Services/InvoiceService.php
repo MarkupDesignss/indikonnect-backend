@@ -81,11 +81,9 @@ class InvoiceService
     {
         $invoiceNumber = $this->generateInvoiceNumber();
 
-        // Use the stored summary data
         $summaryData = json_decode($order->summary_data, true);
 
         if (!$summaryData) {
-            // Fallback: Recalculate from order lines
             $summaryData = $this->recalculateFromOrderLines($order);
         }
 
