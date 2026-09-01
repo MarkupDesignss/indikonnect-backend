@@ -2499,7 +2499,6 @@ class CheckoutService
                     }
                 }
 
-                // Update order line delivery status
                 $line->update([
                     'delivery_status' => 'confirmed'
                 ]);
@@ -2631,7 +2630,7 @@ class CheckoutService
                 'extra_data' => json_encode([
                     'order_reference' => $order->order_reference,
                     'total_payable' => $order->total_payable,
-                    'customer_name' => $order->user->name ?? 'Guest',
+                    'customer_name' => $order->user->full_name ?? 'Guest',
                     'confirmed_at' => now()->toDateTimeString(),
                     'checkout_type' => $order->checkout_type ?? 'cart',
                     'has_variants' => $order->lines->whereNotNull('variant_id')->isNotEmpty(),

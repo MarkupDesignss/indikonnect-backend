@@ -4,123 +4,32 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
-use App\Models\Invoice;
-use App\Services\InvoiceService;
+use App\Models\OrderLine;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class InvoiceController extends Controller
 {
-    protected InvoiceService $invoiceService;
-
-    public function __construct(InvoiceService $invoiceService)
-    {
-        $this->invoiceService = $invoiceService;
-    }
-
     /**
-     * Generate invoice for a given order (Admin only)
+     * Get invoice by order ID or order line ID
      *
      * @param Request $request
      * @param int $orderId
+     * @param int|null $lineId
      * @return JsonResponse
-     */
-    public function generate(Request $request, int $orderId): JsonResponse
-    {
-        try {
-            // Check if user has admin permission
-            if (!$request->user() || !$request->user()->hasRole('admin')) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized. Only admins can generate invoices.'
-                ], 403);
-            }
-
-            // Find order with relationships
-            $order = Order::with([
-                'user',
-                'deliveryAddress',
-                'lines.product.images',
-                'lines.variant'
-            ])->find($orderId);
-
-            if (!$order) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Order not found'
-                ], 404);
-            }
-
-            // Check if invoice already exists
-            if ($order->invoice) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invoice already exists for this order',
-                    'data' => [
-                        'invoice' => $order->invoice,
-                        'invoice_number' => $order->invoice->invoice_number
-                    ]
-                ], 409);
-            }
-
-            // Validate order status
-            $allowedStatuses = ['completed', 'delivered', 'confirmed', 'shipped'];
-            if (!in_array($order->status, $allowedStatuses)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "Invoice can only be generated for orders with status: " . implode(', ', $allowedStatuses),
-                    'current_status' => $order->status
-                ], 400);
-            }
-
-            DB::beginTransaction();
-
-            // Generate invoice using service
-            $invoice = $this->invoiceService->generateInvoice($order);
-
-            DB::commit();
-
-            // Format response with all necessary details
-            $invoiceData = $this->formatInvoiceData($order);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Invoice generated successfully',
-                'data' => $invoiceData,
-                'download_url' => url("/api/invoices/download/{$invoice->id}")
-            ], 201);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Invoice generation failed: ' . $e->getMessage(), [
-                'order_id' => $orderId,
-                'trace' => $e->getTraceAsString()
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to generate invoice: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Get invoice by order ID
      *
-     * @param Request $request
-     * @param int $orderId
-     * @return JsonResponse
+     * Routes:
+     * - GET /api/invoices/order/{orderId} - For full order invoice
+     * - GET /api/invoices/order/{orderId}/{lineId} - For specific line item invoice
      */
-    public function getInvoiceByOrder(Request $request, int $orderId): JsonResponse
+    public function getInvoiceByOrder(Request $request, int $orderId, ?int $lineId = null): JsonResponse
     {
         try {
-            // Find the order with its relationships
+            // Find the order with necessary relationships
             $order = Order::with([
                 'invoice',
-                'lines.product.images',
-                'lines.variant',
                 'user',
+                'billingAddress',
                 'deliveryAddress'
             ])->find($orderId);
 
@@ -140,19 +49,63 @@ class InvoiceController extends Controller
                 ], 404);
             }
 
-            // Format the response data
-            $invoiceData = $this->formatInvoiceData($order);
+            $invoice = $order->invoice;
+
+            // If lineId is provided, fetch specific line item
+            if ($lineId) {
+                // Find the specific order line
+                $orderLine = OrderLine::with([
+                    'product.images',
+                    'variant'
+                ])->where('order_id', $orderId)
+                    ->find($lineId);
+
+                if (!$orderLine) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Order line not found for this order'
+                    ], 404);
+                }
+
+                // Format single order line
+                $orderLines = $this->formatSingleOrderLine($orderLine);
+                $invoiceType = 'single_item';
+                $message = 'Invoice for single item retrieved successfully';
+            } else {
+                // Load all order lines for full order
+                $order->load(['lines.product.images', 'lines.variant']);
+
+                // Format all order lines
+                $orderLines = $this->formatOrderLines($order->lines);
+                $invoiceType = 'full_order';
+                $message = 'Invoice retrieved successfully';
+            }
+
+            // Decode JSON fields
+            $lineItems = json_decode($invoice->line_items, true) ?? [];
+            $summarySnapshot = json_decode($invoice->summary_snapshot, true) ?? [];
+            $taxBreakdown = json_decode($order->tax_breakdown, true) ?? [];
+            $summaryData = json_decode($order->summary_data, true) ?? [];
+
+            // Prepare complete response
+            $responseData = $this->prepareInvoiceResponse(
+                $invoice,
+                $order,
+                $lineItems,
+                $summarySnapshot,
+                $taxBreakdown,
+                $summaryData,
+                $orderLines,
+                $lineId
+            );
 
             return response()->json([
                 'success' => true,
-                'data' => $invoiceData
+                'message' => $message,
+                'data' => $responseData,
+                'invoice_type' => $invoiceType
             ], 200);
         } catch (\Exception $e) {
-            Log::error('Failed to fetch invoice: ' . $e->getMessage(), [
-                'order_id' => $orderId,
-                'trace' => $e->getTraceAsString()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while fetching invoice details',
@@ -162,61 +115,130 @@ class InvoiceController extends Controller
     }
 
     /**
-     * Format invoice data with all necessary details
+     * Format all order lines with complete details
      *
-     * @param Order $order
+     * @param $lines
      * @return array
      */
-    private function formatInvoiceData(Order $order): array
+    private function formatOrderLines($lines): array
     {
-        $invoice = $order->invoice;
+        $orderLines = [];
+        foreach ($lines as $line) {
+            $orderLines[] = $this->formatSingleOrderLine($line);
+        }
+        return $orderLines;
+    }
 
-        // Decode line items from invoice
-        $lineItems = json_decode($invoice->line_items, true) ?? [];
+    /**
+     * Format single order line with complete details
+     *
+     * @param OrderLine $line
+     * @return array
+     */
+    private function formatSingleOrderLine(OrderLine $line): array
+    {
+        $product = $line->product;
+        $variant = $line->variant;
 
-        // Decode summary snapshot
-        $summarySnapshot = json_decode($invoice->summary_snapshot, true) ?? [];
+        // Get product images
+        $productImages = [];
+        $primaryImage = null;
+        if ($product) {
+            $productImages = $product->images->pluck('image')->toArray();
+            $primaryImage = $product->images->where('is_primary', true)->first();
+        }
 
-        // Format order lines with product details
-        $orderLines = $order->lines->map(function ($line) {
-            $product = $line->product;
-            $primaryImage = $product ? $product->images->where('is_primary', true)->first() : null;
+        // Get variant attributes
+        $variantAttributes = null;
+        $sku = null;
+        if ($variant) {
+            $variantAttributes = is_string($variant->attributes)
+                ? json_decode($variant->attributes, true)
+                : $variant->attributes;
+            $sku = $variant->sku;
+        }
 
-            return [
-                'id' => $line->id,
-                'product_id' => $line->product_id,
-                'variant_id' => $line->variant_id,
-                'product_name' => $product ? $product->name : null,
-                'product_code' => $product ? $product->product_code : null,
-                'hsn_code' => $product ? $product->hsn_code : null,
-                'sku' => $line->variant ? $line->variant->sku : null,
-                'variant_attributes' => $line->variant ? json_decode($line->variant->attributes, true) : null,
-                'quantity' => $line->quantity,
-                'returned_quantity' => $line->returned_quantity,
-                'unit_price' => $line->unit_price,
-                'gst_rate' => $line->gst_rate,
-                'cgst_rate' => $line->cgst_rate,
-                'sgst_rate' => $line->sgst_rate,
-                'igst_rate' => $line->igst_rate,
-                'cgst_amount' => $line->cgst_amount,
-                'sgst_amount' => $line->sgst_amount,
-                'igst_amount' => $line->igst_amount,
-                'gst_amount' => $line->gst_amount,
-                'line_total' => $line->line_total,
-                'taxable_value' => $line->line_total - $line->gst_amount,
-                'commissionable_volume' => $line->commissionable_volume,
-                'tax_data' => json_decode($line->tax_data, true),
-                'product_image' => $primaryImage ? $primaryImage->image : null,
-                'product_images' => $product ? $product->images->pluck('image')->toArray() : [],
-                'delivery_status' => $line->delivery_status,
-                'return_status' => $line->return_status,
-                'dispatched_at' => $line->dispatched_at,
-                'delivered_at' => $line->delivered_at,
-                'shipped_at' => $line->shipped_at,
-            ];
-        })->toArray();
+        return [
+            'id' => $line->id,
+            'product_id' => $line->product_id,
+            'variant_id' => $line->variant_id,
+            'product_name' => $product ? $product->name : null,
+            'product_code' => $product ? $product->product_code : null,
+            'hsn_code' => $product ? $product->hsn_code : null,
+            'sku' => $sku,
+            'variant_attributes' => $variantAttributes,
+            'quantity' => $line->quantity,
+            'returned_quantity' => $line->returned_quantity,
+            'unit_price' => $line->unit_price,
+            'gst_rate' => $line->gst_rate,
+            'cgst_rate' => $line->cgst_rate,
+            'sgst_rate' => $line->sgst_rate,
+            'igst_rate' => $line->igst_rate,
+            'cgst_amount' => $line->cgst_amount,
+            'sgst_amount' => $line->sgst_amount,
+            'igst_amount' => $line->igst_amount,
+            'gst_amount' => $line->gst_amount,
+            'line_total' => $line->line_total,
+            'taxable_value' => ($line->line_total - ($line->gst_amount ?? 0)),
+            'commissionable_volume' => $line->commissionable_volume,
+            'tax_data' => is_string($line->tax_data) ? json_decode($line->tax_data, true) : $line->tax_data,
+            'product_image' => $primaryImage
+                ? asset('storage/' . $primaryImage->image)
+                : null,
+            'product_images' => $productImages,
+            'delivery_status' => $line->delivery_status,
+            'return_status' => $line->return_status,
+            'delivery_notes' => $line->delivery_notes,
+            'is_returnable' => $line->is_returnable,
+            'return_reason' => $line->return_reason,
+            'return_rejection_reason' => $line->return_rejection_reason,
+            'dispatched_at' => $line->dispatched_at ? $line->dispatched_at->toISOString() : null,
+            'shipped_at' => $line->shipped_at ? $line->shipped_at->toISOString() : null,
+            'delivered_at' => $line->delivered_at ? $line->delivered_at->toISOString() : null,
+            'return_at' => $line->return_at ? $line->return_at->toISOString() : null,
+            'return_requested_at' => $line->return_requested_at ? $line->return_requested_at->toISOString() : null,
+            'return_approved_at' => $line->return_approved_at ? $line->return_approved_at->toISOString() : null,
+            'return_rejected_at' => $line->return_rejected_at ? $line->return_rejected_at->toISOString() : null,
+            'return_completed_at' => $line->return_completed_at ? $line->return_completed_at->toISOString() : null,
+        ];
+    }
 
-        // Return complete formatted data
+    /**
+     * Prepare complete invoice response
+     *
+     * @param $invoice
+     * @param Order $order
+     * @param array $lineItems
+     * @param array $summarySnapshot
+     * @param array $taxBreakdown
+     * @param array $summaryData
+     * @param array $orderLines
+     * @param int|null $lineId
+     * @return array
+     */
+    private function prepareInvoiceResponse($invoice, Order $order, array $lineItems, array $summarySnapshot, array $taxBreakdown, array $summaryData, array $orderLines, ?int $lineId = null): array
+    {
+        // If lineId is provided, filter line items
+        if ($lineId) {
+            // Filter line_items to only include the specific item
+            $filteredLineItems = array_filter($lineItems, function ($item) use ($lineId) {
+                return isset($item['order_line_id']) && $item['order_line_id'] == $lineId;
+            });
+
+            // If no match found in line_items, try to match by product_id or name
+            if (empty($filteredLineItems)) {
+                $filteredLineItems = array_filter($lineItems, function ($item) use ($orderLines) {
+                    $orderLine = $orderLines[0] ?? null;
+                    if ($orderLine) {
+                        return isset($item['product_id']) && $item['product_id'] == $orderLine['product_id'];
+                    }
+                    return false;
+                });
+            }
+
+            $lineItems = array_values($filteredLineItems);
+        }
+
         return [
             'invoice' => [
                 'id' => $invoice->id,
@@ -262,10 +284,8 @@ class InvoiceController extends Controller
                 'total_payable' => $invoice->total_payable,
 
                 // Line Items (from invoice)
-                'line_items' => $lineItems,
+                // 'line_items' => $lineItems,
 
-                // Summary Snapshot
-                'summary_snapshot' => $summarySnapshot,
 
                 // PDF Path
                 'pdf_path' => $invoice->pdf_path,
@@ -319,11 +339,41 @@ class InvoiceController extends Controller
                 'updated_at' => $order->updated_at ? $order->updated_at->toISOString() : null,
 
                 // Additional Data
-                'tax_breakdown' => json_decode($order->tax_breakdown, true),
-                'summary_data' => json_decode($order->summary_data, true),
+                'summary_data' => $summaryData,
+
+                // Addresses
+                'billing_address' => $order->billingAddress ? [
+                    'id' => $order->billingAddress->id,
+                    'address_line_1' => $order->billingAddress->address_line_1,
+                    'address_line_2' => $order->billingAddress->address_line_2,
+                    'city' => $order->billingAddress->city,
+                    'state' => $order->billingAddress->state,
+                    'pincode' => $order->billingAddress->pincode,
+                    'country' => $order->billingAddress->country,
+                ] : null,
+
+                'delivery_address' => $order->deliveryAddress ? [
+                    'id' => $order->deliveryAddress->id,
+                    'address_line_1' => $order->deliveryAddress->address_line_1,
+                    'address_line_2' => $order->deliveryAddress->address_line_2,
+                    'city' => $order->deliveryAddress->city,
+                    'state' => $order->deliveryAddress->state,
+                    'pincode' => $order->deliveryAddress->pincode,
+                    'country' => $order->deliveryAddress->country,
+                ] : null,
+
+                // User Details
+                'user' => $order->user ? [
+                    'id' => $order->user->id,
+                    'name' => $order->user->name,
+                    'email' => $order->user->email,
+                    'phone' => $order->user->phone ?? null,
+                ] : null,
+                'order_items' => $orderLines,
+                'items_count' => count($orderLines),
+                'total_items' => count($orderLines),
             ],
 
-            'order_lines' => $orderLines
         ];
     }
 }

@@ -361,10 +361,11 @@ Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/dashboard', [UserDashboardController::class, 'dashboard']);
     Route::get('/distributor-stats', [UserDashboardController::class, 'getDistributorStats']);
-    Route::get('/invoice/order/{orderId}', [InvoiceController::class, 'getInvoiceByOrder']);
-    Route::post('/invoices/generate/{orderId}', [InvoiceController::class, 'generate'])
-        ->middleware(['admin']);
-    // Distributor Ledger & Tax Summary
+    Route::get(
+        '/invoice/order/{orderId}/{lineId?}',
+        [InvoiceController::class, 'getInvoiceByOrder']
+    );
+    // Distributor Ledger & Tax SummaFry
     Route::get('/distributor/ledger', [LedgerController::class, 'index']);
     Route::get('/distributor/ledger/summary', [LedgerController::class, 'summary']);
     Route::get('/distributor/ledger/tax-summary', [LedgerController::class, 'taxSummary']);

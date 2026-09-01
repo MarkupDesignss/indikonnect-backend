@@ -351,11 +351,48 @@ class AdminController extends Controller
             });
     }
 
+    // private function getPendingKycReviews()
+    // {
+    //     return BusinessProfile::where('kyc_status', 'pending')
+    //         ->with(['user' => function ($query) {
+    //             $query->select('id', 'full_name', 'email', 'phone', 'account_type');
+    //         }])
+    //         ->orderBy('created_at', 'DESC')
+    //         ->limit(10)
+    //         ->get()
+    //         ->map(function ($profile) {
+    //             return [
+    //                 'id' => $profile->id,
+    //                 'user_id' => $profile->user_id,
+    //                 'user_name' => $profile->user?->full_name,
+    //                 'user_email' => $profile->user?->email,
+    //                 'user_phone' => $profile->user?->phone,
+    //                 'account_type' => $profile->user?->account_type,
+    //                 'title' => $profile->title,
+    //                 'type_of_entity' => $profile->type_of_entity,
+    //                 'bank_name' => $profile->bank_name,
+    //                 'kyc_status' => $profile->kyc_status,
+    //                 'submitted_at' => $profile->submitted_at?->toISOString(),
+    //                 'created_at' => $profile->created_at?->toISOString(),
+    //             ];
+    //         });
+    // }
+
     private function getPendingKycReviews()
     {
         return BusinessProfile::where('kyc_status', 'pending')
+            ->whereHas('user', function ($query) {
+                $query->where('is_registered', true);
+            })
             ->with(['user' => function ($query) {
-                $query->select('id', 'full_name', 'email', 'phone', 'account_type');
+                $query->select(
+                    'id',
+                    'full_name',
+                    'email',
+                    'phone',
+                    'account_type',
+                    'is_registered'
+                );
             }])
             ->orderBy('created_at', 'DESC')
             ->limit(10)
@@ -372,8 +409,8 @@ class AdminController extends Controller
                     'type_of_entity' => $profile->type_of_entity,
                     'bank_name' => $profile->bank_name,
                     'kyc_status' => $profile->kyc_status,
-                    'submitted_at' => $profile->submitted_at?->toISOString(),
-                    'created_at' => $profile->created_at?->toISOString(),
+                    'submitted_at' => $profile->submitted_at,
+                    'created_at' => $profile->created_at
                 ];
             });
     }

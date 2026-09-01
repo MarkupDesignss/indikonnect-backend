@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Mail\DistributorRegistrationCompletedMail;
+use App\Models\Admin;
 use App\Models\User;
 use App\Models\Role;
 use App\Models\RoleUser;
@@ -2599,6 +2601,15 @@ class AuthController extends Controller
                 ]
             );
 
+            if ($user->email) {
+                try {
+                    Mail::to($user->email)
+                        ->send(new DistributorRegistrationCompletedMail($user));
+                } catch (\Exception $mailException) {
+                    Log::error('Registration completion mail failed: ' . $mailException->getMessage());
+                }
+            }
+
             // Clear cache
             \Illuminate\Support\Facades\Cache::forget('registration_token_' . $request->phone);
 
@@ -2680,17 +2691,17 @@ class AuthController extends Controller
             }
 
             // Check distributor status
-            if ($user->distributor_status !== 'active') {
-                $statusMessage = $user->distributor_status === 'pending'
-                    ? 'Your distributor account is pending admin approval.'
-                    : 'Your distributor account is not active. Status: ' . $user->distributor_status;
+            // if ($user->distributor_status !== 'active') {
+            //     $statusMessage = $user->distributor_status === 'pending'
+            //         ? 'Your distributor account is pending admin approval.'
+            //         : 'Your distributor account is not active. Status: ' . $user->distributor_status;
 
-                return response()->json([
-                    'status' => false,
-                    'message' => $statusMessage,
-                    'distributor_status' => $user->distributor_status
-                ], 422);
-            }
+            //     return response()->json([
+            //         'status' => false,
+            //         'message' => $statusMessage,
+            //         'distributor_status' => $user->distributor_status
+            //     ], 422);
+            // }
 
             // Generate tokens
             $token = $user->createToken('distributor-auth')->plainTextToken;
@@ -3539,7 +3550,7 @@ class AuthController extends Controller
             ]);
         }
 
-        $profile = DistributorProfile::where('user_id', $user->id)->first();
+        $profile = BusinessProfile::where('user_id', $user->id)->first();
 
         if (!$profile) {
             return response()->json([
