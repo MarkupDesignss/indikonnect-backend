@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Models\BusinessProfile;
 use Illuminate\Validation\Rule;
 use App\Models\RejectedUser;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -799,60 +800,87 @@ class AuthController extends Controller
     // public function updateStatus(Request $request, int $id)
     // {
     //     $request->validate([
-    //         'distributor_status' => [
+    //         'kyc_status' => [
     //             'required',
-    //             Rule::in(['active', 'suspended']),
+    //             Rule::in(['verified', 'rejected']),
     //         ],
     //     ]);
 
-    //     $distributor = User::where('id', $id)
-    //         ->where('account_type', 'distributor')
-    //         ->first();
+    //     try {
+    //         // Find distributor
+    //         $distributor = User::where('id', $id)
+    //             ->where('account_type', 'distributor')
+    //             ->first();
 
-    //     if (!$distributor) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Distributor not found.',
-    //         ], 404);
-    //     }
+    //         if (!$distributor) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Distributor not found.',
+    //             ], 404);
+    //         }
 
-    //     $newStatus = $request->distributor_status;
+    //         // Find business profile
+    //         $businessProfile = BusinessProfile::where('user_id', $distributor->id)
+    //             ->first();
 
-    //     // No change
-    //     if ($distributor->distributor_status === $newStatus) {
+    //         if (!$businessProfile) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Business profile not found.',
+    //             ], 404);
+    //         }
+
+    //         $newKycStatus = $request->kyc_status;
+
+    //         // Automatically determine distributor status
+    //         $newDistributorStatus = match ($newKycStatus) {
+    //             'verified' => 'active',
+    //             'rejected' => 'suspended',
+    //         };
+
+    //         // Check if both statuses are already same
+    //         if (
+    //             $businessProfile->kyc_status === $newKycStatus &&
+    //             $distributor->distributor_status === $newDistributorStatus
+    //         ) {
+    //             return response()->json([
+    //                 'success' => true,
+    //                 'message' => 'KYC and distributor status are already updated.',
+    //                 'data' => [
+    //                     'user_id' => $distributor->id,
+    //                     'kyc_status' => $businessProfile->kyc_status,
+    //                     'distributor_status' => $distributor->distributor_status,
+    //                 ],
+    //             ], 200);
+    //         }
+
+    //         // Update KYC status
+    //         $businessProfile->kyc_status = $newKycStatus;
+    //         $businessProfile->save();
+
+    //         // Automatically update distributor status
+    //         $distributor->distributor_status = $newDistributorStatus;
+    //         $distributor->save();
+
     //         return response()->json([
     //             'success' => true,
-    //             'message' => 'Distributor status is already ' . $newStatus . '.',
+    //             'message' => 'KYC and distributor status updated successfully.',
     //             'data' => [
-    //                 'id' => $distributor->id,
+    //                 'user_id' => $distributor->id,
+    //                 'kyc_status' => $businessProfile->kyc_status,
     //                 'distributor_status' => $distributor->distributor_status,
     //             ],
     //         ], 200);
+    //     } catch (\Throwable $e) {
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Something went wrong.',
+    //             'error' => $e->getMessage(),
+    //         ], 500);
     //     }
-
-    //     // Update status
-    //     $distributor->distributor_status = $newStatus;
-    //     $distributor->save();
-
-    //     // Send email to distributor
-    //     if (!empty($distributor->email)) {
-    //         Mail::to($distributor->email)
-    //             ->send(new DistributorStatusMail(
-    //                 $distributor,
-    //                 $newStatus
-    //             ));
-    //     }
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'message' => 'Distributor status updated successfully.',
-    //         'data' => [
-    //             'id' => $distributor->id,
-    //             'account_type' => $distributor->account_type,
-    //             'distributor_status' => $distributor->distributor_status,
-    //         ],
-    //     ], 200);
     // }
+
     public function updateStatus(Request $request, int $id)
     {
         $request->validate([
@@ -860,6 +888,7 @@ class AuthController extends Controller
                 'required',
                 Rule::in(['verified', 'rejected']),
             ],
+            'rejection_reason' => 'required_if:kyc_status,rejected|string|max:500|nullable',
         ]);
 
         try {
@@ -887,6 +916,7 @@ class AuthController extends Controller
             }
 
             $newKycStatus = $request->kyc_status;
+            $rejectionReason = $request->rejection_reason ?? null;
 
             // Automatically determine distributor status
             $newDistributorStatus = match ($newKycStatus) {
@@ -906,17 +936,30 @@ class AuthController extends Controller
                         'user_id' => $distributor->id,
                         'kyc_status' => $businessProfile->kyc_status,
                         'distributor_status' => $distributor->distributor_status,
+                        'rejection_reason' => $businessProfile->rejection_reason,
                     ],
                 ], 200);
             }
 
             // Update KYC status
             $businessProfile->kyc_status = $newKycStatus;
+
+            // Store rejection reason if rejected
+            if ($newKycStatus === 'rejected') {
+                $businessProfile->rejection_reason = $rejectionReason;
+            } else {
+                // Clear rejection reason if verified
+                $businessProfile->rejection_reason = null;
+            }
+
             $businessProfile->save();
 
             // Automatically update distributor status
             $distributor->distributor_status = $newDistributorStatus;
             $distributor->save();
+
+            // Send email notification to user with rejection reason if applicable
+            $this->sendKycStatusEmail($distributor, $newKycStatus, $rejectionReason);
 
             return response()->json([
                 'success' => true,
@@ -925,6 +968,7 @@ class AuthController extends Controller
                     'user_id' => $distributor->id,
                     'kyc_status' => $businessProfile->kyc_status,
                     'distributor_status' => $distributor->distributor_status,
+                    'rejection_reason' => $businessProfile->rejection_reason,
                 ],
             ], 200);
         } catch (\Throwable $e) {
@@ -934,6 +978,49 @@ class AuthController extends Controller
                 'message' => 'Something went wrong.',
                 'error' => $e->getMessage(),
             ], 500);
+        }
+    }
+
+    /**
+     * Send KYC status email to user
+     */
+    protected function sendKycStatusEmail(User $user, string $status, ?string $rejectionReason = null)
+    {
+        try {
+            $subject = $status === 'verified'
+                ? 'Your KYC has been verified'
+                : 'Your KYC has been rejected';
+
+            // Build email content
+            if ($status === 'verified') {
+                $message = "Dear {$user->full_name},\n\n";
+                $message .= "Your KYC has been verified successfully. Your distributor account is now active.\n\n";
+                $message .= "You can now start using all distributor features.\n\n";
+                $message .= "Thank you for choosing " . config('app.name') . ".";
+            } else {
+                $message = "Dear {$user->full_name},\n\n";
+                $message .= "Your KYC has been rejected.\n\n";
+
+                if ($rejectionReason) {
+                    $message .= "Reason for rejection:\n";
+                    $message .= "----------------------------------------\n";
+                    $message .= "{$rejectionReason}\n";
+                    $message .= "----------------------------------------\n\n";
+                }
+
+                $message .= "Please log in to your account to update your documents and resubmit for verification.\n\n";
+                $message .= "If you have any questions, please contact support.\n\n";
+                $message .= "Thank you for choosing " . config('app.name') . ".";
+            }
+
+            Mail::raw($message, function ($mail) use ($user, $subject) {
+                $mail->to($user->email)
+                    ->subject($subject);
+            });
+
+            Log::info('KYC status email sent to user: ' . $user->email . ' with status: ' . $status);
+        } catch (\Exception $e) {
+            Log::error('Failed to send KYC status email: ' . $e->getMessage());
         }
     }
 }
