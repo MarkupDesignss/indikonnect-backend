@@ -1128,7 +1128,7 @@ class ProductController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'product_code' => ['sometimes', 'required', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
+            'product_code' => ['sometimes', 'required', 'string', 'max:255'],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
             'description' => ['nullable', 'string'],

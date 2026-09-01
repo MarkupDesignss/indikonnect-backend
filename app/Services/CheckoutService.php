@@ -2515,16 +2515,15 @@ class CheckoutService
             }
 
             // Generate invoice using stored summary data
-            $invoice = $this->invoiceService->generateInvoice($order);
+            // $invoice = $this->invoiceService->generateInvoice($order);
 
-            // Generate PDF and send email
-            try {
-                $this->pdfInvoiceService->generateAndSendInvoice($order, $invoice);
-            } catch (\Exception $e) {
-                Log::error('Failed to send invoice email: ' . $e->getMessage(), [
-                    'order_id' => $order->id
-                ]);
-            }
+            // try {
+            //     $this->pdfInvoiceService->generateAndSendInvoice($order, $invoice);
+            // } catch (\Exception $e) {
+            //     Log::error('Failed to send invoice email: ' . $e->getMessage(), [
+            //         'order_id' => $order->id
+            //     ]);
+            // }
 
             // Build full payload for commission API
             $payload = $this->buildCommissionPayload($order);
