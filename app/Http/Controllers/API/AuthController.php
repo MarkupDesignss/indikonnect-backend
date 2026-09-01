@@ -3117,6 +3117,242 @@ class AuthController extends Controller
     /**
      * Update Profile - Updated with new BusinessProfile fields
      */
+    // public function updateProfile(Request $request)
+    // {
+    //     try {
+    //         $user = Auth::user();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Unauthorized'
+    //             ], 401);
+    //         }
+
+    //         /*
+    //         --------------------------------
+    //         PREVENT INVALID SWITCH
+    //         --------------------------------
+    //         */
+    //         if ($user->account_type === 'distributor' && $request->account_type === 'customer') {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'distributor account cannot be converted to customer'
+    //             ], 403);
+    //         }
+
+    //         /*
+    //         --------------------------------
+    //         DYNAMIC VALIDATION
+    //         --------------------------------
+    //         */
+    //         $accountType = $request->account_type ?? $user->account_type;
+
+    //         $rules = [
+    //             'full_name' => 'nullable|string|max:255',
+    //             'phone' => [
+    //                 'nullable',
+    //                 'string',
+    //                 'min:10',
+    //                 'max:15',
+    //             ],
+    //             'country' => 'nullable|string|max:255',
+    //             'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png',
+    //             'account_type' => 'nullable|in:customer,distributor',
+    //         ];
+
+    //         /*
+    //         --------------------------------
+    //         PASSWORD VALIDATION (OPTIONAL)
+    //         --------------------------------
+    //         */
+    //         if ($request->filled('password')) {
+    //             $rules['password'] = [
+    //                 'required',
+    //                 'string',
+    //                 Password::min(8)
+    //                     ->mixedCase()
+    //                     ->numbers()
+    //                     ->symbols()
+    //             ];
+
+    //             if ($accountType === 'customer') {
+    //                 $rules['password'][] = 'confirmed';
+    //             }
+    //         }
+
+    //         /*
+    //         --------------------------------
+    //         distributor VALIDATION - Updated with new fields
+    //         --------------------------------
+    //         */
+    //         if ($accountType === 'distributor') {
+    //             $rules = array_merge($rules, [
+    //                 'encrypted_aadhaar' => 'nullable|string',
+    //                 'encrypted_pan' => 'nullable|string',
+    //                 'encrypted_bank_account' => 'nullable|string',
+    //                 'bank_ifsc' => 'nullable|string|max:20',
+    //                 'bank_holder_name' => 'nullable|string|max:255',
+    //             ]);
+    //         }
+
+    //         $validator = Validator::make($request->all(), $rules);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         /*
+    //         --------------------------------
+    //         UPDATE USER DATA
+    //         --------------------------------
+    //         */
+    //         $data = [
+    //             'full_name' => $request->full_name ?? $user->full_name,
+    //             'phone' => $request->phone ?? $user->phone,
+    //             'country' => $request->country ?? $user->country,
+    //         ];
+
+    //         $logoutRequired = false;
+    //         $businessProfile = null;
+
+    //         /*
+    //         --------------------------------
+    //         SWITCH customer → distributor
+    //         --------------------------------
+    //         */
+    //         if ($user->account_type === 'customer' && $accountType === 'distributor') {
+    //             $data['account_type'] = 'distributor';
+    //             $data['distributor_status'] = 'pending';
+
+    //             // Update role to distributor
+    //             $distributorRole = Role::where('slug', 'distributor')->first();
+    //             if ($distributorRole) {
+    //                 RoleUser::updateOrCreate(
+    //                     ['user_id' => $user->id],
+    //                     ['role_id' => $distributorRole->id]
+    //                 );
+    //                 $user->update(['role_id' => $distributorRole->id]);
+    //             } else {
+    //                 Log::error("distributor role not found in database");
+    //                 return response()->json([
+    //                     'status' => false,
+    //                     'message' => 'Role configuration error. Please contact admin.'
+    //                 ], 500);
+    //             }
+
+    //             $logoutRequired = true;
+    //         }
+
+    //         // Password update
+    //         if ($request->filled('password')) {
+    //             $data['password'] = Hash::make($request->password);
+    //         }
+
+    //         /*
+    //         --------------------------------
+    //         PROFILE IMAGE
+    //         --------------------------------
+    //         */
+    //         if ($request->hasFile('profile_picture')) {
+    //             if ($user->profile_picture && Storage::disk('public')->exists($user->profile_picture)) {
+    //                 Storage::disk('public')->delete($user->profile_picture);
+    //             }
+
+    //             $data['profile_picture'] = $request->file('profile_picture')
+    //                 ->store('profile_pictures', 'public');
+    //         }
+
+    //         $user->update($data);
+
+    //         /*
+    //         --------------------------------
+    //         BUSINESS PROFILE - Updated with new fields
+    //         --------------------------------
+    //         */
+    //         if ($accountType === 'distributor') {
+    //             $businessData = [
+    //                 'user_id' => $user->id,
+    //             ];
+
+    //             // Only update KYC fields if provided
+    //             if ($request->has('encrypted_aadhaar')) {
+    //                 $businessData['encrypted_aadhaar'] = $request->encrypted_aadhaar;
+    //             }
+    //             if ($request->has('encrypted_pan')) {
+    //                 $businessData['encrypted_pan'] = $request->encrypted_pan;
+    //             }
+    //             if ($request->has('encrypted_bank_account')) {
+    //                 $businessData['encrypted_bank_account'] = $request->encrypted_bank_account;
+    //             }
+    //             if ($request->has('bank_ifsc')) {
+    //                 $businessData['bank_ifsc'] = $request->bank_ifsc;
+    //             }
+    //             if ($request->has('bank_holder_name')) {
+    //                 $businessData['bank_holder_name'] = $request->bank_holder_name;
+    //             }
+
+    //             $businessProfile = BusinessProfile::updateOrCreate(
+    //                 ['user_id' => $user->id],
+    //                 $businessData
+    //             );
+    //             // Distributor suspended => pending
+    //             if (
+    //                 $user->account_type === 'distributor' &&
+    //                 $user->distributor_status === 'suspended'
+    //             ) {
+    //                 $user->update([
+    //                     'distributor_status' => 'pending'
+    //                 ]);
+    //             }
+
+    //             // KYC rejected => pending
+    //             if ($businessProfile->kyc_status === 'rejected') {
+    //                 $user->businessProfile->update([
+    //                     'kyc_status' => 'pending'
+    //                 ]);
+    //             }
+    //         }
+
+    //         /*
+    //         --------------------------------
+    //         FORCE LOGOUT IF SWITCHED
+    //         --------------------------------
+    //         */
+    //         if ($logoutRequired) {
+    //             Auth::logout();
+    //             return response()->json([
+    //                 'status' => true,
+    //                 'message' => 'Your business request has been submitted for admin approval',
+    //                 'logout' => true
+    //             ]);
+    //         }
+
+    //         // Get user role
+    //         $role = $this->getUserRole($user);
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Profile updated successfully',
+    //             'user' => $user->fresh(),
+    //             'role' => $role ? [
+    //                 'id' => $role->id,
+    //                 'name' => $role->name,
+    //                 'slug' => $role->slug
+    //             ] : null,
+    //             'business_profile' => $businessProfile
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function updateProfile(Request $request)
     {
         try {
@@ -3130,10 +3366,10 @@ class AuthController extends Controller
             }
 
             /*
-            --------------------------------
-            PREVENT INVALID SWITCH
-            --------------------------------
-            */
+        --------------------------------
+        PREVENT INVALID SWITCH
+        --------------------------------
+        */
             if ($user->account_type === 'distributor' && $request->account_type === 'customer') {
                 return response()->json([
                     'status' => false,
@@ -3142,10 +3378,10 @@ class AuthController extends Controller
             }
 
             /*
-            --------------------------------
-            DYNAMIC VALIDATION
-            --------------------------------
-            */
+        --------------------------------
+        DYNAMIC VALIDATION
+        --------------------------------
+        */
             $accountType = $request->account_type ?? $user->account_type;
 
             $rules = [
@@ -3162,10 +3398,10 @@ class AuthController extends Controller
             ];
 
             /*
-            --------------------------------
-            PASSWORD VALIDATION (OPTIONAL)
-            --------------------------------
-            */
+        --------------------------------
+        PASSWORD VALIDATION (OPTIONAL)
+        --------------------------------
+        */
             if ($request->filled('password')) {
                 $rules['password'] = [
                     'required',
@@ -3182,10 +3418,10 @@ class AuthController extends Controller
             }
 
             /*
-            --------------------------------
-            distributor VALIDATION - Updated with new fields
-            --------------------------------
-            */
+        --------------------------------
+        distributor VALIDATION - Updated with new fields
+        --------------------------------
+        */
             if ($accountType === 'distributor') {
                 $rules = array_merge($rules, [
                     'encrypted_aadhaar' => 'nullable|string',
@@ -3206,10 +3442,10 @@ class AuthController extends Controller
             }
 
             /*
-            --------------------------------
-            UPDATE USER DATA
-            --------------------------------
-            */
+        --------------------------------
+        UPDATE USER DATA
+        --------------------------------
+        */
             $data = [
                 'full_name' => $request->full_name ?? $user->full_name,
                 'phone' => $request->phone ?? $user->phone,
@@ -3218,12 +3454,15 @@ class AuthController extends Controller
 
             $logoutRequired = false;
             $businessProfile = null;
+            $statusChanged = false;
+            $oldDistributorStatus = $user->distributor_status;
+            $oldKycStatus = $user->businessProfile?->kyc_status;
 
             /*
-            --------------------------------
-            SWITCH customer → distributor
-            --------------------------------
-            */
+        --------------------------------
+        SWITCH customer → distributor
+        --------------------------------
+        */
             if ($user->account_type === 'customer' && $accountType === 'distributor') {
                 $data['account_type'] = 'distributor';
                 $data['distributor_status'] = 'pending';
@@ -3253,10 +3492,10 @@ class AuthController extends Controller
             }
 
             /*
-            --------------------------------
-            PROFILE IMAGE
-            --------------------------------
-            */
+        --------------------------------
+        PROFILE IMAGE
+        --------------------------------
+        */
             if ($request->hasFile('profile_picture')) {
                 if ($user->profile_picture && Storage::disk('public')->exists($user->profile_picture)) {
                     Storage::disk('public')->delete($user->profile_picture);
@@ -3269,10 +3508,10 @@ class AuthController extends Controller
             $user->update($data);
 
             /*
-            --------------------------------
-            BUSINESS PROFILE - Updated with new fields
-            --------------------------------
-            */
+        --------------------------------
+        BUSINESS PROFILE - Updated with new fields
+        --------------------------------
+        */
             if ($accountType === 'distributor') {
                 $businessData = [
                     'user_id' => $user->id,
@@ -3299,13 +3538,42 @@ class AuthController extends Controller
                     ['user_id' => $user->id],
                     $businessData
                 );
+
+                // Distributor suspended => pending
+                if (
+                    $user->account_type === 'distributor' &&
+                    $user->distributor_status === 'suspended'
+                ) {
+                    $user->update([
+                        'distributor_status' => 'pending'
+                    ]);
+                    $statusChanged = true;
+                }
+
+                // KYC rejected => pending
+                if ($businessProfile->kyc_status === 'rejected') {
+                    $businessProfile->update([
+                        'kyc_status' => 'pending'
+                    ]);
+                    $statusChanged = true;
+                    $this->sendAdminNotification(
+                        'distributor_status_change',
+                        "Distributor {$user->full_name} has updated their profile and is pending approval",
+                        $user->id,
+                        [
+                            'old_status' => $oldDistributorStatus,
+                            'new_status' => $user->distributor_status,
+                            'user_id' => $user->id
+                        ]
+                    );
+                }
             }
 
             /*
-            --------------------------------
-            FORCE LOGOUT IF SWITCHED
-            --------------------------------
-            */
+        --------------------------------
+        FORCE LOGOUT IF SWITCHED
+        --------------------------------
+        */
             if ($logoutRequired) {
                 Auth::logout();
                 return response()->json([
@@ -3334,6 +3602,45 @@ class AuthController extends Controller
                 'status' => false,
                 'message' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    protected function sendAdminNotification(
+        string $type,
+        string $message,
+        int $userId,
+        array $extraData = []
+    ) {
+        try {
+            // Get first admin from admins table
+            $admin = Admin::first();
+
+            if (!$admin) {
+                Log::warning('No admin found in admins table');
+                return;
+            }
+
+            AdminNotification::create([
+                'admin_id' => $admin->id,
+                'type' => $type,
+                'title' => ucfirst(str_replace('_', ' ', $type)),
+                'message' => $message,
+                'reference_type' => 'user',
+                'reference_id' => $userId,
+                'priority' => 'high',
+                'extra_data' => json_encode($extraData),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error(
+                'Failed to send admin notification: ' . $e->getMessage(),
+                [
+                    'type' => $type,
+                    'user_id' => $userId,
+                    'error' => $e->getMessage(),
+                ]
+            );
         }
     }
 
