@@ -95,6 +95,10 @@ class BuybackController extends Controller
                 $deductionAmount = round($itemTotal * ($deductionPercent / 100), 2);
                 $estimatedRefund = round($itemTotal - $deductionAmount, 2);
 
+                // ✅ FIX: Safe product name with null check
+                $productName = $line->product ? $line->product->name : 'Unknown Product (ID: ' . $line->product_id . ')';
+                $productCode = $line->product ? $line->product->product_code : '';
+
                 $eligibleItems[] = [
                     // Order info
                     'order_reference' => $order->order_reference,
@@ -105,8 +109,8 @@ class BuybackController extends Controller
                     // Product info
                     'order_line_id' => $line->id,
                     'product_id' => $line->product_id,
-                    'product_name' => $line->product->name ?? 'Unknown Product',
-                    'product_code' => $line->product->product_code ?? '',
+                    'product_name' => $productName,
+                    'product_code' => $productCode,
 
                     // Quantity & pricing
                     'quantity' => $purchasedQty,
@@ -199,8 +203,11 @@ class BuybackController extends Controller
                     throw new \Exception("Order line not found: {$itemData['order_line_id']}");
                 }
 
+                // ✅ FIX: Safe product name with null check
+                $productName = $orderLine->product ? $orderLine->product->name : 'Unknown Product (ID: ' . $orderLine->product_id . ')';
+
                 if ($orderLine->order->user_id !== $user->id) {
-                    throw new \Exception("Item '{$orderLine->product->name}' does not belong to you.");
+                    throw new \Exception("Item '{$productName}' does not belong to you.");
                 }
 
                 // Validate order status
@@ -215,31 +222,31 @@ class BuybackController extends Controller
                 }
 
                 if ($orderLine->delivery_status !== 'delivered') {
-                    throw new \Exception("Item '{$orderLine->product->name}' has not been delivered.");
+                    throw new \Exception("Item '{$productName}' has not been delivered.");
                 }
 
                 // Check buy-back window from order created_at
                 if ($orderLine->order->created_at->diffInDays(now()) > $buybackWindow) {
-                    throw new \Exception("Item '{$orderLine->product->name}' is outside the buy-back window ({$buybackWindow} days from purchase).");
+                    throw new \Exception("Item '{$productName}' is outside the buy-back window ({$buybackWindow} days from purchase).");
                 }
 
                 // Check if already returned
                 if ($orderLine->delivery_status === 'returned') {
-                    throw new \Exception("Item '{$orderLine->product->name}' has already been returned.");
+                    throw new \Exception("Item '{$productName}' has already been returned.");
                 }
 
                 if (in_array($orderLine->return_status, ['pending', 'approved', 'returned'])) {
-                    throw new \Exception("Item '{$orderLine->product->name}' already has a return in progress.");
+                    throw new \Exception("Item '{$productName}' already has a return in progress.");
                 }
 
-                // Check if there's already a pending request for this line
+                // ✅ FIX: Check if there's already a pending request for this line using proper JSON contains
                 $existingReturn = OrderReturn::where('type', 'buyback')
-                    ->whereJsonContains('items', [['order_line_id' => $orderLine->id]])
-                    ->whereIn('status', ['pending', 'approved'])
+                    ->where('status', 'pending')
+                    ->whereRaw('JSON_CONTAINS(items, JSON_OBJECT("order_line_id", ?))', [$orderLine->id])
                     ->exists();
 
                 if ($existingReturn) {
-                    throw new \Exception("Item '{$orderLine->product->name}' already has a pending buyback request.");
+                    throw new \Exception("Item '{$productName}' already has a pending buyback request.");
                 }
 
                 $purchasedQty = (int) $orderLine->quantity;
@@ -247,7 +254,7 @@ class BuybackController extends Controller
                 $availableQty = $purchasedQty - $returnedQty;
 
                 if ($itemData['quantity'] > $availableQty) {
-                    throw new \Exception("Only {$availableQty} units of '{$orderLine->product->name}' are available.");
+                    throw new \Exception("Only {$availableQty} units of '{$productName}' are available.");
                 }
 
                 // Calculate refund with GST
@@ -268,7 +275,7 @@ class BuybackController extends Controller
                 $returnItems[] = [
                     'order_line_id' => $orderLine->id,
                     'product_id' => $orderLine->product_id,
-                    'product_name' => $orderLine->product->name ?? 'Unknown',
+                    'product_name' => $productName,
                     'quantity' => (int) $itemData['quantity'],
                     'unit_price' => (float) $orderLine->unit_price,
                     'gst_rate' => (float) $orderLine->gst_rate,
@@ -375,6 +382,7 @@ class BuybackController extends Controller
             Log::error('Buy-back request failed', [
                 'user_id' => $user->id,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
             return response()->json([
                 'success' => false,
