@@ -1014,6 +1014,52 @@ class ProductController extends Controller
         }
     }
 
+    public function updateTrendingStatus(Request $request, $id)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'is_trending' => 'required|boolean',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed.',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $product = Product::findOrFail($id);
+
+            $product->update([
+                'is_trending' => (bool) $request->is_trending,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Product trending status updated successfully.',
+                'data' => [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'is_trending' => (bool) $product->is_trending,
+                ],
+            ], 200);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found.',
+            ], 404);
+        } catch (\Exception $e) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update trending status.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     /**
      * Create a product variant
      */

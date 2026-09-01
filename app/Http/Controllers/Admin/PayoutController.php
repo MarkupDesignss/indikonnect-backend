@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Order;
 use App\Models\PayoutRun;
 use App\Models\PayoutEntry;
 use App\Services\Commission\CommissionServiceInterface;
@@ -277,5 +278,37 @@ class PayoutController extends Controller
                 'total_entries' => $run->entries->count(),
             ]
         ]);
+    }
+
+    public function paymentManagement(Request $request)
+    {
+        try {
+
+            $payments = Order::query()
+                ->select([
+                    'order_reference',
+                    'gateway_transaction_id',
+                    'amount_paid',
+                    'status',
+                    'payment_gateway',
+                    'created_at',
+                ])
+                ->whereNotNull('gateway_transaction_id')
+                ->orderByDesc('created_at')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment records fetched successfully.',
+                'data' => $payments,
+            ], 200);
+        } catch (\Exception $e) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch payment records.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 }
