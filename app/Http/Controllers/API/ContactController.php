@@ -48,18 +48,17 @@ class ContactController extends Controller
                 'phone' => 'nullable|string|max:20',
                 'message' => 'required|string|min:10|max:5000',
             ]);
-            
+
             $contact = Contact::create($data);
-            
+
             // TEMPORARILY COMMENT MAIL
             // Mail::to($contact->email)->send(new ContactConfirmation($contact));
-            
+
             return response()->json([
                 'success' => true,
                 'message' => 'Your message has been sent successfully!',
                 'data' => $contact
             ], 201);
-            
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -127,5 +126,28 @@ class ContactController extends Controller
             'success' => true,
             'message' => 'Contacts deleted successfully'
         ]);
+    }
+
+    public function markAsRead($id)
+    {
+        $contact = Contact::find($id);
+
+        if (!$contact) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Contact not found',
+            ], 404);
+        }
+
+        $contact->update([
+            'is_read' => true,
+            'read_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Contact marked as read successfully.',
+            'data' => $contact,
+        ], 200);
     }
 }

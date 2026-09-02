@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Admin;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductReview;
 use App\Models\ProductVariant;
+use App\Models\User;
 use App\Models\VariantImage;
 use App\Models\Wishlist;
 use Illuminate\Http\Request;
@@ -778,7 +780,7 @@ class ProductController extends Controller
             // Variants validation
             'variants' => ['nullable', 'array'],
             'variants.*.sku' => ['required_with:variants', 'string', 'max:255'],
-            'variants.*.attributes' => ['required_with:variants', 'array'],
+            'variants.*.attributes' => ['required_with:variants'],
             'variants.*.retail_mrp' => ['required_with:variants', 'numeric', 'min:0'],
             'variants.*.retail_discount_type' => ['nullable', 'in:percentage,fixed'],
             'variants.*.retail_discount_value' => ['nullable', 'numeric', 'min:0'],
@@ -3639,5 +3641,87 @@ class ProductController extends Controller
                 'total_stock' => $productTotalStock,
             ]
         ];
+    }
+
+    public function globalSearch(Request $request)
+    {
+        $request->validate([
+            'search' => 'required|string|min:2',
+            'per_page' => 'nullable|integer|min:1|max:100'
+        ]);
+
+        $searchTerm = $request->search;
+        $perPage = $request->per_page ?? 20;
+
+        // Search Products with image from product_images table
+        $products = Product::where('name', 'LIKE', "%{$searchTerm}%")
+            ->orWhere('slug', 'LIKE', "%{$searchTerm}%")
+            ->orWhere('description', 'LIKE', "%{$searchTerm}%")
+            ->orWhere('product_code', 'LIKE', "%{$searchTerm}%")
+            ->orWhere('hsn_code', 'LIKE', "%{$searchTerm}%")
+            ->select('id', 'name')
+            ->with(['images' => function ($query) {
+                $query->select('product_id', 'image')->first();
+            }])
+            ->paginate($perPage, ['*'], 'products_page');
+
+        // Transform products to include full image URL
+        $products->getCollection()->transform(function ($product) {
+            return [
+                'id' => $product->id,
+                'name' => $product->name,
+                'image' => $product->images->first()
+                    ? url('/storage/' . $product->images->first()->image)
+                    : null,
+            ];
+        });
+
+        // Search Admins
+        $admins = Admin::where('name', 'LIKE', "%{$searchTerm}%")
+            ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+            ->select('id', 'name', 'email', 'profile_image')
+            ->paginate($perPage, ['*'], 'admins_page');
+
+        // Transform admins to include full image URL
+        $admins->getCollection()->transform(function ($admin) {
+            return [
+                'id' => $admin->id,
+                'name' => $admin->name,
+                'email' => $admin->email,
+                'profile_image' => $admin->profile_image
+                    ? url('storage/' . $admin->profile_image)
+                    : null,
+            ];
+        });
+
+        // Search Users
+        $users = User::where('full_name', 'LIKE', "%{$searchTerm}%")
+            ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+            ->orWhere('phone', 'LIKE', "%{$searchTerm}%")
+            ->where('is_registered', true)
+            ->select('id', 'full_name as name', 'email', 'profile_picture')
+            ->paginate($perPage, ['*'], 'users_page');
+
+        // Transform users to include full image URL
+        $users->getCollection()->transform(function ($user) {
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'profile_picture' => $user->profile_picture
+                    ? url('storage/' . $user->profile_picture)
+                    : null,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'products' => $products->items(),
+                'admins' => $admins->items(),
+                'users' => $users->items(),
+                'total_results' => $products->total() + $admins->total() + $users->total()
+            ]
+        ]);
     }
 }

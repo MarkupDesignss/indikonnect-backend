@@ -302,6 +302,9 @@ class AuthController extends Controller
                         'id' => $admin->id,
                         'name' => $admin->name,
                         'email' => $admin->email,
+                        'profile_image' => $admin->profile_image
+                            ? asset('storage/' . $admin->profile_image)
+                            : null,
 
                         'roles' => $admin->roles->map(function ($role) {
                             return [
@@ -617,6 +620,51 @@ class AuthController extends Controller
         ], 200);
     }
 
+    // public function update(Request $request)
+    // {
+    //     try {
+    //         $admin = $request->user();
+
+    //         if (!$admin) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Unauthorized access'
+    //             ], 401);
+    //         }
+
+    //         $request->validate([
+    //             'name'            => 'required|string|max:150',
+    //             'email'           => 'required|email|unique:admins,email,' . $admin->id,
+    //             'password'        => 'nullable|min:6',
+    //         ]);
+
+    //         $admin->name = $request->name;
+    //         $admin->email = $request->email;
+
+
+    //         if ($request->filled('password')) {
+    //             $admin->password = Hash::make($request->password);
+    //         }
+
+    //         $admin->save();
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Profile updated successfully',
+    //             'data' => [
+    //                 'admin' => $admin
+    //             ]
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to update profile',
+    //             'errors' => [
+    //                 'auth' => ['Failed to update profile']
+    //             ]
+    //         ], 422);
+    //     }
+    // }
     public function update(Request $request)
     {
         try {
@@ -630,17 +678,31 @@ class AuthController extends Controller
             }
 
             $request->validate([
-                'name'            => 'required|string|max:150',
-                'email'           => 'required|email|unique:admins,email,' . $admin->id,
-                'password'        => 'nullable|min:6',
+                'name'         => 'required|string|max:150',
+                'email'        => 'required|email|unique:admins,email,' . $admin->id,
+                'password'     => 'nullable|string|min:6',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
             ]);
 
             $admin->name = $request->name;
             $admin->email = $request->email;
 
-
+            // Update password
             if ($request->filled('password')) {
                 $admin->password = Hash::make($request->password);
+            }
+
+            // Update profile image
+            if ($request->hasFile('profile_image')) {
+
+                // Delete old profile image
+                if ($admin->profile_image && Storage::disk('public')->exists($admin->profile_image)) {
+                    Storage::disk('public')->delete($admin->profile_image);
+                }
+
+                // Store new image
+                $admin->profile_image = $request->file('profile_image')
+                    ->store('admin/profile-images', 'public');
             }
 
             $admin->save();
@@ -652,7 +714,15 @@ class AuthController extends Controller
                     'admin' => $admin
                 ]
             ], 200);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors()
+            ], 422);
         } catch (\Exception $e) {
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update profile',
@@ -662,6 +732,8 @@ class AuthController extends Controller
             ], 422);
         }
     }
+
+
     public function getRegisteredUsers()
     {
         try {
