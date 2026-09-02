@@ -12,10 +12,13 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Exception;
+use App\Traits\AuditLogTrait;
 use Illuminate\Support\Facades\Validator;
 
 class OrderController extends Controller
 {
+    use AuditLogTrait;
+
     protected $checkoutService;
     protected $invoiceService;
 
@@ -89,16 +92,66 @@ class OrderController extends Controller
      * FR-CO-010: Cancel order (before dispatch)
      * POST /api/order/{orderReference}/cancel
      */
+    // public function cancel(Request $request, string $orderReference): JsonResponse
+    // {
+    //     try {
+    //         $request->validate([
+    //             'reason' => 'required|string|max:500',
+    //         ]);
+    //         $result = $this->checkoutService->cancelOrder(
+    //             auth()->id(),
+    //             $orderReference,
+    //             $request->reason
+    //         );
+
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $result,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
     public function cancel(Request $request, string $orderReference): JsonResponse
     {
         try {
             $request->validate([
                 'reason' => 'required|string|max:500',
             ]);
+
+            // Get order before cancellation for audit
+            $order = Order::where('order_reference', $orderReference)->first();
+            $oldStatus = $order?->status;
+
             $result = $this->checkoutService->cancelOrder(
                 auth()->id(),
                 $orderReference,
                 $request->reason
+            );
+
+            // Log cancellation
+            $this->logAudit(
+                'order_cancel',
+                'orders',
+                [
+                    'order_reference' => $orderReference,
+                    'status' => $oldStatus,
+                    'amount' => $order?->total_payable,
+                    'user_id' => auth()->id(),
+                ],
+                [
+                    'order_reference' => $orderReference,
+                    'status' => 'cancelled',
+                    'reason' => $request->reason,
+                    'cancelled_by' => auth()->id(),
+                    'cancelled_by_type' => Auth::guard('admin')->check() ? 'admin' : 'user',
+                    'cancelled_at' => now()->toDateTimeString(),
+                ],
+                auth()->id()
             );
 
             return response()->json([
@@ -1756,6 +1809,14 @@ class OrderController extends Controller
             }
 
             $order->updateOrderStatus();
+            // if ($order->status == 'dispatched') {
+
+            $existingInvoice = $order->invoice;
+
+            if (!$existingInvoice) {
+                $this->invoiceService->generateInvoice($order);
+            }
+            // }
 
             DB::commit();
 
@@ -1977,14 +2038,14 @@ class OrderController extends Controller
         |--------------------------------------------------------------------------
         | Generate invoice only when entire order is delivered
         */
-            if ($order->status == 'delivered') {
+            // if ($order->status == 'delivered') {
 
-                $existingInvoice = $order->invoice;
+            //     $existingInvoice = $order->invoice;
 
-                if (!$existingInvoice) {
-                    $this->invoiceService->generateInvoice($order);
-                }
-            }
+            //     if (!$existingInvoice) {
+            //         $this->invoiceService->generateInvoice($order);
+            //     }
+            // }
 
             DB::commit();
 

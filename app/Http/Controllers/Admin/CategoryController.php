@@ -12,9 +12,11 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use App\Traits\AuditLogTrait;
 
 class CategoryController extends Controller
 {
+    use AuditLogTrait;
     /**
      * Display a listing of categories.
      */
@@ -271,6 +273,24 @@ class CategoryController extends Controller
             $category = Category::create($data);
 
             DB::commit();
+            $this->logAudit(
+                'category_create',
+                'catalogue',
+                null,
+                [
+                    'category_id' => $category->id,
+                    'name' => $category->name,
+                    'slug' => $category->slug,
+                    'parent_id' => $category->parent_id,
+                    'parent_name' => $category->parent?->name,
+                    'description' => $category->description,
+                    'is_active' => $category->is_active,
+                    'sort_order' => $category->sort_order,
+                    'has_image' => !is_null($category->image),
+                    'created_by' => $this->getAdminId(),
+                    'created_at' => now()->toDateTimeString(),
+                ]
+            );
 
             return response()->json([
                 'success' => true,
@@ -346,6 +366,17 @@ class CategoryController extends Controller
                 'status' => 'nullable|in:active,inactive',
             ]);
 
+            $oldValues = [
+                'category_id' => $category->id,
+                'name' => $category->title,
+                'slug' => $category->slug,
+                'description' => $category->description,
+                'status' => $category->status,
+                'sort_order' => $category->sort_order,
+                'icon' => $category->icon,
+                'has_image' => !is_null($category->image)
+            ];
+
             if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
@@ -385,11 +416,24 @@ class CategoryController extends Controller
             if (!$request->hasFile('image') && !$request->has('image')) {
                 unset($data['image']);
             }
-
+            $newValues = [
+                'category_id' => $category->id,
+                'name' => $category->title,
+                'slug' => $category->slug,
+                'description' => $category->description,
+                'is_active' => $category->is_active,
+                'has_image' => !is_null($category->image),
+                'meta_title' => $category->meta_title,
+            ];
             $category->update($data);
 
             DB::commit();
-
+            $this->logAudit(
+                'category_update',
+                'catalogue',
+                $oldValues,
+                $newValues
+            );
             return response()->json([
                 'success' => true,
                 'message' => 'Category updated successfully',

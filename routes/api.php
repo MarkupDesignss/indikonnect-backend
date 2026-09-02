@@ -206,7 +206,7 @@ Route::prefix('products')->group(function () {
         Route::post('/{product}/toggle-publish', [ProductController::class, 'togglePublish']);
     });
 });
-Route::get('/global-search', [ProductController::class, 'globalSearch']);
+Route::post('/global-search', [ProductController::class, 'globalSearch']);
 Route::post('/products-deal-of-the-day/{id}', [ProductController::class, 'markAsDealOfTheDay']);
 Route::delete('/products-deal-of-the-day/{id}', [ProductController::class, 'removeDealOfTheDay']);
 Route::get('/products-deal-of-the-day', [ProductController::class, 'getDealOfTheDayProducts']);
@@ -412,7 +412,7 @@ Route::prefix('heritage')->group(function () {
 Route::prefix('footer')->group(function () {
     Route::get('/', [FooterController::class, 'index']);
     Route::post('/', [FooterController::class, 'store']);
-    Route::put('/update', [FooterController::class, 'update']);
+    Route::post('/update', [FooterController::class, 'update']);
 });
 
 Route::middleware('auth:sanctum')->group(function () {

@@ -40,6 +40,7 @@ class AuditLogController extends Controller
     //     ]);
     // }
 
+
     public function index(Request $request)
     {
         try {
@@ -83,17 +84,24 @@ class AuditLogController extends Controller
                         $newValues = json_decode($newValues, true);
                     }
 
+                    // Remove roles from old_values
+                    if (is_array($oldValues)) {
+                        unset($oldValues['roles']);
+                    }
+
+                    // Remove roles from new_values if present
+                    if (is_array($newValues)) {
+                        unset($newValues['roles']);
+                    }
+
                     return [
                         'id' => $log->id,
                         'user_id' => $log->user_id,
                         'action' => $log->action,
                         'module' => $log->module,
-
                         'old_values' => $oldValues ?: null,
                         'new_values' => $newValues ?: null,
-
                         'ip_address' => $log->ip_address,
-
                         'created_at' => $log->created_at
                     ];
                 });
@@ -113,6 +121,7 @@ class AuditLogController extends Controller
             ], 500);
         }
     }
+
 
     public function export(Request $request)
     {
