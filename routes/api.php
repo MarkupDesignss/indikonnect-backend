@@ -41,6 +41,7 @@ use App\Http\Controllers\API\BuybackController;
 use App\Http\Controllers\API\NotificationController;
 use App\Http\Controllers\API\UserNotificationController;
 use App\Http\Controllers\API\CoolingOffController;
+use App\Http\Controllers\API\CreditNoteController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\RoleController;
@@ -327,6 +328,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/checkout/apply-coupon', [CheckoutController::class, 'applyCoupon']);
     Route::post('/checkout/apply-shipping', [CheckoutController::class, 'applyShipping']);
     Route::post('/checkout/remove-coupon', [CheckoutController::class, 'removeCoupon']);
+
+    // ========== CREDIT NOTES (USER) ==========
+    Route::get('/orders/{orderReference}/credit-notes', [CreditNoteController::class, 'getByOrder']);
+    Route::get('/credit-notes/{id}', [CreditNoteController::class, 'userShow']);
+    Route::get('/credit-notes/{id}/download-data', [CreditNoteController::class, 'downloadData']);
 });
 
 // Public routes
@@ -609,6 +615,12 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
 
     // Helper routes
     Route::get('attributes-dropdown', [AttributeController::class, 'getForDropdown']);
+
+    // ========== CREDIT NOTES (ADMIN) ==========
+    Route::get('/credit-notes', [CreditNoteController::class, 'index']);
+    Route::get('/credit-notes/{id}', [CreditNoteController::class, 'show']);
+    Route::get('/credit-notes/{id}/download-data', [CreditNoteController::class, 'downloadAdminData']);
+    Route::get('/credit-notes/export', [CreditNoteController::class, 'export']);
 });
 
 Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);
