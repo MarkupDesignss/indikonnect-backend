@@ -12,6 +12,7 @@ use App\Services\PaymentGateway\RazorpayService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Schema;
 use Exception;
 use Carbon\Carbon;
 use App\Services\Commission\CommissionServiceInterface;
