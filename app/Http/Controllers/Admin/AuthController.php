@@ -15,12 +15,16 @@ use Carbon\Carbon;
 use App\Models\User;
 use App\Models\BusinessProfile;
 use Illuminate\Validation\Rule;
+use App\Traits\AuditLogTrait;
 use App\Models\RejectedUser;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+
+    use AuditLogTrait;
     // public function login(Request $request)
     // {
     //     // Validate input
@@ -35,24 +39,43 @@ class AuthController extends Controller
 
     //     // Attempt login with admin guard
     //     if (Auth::guard('admin')->attempt($credentials, $remember)) {
-
     //         $admin = Auth::guard('admin')->user();
+    //         // Load roles and permissions
+    //         $admin->load('roles.permissions');
 
+    //         // Get all permissions for the admin
+    //         $permissions = $this->getAdminPermissions($admin);
+
+    //         // Create token
     //         $token = $admin->createToken('admin-auth-token', ['admin'])->plainTextToken;
 
     //         return response()->json([
     //             'success' => true,
     //             'message' => 'Login successful',
     //             'data' => [
-    //                 'admin' => $admin,
+    //                 'admin' => [
+    //                     'id' => $admin->id,
+    //                     'name' => $admin->name,
+    //                     'email' => $admin->email,
+    //                     'roles' => $admin->roles->map(function ($role) {
+    //                         return [
+    //                             'id' => $role->id,
+    //                             'name' => $role->name,
+    //                             'slug' => $role->slug,
+    //                         ];
+    //                     }),
+    //                     'created_at' => $admin->created_at,
+    //                     'updated_at' => $admin->updated_at,
+    //                 ],
     //                 'token' => $token,
-    //                 'token_type' => 'Bearer'
+    //                 'token_type' => 'Bearer',
+    //                 'permissions' => $permissions
     //             ]
     //         ], 200);
     //     }
 
     //     // Check if admin exists for better error messages
-    //     $admin = \App\Models\Admin::where('email', $request->email)->first();
+    //     $admin = Admin::where('email', $request->email)->first();
 
     //     if (!$admin) {
     //         return response()->json([
@@ -83,124 +106,167 @@ class AuthController extends Controller
     //         ]
     //     ], 422);
     // }
-
-    // public function logout(Request $request)
-    // {
-    //     try {
-    //         // Revoke the current access token
-    //         $request->user()->currentAccessToken()->delete();
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'message' => 'Logout successful'
-    //         ], 200);
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Failed to logout, please try again'
-    //         ], 500);
-    //     }
-    // }
-    // public function me(Request $request)
-    // {
-    //     try {
-    //         $admin = $request->user();
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'data' => [
-    //                 'admin' => $admin
-    //             ]
-    //         ], 200);
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Failed to get user data'
-    //         ], 422);
-    //     }
-    // }
-
     public function login(Request $request)
     {
-        // Validate input
-        $request->validate([
-            'email'    => 'required|email',
-            'password' => 'required|string',
-            'remember' => 'nullable|boolean',
-        ]);
+        try {
+            $request->validate([
+                'email'    => 'required|email',
+                'password' => 'required|string',
+                'remember' => 'nullable|boolean',
+            ]);
 
-        $credentials = $request->only('email', 'password');
-        $remember = $request->boolean('remember');
+            $credentials = $request->only('email', 'password');
+            $remember = $request->boolean('remember');
 
-        // Attempt login with admin guard
-        if (Auth::guard('admin')->attempt($credentials, $remember)) {
-            $admin = Auth::guard('admin')->user();
-            // Load roles and permissions
-            $admin->load('roles.permissions');
+            // Attempt login with admin guard
+            if (Auth::guard('admin')->attempt($credentials, $remember)) {
 
-            // Get all permissions for the admin
-            $permissions = $this->getAdminPermissions($admin);
+                $admin = Auth::guard('admin')->user();
 
-            // Create token
-            $token = $admin->createToken('admin-auth-token', ['admin'])->plainTextToken;
+                // Load roles and permissions
+                $admin->load('roles.permissions');
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Login successful',
-                'data' => [
-                    'admin' => [
-                        'id' => $admin->id,
-                        'name' => $admin->name,
+                // Get all permissions
+                $permissions = $this->getAdminPermissions($admin);
+
+                // Create token
+                $token = $admin->createToken(
+                    'admin-auth-token',
+                    ['admin']
+                )->plainTextToken;
+
+                // Log successful login
+                $this->logAudit(
+                    'login',
+                    'auth',
+                    null,
+                    [
+                        'admin_id' => $admin->id,
                         'email' => $admin->email,
-                        'roles' => $admin->roles->map(function ($role) {
-                            return [
-                                'id' => $role->id,
-                                'name' => $role->name,
-                                'slug' => $role->slug,
-                            ];
-                        }),
-                        'created_at' => $admin->created_at,
-                        'updated_at' => $admin->updated_at,
+                        'status' => 'success',
+                        'login_method' => 'email_password',
                     ],
-                    'token' => $token,
-                    'token_type' => 'Bearer',
-                    'permissions' => $permissions
-                ]
-            ], 200);
-        }
+                    $admin->id
+                );
 
-        // Check if admin exists for better error messages
-        $admin = Admin::where('email', $request->email)->first();
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Login successful',
+                    'data' => [
+                        'admin' => [
+                            'id' => $admin->id,
+                            'name' => $admin->name,
+                            'email' => $admin->email,
+                            'profile_image' => $admin->profile_image
+                                ? url('storage/' . $admin->profile_image)
+                                : null,
+                            'roles' => $admin->roles->map(function ($role) {
+                                return [
+                                    'id' => $role->id,
+                                    'name' => $role->name,
+                                    'slug' => $role->slug,
+                                ];
+                            }),
+                            'created_at' => $admin->created_at,
+                            'updated_at' => $admin->updated_at,
+                        ],
+                        'token' => $token,
+                        'token_type' => 'Bearer',
+                        'permissions' => $permissions
+                    ]
+                ], 200);
+            }
 
-        if (!$admin) {
+            // Check if admin exists
+            $admin = Admin::where('email', $request->email)->first();
+
+            if (!$admin) {
+
+                // Log failed login
+                $this->logAudit(
+                    'login_failed',
+                    'auth',
+                    null,
+                    [
+                        'email' => $request->email,
+                        'status' => 'failed',
+                        'reason' => 'admin_not_found',
+                    ],
+                    null
+                );
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Admin not found with this email address',
+                    'errors' => [
+                        'email' => [
+                            'Admin not found with this email address'
+                        ]
+                    ]
+                ], 404);
+            }
+
+            // Check password
+            if (!Hash::check($request->password, $admin->password)) {
+
+                // Log failed login
+                $this->logAudit(
+                    'login_failed',
+                    'auth',
+                    null,
+                    [
+                        'admin_id' => $admin->id,
+                        'email' => $admin->email,
+                        'status' => 'failed',
+                        'reason' => 'incorrect_password',
+                    ],
+                    $admin->id
+                );
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Incorrect password provided',
+                    'errors' => [
+                        'password' => [
+                            'Incorrect password provided'
+                        ]
+                    ]
+                ], 422);
+            }
+
+            // Fallback
+            $this->logAudit(
+                'login_failed',
+                'auth',
+                null,
+                [
+                    'admin_id' => $admin->id,
+                    'email' => $admin->email,
+                    'status' => 'failed',
+                    'reason' => 'invalid_credentials',
+                ],
+                $admin->id
+            );
+
             return response()->json([
                 'success' => false,
-                'message' => 'Admin not found with this email address',
+                'message' => 'Invalid credentials provided',
                 'errors' => [
-                    'email' => ['Admin not found with this email address']
-                ]
-            ], 404);
-        }
-
-        if (!Hash::check($request->password, $admin->password)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Incorrect password provided',
-                'errors' => [
-                    'password' => ['Incorrect password provided']
+                    'email' => [
+                        'Invalid credentials provided'
+                    ]
                 ]
             ], 422);
-        }
+        } catch (\Exception $e) {
 
-        // Fallback
-        return response()->json([
-            'success' => false,
-            'message' => 'Invalid credentials provided',
-            'errors' => [
-                'email' => ['Invalid credentials provided']
-            ]
-        ], 422);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to login, please try again',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
+
 
     public function logout(Request $request)
     {

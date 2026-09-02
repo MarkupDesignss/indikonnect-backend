@@ -27,6 +27,13 @@ class PayoutController extends Controller
         return response()->json(['success' => true, 'data' => $runs]);
     }
 
+    // View a specific run
+    public function show($id)
+    {
+        $run = PayoutRun::with(['entries.distributor', 'creator'])->findOrFail($id);
+        return response()->json(['success' => true, 'data' => $run]);
+    }
+
     // Create a new payout run
     public function store(Request $request)
     {
@@ -57,12 +64,7 @@ class PayoutController extends Controller
         return response()->json(['success' => true, 'data' => $run->load('entries')]);
     }
 
-    // View a specific run
-    public function show($id)
-    {
-        $run = PayoutRun::with(['entries.distributor', 'creator'])->findOrFail($id);
-        return response()->json(['success' => true, 'data' => $run]);
-    }
+
 
     // Release a payout run (only pending entries)
     public function release($id)
