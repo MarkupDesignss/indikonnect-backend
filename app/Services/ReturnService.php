@@ -2320,6 +2320,7 @@ class ReturnService
      * @return array
      * @throws Exception
      */
+    
     protected function processRefund(OrderReturn $returnOrder): array
     {
         $order = $returnOrder->order;
@@ -2348,14 +2349,14 @@ class ReturnService
 
         try {
             Log::info('Starting Razorpay refund', [
-                'return_id' => $returnOrder->id,
-                'order_id'   => $order->id,
-                'payment_id' => $paymentId,
-                'refund_amount' => $refundAmount,
+                'return_id'       => $returnOrder->id,
+                'order_id'        => $order->id,
+                'payment_id'      => $paymentId,
+                'refund_amount'   => $refundAmount,
                 'amount_in_paise' => (int) round($refundAmount * 100),
                 'refund_breakdown' => [
                     'line_totals' => $this->getItemLineTotals($returnOrder),
-                    'shipping' => (float) $returnOrder->refund_shipping,
+                    'shipping'    => (float) $returnOrder->refund_shipping,
                 ],
             ]);
 
@@ -2367,46 +2368,63 @@ class ReturnService
             }
 
             // ============================================================
-            // INSERT INTO `refunds` TABLE
+            // ✅ MAP RAZORPAY STATUS TO YOUR ENUM VALUES
+            // ============================================================
+            $statusMap = [
+                'processing' => 'initiated',
+                'processed'  => 'completed',
+                'failed'     => 'failed',
+            ];
+            $refundStatus = $statusMap[$refundResponse['status']] ?? 'completed';
+
+            // ============================================================
+            // ✅ INSERT INTO `refunds` TABLE
             // ============================================================
             $refund = Refund::create([
                 'order_id'          => $order->id,
                 'return_id'         => $returnOrder->id,
                 'amount'            => $refundAmount,
                 'gateway_reference' => $refundResponse['refund_id'],
-                'status'            => $refundResponse['status'] ?? 'completed',
-                'completed_at'      => now(),
+                'status'            => $refundStatus,                     // <-- MAPPED VALUE
+                'completed_at'      => ($refundStatus === 'completed') ? now() : null,
                 'failure_reason'    => null,
             ]);
 
-            // Update OrderReturn with refund details and link
-            $returnOrder->update([
+            // Update OrderReturn with refund details and optional link
+            $updateData = [
                 'refund_transaction_id' => $refundResponse['refund_id'],
-                'refund_status'         => $refundResponse['status'] ?? 'processing',
+                'refund_status'         => $refundStatus,                 // store mapped status
                 'refund_processed_at'   => now(),
-                'refund_id'             => $refund->id,
-            ]);
+            ];
+
+            // If `refund_id` column exists on order_returns, link it
+            if (Schema::hasColumn('order_returns', 'refund_id')) {
+                $updateData['refund_id'] = $refund->id;
+            }
+
+            $returnOrder->update($updateData);
 
             Log::info('Refund record created', [
-                'refund_id' => $refund->id,
-                'return_id' => $returnOrder->id,
+                'refund_id'          => $refund->id,
+                'return_id'          => $returnOrder->id,
                 'refund_transaction_id' => $refundResponse['refund_id'],
+                'razorpay_status'    => $refundResponse['status'],
+                'mapped_status'      => $refundStatus,
             ]);
 
             Log::info('Refund successfully processed via Razorpay', [
                 'return_id' => $returnOrder->id,
                 'payment_id' => $paymentId,
                 'refund_id' => $refundResponse['refund_id'],
-                'refund_status' => $refundResponse['status'] ?? null,
+                'refund_status' => $refundStatus,
                 'amount' => $refundAmount,
-                'amount_in_paise' => (int) round($refundAmount * 100),
             ]);
 
             return $refundResponse;
         } catch (\Throwable $e) {
             Log::error('Refund failed for return', [
                 'return_id' => $returnOrder->id,
-                'order_id' => $order->id,
+                'order_id'  => $order->id,
                 'payment_id' => $paymentId,
                 'refund_amount' => $refundAmount,
                 'error' => $e->getMessage(),
@@ -2416,7 +2434,7 @@ class ReturnService
             throw new Exception('Failed to process refund: ' . $e->getMessage(), 0, $e);
         }
     }
-
+ 
     protected function calculateRefundAmountFromItems(OrderReturn $returnOrder): float
     {
         $totalLineTotal = 0.00;
