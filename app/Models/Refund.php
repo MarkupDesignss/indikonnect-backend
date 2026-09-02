@@ -30,4 +30,9 @@ class Refund extends Model
     {
         return $this->belongsTo(OrderReturn::class);
     }
+    
+    public function creditNote(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(CreditNote::class);
+    }
 }

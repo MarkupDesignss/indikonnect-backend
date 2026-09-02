@@ -478,4 +478,9 @@ class Order extends Model
 
         return $summary;
     }
+
+    public function creditNotes(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(CreditNote::class);
+    }
 }
