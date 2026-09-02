@@ -21,10 +21,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
-
+use App\Traits\AuditLogTrait;
 
 class ProductController extends Controller
 {
+    use AuditLogTrait;
     /**
      * Get user's wishlist product IDs
      */
@@ -860,6 +861,7 @@ class ProductController extends Controller
             $this->handleProductImages($request, $product);
 
             // Handle variants with their images
+            $variantDetails = [];
             if ($hasVariants) {
                 $totalStock = 0;
 
@@ -878,6 +880,14 @@ class ProductController extends Controller
                     if (!empty($variantImages)) {
                         $this->handleVariantImages($request, $variant, $variantImages);
                     }
+                    $variantDetails[] = [
+                        'sku' => $variantData['sku'],
+                        'attributes' => $variantData['attributes'],
+                        'retail_mrp' => $variantData['retail_mrp'],
+                        'distributor_mrp' => $variantData['distributor_mrp'] ?? null,
+                        'stock_quantity' => $variantData['stock_quantity'] ?? 0,
+                        'is_active' => $variantData['is_active'] ?? true,
+                    ];
                 }
 
                 // Update product stock with total from variants
@@ -886,6 +896,35 @@ class ProductController extends Controller
 
             DB::commit();
             $product->load(['category', 'taxCategory', 'images', 'variants.images']);
+            $this->logAudit(
+                'product_create',
+                'catalogue',
+                null,
+                [
+                    'product_id' => $product->id,
+                    'product_code' => $product->product_code,
+                    'name' => $product->name,
+                    'slug' => $product->slug,
+                    'category_id' => $product->category_id,
+                    'category_name' => $product->category?->name,
+                    'tax_category_id' => $product->tax_category_id,
+                    'retail_mrp' => $product->retail_mrp,
+                    'retail_price' => $product->retail_price,
+                    'distributor_mrp' => $product->distributor_mrp,
+                    'distributor_price' => $product->distributor_price,
+                    'stock_quantity' => $product->stock_quantity,
+                    'low_stock_threshold' => $product->low_stock_threshold,
+                    'is_published' => $product->is_published,
+                    'is_trending' => $product->is_trending,
+                    'sale_type' => $product->sale_type,
+                    'has_variants' => $hasVariants,
+                    'variants_count' => count($variantDetails),
+                    'variants' => $variantDetails,
+                    'created_by' => $this->getAdminId(),
+                    'created_at' => now()->toDateTimeString(),
+                ]
+            );
+
 
             return response()->json($this->formatProduct($product), 201);
         } catch (\Exception $e) {
@@ -1230,7 +1269,31 @@ class ProductController extends Controller
         DB::beginTransaction();
         try {
             $validated = $validator->validated();
-
+            $oldValues = [
+                'product_id' => $product->id,
+                'product_code' => $product->product_code,
+                'name' => $product->name,
+                'slug' => $product->slug,
+                'category_id' => $product->category_id,
+                'tax_category_id' => $product->tax_category_id,
+                'retail_mrp' => $product->retail_mrp,
+                'retail_price' => $product->retail_price,
+                'retail_discount_type' => $product->retail_discount_type,
+                'retail_discount_value' => $product->retail_discount_value,
+                'distributor_mrp' => $product->distributor_mrp,
+                'distributor_price' => $product->distributor_price,
+                'distributor_discount_type' => $product->distributor_discount_type,
+                'distributor_discount_value' => $product->distributor_discount_value,
+                'stock_quantity' => $product->stock_quantity,
+                'low_stock_threshold' => $product->low_stock_threshold,
+                'is_published' => $product->is_published,
+                'is_trending' => $product->is_trending,
+                'sale_type' => $product->sale_type,
+                'description' => $product->description,
+                'specification' => $product->specification,
+                'hsn_code' => $product->hsn_code,
+                'uom' => $product->uom,
+            ];
             // Update product data
             $productData = collect($validated)->except(['product_images', 'variants', 'remove_images', 'remove_variants'])->toArray();
 
@@ -1284,13 +1347,25 @@ class ProductController extends Controller
 
             // Handle product images
             $this->handleProductImageUpdates($request, $product);
+            $variantUpdateDetails = [];
 
             // Handle variants
             if ($hasVariants) {
                 $totalStock = $this->handleVariantUpdates($product, $validated);
-
-                // Update product stock with total from variants
                 $product->update(['stock_quantity' => $totalStock]);
+                // Get updated variants for audit
+                $updatedVariants = $product->variants()->get();
+                foreach ($updatedVariants as $variant) {
+                    $variantUpdateDetails[] = [
+                        'id' => $variant->id,
+                        'sku' => $variant->sku,
+                        'attributes' => $variant->attributes,
+                        'retail_mrp' => $variant->retail_mrp,
+                        'distributor_mrp' => $variant->distributor_mrp,
+                        'stock_quantity' => $variant->stock_quantity,
+                        'is_active' => $variant->is_active,
+                    ];
+                }
             } else {
                 // If no variants, ensure stock_quantity is preserved from the request
                 if (isset($validated['stock_quantity'])) {
@@ -1300,7 +1375,44 @@ class ProductController extends Controller
 
             DB::commit();
             $product->load(['category', 'taxCategory', 'images', 'variants.images']);
-
+            $newValues = [
+                'product_id' => $product->id,
+                'product_code' => $product->product_code,
+                'name' => $product->name,
+                'slug' => $product->slug,
+                'category_id' => $product->category_id,
+                'category_name' => $product->category?->name,
+                'tax_category_id' => $product->tax_category_id,
+                'retail_mrp' => $product->retail_mrp,
+                'retail_price' => $product->retail_price,
+                'retail_discount_type' => $product->retail_discount_type,
+                'retail_discount_value' => $product->retail_discount_value,
+                'distributor_mrp' => $product->distributor_mrp,
+                'distributor_price' => $product->distributor_price,
+                'distributor_discount_type' => $product->distributor_discount_type,
+                'distributor_discount_value' => $product->distributor_discount_value,
+                'stock_quantity' => $product->stock_quantity,
+                'low_stock_threshold' => $product->low_stock_threshold,
+                'is_published' => $product->is_published,
+                'is_trending' => $product->is_trending,
+                'trending_sort_order' => $product->trending_sort_order,
+                'sale_type' => $product->sale_type,
+                'description' => $product->description,
+                'specification' => $product->specification,
+                'hsn_code' => $product->hsn_code,
+                'uom' => $product->uom,
+                'has_variants' => $hasVariants,
+                'variants_count' => count($variantUpdateDetails),
+                'variants' => $variantUpdateDetails,
+                'updated_by' => $this->getAdminId(),
+                'updated_at' => now()->toDateTimeString(),
+            ];
+            $this->logAudit(
+                'product_update',
+                'catalogue',
+                $oldValues,
+                $newValues
+            );
             return response()->json($this->formatProduct($product));
         } catch (\Exception $e) {
             DB::rollBack();
@@ -2772,7 +2884,7 @@ class ProductController extends Controller
             $product->update([
                 'is_deal_of_the_day' => true,
                 'deal_of_the_day_starts_at' => $request->starts_at ?? now(),
-                'deal_of_the_day_ends_at' => $request->ends_at ?? null,
+                'deal_of_the_day_ends_at' => $request->ends_at ?? now()->addHours(24),
                 'sale_type' => $request->sale_type,
             ]);
 
@@ -3661,7 +3773,8 @@ class ProductController extends Controller
             ->orWhere('hsn_code', 'LIKE', "%{$searchTerm}%")
             ->select('id', 'name')
             ->with(['images' => function ($query) {
-                $query->select('product_id', 'image')->first();
+                $query->where('is_primary', true)
+                    ->select('product_id', 'image');
             }])
             ->paginate($perPage, ['*'], 'products_page');
 

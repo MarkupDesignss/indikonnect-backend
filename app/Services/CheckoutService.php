@@ -23,9 +23,12 @@ use App\Models\ShippingMethod;
 use App\Models\CouponUsage;
 use App\Models\ProductVariant;
 use Illuminate\Support\Facades\Auth;
+use App\Traits\AuditLogTrait;
 
 class CheckoutService
 {
+    use AuditLogTrait;
+
     protected GSTCalculator $gstCalculator;
     protected InvoiceService $invoiceService;
     protected RazorpayService $razorpayService;
@@ -2206,6 +2209,7 @@ class CheckoutService
     /**
      * FR-CO-006: Confirm order via webhook
      */
+
     // public function confirmOrder(string $orderReference, array $gatewayData): array
     // {
     //     $order = Order::where('order_reference', $orderReference)->firstOrFail();
@@ -2223,89 +2227,85 @@ class CheckoutService
     //             'amount_paid' => $order->total_payable,
     //         ]);
 
-    //         // Decrement stock
+    //         // Decrement stock for products and variants
     //         foreach ($order->lines as $line) {
-    //             $product = $line->product;
-    //             $product->decrement('stock_quantity', $line->quantity);
+    //             // Check if line has variant
+    //             if ($line->variant_id) {
+    //                 $variant = $line->variant;
+    //                 if ($variant) {
+    //                     // Decrement variant stock
+    //                     $variant->decrement('stock_quantity', $line->quantity);
 
-    //             StockMovement::create([
-    //                 'product_id' => $product->id,
-    //                 'quantity' => -$line->quantity,
-    //                 'available_quantity_after' => $product->stock_quantity,
-    //                 'reason' => 'Order confirmed: ' . $order->order_reference,
-    //                 'order_id' => $order->id,
-    //             ]);
+    //                     // Also decrement product stock if tracking at product level
+    //                     $product = $line->product;
+    //                     if ($product) {
+    //                         $product->decrement('stock_quantity', $line->quantity);
+    //                     }
 
-    //             // ========== UPDATE ORDER LINE DELIVERY STATUS ==========
+    //                     // Log variant stock movement
+    //                     StockMovement::create([
+    //                         'product_id' => $line->product_id,
+    //                         'variant_id' => $line->variant_id,
+    //                         'quantity' => -$line->quantity,
+    //                         'available_quantity_after' => $variant->stock_quantity,
+    //                         'reason' => 'Order confirmed (variant): ' . $order->order_reference,
+    //                         'order_id' => $order->id,
+    //                     ]);
+
+    //                     // Check variant low stock
+    //                     $variant->refresh();
+    //                     if ($variant->stock_quantity <= $variant->low_stock_threshold) {
+    //                         $this->sendLowStockNotification($order, $line, 'variant');
+    //                     }
+    //                 }
+    //             } else {
+    //                 // Decrement product stock (no variant)
+    //                 $product = $line->product;
+    //                 if ($product) {
+    //                     $product->decrement('stock_quantity', $line->quantity);
+
+    //                     // Log product stock movement
+    //                     StockMovement::create([
+    //                         'product_id' => $line->product_id,
+    //                         'variant_id' => null,
+    //                         'quantity' => -$line->quantity,
+    //                         'available_quantity_after' => $product->stock_quantity,
+    //                         'reason' => 'Order confirmed: ' . $order->order_reference,
+    //                         'order_id' => $order->id,
+    //                     ]);
+
+    //                     // Check product low stock
+    //                     $product->refresh();
+    //                     if ($product->stock_quantity <= $product->low_stock_threshold) {
+    //                         $this->sendLowStockNotification($order, $line, 'product');
+    //                     }
+    //                 }
+    //             }
+
     //             $line->update([
     //                 'delivery_status' => 'confirmed'
     //             ]);
-
-    //             // ========== LOW STOCK NOTIFICATION ==========
-    //             // Refresh product to get updated stock
-    //             $product->refresh();
-
-    //             // Check if stock is below or equal to threshold
-    //             if ($product->stock_quantity <= $product->low_stock_threshold) {
-    //                 try {
-    //                     $message = sprintf(
-    //                         "Product '%s' (Code: %s) is running low on stock. Current stock: %d. Threshold: %d",
-    //                         $product->name,
-    //                         $product->product_code,
-    //                         $product->stock_quantity,
-    //                         $product->low_stock_threshold
-    //                     );
-
-    //                     \App\Models\AdminNotification::create([
-    //                         'admin_id' => 1,
-    //                         'type' => 'low_stock_alert',
-    //                         'title' => 'ow Stock Alert',
-    //                         'message' => $message,
-    //                         'reference_type' => 'product',
-    //                         'reference_id' => $product->id,
-    //                         'priority' => 'critical',
-    //                         'extra_data' => json_encode([
-    //                             'product_code' => $product->product_code,
-    //                             'product_name' => $product->name,
-    //                             'current_stock' => $product->stock_quantity,
-    //                             'threshold' => $product->low_stock_threshold,
-    //                             'category_id' => $product->category_id
-    //                         ]),
-    //                         'created_at' => now(),
-    //                         'updated_at' => now(),
-    //                     ]);
-
-    //                     Log::info('Low stock notification sent', [
-    //                         'product_id' => $product->id,
-    //                         'current_stock' => $product->stock_quantity
-    //                     ]);
-    //                 } catch (\Exception $e) {
-    //                     Log::error('Failed to send low stock notification: ' . $e->getMessage(), [
-    //                         'product_id' => $product->id
-    //                     ]);
-    //                 }
-    //             }
-    //             // ==========================================
     //         }
 
-    //         // Delete the cart and its items
-    //         $cart = Cart::where('user_id', $order->user_id)->first();
-    //         if ($cart) {
-    //             $cart->items()->delete();
-    //             $cart->delete();
+    //         // Delete the cart and its items (only for cart checkout)
+    //         if ($order->checkout_type !== 'buy_now') {
+    //             $cart = Cart::where('user_id', $order->user_id)->first();
+    //             if ($cart) {
+    //                 $cart->items()->delete();
+    //                 $cart->delete();
+    //             }
     //         }
 
     //         // Generate invoice using stored summary data
-    //         $invoice = $this->invoiceService->generateInvoice($order);
+    //         // $invoice = $this->invoiceService->generateInvoice($order);
 
-    //         // Generate PDF and send email
-    //         try {
-    //             $this->pdfInvoiceService->generateAndSendInvoice($order, $invoice);
-    //         } catch (\Exception $e) {
-    //             Log::error('Failed to send invoice email: ' . $e->getMessage(), [
-    //                 'order_id' => $order->id
-    //             ]);
-    //         }
+    //         // try {
+    //         //     $this->pdfInvoiceService->generateAndSendInvoice($order, $invoice);
+    //         // } catch (\Exception $e) {
+    //         //     Log::error('Failed to send invoice email: ' . $e->getMessage(), [
+    //         //         'order_id' => $order->id
+    //         //     ]);
+    //         // }
 
     //         // Build full payload for commission API
     //         $payload = $this->buildCommissionPayload($order);
@@ -2322,108 +2322,15 @@ class CheckoutService
     //             'response_data' => null,
     //         ]);
 
-    //         // ========== ORDER CONFIRMATION NOTIFICATION ==========
-    //         try {
-    //             $message = sprintf(
-    //                 "Order #%s has been confirmed. Total amount: %s. Customer: %s",
-    //                 $order->order_reference,
-    //                 number_format($order->total_payable, 2),
-    //                 $order->user->name ?? 'Guest'
-    //             );
-
-    //             \App\Models\AdminNotification::create([
-    //                 'admin_id' => 1,
-    //                 'type' => 'order_confirmed',
-    //                 'title' => 'New Order Confirmed',
-    //                 'message' => $message,
-    //                 'reference_type' => 'order',
-    //                 'reference_id' => $order->id,
-    //                 'priority' => 'high',
-    //                 'extra_data' => json_encode([
-    //                     'order_reference' => $order->order_reference,
-    //                     'total_payable' => $order->total_payable,
-    //                     'customer_name' => $order->user->name ?? 'Guest',
-    //                     'confirmed_at' => now()->toDateTimeString()
-    //                 ]),
-    //                 'created_at' => now(),
-    //                 'updated_at' => now(),
-    //             ]);
-
-    //             Log::info('Order confirmation notification sent', ['order_id' => $order->id]);
-    //         } catch (\Exception $e) {
-    //             Log::error('Failed to send order confirmation notification: ' . $e->getMessage(), [
-    //                 'order_id' => $order->id
-    //             ]);
-    //         }
-    //         // ==================================================
-    //         // ========== SEND DYNAMIC NOTIFICATION TO CUSTOMER ==========
-    //         // In confirmOrder method, before calling sendUserNotification
-    //         try {
-    //             $user = $order->user;
-
-    //             if ($user) {
-    //                 // Prepare data for template placeholders
-    //                 $templateData = [
-    //                     'order_reference' => $order->order_reference,
-    //                     'total_payable' => number_format($order->total_payable, 2),
-    //                     'order_date' => $order->created_at->format('d M Y, h:i A'),
-    //                     'customer_name' => $user->full_name ?? $user->name ?? 'Customer',
-    //                     'order_id' => $order->id,
-    //                     'confirmed_at' => now()->format('d M Y, h:i A'),
-    //                     'payment_gateway' => $gatewayData['gateway'],
-    //                     'transaction_id' => $gatewayData['transaction_id'],
-    //                     'amount_paid' => number_format($order->total_payable, 2),
-    //                 ];
-
-    //                 // Build extra data for notification
-    //                 $extraNotificationData = [
-    //                     'order_id' => $order->id,
-    //                     'order_reference' => $order->order_reference,
-    //                     'total_payable' => $order->total_payable,
-    //                     'confirmed_at' => now()->toDateTimeString(),
-    //                     'items' => $order->lines->map(function ($line) {
-    //                         $product = $line->product;
-    //                         $image = $product->images->first();
-
-    //                         return [
-    //                             'product_id' => $product->id,
-    //                             'product_name' => $product->name,
-    //                             'product_slug' => $product->slug ?? '',
-    //                             'quantity' => $line->quantity,
-    //                             'price' => $line->price,
-    //                             'total' => $line->quantity * $line->price,
-    //                             'image_url' => $image
-    //                                 ? ($image->url ?? ($image->image_url ? Storage::url($image->image_url) : null))
-    //                                 : null,
-    //                         ];
-    //                     })->toArray()
-    //                 ];
-
-    //                 // Send notification using dynamic template system with extra data
-    //                 $this->notificationService->sendUserNotification(
-    //                     $user,
-    //                     'order_confirmed',
-    //                     $templateData,
-    //                     ['database', 'mail'],
-    //                     $extraNotificationData  // Pass extra data
-    //                 );
-    //             }
-    //         } catch (\Exception $e) {
-    //             Log::error('Failed to send dynamic notification to customer: ' . $e->getMessage(), [
-    //                 'order_id' => $order->id,
-    //                 'user_id' => $order->user_id ?? null
-    //             ]);
-    //         }
-    //         // ==========================================================
-
-
+    //         // Send order confirmation notification
+    //         $this->sendOrderConfirmationNotification($order, $gatewayData);
 
     //         return [
     //             'success' => true,
     //             'order_id' => $order->id,
     //             'order_reference' => $order->order_reference,
     //             'status' => 'confirmed',
-    //             'invoice_number' => $invoice->invoice_number,
+    //             // 'invoice_number' => $invoice->invoice_number,
     //         ];
     //     });
     // }
@@ -2436,6 +2343,8 @@ class CheckoutService
         }
 
         return DB::transaction(function () use ($order, $gatewayData) {
+            $oldStatus = $order->status;
+
             $order->update([
                 'status' => 'confirmed',
                 'confirmed_at' => now(),
@@ -2443,6 +2352,8 @@ class CheckoutService
                 'gateway_transaction_id' => $gatewayData['transaction_id'],
                 'amount_paid' => $order->total_payable,
             ]);
+
+            $lowStockAlerts = [];
 
             // Decrement stock for products and variants
             foreach ($order->lines as $line) {
@@ -2472,7 +2383,15 @@ class CheckoutService
                         // Check variant low stock
                         $variant->refresh();
                         if ($variant->stock_quantity <= $variant->low_stock_threshold) {
-                            $this->sendLowStockNotification($order, $line, 'variant');
+                            $alert = $this->sendLowStockNotification($order, $line, 'variant');
+                            $lowStockAlerts[] = [
+                                'product_id' => $line->product_id,
+                                'variant_id' => $line->variant_id,
+                                'product_name' => $line->product?->name ?? 'Unknown',
+                                'stock' => $variant->stock_quantity,
+                                'threshold' => $variant->low_stock_threshold,
+                                'alert_type' => 'variant_low_stock'
+                            ];
                         }
                     }
                 } else {
@@ -2494,7 +2413,14 @@ class CheckoutService
                         // Check product low stock
                         $product->refresh();
                         if ($product->stock_quantity <= $product->low_stock_threshold) {
-                            $this->sendLowStockNotification($order, $line, 'product');
+                            $alert = $this->sendLowStockNotification($order, $line, 'product');
+                            $lowStockAlerts[] = [
+                                'product_id' => $line->product_id,
+                                'product_name' => $product->name,
+                                'stock' => $product->stock_quantity,
+                                'threshold' => $product->low_stock_threshold,
+                                'alert_type' => 'product_low_stock'
+                            ];
                         }
                     }
                 }
@@ -2502,6 +2428,40 @@ class CheckoutService
                 $line->update([
                     'delivery_status' => 'confirmed'
                 ]);
+            }
+
+            // Log order confirmation with low stock alerts
+            $this->logAudit(
+                'order_confirm',
+                'orders',
+                [
+                    'order_reference' => $order->order_reference,
+                    'status' => $oldStatus,
+                    'total_amount' => $order->total_payable,
+                    'user_id' => $order->user_id ?? Auth::user()->id,
+                ],
+                [
+                    'order_reference' => $order->order_reference,
+                    'status' => 'confirmed',
+                    'confirmed_at' => now()->toDateTimeString(),
+                    'payment_gateway' => $gatewayData['gateway'],
+                    'transaction_id' => $gatewayData['transaction_id'],
+                    'amount_paid' => $order->total_payable,
+                    'low_stock_alerts' => $lowStockAlerts,
+                    'confirmed_by' => $this->getAdminId(),
+                ]
+            );
+
+            // If low stock alerts exist, log them separately
+            foreach ($lowStockAlerts as $alert) {
+                $this->logAudit(
+                    'low_stock_alert',
+                    'inventory',
+                    null,
+                    $alert,
+                    null,
+                    $this->getClientIp()
+                );
             }
 
             // Delete the cart and its items (only for cart checkout)
@@ -2547,7 +2507,7 @@ class CheckoutService
                 'order_id' => $order->id,
                 'order_reference' => $order->order_reference,
                 'status' => 'confirmed',
-                // 'invoice_number' => $invoice->invoice_number,
+                'invoice_number' => $invoice->invoice_number ?? null,
             ];
         });
     }
