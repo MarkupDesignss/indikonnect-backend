@@ -139,7 +139,7 @@ class AuthController extends Controller
                 $this->logAudit(
                     'login',
                     'auth',
-                    null,
+                    $admin->toArray(),
                     [
                         'admin_id' => $admin->id,
                         'email' => $admin->email,
@@ -275,6 +275,19 @@ class AuthController extends Controller
             $admin = $request->user('admin');
 
             if ($admin && $admin->currentAccessToken()) {
+                $this->logAudit(
+                    'logout',
+                    'auth',
+                    $admin->toArray(),
+                    [
+                        'admin_id' => $admin->id,
+                        'email' => $admin->email,
+                        'session_id' => $admin->currentAccessToken()->id ?? null,
+                        'status' => 'success'
+                    ],
+                    $admin->id
+                );
+
                 $admin->currentAccessToken()->delete();
             }
 
@@ -908,10 +921,30 @@ class AuthController extends Controller
                     ]
                 ], 404);
             }
-
+            $oldStatus = $user->is_active;
+            $newStatus = $request->is_active;
             // Update status from request
             $user->is_active = $request->is_active;
             $user->save();
+
+            $this->logAudit(
+                'user_status_change',
+                'user_management',
+                [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                    'old_status' => $oldStatus ? 'active' : 'inactive',
+                    'old_is_active' => $oldStatus,
+                ],
+                [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                    'new_status' => $newStatus ? 'active' : 'inactive',
+                    'new_is_active' => $newStatus,
+                    'changed_by' => $this->getAdminId(),
+                    'action' => $newStatus ? 'activation' : 'deactivation'
+                ]
+            );
 
             return response()->json([
                 'success' => true,
