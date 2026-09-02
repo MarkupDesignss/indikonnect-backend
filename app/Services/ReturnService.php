@@ -2076,6 +2076,160 @@ class ReturnService
         return 'pending';
     }
 
+    // public function markReturnReceived(int $returnId): array
+    // {
+    //     $returnOrder = OrderReturn::with([
+    //         'order',
+    //         'user',
+    //         'order.lines',
+    //     ])->findOrFail($returnId);
+
+    //     if (!$returnOrder->canMarkReceived()) {
+    //         throw new Exception(
+    //             'Only approved returns can be marked as received.'
+    //         );
+    //     }
+
+    //     return DB::transaction(function () use ($returnOrder) {
+    //         /*
+    //      * 1. Mark return as received
+    //      */
+    //         $returnOrder->update([
+    //             'status' => 'received',
+    //             'received_at' => now(),
+    //         ]);
+
+    //         $this->createReturnNotification($returnOrder, 'received');
+
+    //         /*
+    //      * 2. Process Razorpay refund using the line_total
+    //      * The total_refund_amount already includes line_totals + shipping
+    //      */
+    //         $refundResponse = $this->processRefund($returnOrder);
+
+    //         if (!is_array($refundResponse) || empty($refundResponse['refund_id'])) {
+    //             throw new Exception(
+    //                 'Refund failed. Razorpay refund ID was not returned.'
+    //             );
+    //         }
+
+    //         $returnOrder->refresh();
+
+    //         /*
+    //      * 3. Mark return as completed
+    //      */
+    //         $returnOrder->update([
+    //             'status' => OrderReturn::STATUS_COMPLETED,
+    //             'completed_at' => now(),
+    //         ]);
+
+    //         /*
+    //      * 4. Update individual order lines to 'returned' status
+    //      */
+    //         foreach ($returnOrder->items ?? [] as $item) {
+    //             $orderLineId = is_array($item)
+    //                 ? ($item['order_line_id'] ?? null)
+    //                 : ($item->order_line_id ?? null);
+
+    //             if (!$orderLineId) {
+    //                 continue;
+    //             }
+
+    //             $orderLine = OrderLine::find($orderLineId);
+    //             if ($orderLine && $orderLine->return_status === 'approved') {
+    //                 if ($orderLine->delivery_status !== 'return_approved') {
+    //                     throw new Exception(
+    //                         "Cannot complete return - item '{$orderLine->product->name}' is not delivered."
+    //                     );
+    //                 }
+
+    //                 $orderLine->update([
+    //                     'return_status' => 'returned',
+    //                     'delivery_status' => 'returned',
+    //                     'return_completed_at' => now(),
+    //                 ]);
+    //             }
+    //         }
+
+    //         /*
+    //      * 5. Update order-level return status
+    //      */
+    //         $this->updateOrderReturnStatus($returnOrder->order);
+
+    //         /*
+    //      * 6. Update order main status
+    //      */
+    //         $this->updateOrderMainStatus($returnOrder->order);
+
+    //         /*
+    //      * 7. Completed notification
+    //      */
+    //         $this->createReturnNotification($returnOrder, 'completed');
+
+    //         /*
+    //      * 8. Final logging with detailed refund breakdown
+    //      */
+    //         Log::info(
+    //             'Return marked as received and Razorpay refund completed',
+    //             [
+    //                 'return_id' => $returnOrder->id,
+    //                 'order_id' => $returnOrder->order_id,
+    //                 'order_status' => $returnOrder->order->status,
+    //                 'payment_id' => $returnOrder->order->gateway_transaction_id ?? null,
+    //                 'refund_amount' => $returnOrder->total_refund_amount,
+    //                 'refund_transaction_id' => $returnOrder->refund_transaction_id,
+    //                 'refund_breakdown' => [
+    //                     'subtotal' => $returnOrder->refund_subtotal,
+    //                     'tax' => $returnOrder->refund_tax,
+    //                     'shipping' => $returnOrder->refund_shipping,
+    //                 ],
+    //                 'items' => array_map(function ($item) {
+    //                     return [
+    //                         'order_line_id' => $item['order_line_id'],
+    //                         'product_name' => $item['product_name'] ?? 'Unknown',
+    //                         'line_total' => $item['line_total'] ?? 0,
+    //                         'status' => 'returned'
+    //                     ];
+    //                 }, $returnOrder->items),
+    //             ]
+    //         );
+
+    //         /*
+    //      * 9. Return API response with detailed refund breakdown
+    //      */
+    //         return [
+    //             'success' => true,
+    //             'message' => 'Return marked as received and refund processed successfully.',
+    //             'return_id' => $returnOrder->id,
+    //             'order_status' => $returnOrder->order->status,
+    //             'order_return_status' => $returnOrder->order->return_status,
+    //             'status' => OrderReturn::STATUS_COMPLETED,
+    //             'refund_amount' => (float) $returnOrder->total_refund_amount,
+    //             'refund_breakdown' => [
+    //                 'subtotal' => (float) $returnOrder->refund_subtotal,
+    //                 'tax' => (float) $returnOrder->refund_tax,
+    //                 'shipping' => (float) $returnOrder->refund_shipping,
+    //             ],
+    //             'refund_transaction_id' => $returnOrder->refund_transaction_id,
+    //             'refund_status' => $returnOrder->refund_status,
+    //             'items' => array_map(function ($item) {
+    //                 return [
+    //                     'order_line_id' => $item['order_line_id'] ?? null,
+    //                     'product_id' => $item['product_id'] ?? null,
+    //                     'product_name' => $item['product_name'] ?? 'Unknown',
+    //                     'quantity' => $item['quantity'] ?? 0,
+    //                     'line_total' => $item['line_total'] ?? 0,
+    //                     'return_status' => 'returned',
+    //                     'return_completed_at' => now()->toDateTimeString(),
+    //                 ];
+    //             }, $returnOrder->items ?? []),
+    //         ];
+    //     });
+    // }
+
+    /**
+     * Admin: Mark return as received and process refund
+     */
     public function markReturnReceived(int $returnId): array
     {
         $returnOrder = OrderReturn::with([
@@ -2085,15 +2239,11 @@ class ReturnService
         ])->findOrFail($returnId);
 
         if (!$returnOrder->canMarkReceived()) {
-            throw new Exception(
-                'Only approved returns can be marked as received.'
-            );
+            throw new Exception('Only approved returns can be marked as received.');
         }
 
         return DB::transaction(function () use ($returnOrder) {
-            /*
-         * 1. Mark return as received
-         */
+            // 1. Mark return as received
             $returnOrder->update([
                 'status' => 'received',
                 'received_at' => now(),
@@ -2101,31 +2251,53 @@ class ReturnService
 
             $this->createReturnNotification($returnOrder, 'received');
 
-            /*
-         * 2. Process Razorpay refund using the line_total
-         * The total_refund_amount already includes line_totals + shipping
-         */
+            // 2. Process refund via Razorpay
             $refundResponse = $this->processRefund($returnOrder);
 
             if (!is_array($refundResponse) || empty($refundResponse['refund_id'])) {
-                throw new Exception(
-                    'Refund failed. Razorpay refund ID was not returned.'
-                );
+                throw new Exception('Refund failed. Razorpay refund ID was not returned.');
             }
 
-            $returnOrder->refresh();
+            // 3. Get the refund record from database
+            $refund = Refund::where('return_id', $returnOrder->id)
+                ->where('gateway_reference', $refundResponse['refund_id'])
+                ->first();
 
-            /*
-         * 3. Mark return as completed
-         */
+            if (!$refund) {
+                throw new Exception('Refund record not found in database.');
+            }
+
+            // ============================================================
+            // GENERATE CREDIT NOTE
+            // ============================================================
+            try {
+                $creditNoteService = app(\App\Services\CreditNoteService::class);
+                $creditNote = $creditNoteService->generateFromReturn($returnOrder, $refund->id);
+                
+                Log::info('Credit note generated in markReturnReceived', [
+                    'credit_note_id' => $creditNote->id,
+                    'refund_id' => $refund->id,
+                    'return_id' => $returnOrder->id,
+                ]);
+            } catch (\Exception $e) {
+                // Log error but don't block the return flow
+                Log::error('Failed to generate credit note', [
+                    'return_id' => $returnOrder->id,
+                    'refund_id' => $refund->id,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                // Credit note failure should NOT break the refund process
+            }
+            // ============================================================
+
+            // 4. Mark return as completed
             $returnOrder->update([
                 'status' => OrderReturn::STATUS_COMPLETED,
                 'completed_at' => now(),
             ]);
 
-            /*
-         * 4. Update individual order lines to 'returned' status
-         */
+            // 5. Update individual order lines to 'returned' status
             foreach ($returnOrder->items ?? [] as $item) {
                 $orderLineId = is_array($item)
                     ? ($item['order_line_id'] ?? null)
@@ -2151,52 +2323,16 @@ class ReturnService
                 }
             }
 
-            /*
-         * 5. Update order-level return status
-         */
+            // 6. Update order-level return status
             $this->updateOrderReturnStatus($returnOrder->order);
 
-            /*
-         * 6. Update order main status
-         */
+            // 7. Update order main status
             $this->updateOrderMainStatus($returnOrder->order);
 
-            /*
-         * 7. Completed notification
-         */
+            // 8. Completed notification
             $this->createReturnNotification($returnOrder, 'completed');
 
-            /*
-         * 8. Final logging with detailed refund breakdown
-         */
-            Log::info(
-                'Return marked as received and Razorpay refund completed',
-                [
-                    'return_id' => $returnOrder->id,
-                    'order_id' => $returnOrder->order_id,
-                    'order_status' => $returnOrder->order->status,
-                    'payment_id' => $returnOrder->order->gateway_transaction_id ?? null,
-                    'refund_amount' => $returnOrder->total_refund_amount,
-                    'refund_transaction_id' => $returnOrder->refund_transaction_id,
-                    'refund_breakdown' => [
-                        'subtotal' => $returnOrder->refund_subtotal,
-                        'tax' => $returnOrder->refund_tax,
-                        'shipping' => $returnOrder->refund_shipping,
-                    ],
-                    'items' => array_map(function ($item) {
-                        return [
-                            'order_line_id' => $item['order_line_id'],
-                            'product_name' => $item['product_name'] ?? 'Unknown',
-                            'line_total' => $item['line_total'] ?? 0,
-                            'status' => 'returned'
-                        ];
-                    }, $returnOrder->items),
-                ]
-            );
-
-            /*
-         * 9. Return API response with detailed refund breakdown
-         */
+            // 9. Return response
             return [
                 'success' => true,
                 'message' => 'Return marked as received and refund processed successfully.',
@@ -2205,24 +2341,10 @@ class ReturnService
                 'order_return_status' => $returnOrder->order->return_status,
                 'status' => OrderReturn::STATUS_COMPLETED,
                 'refund_amount' => (float) $returnOrder->total_refund_amount,
-                'refund_breakdown' => [
-                    'subtotal' => (float) $returnOrder->refund_subtotal,
-                    'tax' => (float) $returnOrder->refund_tax,
-                    'shipping' => (float) $returnOrder->refund_shipping,
-                ],
                 'refund_transaction_id' => $returnOrder->refund_transaction_id,
-                'refund_status' => $returnOrder->refund_status,
-                'items' => array_map(function ($item) {
-                    return [
-                        'order_line_id' => $item['order_line_id'] ?? null,
-                        'product_id' => $item['product_id'] ?? null,
-                        'product_name' => $item['product_name'] ?? 'Unknown',
-                        'quantity' => $item['quantity'] ?? 0,
-                        'line_total' => $item['line_total'] ?? 0,
-                        'return_status' => 'returned',
-                        'return_completed_at' => now()->toDateTimeString(),
-                    ];
-                }, $returnOrder->items ?? []),
+                'credit_note_generated' => isset($creditNote) ? true : false,
+                'credit_note_id' => $creditNote->id ?? null,
+                'credit_note_number' => $creditNote->credit_note_number ?? null,
             ];
         });
     }
