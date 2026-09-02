@@ -2547,7 +2547,7 @@ class CheckoutService
                 'order_id' => $order->id,
                 'order_reference' => $order->order_reference,
                 'status' => 'confirmed',
-                'invoice_number' => $invoice->invoice_number,
+                // 'invoice_number' => $invoice->invoice_number,
             ];
         });
     }

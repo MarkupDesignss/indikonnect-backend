@@ -14,6 +14,15 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Exclude contact routes from CSRF protection
+        $middleware->validateCsrfTokens(except: [
+            'contact/*',  // Excludes ALL routes starting with /contact/
+            // Or specify individually:
+            // 'contact/send-request',
+            // 'contact/bulk-delete',
+            // 'contact/mark-read/*',
+        ]);
+
         $middleware->alias([
             'admin' => EnsureAdmin::class,
             'optional.auth' => \App\Http\Middleware\OptionalAuth::class,
