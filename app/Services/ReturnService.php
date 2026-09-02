@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\OrderReturn;
+use App\Models\Refund;
 use App\Models\AdminNotification;
 use App\Models\CommissionApiEvent;
 use App\Services\PaymentGateway\RazorpayService;
@@ -2313,59 +2314,42 @@ class ReturnService
     }
 
     /**
-     * Process refund for return
+     * Process refund for return via Razorpay
+     *
+     * @param OrderReturn $returnOrder
+     * @return array
+     * @throws Exception
      */
     protected function processRefund(OrderReturn $returnOrder): array
     {
         $order = $returnOrder->order;
 
         if (!$order) {
-            throw new Exception(
-                'Order not found for this return.'
-            );
+            throw new Exception('Order not found for this return.');
         }
 
         $gateway = $order->payment_gateway ?? 'razorpay';
         $paymentId = $order->gateway_transaction_id;
 
-        /*
-     * CRITICAL FIX: Calculate refund amount from returned items only
-     * NOT from the order total or total_refund_amount directly
-     * This ensures we only refund what was actually returned
-     */
+        // Calculate refund amount from returned items only
         $refundAmount = $this->calculateRefundAmountFromItems($returnOrder);
 
-        /*
-     * Validate refund amount
-     */
         if ($refundAmount <= 0) {
-            throw new Exception(
-                'Refund amount must be greater than zero.'
-            );
+            throw new Exception('Refund amount must be greater than zero.');
         }
 
-        /*
-     * Validate gateway
-     */
         if ($gateway !== 'razorpay') {
-            throw new Exception(
-                'Refund is not supported for payment gateway: ' . $gateway
-            );
+            throw new Exception('Refund is not supported for payment gateway: ' . $gateway);
         }
 
-        /*
-     * Validate Razorpay payment ID
-     */
         if (empty($paymentId)) {
-            throw new Exception(
-                'Razorpay payment ID is missing for this order.'
-            );
+            throw new Exception('Razorpay payment ID is missing for this order.');
         }
 
         try {
             Log::info('Starting Razorpay refund', [
                 'return_id' => $returnOrder->id,
-                'order_id' => $order->id,
+                'order_id'   => $order->id,
                 'payment_id' => $paymentId,
                 'refund_amount' => $refundAmount,
                 'amount_in_paise' => (int) round($refundAmount * 100),
@@ -2375,33 +2359,38 @@ class ReturnService
                 ],
             ]);
 
-            /*
-         * Call Razorpay with the calculated amount
-         */
-            $refundResponse = $this->razorpayService->refundPayment(
-                $paymentId,
-                $refundAmount
-            );
+            // Call Razorpay
+            $refundResponse = $this->razorpayService->refundPayment($paymentId, $refundAmount);
 
-            /*
-         * Razorpay MUST return a refund ID
-         */
-            if (
-                !is_array($refundResponse) ||
-                empty($refundResponse['refund_id'])
-            ) {
-                throw new Exception(
-                    'Razorpay refund failed. No refund ID was returned.'
-                );
+            if (!is_array($refundResponse) || empty($refundResponse['refund_id'])) {
+                throw new Exception('Razorpay refund failed. No refund ID was returned.');
             }
 
-            /*
-         * Save actual Razorpay refund details
-         */
+            // ============================================================
+            // INSERT INTO `refunds` TABLE
+            // ============================================================
+            $refund = Refund::create([
+                'order_id'          => $order->id,
+                'return_id'         => $returnOrder->id,
+                'amount'            => $refundAmount,
+                'gateway_reference' => $refundResponse['refund_id'],
+                'status'            => $refundResponse['status'] ?? 'completed',
+                'completed_at'      => now(),
+                'failure_reason'    => null,
+            ]);
+
+            // Update OrderReturn with refund details and link
             $returnOrder->update([
                 'refund_transaction_id' => $refundResponse['refund_id'],
-                'refund_status' => $refundResponse['status'] ?? 'processing',
-                'refund_processed_at' => now(),
+                'refund_status'         => $refundResponse['status'] ?? 'processing',
+                'refund_processed_at'   => now(),
+                'refund_id'             => $refund->id,
+            ]);
+
+            Log::info('Refund record created', [
+                'refund_id' => $refund->id,
+                'return_id' => $returnOrder->id,
+                'refund_transaction_id' => $refundResponse['refund_id'],
             ]);
 
             Log::info('Refund successfully processed via Razorpay', [
@@ -2424,11 +2413,7 @@ class ReturnService
                 'trace' => $e->getTraceAsString(),
             ]);
 
-            throw new Exception(
-                'Failed to process refund: ' . $e->getMessage(),
-                0,
-                $e
-            );
+            throw new Exception('Failed to process refund: ' . $e->getMessage(), 0, $e);
         }
     }
 
