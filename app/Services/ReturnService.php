@@ -2233,9 +2233,10 @@ class ReturnService
     public function markReturnReceived(int $returnId): array
     {
         $returnOrder = OrderReturn::with([
-            'order',
-            'user',
+            'order.deliveryAddress',
+            'order.user',
             'order.lines',
+            'user',
         ])->findOrFail($returnId);
 
         if (!$returnOrder->canMarkReceived()) {
@@ -2280,14 +2281,12 @@ class ReturnService
                     'return_id' => $returnOrder->id,
                 ]);
             } catch (\Exception $e) {
-                // Log error but don't block the return flow
                 Log::error('Failed to generate credit note', [
                     'return_id' => $returnOrder->id,
                     'refund_id' => $refund->id,
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
                 ]);
-                // Credit note failure should NOT break the refund process
             }
             // ============================================================
 
