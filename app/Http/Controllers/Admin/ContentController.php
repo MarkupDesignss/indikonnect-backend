@@ -72,7 +72,7 @@ class ContentController extends Controller
     public function show($slug)
     {
         try {
-            $content = Content::with(['blocks.media'])->where('slug', $slug)->first();
+            $content = Content::with(['blocks.media'])->where('slug', $slug)->latest()->first();;
 
             if (!$content) {
                 return response()->json([

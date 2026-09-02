@@ -72,6 +72,7 @@ Route::prefix('admin')->group(function () {
         Route::get('/payouts', [PayoutController::class, 'index']);
         Route::post('/payouts', [PayoutController::class, 'store']);
         Route::get('/payouts/{id}', [PayoutController::class, 'show']);
+
         Route::post('/payouts/{id}/release', [PayoutController::class, 'release']);
         Route::post('/payouts/entries/{entryId}/hold', [PayoutController::class, 'holdEntry']);
         Route::get('/payouts/{id}/export', [PayoutController::class, 'export']);
@@ -142,10 +143,10 @@ Route::prefix('categories')->group(function () {
 });
 
 // Contact us
+Route::post('/contacts-mark-read/{id}', [ContactController::class, 'markAsRead']);
 Route::prefix('contact')->group(function () {
     // Public route
     Route::post('/send-request', [ContactController::class, 'store']);
-
     // Protected routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/', [ContactController::class, 'index']);
@@ -191,7 +192,7 @@ Route::prefix('products')->group(function () {
         Route::post('/{product}/toggle-publish', [ProductController::class, 'togglePublish']);
     });
 });
-
+Route::get('/global-search', [ProductController::class, 'globalSearch']);
 Route::post('/products-deal-of-the-day/{id}', [ProductController::class, 'markAsDealOfTheDay']);
 Route::delete('/products-deal-of-the-day/{id}', [ProductController::class, 'removeDealOfTheDay']);
 Route::get('/products-deal-of-the-day', [ProductController::class, 'getDealOfTheDayProducts']);
