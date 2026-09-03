@@ -59,8 +59,6 @@ class CreditNoteService
             // GET BUYER STATE FROM DELIVERY ADDRESS (NO FALLBACK)
             // ============================================================
             $buyerState = $order->deliveryAddress?->state;
-
-            // NO DEFAULT FALLBACK – if missing, throw exception
             if (empty($buyerState)) {
                 Log::error('Buyer state missing for credit note', [
                     'order_id' => $order->id,
@@ -73,14 +71,14 @@ class CreditNoteService
             $supplierState = $this->getSupplierState();
 
             Log::info('Credit note state comparison', [
-                'order_id'           => $order->id,
-                'buyer_state'        => $buyerState,
-                'supplier_state'     => $supplierState,
-                'gst_type'           => ($buyerState === $supplierState) ? 'Intra-state (CGST+SGST)' : 'Inter-state (IGST)',
+                'order_id'       => $order->id,
+                'buyer_state'    => $buyerState,
+                'supplier_state' => $supplierState,
+                'gst_type'       => ($buyerState === $supplierState) ? 'Intra-state (CGST+SGST)' : 'Inter-state (IGST)',
             ]);
 
             // ============================================================
-            // PROCESS RETURN ITEMS
+            // PROCESS RETURN ITEMS – USE DIRECT TAX & SUBTOTAL
             // ============================================================
             $items = $returnOrder->items ?? [];
             $taxableValue = 0;
@@ -99,28 +97,37 @@ class CreditNoteService
                 $quantity = (int) ($item['quantity'] ?? 0);
                 $unitPrice = (float) ($item['unit_price'] ?? 0);
                 $gstRate = (float) ($item['gst_rate'] ?? 0);
-                $lineTotal = (float) ($item['line_total'] ?? 0);
 
-                // Per-unit calculations
-                $perUnitTotal = $lineTotal / $quantity;
-                $perUnitTax = $perUnitTotal - $unitPrice;
+                // USE THE ITEM'S OWN SUBTOTAL AND TAX (already computed in return initiation)
+                $itemSubtotal = (float) ($item['subtotal'] ?? 0);
+                $itemTaxTotal = (float) ($item['tax'] ?? 0);
+                $itemLineTotal = (float) ($item['line_total'] ?? 0);
 
-                // GST split based on states
+                // Fallback if subtotal/tax missing (old data)
+                if ($itemSubtotal == 0 && $itemLineTotal > 0) {
+                    $itemSubtotal = $unitPrice * $quantity;
+                    $itemTaxTotal = $itemLineTotal - $itemSubtotal;
+                }
+
+                // ============================================================
+                // SPLIT TAX BASED ON BUYER/SUPPLIER STATE
+                // ============================================================
                 $cgst = 0;
                 $sgst = 0;
                 $igst = 0;
 
                 if ($buyerState === $supplierState) {
                     // Intra-state: CGST + SGST (50:50)
-                    $cgst = round(($perUnitTax / 2) * $quantity, 2);
-                    $sgst = round(($perUnitTax / 2) * $quantity, 2);
+                    $cgst = round($itemTaxTotal / 2, 2);
+                    $sgst = round($itemTaxTotal / 2, 2);
                 } else {
                     // Inter-state: IGST only
-                    $igst = round($perUnitTax * $quantity, 2);
+                    $igst = round($itemTaxTotal, 2);
                 }
 
-                $itemTaxable = $unitPrice * $quantity;
-
+                // ============================================================
+                // BUILD FORMATTED ITEM
+                // ============================================================
                 $formattedItems[] = [
                     'order_line_id'   => $orderLine->id,
                     'product_id'      => $orderLine->product_id,
@@ -128,19 +135,19 @@ class CreditNoteService
                     'product_code'    => $orderLine->product?->product_code ?? null,
                     'quantity'        => $quantity,
                     'unit_price'      => round($unitPrice, 2),
-                    'taxable_value'   => round($itemTaxable, 2),
+                    'taxable_value'   => round($itemSubtotal, 2),
                     'gst_rate'        => $gstRate,
                     'cgst'            => $cgst,
                     'sgst'            => $sgst,
                     'igst'            => $igst,
-                    'line_total'      => round($lineTotal, 2),
+                    'line_total'      => round($itemLineTotal, 2),
                 ];
 
-                $taxableValue += $itemTaxable;
+                $taxableValue += $itemSubtotal;
                 $cgstTotal += $cgst;
                 $sgstTotal += $sgst;
                 $igstTotal += $igst;
-                $totalAmount += $lineTotal;
+                $totalAmount += $itemLineTotal;
             }
 
             $totalGst = $cgstTotal + $sgstTotal + $igstTotal;
@@ -186,6 +193,9 @@ class CreditNoteService
                 'order_id'          => $order->id,
                 'buyer_state'       => $buyerState,
                 'supplier_state'    => $supplierState,
+                'cgst_total'        => $cgstTotal,
+                'sgst_total'        => $sgstTotal,
+                'igst_total'        => $igstTotal,
                 'total_amount'      => round($totalAmount, 2),
             ]);
 
