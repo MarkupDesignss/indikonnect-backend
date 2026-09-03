@@ -23,6 +23,7 @@ class BrandController extends Controller
                 return [
                     'id' => $brand->id,
                     'title' => $brand->title,
+                    'status' => $brand->status,
                     'discount_percentage' => $brand->discount_percentage,
                     'logo' => $brand->logo_url,
                     'banner' => $brand->banner_url,
@@ -54,14 +55,13 @@ class BrandController extends Controller
             // Validation
             $validated = $request->validate([
                 'title' => 'required|string|max:255|unique:brands,title',
-                'discount_percentage' => 'required|integer|min:0|max:100',
+                'discount_percentage' => 'nullable|integer|min:0|max:100',
+                'status' => 'nullable',
                 'logo' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:5120',
                 'banner' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:10240',
             ], [
                 'title.required' => 'Brand heading is required',
                 'title.unique' => 'This brand already exists',
-                'discount_percentage.required' => 'Discount percentage is required',
-                'discount_percentage.min' => 'Discount percentage must be at least 0',
                 'discount_percentage.max' => 'Discount percentage cannot exceed 100',
                 'logo.max' => 'Logo must not be larger than 5MB',
                 'banner.max' => 'Banner must not be larger than 10MB',
@@ -83,6 +83,7 @@ class BrandController extends Controller
             $brand = Brand::create([
                 'title' => $validated['title'],
                 'discount_percentage' => $validated['discount_percentage'],
+                'status' => $request->status ?? true,
                 'logo' => $logoPath,
                 'banner' => $bannerPath,
             ]);
@@ -172,15 +173,14 @@ class BrandController extends Controller
 
             // Validation
             $validated = $request->validate([
-                'title' => ['required', 'string', 'max:255', Rule::unique('brands', 'title')->ignore($id)],
-                'discount_percentage' => 'required|integer|min:0|max:100',
+                'title' => ['nullable', 'string', 'max:255', Rule::unique('brands', 'title')->ignore($id)],
+                'discount_percentage' => 'nullable|integer|min:0|max:100',
+                'status' => 'nullable',
                 'logo' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:5120',
                 'banner' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:10240',
             ], [
                 'title.required' => 'Brand heading is required',
                 'title.unique' => 'This brand already exists',
-                'discount_percentage.required' => 'Discount percentage is required',
-                'discount_percentage.min' => 'Discount percentage must be at least 0',
                 'discount_percentage.max' => 'Discount percentage cannot exceed 100',
                 'logo.max' => 'Logo must not be larger than 5MB',
                 'banner.max' => 'Banner must not be larger than 10MB',
@@ -189,6 +189,7 @@ class BrandController extends Controller
             // Prepare update data
             $updateData = [
                 'title' => $validated['title'],
+                'status' => $validated['status'],
                 'discount_percentage' => $validated['discount_percentage'],
             ];
 
