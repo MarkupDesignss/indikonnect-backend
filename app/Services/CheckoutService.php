@@ -2719,6 +2719,81 @@ class CheckoutService
     /**
      * FR-CM-009: Cancel an order and queue reversal event
      */
+    // public function cancelOrder(
+    //     int $userId,
+    //     string $orderReference,
+    //     string $reason
+    // ): array {
+    //     $order = Order::where('order_reference', $orderReference)
+    //         ->where('user_id', $userId)
+    //         ->with('lines.product')
+    //         ->firstOrFail();
+
+    //     DB::transaction(function () use ($order, $reason) {
+
+    //         // Update order status
+    //         $order->update([
+    //             'status' => 'cancelled',
+    //             'cancelled_at' => now(),
+    //         ]);
+
+    //         // Restore stock
+    //         foreach ($order->lines as $line) {
+    //             $line->product->increment(
+    //                 'stock_quantity',
+    //                 $line->quantity
+    //             );
+
+    //             // I have made changes here for variant quantity
+    //             if ($line->variant) {
+    //                 $line->variant->increment(
+    //                     'stock_quantity',
+    //                     $line->quantity
+    //                 );
+    //             }
+
+    //             StockMovement::create([
+    //                 'product_id' => $line->product_id,
+    //                 'quantity' => $line->quantity,
+    //                 'available_quantity_after' => $line->product->stock_quantity,
+    //                 'reason' => $reason,
+    //                 'order_id' => $order->id,
+    //             ]);
+    //         }
+
+    //         // Create reversal event
+    //         $payload = $this->buildReversalPayload($order, $reason);
+
+    //         CommissionApiEvent::create([
+    //             'event_type' => 'reversal',
+    //             'order_id' => $order->id,
+    //             'payload' => $payload,
+    //             'status' => 'pending',
+    //             'retry_count' => 0,
+    //             'max_retries' => 5,
+    //             'last_attempt' => null,
+    //             'error_message' => null,
+    //             'response_data' => null,
+    //         ]);
+
+    //         // Process refund if order was paid
+    //         if ($order->amount_paid > 0) {
+    //             $this->processRefund($order);
+    //         }
+
+    //         Log::info('Order cancelled and reversal queued', [
+    //             'order' => $order->order_reference,
+    //             'reason' => $reason,
+    //         ]);
+    //     });
+
+    //     return [
+    //         'order_reference' => $order->order_reference,
+    //         'status' => $order->status,
+    //         'reason' => $reason,
+    //     ];
+    // }
+
     public function cancelOrder(
         int $userId,
         string $orderReference,
@@ -2737,20 +2812,20 @@ class CheckoutService
                 'cancelled_at' => now(),
             ]);
 
-            // Restore stock
+            // Cancel order lines and restore stock
             foreach ($order->lines as $line) {
+
+                // Update order line delivery status
+                $line->update([
+                    'delivery_status' => 'cancelled',
+                    'cancelled_at' => now()
+                ]);
+
+                // Restore stock
                 $line->product->increment(
                     'stock_quantity',
                     $line->quantity
                 );
-
-                // I have made changes here for variant quantity
-                if ($line->variant) {
-                    $line->variant->increment(
-                        'stock_quantity',
-                        $line->quantity
-                    );
-                }
 
                 StockMovement::create([
                     'product_id' => $line->product_id,

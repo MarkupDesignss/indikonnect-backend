@@ -1690,9 +1690,241 @@ class ProductController extends Controller
     /**
      * Show product by slug with reviews and variants
      */
+    // public function showBySlug($slug)
+    // {
+    //     $product = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+    //         ->where('slug', $slug)
+    //         ->firstOrFail();
+
+    //     $userId = request()->query('user_id');
+    //     $wishlistIds = $this->getUserWishlistIds($userId);
+
+    //     // Get selected variant from query parameter
+    //     $selectedVariantId = request()->query('variant_id');
+    //     $selectedAttributes = request()->query('attributes'); // JSON string like {"color":"Red","size":"S"}
+
+    //     $selectedVariant = null;
+    //     $isVariantSelected = false;
+
+    //     // If variant_id is provided
+    //     if ($selectedVariantId) {
+    //         $selectedVariant = $product->variants->where('id', $selectedVariantId)->first();
+    //         if ($selectedVariant) {
+    //             $isVariantSelected = true;
+    //         }
+    //     }
+
+    //     // If attributes are provided, find matching variant
+    //     if (!$selectedVariant && $selectedAttributes) {
+    //         $attributes = is_string($selectedAttributes) ? json_decode($selectedAttributes, true) : $selectedAttributes;
+    //         if (is_array($attributes)) {
+    //             $selectedVariant = $product->variants->first(function ($variant) use ($attributes) {
+    //                 $variantAttributes = $variant->attributes ?? [];
+    //                 foreach ($attributes as $key => $value) {
+    //                     if (!isset($variantAttributes[$key]) || $variantAttributes[$key] != $value) {
+    //                         return false;
+    //                     }
+    //                 }
+    //                 return true;
+    //             });
+    //             if ($selectedVariant) {
+    //                 $isVariantSelected = true;
+    //             }
+    //         }
+    //     }
+
+    //     // Get all approved reviews for this product
+    //     $reviews = ProductReview::with([
+    //         'user' => function ($query) {
+    //             $query->select('id', 'full_name', 'email', 'profile_picture');
+    //         },
+    //         'images'
+    //     ])
+    //         ->where('product_id', $product->id)
+    //         ->where('status', 'approved')
+    //         ->orderBy('created_at', 'desc')
+    //         ->get();
+
+    //     $averageRating = ProductReview::where('product_id', $product->id)
+    //         ->where('status', 'approved')
+    //         ->avg('rating');
+
+    //     $totalReviews = ProductReview::where('product_id', $product->id)
+    //         ->where('status', 'approved')
+    //         ->count();
+
+    //     // Rating distribution
+    //     $ratingDistribution = [
+    //         1 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 1)->count(),
+    //         2 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 2)->count(),
+    //         3 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 3)->count(),
+    //         4 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 4)->count(),
+    //         5 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 5)->count(),
+    //     ];
+
+    //     // Get product attributes (unique attribute keys and values from all variants)
+    //     $productAttributes = $this->getProductAttributes($product->variants);
+
+    //     // If variant is selected, format only that variant
+    //     if ($isVariantSelected && $selectedVariant) {
+    //         // Get primary image for the variant
+    //         $primaryImage = $selectedVariant->images->where('is_primary', true)->first()
+    //             ?? $selectedVariant->images->first();
+
+    //         // Get product image if variant has no images
+    //         if (!$primaryImage) {
+    //             $primaryImage = $product->images->where('is_primary', true)->first()
+    //                 ?? $product->images->first();
+    //         }
+
+    //         $formattedProduct = [
+    //             'id' => $product->id,
+    //             'product_code' => $product->product_code,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'description' => $product->description,
+    //             'specification' => $product->specification,
+    //             'hsn_code' => $product->hsn_code,
+    //             'uom' => $product->uom,
+    //             'category_id' => $product->category_id,
+    //             'category' => $product->category ? [
+    //                 'id' => $product->category->id,
+    //                 'name' => $product->category->title,
+    //                 'slug' => $product->category->slug,
+    //                 'description' => $product->category->description,
+    //             ] : null,
+    //             'tax_category_id' => $product->tax_category_id,
+    //             'tax_category' => $product->taxCategory ? [
+    //                 'id' => $product->taxCategory->id,
+    //                 'name' => $product->taxCategory->name,
+    //                 'rate' => $product->taxCategory->rate,
+    //             ] : null,
+
+    //             // Variant pricing (from selected variant)
+    //             'retail_mrp' => $selectedVariant->retail_mrp,
+    //             'retail_price' => $selectedVariant->retail_price,
+    //             'retail_discount_type' => $selectedVariant->retail_discount_type,
+    //             'retail_discount_value' => $selectedVariant->retail_discount_value,
+    //             'retail_discount_amount' => $selectedVariant->retail_mrp - $selectedVariant->retail_price,
+    //             'retail_discount_percentage' => $selectedVariant->retail_mrp > 0
+    //                 ? round((($selectedVariant->retail_mrp - $selectedVariant->retail_price) / $selectedVariant->retail_mrp) * 100, 2)
+    //                 : 0,
+
+    //             'distributor_mrp' => $selectedVariant->distributor_mrp,
+    //             'distributor_price' => $selectedVariant->distributor_price,
+    //             'distributor_discount_type' => $selectedVariant->distributor_discount_type,
+    //             'distributor_discount_value' => $selectedVariant->distributor_discount_value,
+    //             'distributor_discount_amount' => $selectedVariant->distributor_mrp && $selectedVariant->distributor_price
+    //                 ? $selectedVariant->distributor_mrp - $selectedVariant->distributor_price
+    //                 : null,
+    //             'distributor_discount_percentage' => $selectedVariant->distributor_mrp && $selectedVariant->distributor_price && $selectedVariant->distributor_mrp > 0
+    //                 ? round((($selectedVariant->distributor_mrp - $selectedVariant->distributor_price) / $selectedVariant->distributor_mrp) * 100, 2)
+    //                 : null,
+
+    //             // Variant stock
+    //             'stock_quantity' => (int) $selectedVariant->stock_quantity,
+    //             'low_stock_threshold' => (int) $selectedVariant->low_stock_threshold,
+    //             'status' => $this->getVariantStatus($selectedVariant),
+
+    //             // Product level flags
+    //             'is_published' => (bool) $product->is_published,
+    //             'is_trending' => (bool) $product->is_trending,
+    //             'trending_sort_order' => (int) $product->trending_sort_order,
+    //             'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+    //             'is_active_deal' => $product->isActiveDealOfTheDay(),
+    //             'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+    //             'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+    //             'sale_type' => $product->sale_type,
+    //             'is_wishlisted' => in_array($product->id, $wishlistIds),
+
+    //             // Images (from variant or product)
+    //             'images' => $selectedVariant->images->isNotEmpty()
+    //                 ? $selectedVariant->images->map(function ($image) {
+    //                     return [
+    //                         'id' => $image->id,
+    //                         'image' => $image->image,
+    //                         'image_url' => asset('storage/' . $image->image),
+    //                         'sort_order' => $image->sort_order,
+    //                         'is_primary' => (bool) $image->is_primary,
+    //                     ];
+    //                 })->values()->toArray()
+    //                 : $product->images->map(function ($image) {
+    //                     return [
+    //                         'id' => $image->id,
+    //                         'image' => $image->image,
+    //                         'image_url' => asset('storage/' . $image->image),
+    //                         'sort_order' => $image->sort_order,
+    //                         'is_primary' => (bool) $image->is_primary,
+    //                     ];
+    //                 })->values()->toArray(),
+
+    //             'primary_image' => $primaryImage ? $primaryImage->image : null,
+    //             'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+
+    //             // Selected variant details
+    //             'selected_variant' => $this->formatSingleVariant($selectedVariant),
+    //             'selected_variant_id' => $selectedVariant->id,
+    //             'selected_variant_sku' => $selectedVariant->sku,
+    //             'selected_attributes' => $selectedVariant->attributes,
+
+    //             // Available attributes for selection UI
+    //             'available_attributes' => $productAttributes,
+
+    //             // Only show the selected variant in the variants list
+    //             'variants' => [$this->formatSingleVariant($selectedVariant)],
+
+    //             'created_at' => $product->created_at?->toISOString(),
+    //             'updated_at' => $product->updated_at?->toISOString(),
+    //         ];
+    //     } else {
+    //         // No variant selected - show all variants
+    //         $formattedProduct = $this->formatProduct($product, $wishlistIds);
+    //         $formattedProduct['available_attributes'] = $productAttributes;
+    //         $formattedProduct['variants'] = $this->formatVariants($product->variants, $product->id, $wishlistIds);
+    //     }
+
+    //     // Add reviews to the response
+    //     $formattedProduct['reviews'] = [
+    //         'summary' => [
+    //             'average_rating' => round($averageRating, 1),
+    //             'total_reviews' => $totalReviews,
+    //             'rating_distribution' => $ratingDistribution,
+    //         ],
+    //         'data' => $reviews->map(function ($review) {
+    //             return [
+    //                 'id' => $review->id,
+    //                 'user_id' => $review->user_id,
+    //                 'user_name' => $review->user->full_name ?? 'Anonymous',
+    //                 'user_profile_picture' => $review->user->profile_picture
+    //                     ? asset('storage/' . $review->user->profile_picture)
+    //                     : null,
+    //                 'rating' => $review->rating,
+    //                 'review_text' => $review->review_text,
+    //                 'created_at' => $review->created_at->format('M d, Y'),
+    //                 'updated_at' => $review->updated_at->format('M d, Y'),
+    //                 'is_verified_purchase' => $this->isVerifiedPurchase($review->order_id),
+    //                 'images' => $review->images->map(function ($image) {
+    //                     return [
+    //                         'id' => $image->id,
+    //                         'image_url' => $image->image_url,
+    //                         'sort_order' => $image->sort_order,
+    //                     ];
+    //                 })->values()->toArray(),
+    //             ];
+    //         })->values()->toArray(),
+    //     ];
+
+    //     return response()->json($formattedProduct);
+    // }
+
     public function showBySlug($slug)
     {
-        $product = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+        $product = Product::with([
+            'category',
+            'taxCategory',
+            'images',
+            'variants.images'
+        ])
             ->where('slug', $slug)
             ->firstOrFail();
 
@@ -1701,14 +1933,17 @@ class ProductController extends Controller
 
         // Get selected variant from query parameter
         $selectedVariantId = request()->query('variant_id');
-        $selectedAttributes = request()->query('attributes'); // JSON string like {"color":"Red","size":"S"}
+        $selectedAttributes = request()->query('attributes');
 
         $selectedVariant = null;
         $isVariantSelected = false;
 
         // If variant_id is provided
         if ($selectedVariantId) {
-            $selectedVariant = $product->variants->where('id', $selectedVariantId)->first();
+            $selectedVariant = $product->variants
+                ->where('id', $selectedVariantId)
+                ->first();
+
             if ($selectedVariant) {
                 $isVariantSelected = true;
             }
@@ -1716,34 +1951,78 @@ class ProductController extends Controller
 
         // If attributes are provided, find matching variant
         if (!$selectedVariant && $selectedAttributes) {
-            $attributes = is_string($selectedAttributes) ? json_decode($selectedAttributes, true) : $selectedAttributes;
+
+            $attributes = is_string($selectedAttributes)
+                ? json_decode($selectedAttributes, true)
+                : $selectedAttributes;
+
             if (is_array($attributes)) {
-                $selectedVariant = $product->variants->first(function ($variant) use ($attributes) {
-                    $variantAttributes = $variant->attributes ?? [];
-                    foreach ($attributes as $key => $value) {
-                        if (!isset($variantAttributes[$key]) || $variantAttributes[$key] != $value) {
-                            return false;
+
+                $selectedVariant = $product->variants->first(
+                    function ($variant) use ($attributes) {
+
+                        $variantAttributes = $variant->attributes ?? [];
+
+                        foreach ($attributes as $key => $value) {
+
+                            if (
+                                !isset($variantAttributes[$key]) ||
+                                $variantAttributes[$key] != $value
+                            ) {
+                                return false;
+                            }
                         }
+
+                        return true;
                     }
-                    return true;
-                });
+                );
+
                 if ($selectedVariant) {
                     $isVariantSelected = true;
                 }
             }
         }
 
-        // Get all approved reviews for this product
+        /*
+    |--------------------------------------------------------------------------
+    | Get all approved reviews
+    |--------------------------------------------------------------------------
+    |
+    | orderLine.order is loaded so we can get:
+    | - order_line_id
+    | - order_id
+    | - order_reference
+    |
+    */
         $reviews = ProductReview::with([
             'user' => function ($query) {
-                $query->select('id', 'full_name', 'email', 'profile_picture');
+                $query->select(
+                    'id',
+                    'full_name',
+                    'email',
+                    'profile_picture'
+                );
             },
-            'images'
+
+            'images',
+
+            'orderLine.order' => function ($query) {
+                $query->select(
+                    'id',
+                    'order_reference'
+                );
+            },
         ])
             ->where('product_id', $product->id)
             ->where('status', 'approved')
             ->orderBy('created_at', 'desc')
             ->get();
+
+        /*
+    |--------------------------------------------------------------------------
+    | Review Summary
+    |--------------------------------------------------------------------------
+    */
 
         $averageRating = ProductReview::where('product_id', $product->id)
             ->where('status', 'approved')
@@ -1753,165 +2032,470 @@ class ProductController extends Controller
             ->where('status', 'approved')
             ->count();
 
-        // Rating distribution
+        /*
+    |--------------------------------------------------------------------------
+    | Rating Distribution
+    |--------------------------------------------------------------------------
+    */
+
         $ratingDistribution = [
-            1 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 1)->count(),
-            2 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 2)->count(),
-            3 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 3)->count(),
-            4 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 4)->count(),
-            5 => ProductReview::where('product_id', $product->id)->where('status', 'approved')->where('rating', 5)->count(),
+            1 => ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->where('rating', 1)
+                ->count(),
+
+            2 => ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->where('rating', 2)
+                ->count(),
+
+            3 => ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->where('rating', 3)
+                ->count(),
+
+            4 => ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->where('rating', 4)
+                ->count(),
+
+            5 => ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->where('rating', 5)
+                ->count(),
         ];
 
-        // Get product attributes (unique attribute keys and values from all variants)
+        /*
+    |--------------------------------------------------------------------------
+    | Product Attributes
+    |--------------------------------------------------------------------------
+    */
+
         $productAttributes = $this->getProductAttributes($product->variants);
 
-        // If variant is selected, format only that variant
+        /*
+    |--------------------------------------------------------------------------
+    | Selected Variant
+    |--------------------------------------------------------------------------
+    */
+
         if ($isVariantSelected && $selectedVariant) {
-            // Get primary image for the variant
-            $primaryImage = $selectedVariant->images->where('is_primary', true)->first()
+
+            // Get primary image for selected variant
+            $primaryImage = $selectedVariant->images
+                ->where('is_primary', true)
+                ->first()
                 ?? $selectedVariant->images->first();
 
-            // Get product image if variant has no images
+            // Fallback to product image
             if (!$primaryImage) {
-                $primaryImage = $product->images->where('is_primary', true)->first()
+
+                $primaryImage = $product->images
+                    ->where('is_primary', true)
+                    ->first()
                     ?? $product->images->first();
             }
 
             $formattedProduct = [
-                'id' => $product->id,
-                'product_code' => $product->product_code,
-                'name' => $product->name,
-                'slug' => $product->slug,
-                'description' => $product->description,
-                'specification' => $product->specification,
-                'hsn_code' => $product->hsn_code,
-                'uom' => $product->uom,
-                'category_id' => $product->category_id,
-                'category' => $product->category ? [
-                    'id' => $product->category->id,
-                    'name' => $product->category->title,
-                    'slug' => $product->category->slug,
-                    'description' => $product->category->description,
-                ] : null,
-                'tax_category_id' => $product->tax_category_id,
-                'tax_category' => $product->taxCategory ? [
-                    'id' => $product->taxCategory->id,
-                    'name' => $product->taxCategory->name,
-                    'rate' => $product->taxCategory->rate,
-                ] : null,
 
-                // Variant pricing (from selected variant)
+                'id' => $product->id,
+
+                'product_code' => $product->product_code,
+
+                'name' => $product->name,
+
+                'slug' => $product->slug,
+
+                'description' => $product->description,
+
+                'specification' => $product->specification,
+
+                'hsn_code' => $product->hsn_code,
+
+                'uom' => $product->uom,
+
+                'category_id' => $product->category_id,
+
+                'category' => $product->category
+                    ? [
+                        'id' => $product->category->id,
+                        'name' => $product->category->title,
+                        'slug' => $product->category->slug,
+                        'description' => $product->category->description,
+                    ]
+                    : null,
+
+                'tax_category_id' => $product->tax_category_id,
+
+                'tax_category' => $product->taxCategory
+                    ? [
+                        'id' => $product->taxCategory->id,
+                        'name' => $product->taxCategory->name,
+                        'rate' => $product->taxCategory->rate,
+                    ]
+                    : null,
+
+                /*
+            |--------------------------------------------------------------------------
+            | Retail Pricing
+            |--------------------------------------------------------------------------
+            */
+
                 'retail_mrp' => $selectedVariant->retail_mrp,
+
                 'retail_price' => $selectedVariant->retail_price,
+
                 'retail_discount_type' => $selectedVariant->retail_discount_type,
+
                 'retail_discount_value' => $selectedVariant->retail_discount_value,
-                'retail_discount_amount' => $selectedVariant->retail_mrp - $selectedVariant->retail_price,
-                'retail_discount_percentage' => $selectedVariant->retail_mrp > 0
-                    ? round((($selectedVariant->retail_mrp - $selectedVariant->retail_price) / $selectedVariant->retail_mrp) * 100, 2)
+
+                'retail_discount_amount' =>
+                $selectedVariant->retail_mrp -
+                    $selectedVariant->retail_price,
+
+                'retail_discount_percentage' =>
+                $selectedVariant->retail_mrp > 0
+                    ? round(
+                        (
+                            (
+                                $selectedVariant->retail_mrp -
+                                $selectedVariant->retail_price
+                            )
+                            / $selectedVariant->retail_mrp
+                        ) * 100,
+                        2
+                    )
                     : 0,
 
+                /*
+            |--------------------------------------------------------------------------
+            | Distributor Pricing
+            |--------------------------------------------------------------------------
+            */
+
                 'distributor_mrp' => $selectedVariant->distributor_mrp,
+
                 'distributor_price' => $selectedVariant->distributor_price,
-                'distributor_discount_type' => $selectedVariant->distributor_discount_type,
-                'distributor_discount_value' => $selectedVariant->distributor_discount_value,
-                'distributor_discount_amount' => $selectedVariant->distributor_mrp && $selectedVariant->distributor_price
-                    ? $selectedVariant->distributor_mrp - $selectedVariant->distributor_price
-                    : null,
-                'distributor_discount_percentage' => $selectedVariant->distributor_mrp && $selectedVariant->distributor_price && $selectedVariant->distributor_mrp > 0
-                    ? round((($selectedVariant->distributor_mrp - $selectedVariant->distributor_price) / $selectedVariant->distributor_mrp) * 100, 2)
+
+                'distributor_discount_type' =>
+                $selectedVariant->distributor_discount_type,
+
+                'distributor_discount_value' =>
+                $selectedVariant->distributor_discount_value,
+
+                'distributor_discount_amount' =>
+                $selectedVariant->distributor_mrp &&
+                    $selectedVariant->distributor_price
+                    ? $selectedVariant->distributor_mrp -
+                    $selectedVariant->distributor_price
                     : null,
 
-                // Variant stock
+                'distributor_discount_percentage' =>
+                $selectedVariant->distributor_mrp &&
+                    $selectedVariant->distributor_price &&
+                    $selectedVariant->distributor_mrp > 0
+                    ? round(
+                        (
+                            (
+                                $selectedVariant->distributor_mrp -
+                                $selectedVariant->distributor_price
+                            )
+                            / $selectedVariant->distributor_mrp
+                        ) * 100,
+                        2
+                    )
+                    : null,
+
+                /*
+            |--------------------------------------------------------------------------
+            | Variant Stock
+            |--------------------------------------------------------------------------
+            */
+
                 'stock_quantity' => (int) $selectedVariant->stock_quantity,
-                'low_stock_threshold' => (int) $selectedVariant->low_stock_threshold,
+
+                'low_stock_threshold' =>
+                (int) $selectedVariant->low_stock_threshold,
+
                 'status' => $this->getVariantStatus($selectedVariant),
 
-                // Product level flags
+                /*
+            |--------------------------------------------------------------------------
+            | Product Flags
+            |--------------------------------------------------------------------------
+            */
+
                 'is_published' => (bool) $product->is_published,
+
                 'is_trending' => (bool) $product->is_trending,
-                'trending_sort_order' => (int) $product->trending_sort_order,
-                'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
-                'is_active_deal' => $product->isActiveDealOfTheDay(),
-                'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
-                'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+
+                'trending_sort_order' =>
+                (int) $product->trending_sort_order,
+
+                'is_deal_of_the_day' =>
+                (bool) $product->is_deal_of_the_day,
+
+                'is_active_deal' =>
+                $product->isActiveDealOfTheDay(),
+
+                'deal_of_the_day_starts_at' =>
+                $product->deal_of_the_day_starts_at?->toISOString(),
+
+                'deal_of_the_day_ends_at' =>
+                $product->deal_of_the_day_ends_at?->toISOString(),
+
                 'sale_type' => $product->sale_type,
-                'is_wishlisted' => in_array($product->id, $wishlistIds),
 
-                // Images (from variant or product)
+                'is_wishlisted' =>
+                in_array($product->id, $wishlistIds),
+
+                /*
+            |--------------------------------------------------------------------------
+            | Images
+            |--------------------------------------------------------------------------
+            */
+
                 'images' => $selectedVariant->images->isNotEmpty()
-                    ? $selectedVariant->images->map(function ($image) {
+
+                    ? $selectedVariant->images
+                    ->map(function ($image) {
+
                         return [
                             'id' => $image->id,
                             'image' => $image->image,
-                            'image_url' => asset('storage/' . $image->image),
+                            'image_url' =>
+                            asset('storage/' . $image->image),
                             'sort_order' => $image->sort_order,
-                            'is_primary' => (bool) $image->is_primary,
+                            'is_primary' =>
+                            (bool) $image->is_primary,
                         ];
-                    })->values()->toArray()
-                    : $product->images->map(function ($image) {
+                    })
+                    ->values()
+                    ->toArray()
+
+                    : $product->images
+                    ->map(function ($image) {
+
                         return [
                             'id' => $image->id,
                             'image' => $image->image,
-                            'image_url' => asset('storage/' . $image->image),
+                            'image_url' =>
+                            asset('storage/' . $image->image),
                             'sort_order' => $image->sort_order,
-                            'is_primary' => (bool) $image->is_primary,
+                            'is_primary' =>
+                            (bool) $image->is_primary,
                         ];
-                    })->values()->toArray(),
+                    })
+                    ->values()
+                    ->toArray(),
 
-                'primary_image' => $primaryImage ? $primaryImage->image : null,
-                'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+                'primary_image' =>
+                $primaryImage
+                    ? $primaryImage->image
+                    : null,
 
-                // Selected variant details
-                'selected_variant' => $this->formatSingleVariant($selectedVariant),
-                'selected_variant_id' => $selectedVariant->id,
-                'selected_variant_sku' => $selectedVariant->sku,
-                'selected_attributes' => $selectedVariant->attributes,
+                'primary_image_url' =>
+                $primaryImage
+                    ? asset('storage/' . $primaryImage->image)
+                    : null,
 
-                // Available attributes for selection UI
+                /*
+            |--------------------------------------------------------------------------
+            | Selected Variant
+            |--------------------------------------------------------------------------
+            */
+
+                'selected_variant' =>
+                $this->formatSingleVariant($selectedVariant),
+
+                'selected_variant_id' =>
+                $selectedVariant->id,
+
+                'selected_variant_sku' =>
+                $selectedVariant->sku,
+
+                'selected_attributes' =>
+                $selectedVariant->attributes,
+
+                /*
+            |--------------------------------------------------------------------------
+            | Available Attributes
+            |--------------------------------------------------------------------------
+            */
+
                 'available_attributes' => $productAttributes,
 
-                // Only show the selected variant in the variants list
-                'variants' => [$this->formatSingleVariant($selectedVariant)],
+                /*
+            |--------------------------------------------------------------------------
+            | Only Selected Variant
+            |--------------------------------------------------------------------------
+            */
 
-                'created_at' => $product->created_at?->toISOString(),
-                'updated_at' => $product->updated_at?->toISOString(),
+                'variants' => [
+                    $this->formatSingleVariant($selectedVariant)
+                ],
+
+                'created_at' =>
+                $product->created_at?->toISOString(),
+
+                'updated_at' =>
+                $product->updated_at?->toISOString(),
             ];
         } else {
-            // No variant selected - show all variants
-            $formattedProduct = $this->formatProduct($product, $wishlistIds);
-            $formattedProduct['available_attributes'] = $productAttributes;
-            $formattedProduct['variants'] = $this->formatVariants($product->variants, $product->id, $wishlistIds);
+
+            /*
+        |--------------------------------------------------------------------------
+        | No Variant Selected
+        |--------------------------------------------------------------------------
+        */
+
+            $formattedProduct =
+                $this->formatProduct(
+                    $product,
+                    $wishlistIds
+                );
+
+            $formattedProduct['available_attributes'] =
+                $productAttributes;
+
+            $formattedProduct['variants'] =
+                $this->formatVariants(
+                    $product->variants,
+                    $product->id,
+                    $wishlistIds
+                );
         }
 
-        // Add reviews to the response
+        /*
+    |--------------------------------------------------------------------------
+    | Add Reviews + Review Summary
+    |--------------------------------------------------------------------------
+    */
+
         $formattedProduct['reviews'] = [
+
             'summary' => [
-                'average_rating' => round($averageRating, 1),
-                'total_reviews' => $totalReviews,
-                'rating_distribution' => $ratingDistribution,
+
+                'average_rating' =>
+                $averageRating !== null
+                    ? round($averageRating, 1)
+                    : 0,
+
+                'total_reviews' =>
+                $totalReviews,
+
+                'rating_distribution' =>
+                $ratingDistribution,
             ],
-            'data' => $reviews->map(function ($review) {
-                return [
-                    'id' => $review->id,
-                    'user_id' => $review->user_id,
-                    'user_name' => $review->user->full_name ?? 'Anonymous',
-                    'user_profile_picture' => $review->user->profile_picture
-                        ? asset('storage/' . $review->user->profile_picture)
-                        : null,
-                    'rating' => $review->rating,
-                    'review_text' => $review->review_text,
-                    'created_at' => $review->created_at->format('M d, Y'),
-                    'updated_at' => $review->updated_at->format('M d, Y'),
-                    'is_verified_purchase' => $this->isVerifiedPurchase($review->order_id),
-                    'images' => $review->images->map(function ($image) {
-                        return [
-                            'id' => $image->id,
-                            'image_url' => $image->image_url,
-                            'sort_order' => $image->sort_order,
-                        ];
-                    })->values()->toArray(),
-                ];
-            })->values()->toArray(),
+            'data' => $reviews
+                ->map(function ($review) {
+
+                    return [
+
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Review
+                    |--------------------------------------------------------------------------
+                    */
+
+                        'id' => $review->id,
+
+                        'rating' => $review->rating,
+
+                        'review_text' => $review->review_text,
+
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Reviewer Details
+                    |--------------------------------------------------------------------------
+                    */
+
+                        'user' => [
+
+                            'id' =>
+                            $review->user?->id,
+
+                            'full_name' =>
+                            $review->user?->full_name,
+
+                            'profile_picture' =>
+                            $review->user?->profile_picture
+                                ? asset(
+                                    'storage/' .
+                                        $review->user->profile_picture
+                                )
+                                : null,
+                        ],
+
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Order Details
+                    |--------------------------------------------------------------------------
+                    */
+
+                        'order_line_id' =>
+                        $review->order_line_id,
+
+                        'order_id' =>
+                        $review->orderLine?->order?->id
+                            ?? $review->order_id,
+
+                        'order_reference' =>
+                        $review->orderLine?->order?->order_reference,
+
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Dates
+                    |--------------------------------------------------------------------------
+                    */
+
+                        'created_at' =>
+                        $review->created_at
+                            ? $review->created_at->format('M d, Y')
+                            : null,
+
+                        'updated_at' =>
+                        $review->updated_at
+                            ? $review->updated_at->format('M d, Y')
+                            : null,
+
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Verified Purchase
+                    |--------------------------------------------------------------------------
+                    */
+
+                        'is_verified_purchase' =>
+                        $this->isVerifiedPurchase(
+                            $review->order_id
+                        ),
+
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Review Images
+                    |--------------------------------------------------------------------------
+                    */
+
+                        'images' =>
+                        $review->images
+                            ->map(function ($image) {
+
+                                return [
+                                    'id' => $image->id,
+
+                                    'image_url' =>
+                                    $image->image_url,
+
+                                    'sort_order' =>
+                                    $image->sort_order,
+                                ];
+                            })
+                            ->values()
+                            ->toArray(),
+                    ];
+                })
+                ->values()
+                ->toArray(),
         ];
 
         return response()->json($formattedProduct);
