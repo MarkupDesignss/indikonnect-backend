@@ -88,6 +88,149 @@ class RazorpayService
     //         throw new \Exception('Refund processing failed: ' . $e->getMessage());
     //     }
     // }
+    public function processPartialRefund(string $paymentId, float $amount): array
+    {
+        try {
+            // Validate amount
+            if ($amount <= 0) {
+                throw new \Exception('Refund amount must be greater than zero.');
+            }
+
+            // Amount in paise (Razorpay expects amount in paise)
+            $amountInPaise = (int) round($amount * 100);
+
+            Log::info('Processing Razorpay partial refund', [
+                'payment_id' => $paymentId,
+                'amount' => $amount,
+                'amount_in_paise' => $amountInPaise,
+            ]);
+
+            // Fetch the payment
+            $payment = $this->api->payment->fetch($paymentId);
+
+            // Verify payment exists and is captured
+            if ($payment->status !== 'captured') {
+                throw new \Exception(
+                    "Payment is not captured. Current status: {$payment->status}"
+                );
+            }
+
+            // Payment amount in rupees
+            $paymentAmount = (float) ($payment->amount / 100);
+
+            // Verify current refund doesn't exceed payment amount
+            if ($amount > $paymentAmount) {
+                throw new \Exception(
+                    "Refund amount ({$amount}) exceeds payment amount ({$paymentAmount})."
+                );
+            }
+
+            // Get total amount already refunded
+            $totalRefunded = $this->getTotalRefundedAmount($paymentId);
+
+            // Calculate total refunds after current refund
+            $totalRefundedWithCurrent = $totalRefunded + $amount;
+
+            // Verify total refunds don't exceed payment amount
+            if ($totalRefundedWithCurrent > $paymentAmount) {
+                throw new \Exception(
+                    "Total refunds ({$totalRefundedWithCurrent}) would exceed payment amount ({$paymentAmount})."
+                );
+            }
+
+            // Remaining balance after this refund
+            $remainingBalance = $paymentAmount - $totalRefundedWithCurrent;
+
+            // Create partial refund
+            $refund = $payment->refund([
+                'amount' => $amountInPaise,
+                'speed' => 'normal',
+                'notes' => [
+                    'refund_reason' => 'Partial refund - item cancelled',
+                    'processed_at' => now()->toDateTimeString(),
+                    'refund_type' => 'partial_refund',
+                    'partial_amount' => $amount,
+                    'total_payment_amount' => $paymentAmount,
+                    'remaining_balance' => $remainingBalance,
+                ],
+            ]);
+
+            Log::info('Razorpay partial refund processed successfully', [
+                'payment_id' => $paymentId,
+                'refund_id' => $refund->id,
+                'amount' => $amount,
+                'amount_in_paise' => $amountInPaise,
+                'status' => $refund->status,
+                'refund_type' => 'partial_refund',
+                'total_refunded_so_far' => $totalRefundedWithCurrent,
+                'remaining_balance' => $remainingBalance,
+                'created_at' => $refund->created_at,
+            ]);
+
+            return [
+                'success' => true,
+                'refund_id' => $refund->id,
+                'payment_id' => $paymentId,
+                'amount' => $amount,
+                'amount_in_paise' => $amountInPaise,
+                'status' => $refund->status,
+                'refund_type' => 'partial_refund',
+                'total_refunded_so_far' => $totalRefundedWithCurrent,
+                'remaining_balance' => $remainingBalance,
+                'created_at' => $refund->created_at,
+            ];
+        } catch (\Razorpay\Api\Errors\Error $e) {
+
+            // Razorpay specific errors
+            Log::error('Razorpay API error during partial refund', [
+                'payment_id' => $paymentId,
+                'amount' => $amount,
+                'error_code' => $e->getCode(),
+                'error_message' => $e->getMessage(),
+            ]);
+
+            throw new \Exception(
+                'Razorpay partial refund failed: ' . $e->getMessage()
+            );
+        } catch (\Exception $e) {
+
+            // General errors
+            Log::error('Unexpected error during Razorpay partial refund', [
+                'payment_id' => $paymentId,
+                'amount' => $amount,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            throw new \Exception(
+                'Partial refund processing failed: ' . $e->getMessage()
+            );
+        }
+    }
+
+
+    // Helper method to get total refunded amount for a payment
+    protected function getTotalRefundedAmount(string $paymentId): float
+    {
+        try {
+            $payment = $this->api->payment->fetch($paymentId);
+            $totalRefunded = 0;
+
+            if ($payment->refunds) {
+                foreach ($payment->refunds as $refund) {
+                    $totalRefunded += (float) ($refund->amount / 100);
+                }
+            }
+
+            return $totalRefunded;
+        } catch (\Exception $e) {
+            Log::error('Failed to get total refunded amount', [
+                'payment_id' => $paymentId,
+                'error' => $e->getMessage(),
+            ]);
+            return 0;
+        }
+    }
 
     public function refundPayment(string $paymentId, float $amount): array
     {

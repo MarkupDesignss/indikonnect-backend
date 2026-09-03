@@ -22,6 +22,7 @@ use App\Models\Coupon;
 use App\Models\ShippingMethod;
 use App\Models\CouponUsage;
 use App\Models\ProductVariant;
+use App\Models\Refund;
 use Illuminate\Support\Facades\Auth;
 use App\Traits\AuditLogTrait;
 
@@ -2719,13 +2720,11 @@ class CheckoutService
     /**
      * FR-CM-009: Cancel an order and queue reversal event
      */
-
-
     // public function cancelOrder(
     //     int $userId,
     //     string $orderReference,
     //     string $reason
-    // ): array {
+    //  ): array {
     //     $order = Order::where('order_reference', $orderReference)
     //         ->where('user_id', $userId)
     //         ->with('lines.product')
@@ -2740,19 +2739,37 @@ class CheckoutService
     //         ]);
 
     //         // Cancel order lines and restore stock
+    //         // Cancel order lines and restore stock
     //         foreach ($order->lines as $line) {
 
     //             // Update order line delivery status
     //             $line->update([
     //                 'delivery_status' => 'cancelled',
-    //                 'cancelled_at' => now()
+    //                 'cancelled_at' => now(),
     //             ]);
 
-    //             // Restore stock
-    //             $line->product->increment(
-    //                 'stock_quantity',
-    //                 $line->quantity
-    //             );
+    //             // Restore variant stock if order line has a variant
+    //             if ($line->variant_id && $line->variant) {
+    //                 $line->variant->increment(
+    //                     'stock_quantity',
+    //                     $line->quantity
+    //                 );
+    //             } else {
+    //                 // Restore product stock if no variant is associated
+    //                 $line->product->increment(
+    //                     'stock_quantity',
+    //                     $line->quantity
+    //                 );
+    //             }
+
+    //             // Restore product stock as well if your system maintains
+    //             // both product-level and variant-level stock
+    //             if ($line->variant_id && $line->variant) {
+    //                 $line->product->increment(
+    //                     'stock_quantity',
+    //                     $line->quantity
+    //                 );
+    //             }
 
     //             StockMovement::create([
     //                 'product_id' => $line->product_id,
@@ -2762,6 +2779,7 @@ class CheckoutService
     //                 'order_id' => $order->id,
     //             ]);
     //         }
+
 
     //         // Create reversal event
     //         $payload = $this->buildReversalPayload($order, $reason);
@@ -2799,95 +2817,205 @@ class CheckoutService
     public function cancelOrder(
         int $userId,
         string $orderReference,
+        int $orderLineId,
         string $reason
     ): array {
-        $order = Order::where('order_reference', $orderReference)
-            ->where('user_id', $userId)
-            ->with('lines.product')
+        // Find the specific order line
+        $orderLine = OrderLine::where('id', $orderLineId)
+            ->whereHas('order', function ($query) use ($userId, $orderReference) {
+                $query->where('order_reference', $orderReference)
+                    ->where('user_id', $userId);
+            })
+            ->with(['order', 'product', 'variant'])
             ->firstOrFail();
 
-        DB::transaction(function () use ($order, $reason) {
+        $order = $orderLine->order;
 
-            // Update order status
-            $order->update([
-                'status' => 'cancelled',
+        // Check if line is already cancelled
+        if ($orderLine->delivery_status === 'cancelled') {
+            throw new \Exception('This item is already cancelled');
+        }
+
+        DB::transaction(function () use ($orderLine, $order, $reason) {
+
+            // Update order line status
+            $orderLine->update([
+                'delivery_status' => 'cancelled',
                 'cancelled_at' => now(),
+                'cancellation_reason' => $reason,
             ]);
 
-            // Cancel order lines and restore stock
-            // Cancel order lines and restore stock
-            foreach ($order->lines as $line) {
+            // Restore stock for this specific line
+            if ($orderLine->variant_id && $orderLine->variant) {
+                $orderLine->variant->increment(
+                    'stock_quantity',
+                    $orderLine->quantity
+                );
 
-                // Update order line delivery status
-                $line->update([
-                    'delivery_status' => 'cancelled',
+                // Also restore product-level stock if maintained
+                $orderLine->product->increment(
+                    'stock_quantity',
+                    $orderLine->quantity
+                );
+            } else {
+                $orderLine->product->increment(
+                    'stock_quantity',
+                    $orderLine->quantity
+                );
+            }
+
+            // Create stock movement
+            StockMovement::create([
+                'product_id' => $orderLine->product_id,
+                'quantity' => $orderLine->quantity,
+                'available_quantity_after' => $orderLine->product->stock_quantity,
+                'reason' => $reason,
+                'order_id' => $order->id,
+                'order_line_id' => $orderLine->id,
+            ]);
+
+            // Check if ALL order lines are cancelled
+            $allCancelled = $order->lines()
+                ->where('delivery_status', '!=', 'cancelled')
+                ->doesntExist();
+
+            // Update order status if all items are cancelled
+            if ($allCancelled) {
+                $order->update([
+                    'status' => 'cancelled',
                     'cancelled_at' => now(),
                 ]);
 
-                // Restore variant stock if order line has a variant
-                if ($line->variant_id && $line->variant) {
-                    $line->variant->increment(
-                        'stock_quantity',
-                        $line->quantity
-                    );
-                } else {
-                    // Restore product stock if no variant is associated
-                    $line->product->increment(
-                        'stock_quantity',
-                        $line->quantity
-                    );
+                // Process full refund if order was paid
+                if ($order->amount_paid > 0) {
+                    $this->processRefund($order);
                 }
 
-                // Restore product stock as well if your system maintains
-                // both product-level and variant-level stock
-                if ($line->variant_id && $line->variant) {
-                    $line->product->increment(
-                        'stock_quantity',
-                        $line->quantity
-                    );
-                }
-
-                StockMovement::create([
-                    'product_id' => $line->product_id,
-                    'quantity' => $line->quantity,
-                    'available_quantity_after' => $line->product->stock_quantity,
-                    'reason' => $reason,
+                // Create reversal event for full order
+                $payload = $this->buildReversalPayload($order, $reason);
+                CommissionApiEvent::create([
+                    'event_type' => 'reversal',
                     'order_id' => $order->id,
+                    'payload' => $payload,
+                    'status' => 'pending',
+                    'retry_count' => 0,
+                    'max_retries' => 5,
+                    'last_attempt' => null,
+                    'error_message' => null,
+                    'response_data' => null,
+                ]);
+
+                Log::info('Order fully cancelled as all items were cancelled', [
+                    'order' => $order->order_reference,
+                    'reason' => $reason,
+                ]);
+            } else {
+                // Process partial refund for this specific line
+                if ($orderLine->line_total > 0) {
+                    $this->processPartialRefund($order, $orderLine);
+                }
+
+                Log::info('Order line cancelled', [
+                    'order' => $order->order_reference,
+                    'order_line_id' => $orderLine->id,
+                    'reason' => $reason,
+                    'remaining_items' => $order->lines()
+                        ->where('delivery_status', '!=', 'cancelled')
+                        ->count(),
                 ]);
             }
-
-
-            // Create reversal event
-            $payload = $this->buildReversalPayload($order, $reason);
-
-            CommissionApiEvent::create([
-                'event_type' => 'reversal',
-                'order_id' => $order->id,
-                'payload' => $payload,
-                'status' => 'pending',
-                'retry_count' => 0,
-                'max_retries' => 5,
-                'last_attempt' => null,
-                'error_message' => null,
-                'response_data' => null,
-            ]);
-
-            // Process refund if order was paid
-            if ($order->amount_paid > 0) {
-                $this->processRefund($order);
-            }
-
-            Log::info('Order cancelled and reversal queued', [
-                'order' => $order->order_reference,
-                'reason' => $reason,
-            ]);
         });
+
+        // Reload order to get updated status
+        $order->refresh();
 
         return [
             'order_reference' => $order->order_reference,
-            'status' => $order->status,
+            'order_line_id' => $orderLine->id,
+            'line_status' => $orderLine->delivery_status,
+            'order_status' => $order->status,
             'reason' => $reason,
+            'all_items_cancelled' => $order->status === 'cancelled',
         ];
+    }
+
+    protected function processPartialRefund(Order $order, OrderLine $orderLine): void
+    {
+        // Calculate refund amount for this specific line
+        $refundAmount = (float) $orderLine->line_total + (float) ($orderLine->tax ?? 0);
+
+        // Calculate proportional discount if any
+        if ($order->discount_amount > 0 && $order->subtotal > 0) {
+            $proportionalDiscount =
+                ($orderLine->line_total / $order->subtotal)
+                * $order->discount_amount;
+
+            $refundAmount -= $proportionalDiscount;
+        }
+
+        // Prevent negative/zero refund
+        $refundAmount = round($refundAmount, 2);
+
+        if ($refundAmount <= 0) {
+            throw new \Exception(
+                "Invalid refund amount for order line ID: {$orderLine->id}"
+            );
+        }
+
+        $gateway = $order->payment_gateway ?? 'razorpay';
+
+        if ($gateway === 'razorpay') {
+
+            if (!$order->gateway_transaction_id) {
+                throw new \Exception(
+                    "Payment transaction ID not found for order {$order->order_reference}."
+                );
+            }
+
+            // Razorpay partial refund
+            $refundResponse = $this->razorpayService->processPartialRefund(
+                $order->gateway_transaction_id,
+                $refundAmount
+            );
+
+            Log::info('Razorpay partial refund completed', [
+                'order_id' => $order->id,
+                'order_line_id' => $orderLine->id,
+                'payment_id' => $order->gateway_transaction_id,
+                'refund_id' => $refundResponse['refund_id'] ?? null,
+                'amount' => $refundAmount,
+            ]);
+        }
+
+        // Create local refund record
+        Refund::create([
+            'order_id' => $order->id,
+            'order_line_id' => $orderLine->id,
+            'amount' => $refundAmount,
+            'reason' => $orderLine->cancellation_reason ?? 'Item cancelled',
+            'status' => 'processed',
+            'refund_type' => 'partial',
+            'refunded_at' => now(),
+        ]);
+
+        // Update order paid amount
+        $newAmountPaid = max(
+            0,
+            (float) $order->amount_paid - $refundAmount
+        );
+
+        $order->update([
+            'amount_paid' => $newAmountPaid,
+            'refund_status' => 'partial',
+            'refunded_at' => now(),
+        ]);
+
+        Log::info('Partial refund processed for order line', [
+            'order' => $order->order_reference,
+            'order_line_id' => $orderLine->id,
+            'amount' => $refundAmount,
+            'remaining_amount' => $newAmountPaid,
+        ]);
     }
 
     /**

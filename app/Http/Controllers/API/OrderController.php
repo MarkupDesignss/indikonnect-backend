@@ -93,18 +93,44 @@ class OrderController extends Controller
      * FR-CO-010: Cancel order (before dispatch)
      * POST /api/order/{orderReference}/cancel
      */
+
     // public function cancel(Request $request, string $orderReference): JsonResponse
     // {
     //     try {
     //         $request->validate([
     //             'reason' => 'required|string|max:500',
     //         ]);
+
+    //         // Get order before cancellation for audit
+    //         $order = Order::where('order_reference', $orderReference)->first();
+    //         $oldStatus = $order?->status;
+
     //         $result = $this->checkoutService->cancelOrder(
     //             auth()->id(),
     //             $orderReference,
     //             $request->reason
     //         );
 
+    //         // Log cancellation
+    //         $this->logAudit(
+    //             'order_cancel',
+    //             'orders',
+    //             [
+    //                 'order_reference' => $orderReference,
+    //                 'status' => $oldStatus,
+    //                 'amount' => $order?->total_payable,
+    //                 'user_id' => auth()->id(),
+    //             ],
+    //             [
+    //                 'order_reference' => $orderReference,
+    //                 'status' => 'cancelled',
+    //                 'reason' => $request->reason,
+    //                 'cancelled_by' => auth()->id(),
+    //                 'cancelled_by_type' => Auth::guard('admin')->check() ? 'admin' : 'user',
+    //                 'cancelled_at' => now()->toDateTimeString(),
+    //             ],
+    //             auth()->id()
+    //         );
 
     //         return response()->json([
     //             'success' => true,
@@ -117,40 +143,51 @@ class OrderController extends Controller
     //         ], 400);
     //     }
     // }
-    public function cancel(Request $request, string $orderReference): JsonResponse
+    public function cancelOrderLine(Request $request, string $orderReference, int $orderLineId): JsonResponse
     {
         try {
             $request->validate([
                 'reason' => 'required|string|max:500',
             ]);
 
-            // Get order before cancellation for audit
-            $order = Order::where('order_reference', $orderReference)->first();
-            $oldStatus = $order?->status;
+            // Get order line before cancellation for audit
+            $orderLine = OrderLine::where('id', $orderLineId)
+                ->with('order')
+                ->firstOrFail();
+
+            $order = $orderLine->order;
+            $oldLineStatus = $orderLine->delivery_status;
+            $oldOrderStatus = $order->status;
 
             $result = $this->checkoutService->cancelOrder(
                 auth()->id(),
                 $orderReference,
+                $orderLineId,
                 $request->reason
             );
 
             // Log cancellation
             $this->logAudit(
-                'order_cancel',
-                'orders',
+                'order_line_cancel',
+                'order_lines',
                 [
                     'order_reference' => $orderReference,
-                    'status' => $oldStatus,
-                    'amount' => $order?->total_payable,
+                    'order_line_id' => $orderLineId,
+                    'old_line_status' => $oldLineStatus,
+                    'old_order_status' => $oldOrderStatus,
+                    'line_amount' => $orderLine->line_total,
                     'user_id' => auth()->id(),
                 ],
                 [
                     'order_reference' => $orderReference,
-                    'status' => 'cancelled',
+                    'order_line_id' => $orderLineId,
+                    'new_line_status' => 'cancelled',
+                    'new_order_status' => $result['order_status'],
                     'reason' => $request->reason,
                     'cancelled_by' => auth()->id(),
                     'cancelled_by_type' => Auth::guard('admin')->check() ? 'admin' : 'user',
-                    'cancelled_at' => now()->toDateTimeString(),
+                    'cancelled_at' => now(),
+                    'all_items_cancelled' => $result['all_items_cancelled'],
                 ],
                 auth()->id()
             );
@@ -158,6 +195,9 @@ class OrderController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => $result,
+                'message' => $result['all_items_cancelled']
+                    ? 'All items cancelled, order marked as cancelled'
+                    : 'Item cancelled successfully',
             ]);
         } catch (\Exception $e) {
             return response()->json([
