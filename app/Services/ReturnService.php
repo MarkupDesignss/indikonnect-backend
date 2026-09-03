@@ -2245,10 +2245,10 @@ class ReturnService
 
         return DB::transaction(function () use ($returnOrder) {
             // 1. Mark return as received
-            // $returnOrder->update([
-            //     'status' => 'received',
-            //     'received_at' => now(),
-            // ]);
+            $returnOrder->update([
+                'status' => 'received',
+                'received_at' => now(),
+            ]);
 
             $this->createReturnNotification($returnOrder, 'received');
 
@@ -2291,17 +2291,16 @@ class ReturnService
             // ============================================================
 
             // 4. Mark return as completed
-            // $returnOrder->update([
-            //     'status' => OrderReturn::STATUS_COMPLETED,
-            //     'completed_at' => now(),
-            // ]);
+            $returnOrder->update([
+                'status' => OrderReturn::STATUS_COMPLETED,
+                'completed_at' => now(),
+            ]);
 
             // 5. Update individual order lines to 'returned' status
             foreach ($returnOrder->items ?? [] as $item) {
                 $orderLineId = is_array($item)
                     ? ($item['order_line_id'] ?? null)
                     : ($item->order_line_id ?? null);
-                dd($item);
 
                 $returnedQuantity = is_array($item)
                     ? ($item['quantity'] ?? 0)

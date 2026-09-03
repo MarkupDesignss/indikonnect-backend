@@ -848,6 +848,8 @@ class OrderController extends Controller
                         'order_placed' => $formatDate($order->created_at),
                         'order_confirmed' => $formatDate($order->confirmed_at),
                         'shipped_at' => $formatDate($line->shipped_at),
+                        'cancelled_at' => $formatDate($line->cancelled_at),
+                        'dispatched_at' => $formatDate($line->dispatched_at),
                         'delivered_at' => $formatDate($line->delivered_at),
                         'return_requested_at' => $formatDate($line->return_requested_at),
                         'return_approved_at' => $formatDate($line->return_approved_at),
@@ -961,7 +963,6 @@ class OrderController extends Controller
         }
     }
 
-    
     public function allOrder()
     {
         try {
