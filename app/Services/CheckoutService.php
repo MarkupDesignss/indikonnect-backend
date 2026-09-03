@@ -2719,6 +2719,8 @@ class CheckoutService
     /**
      * FR-CM-009: Cancel an order and queue reversal event
      */
+
+
     // public function cancelOrder(
     //     int $userId,
     //     string $orderReference,
@@ -2737,20 +2739,20 @@ class CheckoutService
     //             'cancelled_at' => now(),
     //         ]);
 
-    //         // Restore stock
+    //         // Cancel order lines and restore stock
     //         foreach ($order->lines as $line) {
+
+    //             // Update order line delivery status
+    //             $line->update([
+    //                 'delivery_status' => 'cancelled',
+    //                 'cancelled_at' => now()
+    //             ]);
+
+    //             // Restore stock
     //             $line->product->increment(
     //                 'stock_quantity',
     //                 $line->quantity
     //             );
-
-    //             // I have made changes here for variant quantity
-    //             if ($line->variant) {
-    //                 $line->variant->increment(
-    //                     'stock_quantity',
-    //                     $line->quantity
-    //                 );
-    //             }
 
     //             StockMovement::create([
     //                 'product_id' => $line->product_id,
@@ -2813,19 +2815,37 @@ class CheckoutService
             ]);
 
             // Cancel order lines and restore stock
+            // Cancel order lines and restore stock
             foreach ($order->lines as $line) {
 
                 // Update order line delivery status
                 $line->update([
                     'delivery_status' => 'cancelled',
-                    'cancelled_at' => now()
+                    'cancelled_at' => now(),
                 ]);
 
-                // Restore stock
-                $line->product->increment(
-                    'stock_quantity',
-                    $line->quantity
-                );
+                // Restore variant stock if order line has a variant
+                if ($line->variant_id && $line->variant) {
+                    $line->variant->increment(
+                        'stock_quantity',
+                        $line->quantity
+                    );
+                } else {
+                    // Restore product stock if no variant is associated
+                    $line->product->increment(
+                        'stock_quantity',
+                        $line->quantity
+                    );
+                }
+
+                // Restore product stock as well if your system maintains
+                // both product-level and variant-level stock
+                if ($line->variant_id && $line->variant) {
+                    $line->product->increment(
+                        'stock_quantity',
+                        $line->quantity
+                    );
+                }
 
                 StockMovement::create([
                     'product_id' => $line->product_id,
@@ -2835,6 +2855,7 @@ class CheckoutService
                     'order_id' => $order->id,
                 ]);
             }
+
 
             // Create reversal event
             $payload = $this->buildReversalPayload($order, $reason);
