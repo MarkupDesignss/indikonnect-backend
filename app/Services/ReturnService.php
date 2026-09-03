@@ -817,25 +817,25 @@ class ReturnService
             }
 
             /*
-                 * Calculate refund amounts based on line_total.
-                 * line_total = unit_price * quantity + GST
-                 */
+             * Calculate refund amounts based on line_total.
+             * line_total = unit_price * quantity + GST
+            */
             $unitPrice = (float) $orderLine->unit_price;
             $gstRate = (float) ($orderLine->gst_rate ?? 0);
 
-            // Calculate per unit values
-            $perUnitTotal = $orderLine->line_total / $orderLine->quantity;
-            $perUnitSubtotal = $unitPrice;
-            $perUnitTax = $perUnitTotal - $perUnitSubtotal;
-
-            // Calculate for the quantity being returned
+            // Taxable value
             $subtotal = round($unitPrice * $quantity, 2);
-            $tax = round($perUnitTax * $quantity, 2);
-            $lineTotal = round($perUnitTotal * $quantity, 2);
+
+            // GST amount from rate
+            $gstPercentage = $gstRate / 100;
+            $tax = round($subtotal * $gstPercentage, 2);
+
+            // Line total = taxable + GST
+            $lineTotal = round($subtotal + $tax, 2);
 
             /*
-                 * Image paths.
-                 */
+            * Image paths.
+            */
             $imagePaths = $itemData['image_paths'] ?? [];
             if (!is_array($imagePaths)) {
                 $imagePaths = [];
