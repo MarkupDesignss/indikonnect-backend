@@ -481,6 +481,7 @@ class ProductController extends Controller
                 'id' => $product->id,
                 'product_code' => $product->product_code,
                 'name' => $product->name,
+                'brand_id' => $product->brand_id ?? null,
                 'slug' => $product->slug,
                 'description' => $product->description,
                 'specification' => $product->specification,
@@ -757,6 +758,7 @@ class ProductController extends Controller
             'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')],
             'description' => ['nullable', 'string'],
             'specification' => ['nullable', 'string'],
+            'brand_id' => ['nullable'],
             'hsn_code' => ['nullable', 'string', 'max:50'],
             'uom' => ['nullable', 'string', 'max:50'],
             'category_id' => ['required', 'exists:categories,id'],
@@ -1220,6 +1222,7 @@ class ProductController extends Controller
             'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
             'description' => ['nullable', 'string'],
             'specification' => ['nullable', 'string'],
+            'brand_id' => ['nullable'],
             'hsn_code' => ['nullable', 'string', 'max:50'],
             'uom' => ['nullable', 'string', 'max:50'],
             'category_id' => ['sometimes', 'required', 'exists:categories,id'],
@@ -2114,6 +2117,7 @@ class ProductController extends Controller
 
                 'uom' => $product->uom,
 
+                'brand_id' => $product->brand_id ?? null,
                 'category_id' => $product->category_id,
 
                 'category' => $product->category

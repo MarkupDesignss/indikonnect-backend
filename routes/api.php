@@ -46,6 +46,7 @@ use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
+use App\Http\Controllers\API\BrandController;
 
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
@@ -641,3 +642,12 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
 });
 
 Route::post('/stock/update', [ProductController::class, 'updateStock']);
+
+
+Route::prefix('brands')->group(function () {
+    Route::get('/', [BrandController::class, 'index']);
+    Route::post('/', [BrandController::class, 'store']);
+    Route::get('/{id}', [BrandController::class, 'show']);
+    Route::post('/{id}', [BrandController::class, 'update']);
+    Route::delete('/{id}', [BrandController::class, 'destroy']);
+});
