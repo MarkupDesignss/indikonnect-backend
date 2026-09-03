@@ -228,9 +228,155 @@ class ProductController extends Controller
     /**
      * Get all products with filtering and pagination
      */
+    // public function index(Request $request)
+    // {
+    //     $query = Product::with(['category', 'taxCategory', 'images', 'variants.images']);
+
+    //     // Filter by multiple categories
+    //     if ($request->has('category_ids') && $request->category_ids) {
+    //         $categoryIds = is_array($request->category_ids)
+    //             ? $request->category_ids
+    //             : explode(',', $request->category_ids);
+
+    //         $query->whereIn('category_id', $categoryIds);
+    //     }
+
+    //     // Alternative: Filter by single category (backward compatibility)
+    //     if ($request->has('category_id') && $request->category_id && !$request->has('category_ids')) {
+    //         $query->where('category_id', $request->category_id);
+    //     }
+
+    //     // Filter by price range (retail_price)
+    //     if ($request->has('min_price') && is_numeric($request->min_price)) {
+    //         $query->where('retail_price', '>=', $request->min_price);
+    //     }
+
+    //     if ($request->has('max_price') && is_numeric($request->max_price)) {
+    //         $query->where('retail_price', '<=', $request->max_price);
+    //     }
+
+    //     // Filter by published status
+    //     if ($request->has('is_published')) {
+    //         $query->where('is_published', $request->boolean('is_published'));
+    //     }
+
+    //     // Filter by stock status (considering both product and variants)
+    //     if ($request->has('stock_status')) {
+    //         $stockStatus = $request->stock_status;
+
+    //         if (is_array($stockStatus)) {
+    //             $query->where(function ($q) use ($stockStatus) {
+    //                 $q->where(function ($sub) use ($stockStatus) {
+    //                     // In Stock: stock_quantity > low_stock_threshold
+    //                     if (in_array('in_stock', $stockStatus)) {
+    //                         $sub->orWhereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //                     }
+    //                     // Low Stock: stock_quantity between 1 and low_stock_threshold
+    //                     if (in_array('low_stock', $stockStatus)) {
+    //                         $sub->orWhere(function ($q) {
+    //                             $q->where('stock_quantity', '>', 0)
+    //                                 ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //                         });
+    //                     }
+    //                     // Out of Stock: stock_quantity = 0
+    //                     if (in_array('out_of_stock', $stockStatus)) {
+    //                         $sub->orWhere('stock_quantity', '=', 0);
+    //                     }
+    //                 });
+    //             });
+    //         } else {
+    //             switch ($stockStatus) {
+    //                 case 'in_stock':
+    //                     $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //                     break;
+    //                 case 'low_stock':
+    //                     $query->where('stock_quantity', '>', 0)
+    //                         ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //                     break;
+    //                 case 'out_of_stock':
+    //                     $query->where('stock_quantity', '=', 0);
+    //                     break;
+    //             }
+    //         }
+    //     }
+
+    //     // Legacy: Backward compatibility for old filters
+    //     if ($request->has('in_stock') && $request->boolean('in_stock')) {
+    //         $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //     }
+
+    //     if ($request->has('low_stock') && $request->boolean('low_stock')) {
+    //         $query->where('stock_quantity', '>', 0)
+    //             ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //     }
+
+    //     // NEW ARRIVALS FILTER - Last 30 days products
+    //     if ($request->has('new-arrivals')) {
+    //         $query->where('created_at', '>=', now()->subDays(30));
+    //     }
+
+    //     // Alternative: New arrivals with custom days parameter
+    //     if ($request->has('new_arrival_days') && is_numeric($request->new_arrival_days)) {
+    //         $days = (int) $request->new_arrival_days;
+    //         $query->where('created_at', '>=', now()->subDays($days));
+    //     }
+
+    //     // Search by name or product code
+    //     if ($request->has('search') && $request->search) {
+    //         $search = $request->search;
+    //         $query->where(function ($q) use ($search) {
+    //             $q->where('name', 'LIKE', "%{$search}%")
+    //                 ->orWhere('product_code', 'LIKE', "%{$search}%")
+    //                 ->orWhere('slug', 'LIKE', "%{$search}%")
+    //                 ->orWhereHas('variants', function ($variantQuery) use ($search) {
+    //                     $variantQuery->where('sku', 'LIKE', "%{$search}%");
+    //                 });
+    //         });
+    //     }
+
+    //     // Sort
+    //     $sortField = $request->get('sort_by', 'created_at');
+    //     $sortDirection = $request->get('sort_direction', 'desc');
+
+    //     $allowedSortFields = ['id', 'name', 'product_code', 'retail_price', 'stock_quantity', 'created_at', 'updated_at'];
+    //     if (!in_array($sortField, $allowedSortFields)) {
+    //         $sortField = 'created_at';
+    //     }
+
+    //     $query->orderBy($sortField, $sortDirection);
+
+    //     // Pagination
+    //     $perPage = $request->get('per_page', 15);
+    //     $products = $query->paginate($perPage);
+
+    //     // Get price range for filters
+    //     $priceRange = $this->getPriceRange();
+
+    //     // Get wishlist IDs for authenticated user
+    //     $userId = $request->query('user_id');
+    //     $wishlistIds = $this->getUserWishlistIds();
+
+    //     return response()->json([
+    //         'data' => $this->formatProductCollection($products, $wishlistIds),
+    //         'pagination' => [
+    //             'total' => $products->total(),
+    //             'per_page' => $products->perPage(),
+    //             'current_page' => $products->currentPage(),
+    //             'last_page' => $products->lastPage(),
+    //             'from' => $products->firstItem(),
+    //             'to' => $products->lastItem(),
+    //         ],
+    //         'filters' => [
+    //             'price_range' => $priceRange,
+    //         ],
+    //     ]);
+    // }
     public function index(Request $request)
     {
-        $query = Product::with(['category', 'taxCategory', 'images', 'variants.images']);
+        $query = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+            ->whereHas('brand', function ($q) {
+                $q->where('status', true);
+            });
 
         // Filter by multiple categories
         if ($request->has('category_ids') && $request->category_ids) {
@@ -244,6 +390,20 @@ class ProductController extends Controller
         // Alternative: Filter by single category (backward compatibility)
         if ($request->has('category_id') && $request->category_id && !$request->has('category_ids')) {
             $query->where('category_id', $request->category_id);
+        }
+
+        // Filter by brand (if brand filter is applied)
+        if ($request->has('brand_id') && $request->brand_id) {
+            $query->where('brand_id', $request->brand_id);
+        }
+
+        // Filter by multiple brands
+        if ($request->has('brand_ids') && $request->brand_ids) {
+            $brandIds = is_array($request->brand_ids)
+                ? $request->brand_ids
+                : explode(',', $request->brand_ids);
+
+            $query->whereIn('brand_id', $brandIds);
         }
 
         // Filter by price range (retail_price)
@@ -2789,11 +2949,97 @@ class ProductController extends Controller
     /**
      * Get trending products
      */
+    // public function trending()
+    // {
+    //     $products = Product::with(['images', 'variants.images'])
+    //         ->where('is_published', true)
+    //         ->where('is_trending', true)
+    //         ->orderBy('trending_sort_order', 'asc')
+    //         ->get();
+
+    //     $data = $products->map(function ($product) {
+    //         // Get reviews for trending products
+    //         $averageRating = ProductReview::where('product_id', $product->id)
+    //             ->where('status', 'approved')
+    //             ->avg('rating');
+
+    //         $totalReviews = ProductReview::where('product_id', $product->id)
+    //             ->where('status', 'approved')
+    //             ->count();
+
+    //         $primaryImage = $product->images->where('is_primary', true)->first()
+    //             ?? $product->images->first();
+
+    //         // Get variant summary
+    //         $variantsSummary = $this->getVariantsSummary($product->variants);
+
+    //         return [
+    //             'id' => $product->id,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'description' => $product->description,
+    //             'product_code' => $product->product_code,
+    //             'category_id' => $product->category_id,
+    //             'tax_category_id' => $product->tax_category_id,
+
+    //             // Retail pricing
+    //             'retail_price' => $product->retail_price,
+    //             'retail_mrp' => $product->retail_mrp,
+    //             'retail_discount_type' => $product->retail_discount_type,
+    //             'retail_discount_value' => $product->retail_discount_value,
+    //             'retail_discount_percentage' => $product->retail_mrp > 0
+    //                 ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
+    //                 : 0,
+
+    //             // Distributor pricing
+    //             'distributor_price' => $product->distributor_price,
+    //             'distributor_mrp' => $product->distributor_mrp,
+    //             'distributor_discount_type' => $product->distributor_discount_type,
+    //             'distributor_discount_value' => $product->distributor_discount_value,
+
+    //             // Stock
+    //             'stock_quantity' => (int) $product->stock_quantity,
+    //             'stock_status' => $this->getProductStatus($product),
+
+    //             // Review Summary
+    //             'reviews' => [
+    //                 'average_rating' => round($averageRating, 1),
+    //                 'total_reviews' => $totalReviews,
+    //             ],
+
+    //             // Variants summary
+    //             'variants_summary' => $variantsSummary,
+
+    //             // Images
+    //             'images' => $product->images->map(function ($image) {
+    //                 return [
+    //                     'id' => $image->id,
+    //                     'image_url' => asset('storage/' . $image->image),
+    //                     'is_primary' => (bool) $image->is_primary,
+    //                     'sort_order' => $image->sort_order,
+    //                 ];
+    //             })->values()->toArray(),
+    //             'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+
+    //             'is_trending' => (bool) $product->is_trending,
+    //             'trending_sort_order' => (int) $product->trending_sort_order,
+    //         ];
+    //     });
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'Trending products retrieved successfully.',
+    //         'data' => $data,
+    //     ]);
+    // }
     public function trending()
     {
-        $products = Product::with(['images', 'variants.images'])
+        $products = Product::with(['brand', 'images', 'variants.images'])
             ->where('is_published', true)
             ->where('is_trending', true)
+            ->whereHas('brand', function ($q) {
+                $q->where('status', true); // Only show products from active brands
+            })
             ->orderBy('trending_sort_order', 'asc')
             ->get();
 
@@ -2821,6 +3067,15 @@ class ProductController extends Controller
                 'product_code' => $product->product_code,
                 'category_id' => $product->category_id,
                 'tax_category_id' => $product->tax_category_id,
+                'brand_id' => $product->brand_id,
+
+                // Brand information
+                'brand' => $product->brand ? [
+                    'id' => $product->brand->id,
+                    'title' => $product->brand->title,
+                    'logo' => $product->brand->logo_url,
+                    'discount_percentage' => $product->brand->discount_percentage,
+                ] : null,
 
                 // Retail pricing
                 'retail_price' => $product->retail_price,
