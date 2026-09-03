@@ -813,12 +813,41 @@ class AuthController extends Controller
     }
 
 
+    // public function getRegisteredUsers()
+    // {
+    //     try {
+    //         $users = User::with('role', 'businessProfile')->where('is_registered', true)
+    //             ->orderBy('id', 'desc')
+    //             ->get();
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Registered users fetched successfully.',
+    //             'data' => $users
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to fetch registered users.',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function getRegisteredUsers()
     {
         try {
-            $users = User::with('role', 'businessProfile')->where('is_registered', true)
+            $users = User::with('role', 'businessProfile')
+                ->where('is_registered', true)
                 ->orderBy('id', 'desc')
-                ->get();
+                ->get()
+                ->map(function ($user) {
+                    if ($user->profile_picture) {
+                        $user->profile_picture = asset('storage/' . $user->profile_picture);
+                    }
+
+                    return $user;
+                });
 
             return response()->json([
                 'success' => true,

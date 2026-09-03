@@ -2744,6 +2744,14 @@ class CheckoutService
                     $line->quantity
                 );
 
+                // I have made changes here for variant quantity
+                if ($line->variant) {
+                    $line->variant->increment(
+                        'stock_quantity',
+                        $line->quantity
+                    );
+                }
+
                 StockMovement::create([
                     'product_id' => $line->product_id,
                     'quantity' => $line->quantity,
