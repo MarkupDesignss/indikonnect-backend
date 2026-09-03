@@ -192,14 +192,14 @@ class InvoiceController extends Controller
             'is_returnable' => $line->is_returnable,
             'return_reason' => $line->return_reason,
             'return_rejection_reason' => $line->return_rejection_reason,
-            'dispatched_at' => $line->dispatched_at ? $line->dispatched_at->toISOString() : null,
-            'shipped_at' => $line->shipped_at ? $line->shipped_at->toISOString() : null,
-            'delivered_at' => $line->delivered_at ? $line->delivered_at->toISOString() : null,
-            'return_at' => $line->return_at ? $line->return_at->toISOString() : null,
-            'return_requested_at' => $line->return_requested_at ? $line->return_requested_at->toISOString() : null,
-            'return_approved_at' => $line->return_approved_at ? $line->return_approved_at->toISOString() : null,
-            'return_rejected_at' => $line->return_rejected_at ? $line->return_rejected_at->toISOString() : null,
-            'return_completed_at' => $line->return_completed_at ? $line->return_completed_at->toISOString() : null,
+            'dispatched_at' => $line->dispatched_at ? $line->dispatched_at : null,
+            'shipped_at' => $line->shipped_at ? $line->shipped_at : null,
+            'delivered_at' => $line->delivered_at ? $line->delivered_at : null,
+            'return_at' => $line->return_at ? $line->return_at : null,
+            'return_requested_at' => $line->return_requested_at ? $line->return_requested_at : null,
+            'return_approved_at' => $line->return_approved_at ? $line->return_approved_at : null,
+            'return_rejected_at' => $line->return_rejected_at ? $line->return_rejected_at : null,
+            'return_completed_at' => $line->return_completed_at ? $line->return_completed_at : null,
         ];
     }
 
@@ -244,9 +244,9 @@ class InvoiceController extends Controller
                 'id' => $invoice->id,
                 'invoice_number' => $invoice->invoice_number,
                 'order_id' => $invoice->order_id,
-                'issued_at' => $invoice->issued_at ? $invoice->issued_at->toISOString() : null,
-                'created_at' => $invoice->created_at ? $invoice->created_at->toISOString() : null,
-                'updated_at' => $invoice->updated_at ? $invoice->updated_at->toISOString() : null,
+                'issued_at' => $invoice->issued_at ? $invoice->issued_at : null,
+                'created_at' => $invoice->created_at ? $invoice->created_at : null,
+                'updated_at' => $invoice->updated_at ? $invoice->updated_at : null,
 
                 // Seller Details
                 'seller' => [
@@ -330,13 +330,13 @@ class InvoiceController extends Controller
                 'delivery_notes' => $order->delivery_notes,
 
                 // Timestamps
-                'confirmed_at' => $order->confirmed_at ? $order->confirmed_at->toISOString() : null,
-                'shipped_at' => $order->shipped_at ? $order->shipped_at->toISOString() : null,
-                'delivered_at' => $order->delivered_at ? $order->delivered_at->toISOString() : null,
-                'cancelled_at' => $order->cancelled_at ? $order->cancelled_at->toISOString() : null,
-                'refunded_at' => $order->refunded_at ? $order->refunded_at->toISOString() : null,
-                'created_at' => $order->created_at ? $order->created_at->toISOString() : null,
-                'updated_at' => $order->updated_at ? $order->updated_at->toISOString() : null,
+                'confirmed_at' => $order->confirmed_at ? $order->confirmed_at : null,
+                'shipped_at' => $order->shipped_at ? $order->shipped_at : null,
+                'delivered_at' => $order->delivered_at ? $order->delivered_at : null,
+                'cancelled_at' => $order->cancelled_at ? $order->cancelled_at : null,
+                'refunded_at' => $order->refunded_at ? $order->refunded_at : null,
+                'created_at' => $order->created_at ? $order->created_at : null,
+                'updated_at' => $order->updated_at ? $order->updated_at : null,
 
                 // Additional Data
                 'summary_data' => $summaryData,
