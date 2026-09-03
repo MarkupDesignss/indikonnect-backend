@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Exception;
 use App\Traits\AuditLogTrait;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class OrderController extends Controller
@@ -143,7 +144,7 @@ class OrderController extends Controller
     //         ], 400);
     //     }
     // }
-    public function cancelOrderLine(Request $request, string $orderReference, int $orderLineId): JsonResponse
+    public function cancel(Request $request, string $orderReference, int $orderLineId): JsonResponse
     {
         try {
             $request->validate([
@@ -1034,11 +1035,11 @@ class OrderController extends Controller
                 $product = $line->product;
 
                 // Debug: Check if reviews are loaded
-                \Log::info('Line ID: ' . $line->id . ', Product ID: ' . $line->product_id);
+                Log::info('Line ID: ' . $line->id . ', Product ID: ' . $line->product_id);
                 if ($product) {
-                    \Log::info('Reviews count for product: ' . $product->reviews->count());
+                    Log::info('Reviews count for product: ' . $product->reviews->count());
                     foreach ($product->reviews as $review) {
-                        \Log::info('Review: ID=' . $review->id . ', order_line_id=' . $review->order_line_id . ', order_id=' . $review->order_id . ', status=' . $review->status);
+                        Log::info('Review: ID=' . $review->id . ', order_line_id=' . $review->order_line_id . ', order_id=' . $review->order_id . ', status=' . $review->status);
                     }
                 }
 
@@ -1069,14 +1070,14 @@ class OrderController extends Controller
                 if ($product && $product->reviews) {
                     foreach ($product->reviews as $review) {
                         // Debug: Check each review
-                        \Log::info('Checking review: ' . $review->id . ' against line_id: ' . $line->id);
+                        Log::info('Checking review: ' . $review->id . ' against line_id: ' . $line->id);
 
                         // Only include approved reviews that belong to this specific order line
                         if (
                             $review->status === 'approved' &&
                             (int)$review->order_line_id === (int)$line->id
                         ) {
-                            \Log::info('MATCH FOUND! Review ID: ' . $review->id . ' for line_id: ' . $line->id);
+                            Log::info('MATCH FOUND! Review ID: ' . $review->id . ' for line_id: ' . $line->id);
 
                             $productReviews[] = [
                                 'id' => $review->id,
@@ -1103,7 +1104,7 @@ class OrderController extends Controller
                         }
                     }
                 } else {
-                    \Log::info('No product or no reviews found for line_id: ' . $line->id);
+                    Log::info('No product or no reviews found for line_id: ' . $line->id);
                 }
 
                 // Format addresses
@@ -1184,7 +1185,7 @@ class OrderController extends Controller
                     ->where('status', 'approved')
                     ->exists();
 
-                \Log::info('isReviewed for line_id ' . $line->id . ': ' . ($isReviewed ? 'true' : 'false'));
+                Log::info('isReviewed for line_id ' . $line->id . ': ' . ($isReviewed ? 'true' : 'false'));
 
                 // Helper function to format date
                 $formatDate = function ($date) {
@@ -1374,8 +1375,8 @@ class OrderController extends Controller
                 'data' => $formattedItems,
             ]);
         } catch (\Exception $e) {
-            \Log::error('Error in getOrder: ' . $e->getMessage());
-            \Log::error($e->getTraceAsString());
+            Log::error('Error in getOrder: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
 
             return response()->json([
                 'success' => false,
