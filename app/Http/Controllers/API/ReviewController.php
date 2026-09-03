@@ -165,10 +165,136 @@ class ReviewController extends Controller
     /**
      * Create a new review with images
      */
+    // public function store(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'product_id' => 'required|exists:products,id',
+    //         'order_line_id' => 'required|exists:order_lines,id',
+    //         'rating' => 'required|integer|min:1|max:5',
+    //         'review_text' => 'nullable|string|max:1000',
+    //         'images' => 'nullable|array|max:5',
+    //         'images.*' => 'image|mimes:jpeg,png,jpg,gif,webp|max:5120', // 5MB max
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['errors' => $validator->errors()], 422);
+    //     }
+
+    //     $userId = auth()->id();
+
+    //     // Verify order line belongs to user and is delivered
+    //     $orderLine = OrderLine::with('order')
+    //         ->where('id', $request->order_line_id)
+    //         ->whereHas('order', function ($query) use ($userId) {
+    //             $query->where('user_id', $userId);
+    //         })
+    //         ->first();
+
+    //     if (!$orderLine) {
+    //         return response()->json([
+    //             'message' => 'Invalid order line or order not found'
+    //         ], 422);
+    //     }
+
+    //     // Check if order line is delivered
+    //     if ($orderLine->delivery_status !== 'delivered') {
+    //         return response()->json([
+    //             'message' => 'You can only review products that have been delivered'
+    //         ], 422);
+    //     }
+
+    //     // Verify product matches the order line
+    //     if ($orderLine->product_id != $request->product_id) {
+    //         return response()->json([
+    //             'message' => 'Product does not match the order line'
+    //         ], 422);
+    //     }
+
+    //     // Check if this order line already has a review
+    //     $existingReview = ProductReview::where('order_line_id', $request->order_line_id)->first();
+    //     if ($existingReview) {
+    //         return response()->json([
+    //             'message' => 'This order item has already been reviewed',
+    //             'review' => $existingReview
+    //         ], 409);
+    //     }
+
+    //     // Check if user already reviewed this product (optional)
+    //     $existingProductReview = ProductReview::where('user_id', $userId)
+    //         ->where('product_id', $request->product_id)
+    //         ->first();
+
+    //     if ($existingProductReview) {
+    //         return response()->json([
+    //             'message' => 'You have already reviewed this product',
+    //             'review' => $existingProductReview
+    //         ], 409);
+    //     }
+
+    //     try {
+    //         DB::beginTransaction();
+
+    //         // Create review
+    //         $review = ProductReview::create([
+    //             'user_id' => $userId,
+    //             'product_id' => $request->product_id,
+    //             'order_line_id' => $request->order_line_id,
+    //             'rating' => $request->rating,
+    //             'review_text' => $request->review_text,
+    //             'status' => 'pending'
+    //         ]);
+
+    //         // Handle image uploads
+    //         if ($request->hasFile('images')) {
+    //             foreach ($request->file('images') as $index => $image) {
+    //                 $path = $image->store('product_reviews', 'public');
+
+    //                 ProductReviewImage::create([
+    //                     'product_review_id' => $review->id,
+    //                     'image_path' => $path,
+    //                     'sort_order' => $index
+    //                 ]);
+    //             }
+    //         }
+
+    //         DB::commit();
+
+    //         // Load images for response
+    //         $review->load('images', 'orderLine');
+
+    //         return response()->json([
+    //             'message' => 'Review submitted successfully and is pending moderation',
+    //             'review' => [
+    //                 'id' => $review->id,
+    //                 'user_id' => $review->user_id,
+    //                 'product_id' => $review->product_id,
+    //                 'order_line_id' => $review->order_line_id,
+    //                 'rating' => $review->rating,
+    //                 'review_text' => $review->review_text,
+    //                 'status' => $review->status,
+    //                 'created_at' => $review->created_at->format('M d, Y'),
+    //                 'images' => $review->images->map(function ($image) {
+    //                     return [
+    //                         'id' => $image->id,
+    //                         'image_url' => $image->image_url,
+    //                         'sort_order' => $image->sort_order
+    //                     ];
+    //                 })->values()->toArray(),
+    //             ]
+    //         ], 201);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         return response()->json([
+    //             'message' => 'Failed to submit review',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'product_id' => 'required|exists:products,id',
+            'order_id' => 'required',
             'order_line_id' => 'required|exists:order_lines,id',
             'rating' => 'required|integer|min:1|max:5',
             'review_text' => 'nullable|string|max:1000',
@@ -221,6 +347,7 @@ class ReviewController extends Controller
 
         // Check if user already reviewed this product (optional)
         $existingProductReview = ProductReview::where('user_id', $userId)
+            ->where('order_id', $request->order_id)
             ->where('product_id', $request->product_id)
             ->first();
 
@@ -239,6 +366,7 @@ class ReviewController extends Controller
                 'user_id' => $userId,
                 'product_id' => $request->product_id,
                 'order_line_id' => $request->order_line_id,
+                'order_id' => $request->order_id,
                 'rating' => $request->rating,
                 'review_text' => $request->review_text,
                 'status' => 'pending'

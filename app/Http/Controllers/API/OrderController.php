@@ -646,6 +646,323 @@ class OrderController extends Controller
     //     }
     // }
 
+    // public function getOrder()
+    // {
+    //     try {
+    //         $orderLines = OrderLine::with([
+    //             'order.user',
+    //             'order.billingAddress',
+    //             'order.deliveryAddress',
+    //             'order.shippingMethod',
+    //             'order.invoice',
+    //             'order.returns',
+    //             'order.creditNotes',
+    //             'product',
+    //             'product.images'
+    //         ])
+    //             ->whereHas('order', function ($query) {
+    //                 $query->where('user_id', auth()->id());
+    //             })
+    //             ->latest('id')
+    //             ->get();
+
+    //         $formattedItems = [];
+
+    //         foreach ($orderLines as $line) {
+    //             $order = $line->order;
+    //             $product = $line->product;
+
+    //             // Get product images
+    //             $images = [];
+    //             $primaryImage = null;
+
+    //             if ($product && $product->images) {
+    //                 foreach ($product->images as $image) {
+    //                     $images[] = [
+    //                         'id' => $image->id,
+    //                         'image_url' => asset('storage/' . $image->image),
+    //                         'is_primary' => $image->is_primary,
+    //                     ];
+
+    //                     if ($image->is_primary) {
+    //                         $primaryImage = asset('storage/' . $image->image);
+    //                     }
+    //                 }
+
+    //                 if (!$primaryImage && !empty($images)) {
+    //                     $primaryImage = $images[0]['image_url'];
+    //                 }
+    //             }
+
+    //             // Format addresses
+    //             $billingAddress = $order->billingAddress;
+    //             $deliveryAddress = $order->deliveryAddress;
+    //             $shippingMethod = $order->shippingMethod;
+
+    //             // Format returns with full image URLs
+    //             $returns = $order->returns->map(function ($return) {
+    //                 $returnItems = [];
+    //                 if ($return->items) {
+    //                     $items = is_string($return->items)
+    //                         ? json_decode($return->items, true)
+    //                         : $return->items;
+
+    //                     foreach ($items as $item) {
+    //                         $imagePaths = $item['image_paths'] ?? [];
+    //                         $fullImageUrls = [];
+
+    //                         foreach ($imagePaths as $path) {
+    //                             $fullImageUrls[] = asset('storage/' . $path);
+    //                         }
+
+    //                         $returnItems[] = [
+    //                             'order_line_id' => $item['order_line_id'] ?? null,
+    //                             'product_id' => $item['product_id'] ?? null,
+    //                             'product_name' => $item['product_name'] ?? 'Unknown',
+    //                             'quantity' => $item['quantity'] ?? 0,
+    //                             'unit_price' => (float) ($item['unit_price'] ?? 0),
+    //                             'gst_rate' => (float) ($item['gst_rate'] ?? 0),
+    //                             'subtotal' => (float) ($item['subtotal'] ?? 0),
+    //                             'tax' => (float) ($item['tax'] ?? 0),
+    //                             'line_total' => (float) ($item['line_total'] ?? 0),
+    //                             'reason' => $item['reason'] ?? null,
+    //                             'image_paths' => $imagePaths,
+    //                             'image_urls' => $fullImageUrls,
+    //                             'return_status' => $item['return_status'] ?? 'pending',
+    //                         ];
+    //                     }
+    //                 }
+
+    //                 $generalImages = [];
+    //                 if ($return->general_images) {
+    //                     $images = is_string($return->general_images)
+    //                         ? json_decode($return->general_images, true)
+    //                         : $return->general_images;
+
+    //                     foreach ($images as $image) {
+    //                         $generalImages[] = [
+    //                             'path' => $image,
+    //                             'url' => asset('storage/' . $image),
+    //                         ];
+    //                     }
+    //                 }
+
+    //                 return [
+    //                     'id' => $return->id,
+    //                     'order_id' => $return->order_id,
+    //                     'user_id' => $return->user_id,
+    //                     'items' => $returnItems,
+    //                     'status' => $return->status,
+    //                     'refund_subtotal' => (float) $return->refund_subtotal,
+    //                     'refund_tax' => (float) $return->refund_tax,
+    //                     'refund_line_total' => (float) ($return->refund_line_total ?? 0),
+    //                     'refund_shipping' => (float) $return->refund_shipping,
+    //                     'total_refund_amount' => (float) $return->total_refund_amount,
+    //                     'refund_status' => $return->refund_status,
+    //                     'refund_processed_at' => $return->refund_processed_at?->toDateTimeString(),
+    //                     'admin_notes' => $return->admin_notes,
+    //                     'rejection_reason' => $return->rejection_reason,
+    //                 ];
+    //             })->values()->toArray();
+
+    //             // Check if product is reviewed
+    //             $isReviewed = \App\Models\ProductReview::where('user_id', auth()->id())
+    //                 ->where('product_id', $line->product_id)
+    //                 ->where('order_id', $order->id)
+    //                 ->exists();
+
+    //             // Helper function to format date
+    //             $formatDate = function ($date) {
+    //                 if (!$date) {
+    //                     return null;
+    //                 }
+    //                 if ($date instanceof \Carbon\Carbon) {
+    //                     return $date->toDateTimeString();
+    //                 }
+    //                 if (is_string($date)) {
+    //                     try {
+    //                         return \Carbon\Carbon::parse($date)->toDateTimeString();
+    //                     } catch (\Exception $e) {
+    //                         return $date;
+    //                     }
+    //                 }
+    //                 return null;
+    //             };
+
+    //             // ============================================================
+    //             // CREDIT NOTES FOR THIS ORDER LINE
+    //             // ============================================================
+    //             $itemCreditNotes = [];
+    //             $orderCreditNotes = $order->creditNotes ?? collect();
+
+    //             foreach ($orderCreditNotes as $cn) {
+    //                 $cnItems = is_string($cn->items) ? json_decode($cn->items, true) : $cn->items;
+    //                 if (is_array($cnItems)) {
+    //                     foreach ($cnItems as $cnItem) {
+    //                         if (($cnItem['order_line_id'] ?? null) == $line->id) {
+    //                             $itemCreditNotes[] = [
+    //                                 'id' => $cn->id,
+    //                                 'credit_note_number' => $cn->credit_note_number,
+    //                                 'original_invoice_number' => $cn->original_invoice_number,
+    //                                 'amount' => (float) $cn->amount,
+    //                                 'issued_at' => $formatDate($cn->issued_at),
+    //                                 'download_url' => "/api/credit-notes/{$cn->id}/download-data",
+    //                             ];
+    //                             break;
+    //                         }
+    //                     }
+    //                 }
+    //             }
+
+    //             // Build formatted item
+    //             $formattedItems[] = [
+    //                 // Order Reference
+    //                 'order_id' => $order->id,
+    //                 'order_reference' => $order->order_reference,
+    //                 'order_status' => $order->status,
+    //                 'order_type' => $order->order_type,
+    //                 'order_date' => $formatDate($order->created_at),
+    //                 'confirmed_date' => $formatDate($order->confirmed_at),
+
+    //                 // Line Item Details
+    //                 'line_id' => $line->id,
+    //                 'product_id' => $line->product_id,
+    //                 'product_name' => $product?->name ?? 'Product Not Found',
+    //                 'product_code' => $product?->product_code ?? 'N/A',
+    //                 'quantity' => $line->quantity,
+    //                 'unit_price' => (float) $line->unit_price,
+    //                 'gst_rate' => (float) $line->gst_rate,
+    //                 'gst_amount' => (float) $line->gst_amount,
+    //                 'line_total' => (float) $line->line_total,
+    //                 'commissionable_volume' => (float) $line->commissionable_volume,
+
+    //                 // Product Status (Order Line Level)
+    //                 'delivery_status' => $line->delivery_status ?? 'pending',
+    //                 'return_status' => $line->return_status ?? 'none',
+    //                 'returned_quantity' => (int) ($line->returned_quantity ?? 0),
+    //                 'available_for_return' => $line->getAvailableForReturnAttribute(),
+    //                 'is_returnable' => $line->is_returnable ?? true,
+
+    //                 // Timeline at Order Line Level
+    //                 'timeline' => [
+    //                     'order_placed' => $formatDate($order->created_at),
+    //                     'order_confirmed' => $formatDate($order->confirmed_at),
+    //                     'shipped_at' => $formatDate($line->shipped_at),
+    //                     'cancelled_at' => $formatDate($line->cancelled_at),
+    //                     'dispatched_at' => $formatDate($line->dispatched_at),
+    //                     'delivered_at' => $formatDate($line->delivered_at),
+    //                     'return_requested_at' => $formatDate($line->return_requested_at),
+    //                     'return_approved_at' => $formatDate($line->return_approved_at),
+    //                     'return_rejected_at' => $formatDate($line->return_rejected_at),
+    //                     'return_completed_at' => $formatDate($line->return_completed_at),
+    //                 ],
+
+    //                 'is_reviewed' => $isReviewed,
+
+    //                 // Product Images
+    //                 'images' => $images,
+    //                 'primary_image' => $primaryImage,
+
+    //                 // Order Financial Info
+    //                 'payment_gateway' => $order->payment_gateway ?? 'Razorpay',
+    //                 'gateway_transaction_id' => $order->gateway_transaction_id,
+    //                 'amount_paid' => (float) $order->amount_paid,
+    //                 'payment_status' => $order->amount_paid > 0 ? 'paid' : 'unpaid',
+    //                 'subtotal' => (float) $order->subtotal,
+    //                 'total_gst' => (float) $order->total_gst,
+    //                 'shipping_charge' => (float) $order->shipping_charge,
+    //                 'coin_redeemed' => (int) $order->coin_redeemed,
+    //                 'coin_redeemed_amount' => (float) $order->coin_redeemed_amount,
+    //                 'total_payable' => (float) $order->total_payable,
+
+    //                 // Tax Breakdown
+    //                 'tax_breakdown' => !empty($order->tax_breakdown)
+    //                     ? (
+    //                         is_string($order->tax_breakdown)
+    //                         ? json_decode($order->tax_breakdown, true)
+    //                         : $order->tax_breakdown
+    //                     )
+    //                     : [],
+
+    //                 // Shipping Method Details
+    //                 'shipping_method' => $shippingMethod ? [
+    //                     'id' => $shippingMethod->id,
+    //                     'name' => $shippingMethod->name,
+    //                     'code' => $shippingMethod->code,
+    //                     'description' => $shippingMethod->description,
+    //                     'base_rate' => (float) $shippingMethod->base_rate,
+    //                     'rate_type' => $shippingMethod->rate_type,
+    //                     'rate_value' => (float) $shippingMethod->rate_value,
+    //                     'min_order_amount' => (float) $shippingMethod->min_order_amount,
+    //                     'max_order_amount' => (float) $shippingMethod->max_order_amount,
+    //                     'estimated_days' => $shippingMethod->estimated_days,
+    //                     'is_active' => (bool) $shippingMethod->is_active,
+    //                 ] : null,
+
+    //                 // Addresses
+    //                 'billing_address' => $billingAddress ? [
+    //                     'id' => $billingAddress->id,
+    //                     'full_name' => $billingAddress->full_name ?? null,
+    //                     'phone' => $billingAddress->phone ?? null,
+    //                     'address_line_1' => $billingAddress->address_line_1,
+    //                     'address_line_2' => $billingAddress->address_line_2 ?? null,
+    //                     'city' => $billingAddress->city,
+    //                     'state' => $billingAddress->state,
+    //                     'postal_code' => $billingAddress->postal_code,
+    //                     'country' => $billingAddress->country ?? 'India',
+    //                     'full_address' => $this->formatAddress($billingAddress),
+    //                 ] : null,
+
+    //                 'delivery_address' => $deliveryAddress ? [
+    //                     'id' => $deliveryAddress->id,
+    //                     'full_name' => $deliveryAddress->full_name ?? null,
+    //                     'phone' => $deliveryAddress->phone ?? null,
+    //                     'address_line_1' => $deliveryAddress->address_line_1,
+    //                     'address_line_2' => $deliveryAddress->address_line_2 ?? null,
+    //                     'city' => $deliveryAddress->city,
+    //                     'state' => $deliveryAddress->state,
+    //                     'postal_code' => $deliveryAddress->postal_code,
+    //                     'country' => $deliveryAddress->country ?? 'India',
+    //                     'full_address' => $this->formatAddress($deliveryAddress),
+    //                 ] : null,
+
+    //                 // User Info
+    //                 'user' => [
+    //                     'id' => $order->user->id,
+    //                     'name' => $order->user->name,
+    //                     'email' => $order->user->email,
+    //                     'phone' => $order->user->phone ?? null,
+    //                     'is_distributor' => $order->user->isDistributor(),
+    //                 ],
+
+    //                 // Invoice Info
+    //                 'invoice' => $order->invoice ? [
+    //                     'invoice_number' => $order->invoice->invoice_number,
+    //                     'generated_at' => $formatDate($order->invoice->created_at),
+    //                 ] : null,
+
+    //                 // Returns
+    //                 'returns' => $returns,
+
+    //                 // ============================================================
+    //                 // CREDIT NOTES (NEW)
+    //                 // ============================================================
+    //                 'credit_notes' => $itemCreditNotes,
+    //             ];
+    //         }
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $formattedItems,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 500);
+    //     }
+    // }
+
     public function getOrder()
     {
         try {
@@ -658,7 +975,11 @@ class OrderController extends Controller
                 'order.returns',
                 'order.creditNotes',
                 'product',
-                'product.images'
+                'product.images',
+                'product.reviews' => function ($query) {
+                    $query->where('status', 'approved')
+                        ->with(['user', 'images']); // Load user and images
+                },
             ])
                 ->whereHas('order', function ($query) {
                     $query->where('user_id', auth()->id());
@@ -671,6 +992,15 @@ class OrderController extends Controller
             foreach ($orderLines as $line) {
                 $order = $line->order;
                 $product = $line->product;
+
+                // Debug: Check if reviews are loaded
+                \Log::info('Line ID: ' . $line->id . ', Product ID: ' . $line->product_id);
+                if ($product) {
+                    \Log::info('Reviews count for product: ' . $product->reviews->count());
+                    foreach ($product->reviews as $review) {
+                        \Log::info('Review: ID=' . $review->id . ', order_line_id=' . $review->order_line_id . ', order_id=' . $review->order_id . ', status=' . $review->status);
+                    }
+                }
 
                 // Get product images
                 $images = [];
@@ -692,6 +1022,48 @@ class OrderController extends Controller
                     if (!$primaryImage && !empty($images)) {
                         $primaryImage = $images[0]['image_url'];
                     }
+                }
+
+                // FIX: Get ONLY approved reviews for this specific order line
+                $productReviews = [];
+                if ($product && $product->reviews) {
+                    foreach ($product->reviews as $review) {
+                        // Debug: Check each review
+                        \Log::info('Checking review: ' . $review->id . ' against line_id: ' . $line->id);
+
+                        // Only include approved reviews that belong to this specific order line
+                        if (
+                            $review->status === 'approved' &&
+                            (int)$review->order_line_id === (int)$line->id
+                        ) {
+                            \Log::info('MATCH FOUND! Review ID: ' . $review->id . ' for line_id: ' . $line->id);
+
+                            $productReviews[] = [
+                                'id' => $review->id,
+                                'user_id' => $review->user_id,
+                                'user_name' => $review->user?->full_name ?? $review->user?->name ?? 'Unknown User',
+                                'rating' => (int) $review->rating,
+                                'review_text' => $review->review_text,
+                                'order_id' => $review->order_id,
+                                'order_line_id' => $review->order_line_id,
+                                'status' => $review->status,
+                                'is_verified_purchase' => true,
+                                'images' => $review->images ?
+                                    $review->images->map(function ($img) {
+                                        return [
+                                            'id' => $img->id,
+                                            'image_url' => $img->image_url ?? asset('storage/' . $img->image),
+                                            'sort_order' => $img->sort_order ?? 0,
+                                        ];
+                                    })->values()->toArray()
+                                    : [],
+                                'created_at' => $review->created_at?->toDateTimeString(),
+                                'updated_at' => $review->updated_at?->toDateTimeString(),
+                            ];
+                        }
+                    }
+                } else {
+                    \Log::info('No product or no reviews found for line_id: ' . $line->id);
                 }
 
                 // Format addresses
@@ -765,11 +1137,14 @@ class OrderController extends Controller
                     ];
                 })->values()->toArray();
 
-                // Check if product is reviewed
+                // FIX: Check if THIS SPECIFIC order line has an approved review
                 $isReviewed = \App\Models\ProductReview::where('user_id', auth()->id())
                     ->where('product_id', $line->product_id)
-                    ->where('order_id', $order->id)
+                    ->where('order_line_id', $line->id)
+                    ->where('status', 'approved')
                     ->exists();
+
+                \Log::info('isReviewed for line_id ' . $line->id . ': ' . ($isReviewed ? 'true' : 'false'));
 
                 // Helper function to format date
                 $formatDate = function ($date) {
@@ -863,6 +1238,9 @@ class OrderController extends Controller
                     'images' => $images,
                     'primary_image' => $primaryImage,
 
+                    // FIXED: Only show approved reviews for THIS specific order line
+                    'product_reviews' => $productReviews,
+
                     // Order Financial Info
                     'payment_gateway' => $order->payment_gateway ?? 'Razorpay',
                     'gateway_transaction_id' => $order->gateway_transaction_id,
@@ -945,7 +1323,7 @@ class OrderController extends Controller
                     'returns' => $returns,
 
                     // ============================================================
-                    // CREDIT NOTES (NEW)
+                    // CREDIT NOTES
                     // ============================================================
                     'credit_notes' => $itemCreditNotes,
                 ];
@@ -956,6 +1334,9 @@ class OrderController extends Controller
                 'data' => $formattedItems,
             ]);
         } catch (\Exception $e) {
+            \Log::error('Error in getOrder: ' . $e->getMessage());
+            \Log::error($e->getTraceAsString());
+
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
