@@ -2993,9 +2993,8 @@ class CheckoutService
             'order_line_id' => $orderLine->id,
             'amount' => $refundAmount,
             'reason' => $orderLine->cancellation_reason ?? 'Item cancelled',
-            'status' => 'processed',
-            'refund_type' => 'partial',
-            'refunded_at' => now(),
+            'status' => 'completed',
+            'completed_at' => now(),
         ]);
 
         // Update order paid amount
