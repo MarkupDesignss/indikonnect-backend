@@ -1675,7 +1675,7 @@ class ReturnService
         }
         return $lines;
     }
-    
+
     /**
      * Restore stock for a return
      * Handles both simple products and product variants
@@ -1684,7 +1684,7 @@ class ReturnService
     {
         $items = $returnOrder->items ?? [];
         $order = $returnOrder->order;
-        
+
         Log::info('Starting stock restore', [
             'return_id' => $returnOrder->id,
             'type' => $returnOrder->type,
@@ -1717,7 +1717,7 @@ class ReturnService
                 if ($variant) {
                     $variant->stock_quantity += $quantity;
                     $variant->save();
-                    
+
                     Log::info('Variant stock restored', [
                         'return_id' => $returnOrder->id,
                         'variant_id' => $variantId,
@@ -1736,7 +1736,7 @@ class ReturnService
                 if ($product) {
                     $product->stock_quantity += $quantity;
                     $product->save();
-                    
+
                     Log::info('Product stock restored', [
                         'return_id' => $returnOrder->id,
                         'product_id' => $productId,
@@ -1752,11 +1752,11 @@ class ReturnService
             }
 
             // Create stock movement record
-            $availableAfter = $variantId 
+            $availableAfter = $variantId
                 ? (\App\Models\ProductVariant::find($variantId)?->stock_quantity ?? 0)
                 : (\App\Models\Product::find($productId)?->stock_quantity ?? 0);
 
-            $reason = match($returnOrder->type) {
+            $reason = match ($returnOrder->type) {
                 'cooling_off' => 'Cooling-off withdrawal approved: ' . ($order->order_reference ?? ''),
                 'buyback' => 'Buy-back approved: ' . ($order->order_reference ?? ''),
                 default => 'Return approved: ' . ($order->order_reference ?? ''),
@@ -2245,10 +2245,10 @@ class ReturnService
 
         return DB::transaction(function () use ($returnOrder) {
             // 1. Mark return as received
-            $returnOrder->update([
-                'status' => 'received',
-                'received_at' => now(),
-            ]);
+            // $returnOrder->update([
+            //     'status' => 'received',
+            //     'received_at' => now(),
+            // ]);
 
             $this->createReturnNotification($returnOrder, 'received');
 
@@ -2274,7 +2274,7 @@ class ReturnService
             try {
                 $creditNoteService = app(\App\Services\CreditNoteService::class);
                 $creditNote = $creditNoteService->generateFromReturn($returnOrder, $refund->id);
-                
+
                 Log::info('Credit note generated in markReturnReceived', [
                     'credit_note_id' => $creditNote->id,
                     'refund_id' => $refund->id,
@@ -2291,22 +2291,28 @@ class ReturnService
             // ============================================================
 
             // 4. Mark return as completed
-            $returnOrder->update([
-                'status' => OrderReturn::STATUS_COMPLETED,
-                'completed_at' => now(),
-            ]);
+            // $returnOrder->update([
+            //     'status' => OrderReturn::STATUS_COMPLETED,
+            //     'completed_at' => now(),
+            // ]);
 
             // 5. Update individual order lines to 'returned' status
             foreach ($returnOrder->items ?? [] as $item) {
                 $orderLineId = is_array($item)
                     ? ($item['order_line_id'] ?? null)
                     : ($item->order_line_id ?? null);
+                dd($item);
 
-                if (!$orderLineId) {
+                $returnedQuantity = is_array($item)
+                    ? ($item['quantity'] ?? 0)
+                    : ($item->quantity ?? 0);
+                if (!$orderLineId || $returnedQuantity <= 0) {
                     continue;
                 }
 
-                $orderLine = OrderLine::find($orderLineId);
+                // $orderLine = OrderLine::find($orderLineId);
+                $orderLine = OrderLine::with(['product', 'variant'])
+                    ->find($orderLineId);
                 if ($orderLine && $orderLine->return_status === 'approved') {
                     if ($orderLine->delivery_status !== 'return_approved') {
                         throw new Exception(
@@ -2319,6 +2325,21 @@ class ReturnService
                         'delivery_status' => 'returned',
                         'return_completed_at' => now(),
                     ]);
+
+                    if ($orderLine->product) {
+                        $orderLine->product->increment(
+                            'stock_quantity',
+                            $returnedQuantity
+                        );
+                    }
+
+                    // 3. Increase variant stock
+                    if ($orderLine->variant_id && $orderLine->variant) {
+                        $orderLine->variant->increment(
+                            'stock_quantity',
+                            $returnedQuantity
+                        );
+                    }
                 }
             }
 
@@ -2442,7 +2463,7 @@ class ReturnService
      * @return array
      * @throws Exception
      */
-    
+
     protected function processRefund(OrderReturn $returnOrder): array
     {
         $order = $returnOrder->order;
@@ -2556,7 +2577,7 @@ class ReturnService
             throw new Exception('Failed to process refund: ' . $e->getMessage(), 0, $e);
         }
     }
- 
+
     protected function calculateRefundAmountFromItems(OrderReturn $returnOrder): float
     {
         $totalLineTotal = 0.00;
@@ -2705,7 +2726,7 @@ class ReturnService
     {
         $user = $returnOrder->user;
         $order = $returnOrder->order;
-        
+
         if (!$user) {
             Log::warning('User not found for cooling-off notification', [
                 'return_id' => $returnOrder->id,
@@ -2731,7 +2752,7 @@ class ReturnService
             $notificationData['message'] = "Your cooling-off withdrawal for Order #{$order->order_reference} has been approved. Stock has been restored and refund of ₹{$returnOrder->total_refund_amount} will be processed within 5-7 business days.";
             $notificationData['icon'] = 'check-circle';
             $notificationData['color'] = 'success';
-            
+
             Log::info('Cooling-off approval notification sent to user', [
                 'user_id' => $user->id,
                 'return_id' => $returnOrder->id,
@@ -2742,7 +2763,7 @@ class ReturnService
             $notificationData['message'] = "Your cooling-off withdrawal for Order #{$order->order_reference} has been rejected. Reason: " . ($returnOrder->rejection_reason ?? 'Not specified');
             $notificationData['icon'] = 'x-circle';
             $notificationData['color'] = 'danger';
-            
+
             Log::info('Cooling-off rejection notification sent to user', [
                 'user_id' => $user->id,
                 'return_id' => $returnOrder->id,
@@ -2754,7 +2775,7 @@ class ReturnService
             $notificationData['message'] = "Your cooling-off withdrawal for Order #{$order->order_reference} has been initiated. Awaiting admin approval.";
             $notificationData['icon'] = 'clock';
             $notificationData['color'] = 'warning';
-            
+
             Log::info('Cooling-off initiated notification sent to user', [
                 'user_id' => $user->id,
                 'return_id' => $returnOrder->id,
