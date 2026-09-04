@@ -647,6 +647,7 @@ class ProductController extends Controller
                 'description' => $product->description,
                 'specification' => $product->specification,
                 'category_id' => $product->category_id,
+                'created_at' => $product->created_at,
                 'category' => $product->category ? [
                     'id' => $product->category->id,
                     'name' => $product->category->title,
@@ -1385,9 +1386,232 @@ class ProductController extends Controller
     /**
      * Update a product with variants
      */
+    // public function update(Request $request, $id)
+    // {
+    //     $product = Product::where('id', $id)->first();
+    //     if (!$product) {
+    //         return response()->json([
+    //             'message' => 'Product not found'
+    //         ], 422);
+    //     }
+
+    //     $validator = Validator::make($request->all(), [
+    //         'product_code' => ['sometimes', 'required', 'string', 'max:255'],
+    //         'name' => ['sometimes', 'required', 'string', 'max:255'],
+    //         'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
+    //         'description' => ['nullable', 'string'],
+    //         'specification' => ['nullable', 'string'],
+    //         'brand_id' => ['nullable'],
+    //         'hsn_code' => ['nullable', 'string', 'max:50'],
+    //         'uom' => ['nullable', 'string', 'max:50'],
+    //         'category_id' => ['sometimes', 'required', 'exists:categories,id'],
+    //         'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+    //         'retail_mrp' => ['sometimes', 'required', 'numeric', 'min:0'],
+    //         'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+    //         'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
+    //         'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
+    //         'stock_quantity' => ['nullable', 'integer', 'min:0'],
+    //         'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
+    //         'is_published' => ['nullable', 'boolean'],
+    //         'is_trending' => ['nullable', 'boolean'],
+    //         'trending_sort_order' => ['nullable', 'integer', 'min:0'],
+    //         'sale_type' => ['nullable', 'string', 'in:today_best,limited'],
+    //         'product_images' => ['nullable', 'array'],
+    //         'product_images.*.image' => ['nullable', 'mimes:jpg,jpeg,png,webp,avif'],
+    //         'product_images.*.sort_order' => ['nullable', 'integer'],
+    //         'product_images.*.is_primary' => ['nullable', 'boolean'],
+    //         'remove_images' => ['nullable', 'array'],
+    //         'remove_images.*' => ['exists:product_images,id'],
+
+    //         // Variants
+    //         'variants' => ['nullable', 'array'],
+    //         'variants.*.id' => ['nullable', 'exists:product_variants,id'],
+    //         'variants.*.sku' => ['required_with:variants', 'string', 'max:255'],
+    //         'variants.*.attributes' => ['required_with:variants'],
+    //         'variants.*.retail_mrp' => ['required_with:variants', 'numeric', 'min:0'],
+    //         'variants.*.retail_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'variants.*.retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+    //         'variants.*.distributor_mrp' => ['nullable', 'numeric', 'min:0'],
+    //         'variants.*.distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'variants.*.distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
+    //         'variants.*.stock_quantity' => ['required_with:variants', 'integer', 'min:0'],
+    //         'variants.*.low_stock_threshold' => ['nullable', 'integer', 'min:0'],
+    //         'variants.*.sort_order' => ['nullable', 'integer', 'min:0'],
+    //         'variants.*.is_active' => ['nullable', 'boolean'],
+    //         'remove_variants' => ['nullable', 'array'],
+    //         'remove_variants.*' => ['exists:product_variants,id'],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['errors' => $validator->errors()], 422);
+    //     }
+
+    //     DB::beginTransaction();
+    //     try {
+    //         $validated = $validator->validated();
+    //         $oldValues = [
+    //             'product_id' => $product->id,
+    //             'product_code' => $product->product_code,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'category_id' => $product->category_id,
+    //             'tax_category_id' => $product->tax_category_id,
+    //             'retail_mrp' => $product->retail_mrp,
+    //             'retail_price' => $product->retail_price,
+    //             'retail_discount_type' => $product->retail_discount_type,
+    //             'retail_discount_value' => $product->retail_discount_value,
+    //             'distributor_mrp' => $product->distributor_mrp,
+    //             'distributor_price' => $product->distributor_price,
+    //             'distributor_discount_type' => $product->distributor_discount_type,
+    //             'distributor_discount_value' => $product->distributor_discount_value,
+    //             'stock_quantity' => $product->stock_quantity,
+    //             'low_stock_threshold' => $product->low_stock_threshold,
+    //             'is_published' => $product->is_published,
+    //             'is_trending' => $product->is_trending,
+    //             'sale_type' => $product->sale_type,
+    //             'description' => $product->description,
+    //             'specification' => $product->specification,
+    //             'hsn_code' => $product->hsn_code,
+    //             'uom' => $product->uom,
+    //         ];
+    //         // Update product data
+    //         $productData = collect($validated)->except(['product_images', 'variants', 'remove_images', 'remove_variants'])->toArray();
+
+    //         if (isset($productData['retail_mrp'])) {
+    //             $productData['retail_price'] = $this->calculatePrice(
+    //                 $productData['retail_mrp'],
+    //                 $productData['retail_discount_type'] ?? null,
+    //                 $productData['retail_discount_value'] ?? null
+    //             );
+    //         }
+
+    //         if (isset($productData['distributor_mrp']) && !empty($productData['distributor_mrp'])) {
+    //             $productData['distributor_price'] = $this->calculatePrice(
+    //                 $productData['distributor_mrp'],
+    //                 $productData['distributor_discount_type'] ?? null,
+    //                 $productData['distributor_discount_value'] ?? null
+    //             );
+    //         } elseif (isset($productData['distributor_mrp']) && empty($productData['distributor_mrp'])) {
+    //             $productData['distributor_price'] = null;
+    //             $productData['distributor_mrp'] = null;
+    //             $productData['distributor_discount_type'] = null;
+    //             $productData['distributor_discount_value'] = null;
+    //         }
+
+    //         // Handle slug
+    //         if (isset($productData['slug']) || isset($productData['name'])) {
+    //             if (empty($productData['slug']) && isset($productData['name'])) {
+    //                 $productData['slug'] = Str::slug($productData['name']);
+    //             }
+    //             if (isset($productData['slug']) && $productData['slug'] !== $product->slug) {
+    //                 $productData['slug'] = $this->generateUniqueSlug($productData['slug'], $product->id);
+    //             }
+    //         }
+
+    //         // Check if variants exist in request
+    //         $hasVariants = isset($validated['variants']) && !empty($validated['variants']);
+
+    //         // If variants exist, remove stock_quantity from product data
+    //         // It will be calculated from variants sum
+    //         if ($hasVariants) {
+    //             // Don't unset stock_quantity if it's not in the array
+    //             if (array_key_exists('stock_quantity', $productData)) {
+    //                 unset($productData['stock_quantity']);
+    //             }
+    //         }
+
+    //         // Remove the dd() debug statement
+    //         // dd($productData);
+
+    //         $product->update($productData);
+
+    //         // Handle product images
+    //         $this->handleProductImageUpdates($request, $product);
+    //         $variantUpdateDetails = [];
+
+    //         // Handle variants
+    //         if ($hasVariants) {
+    //             $totalStock = $this->handleVariantUpdates($product, $validated);
+    //             $product->update(['stock_quantity' => $totalStock]);
+    //             // Get updated variants for audit
+    //             $updatedVariants = $product->variants()->get();
+    //             foreach ($updatedVariants as $variant) {
+    //                 $variantUpdateDetails[] = [
+    //                     'id' => $variant->id,
+    //                     'sku' => $variant->sku,
+    //                     'attributes' => $variant->attributes,
+    //                     'retail_mrp' => $variant->retail_mrp,
+    //                     'distributor_mrp' => $variant->distributor_mrp,
+    //                     'stock_quantity' => $variant->stock_quantity,
+    //                     'is_active' => $variant->is_active,
+    //                 ];
+    //             }
+    //         } else {
+    //             // If no variants, ensure stock_quantity is preserved from the request
+    //             if (isset($validated['stock_quantity'])) {
+    //                 $product->update(['stock_quantity' => $validated['stock_quantity']]);
+    //             }
+    //         }
+
+    //         DB::commit();
+    //         $product->load(['category', 'taxCategory', 'images', 'variants.images']);
+    //         $newValues = [
+    //             'product_id' => $product->id,
+    //             'product_code' => $product->product_code,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'category_id' => $product->category_id,
+    //             'category_name' => $product->category?->name,
+    //             'tax_category_id' => $product->tax_category_id,
+    //             'retail_mrp' => $product->retail_mrp,
+    //             'retail_price' => $product->retail_price,
+    //             'retail_discount_type' => $product->retail_discount_type,
+    //             'retail_discount_value' => $product->retail_discount_value,
+    //             'distributor_mrp' => $product->distributor_mrp,
+    //             'distributor_price' => $product->distributor_price,
+    //             'distributor_discount_type' => $product->distributor_discount_type,
+    //             'distributor_discount_value' => $product->distributor_discount_value,
+    //             'stock_quantity' => $product->stock_quantity,
+    //             'low_stock_threshold' => $product->low_stock_threshold,
+    //             'is_published' => $product->is_published,
+    //             'is_trending' => $product->is_trending,
+    //             'trending_sort_order' => $product->trending_sort_order,
+    //             'sale_type' => $product->sale_type,
+    //             'description' => $product->description,
+    //             'specification' => $product->specification,
+    //             'hsn_code' => $product->hsn_code,
+    //             'uom' => $product->uom,
+    //             'has_variants' => $hasVariants,
+    //             'variants_count' => count($variantUpdateDetails),
+    //             'variants' => $variantUpdateDetails,
+    //             'updated_by' => $this->getAdminId(),
+    //             'updated_at' => now()->toDateTimeString(),
+    //         ];
+    //         $this->logAudit(
+    //             'product_update',
+    //             'catalogue',
+    //             $oldValues,
+    //             $newValues
+    //         );
+    //         return response()->json($this->formatProduct($product));
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         Log::error('Failed to update product:', [
+    //             'error' => $e->getMessage(),
+    //             'trace' => $e->getTraceAsString()
+    //         ]);
+    //         return response()->json([
+    //             'message' => 'Failed to update product',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function update(Request $request, $id)
     {
         $product = Product::where('id', $id)->first();
+
         if (!$product) {
             return response()->json([
                 'message' => 'Product not found'
@@ -1397,7 +1621,12 @@ class ProductController extends Controller
         $validator = Validator::make($request->all(), [
             'product_code' => ['sometimes', 'required', 'string', 'max:255'],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
-            'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
+            'slug' => [
+                'nullable',
+                'string',
+                'max:255',
+                Rule::unique('products')->ignore($product->id)
+            ],
             'description' => ['nullable', 'string'],
             'specification' => ['nullable', 'string'],
             'brand_id' => ['nullable'],
@@ -1405,51 +1634,126 @@ class ProductController extends Controller
             'uom' => ['nullable', 'string', 'max:50'],
             'category_id' => ['sometimes', 'required', 'exists:categories,id'],
             'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+
+            // Product pricing
             'retail_mrp' => ['sometimes', 'required', 'numeric', 'min:0'],
             'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
             'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+
             'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
             'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
             'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
+
+            // Stock
             'stock_quantity' => ['nullable', 'integer', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
+
+            // Status
             'is_published' => ['nullable', 'boolean'],
             'is_trending' => ['nullable', 'boolean'],
             'trending_sort_order' => ['nullable', 'integer', 'min:0'],
             'sale_type' => ['nullable', 'string', 'in:today_best,limited'],
+
+            // Product images
             'product_images' => ['nullable', 'array'],
-            'product_images.*.image' => ['nullable', 'mimes:jpg,jpeg,png,webp,avif'],
+            'product_images.*.image' => [
+                'nullable',
+                'mimes:jpg,jpeg,png,webp,avif'
+            ],
             'product_images.*.sort_order' => ['nullable', 'integer'],
             'product_images.*.is_primary' => ['nullable', 'boolean'],
+
             'remove_images' => ['nullable', 'array'],
             'remove_images.*' => ['exists:product_images,id'],
 
             // Variants
             'variants' => ['nullable', 'array'],
-            'variants.*.id' => ['nullable', 'exists:product_variants,id'],
-            'variants.*.sku' => ['required_with:variants', 'string', 'max:255'],
-            'variants.*.attributes' => ['required_with:variants'],
-            'variants.*.retail_mrp' => ['required_with:variants', 'numeric', 'min:0'],
-            'variants.*.retail_discount_type' => ['nullable', 'in:percentage,fixed'],
-            'variants.*.retail_discount_value' => ['nullable', 'numeric', 'min:0'],
-            'variants.*.distributor_mrp' => ['nullable', 'numeric', 'min:0'],
-            'variants.*.distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
-            'variants.*.distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
-            'variants.*.stock_quantity' => ['required_with:variants', 'integer', 'min:0'],
-            'variants.*.low_stock_threshold' => ['nullable', 'integer', 'min:0'],
-            'variants.*.sort_order' => ['nullable', 'integer', 'min:0'],
-            'variants.*.is_active' => ['nullable', 'boolean'],
+            'variants.*.id' => [
+                'nullable',
+                'exists:product_variants,id'
+            ],
+            'variants.*.sku' => [
+                'nullable',
+                'string',
+                'max:255'
+            ],
+            'variants.*.attributes' => ['nullable'],
+
+            'variants.*.retail_mrp' => [
+                'nullable',
+                'numeric',
+                'min:0'
+            ],
+            'variants.*.retail_discount_type' => [
+                'nullable',
+                'in:percentage,fixed'
+            ],
+            'variants.*.retail_discount_value' => [
+                'nullable',
+                'numeric',
+                'min:0'
+            ],
+
+            'variants.*.distributor_mrp' => [
+                'nullable',
+                'numeric',
+                'min:0'
+            ],
+            'variants.*.distributor_discount_type' => [
+                'nullable',
+                'in:percentage,fixed'
+            ],
+            'variants.*.distributor_discount_value' => [
+                'nullable',
+                'numeric',
+                'min:0'
+            ],
+
+            'variants.*.stock_quantity' => [
+                'nullable',
+                'integer',
+                'min:0'
+            ],
+            'variants.*.low_stock_threshold' => [
+                'nullable',
+                'integer',
+                'min:0'
+            ],
+            'variants.*.sort_order' => [
+                'nullable',
+                'integer',
+                'min:0'
+            ],
+            'variants.*.is_active' => [
+                'nullable',
+                'boolean'
+            ],
+
             'remove_variants' => ['nullable', 'array'],
-            'remove_variants.*' => ['exists:product_variants,id'],
+            'remove_variants.*' => [
+                'nullable',
+                'exists:product_variants,id'
+            ],
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'errors' => $validator->errors()
+            ], 422);
         }
 
         DB::beginTransaction();
+
         try {
+
             $validated = $validator->validated();
+
+            /*
+            |--------------------------------------------------------------------------
+            | OLD VALUES
+            |--------------------------------------------------------------------------
+            */
+
             $oldValues = [
                 'product_id' => $product->id,
                 'product_code' => $product->product_code,
@@ -1457,28 +1761,56 @@ class ProductController extends Controller
                 'slug' => $product->slug,
                 'category_id' => $product->category_id,
                 'tax_category_id' => $product->tax_category_id,
+
                 'retail_mrp' => $product->retail_mrp,
                 'retail_price' => $product->retail_price,
                 'retail_discount_type' => $product->retail_discount_type,
                 'retail_discount_value' => $product->retail_discount_value,
+
                 'distributor_mrp' => $product->distributor_mrp,
                 'distributor_price' => $product->distributor_price,
                 'distributor_discount_type' => $product->distributor_discount_type,
                 'distributor_discount_value' => $product->distributor_discount_value,
+
                 'stock_quantity' => $product->stock_quantity,
                 'low_stock_threshold' => $product->low_stock_threshold,
+
                 'is_published' => $product->is_published,
                 'is_trending' => $product->is_trending,
                 'sale_type' => $product->sale_type,
+
                 'description' => $product->description,
                 'specification' => $product->specification,
                 'hsn_code' => $product->hsn_code,
                 'uom' => $product->uom,
             ];
-            // Update product data
-            $productData = collect($validated)->except(['product_images', 'variants', 'remove_images', 'remove_variants'])->toArray();
 
-            if (isset($productData['retail_mrp'])) {
+            /*
+            |--------------------------------------------------------------------------
+            | UPDATE PRODUCT
+            |--------------------------------------------------------------------------
+            */
+
+            $productData = collect($validated)
+                ->except([
+                    'product_images',
+                    'variants',
+                    'remove_images',
+                    'remove_variants'
+                ])
+                ->toArray();
+
+            /*
+            |--------------------------------------------------------------------------
+            | RETAIL PRICE
+            |--------------------------------------------------------------------------
+            |
+            | Only calculate if retail_mrp was actually supplied.
+            |
+            */
+
+            if (array_key_exists('retail_mrp', $productData)) {
+
                 $productData['retail_price'] = $this->calculatePrice(
                     $productData['retail_mrp'],
                     $productData['retail_discount_type'] ?? null,
@@ -1486,121 +1818,295 @@ class ProductController extends Controller
                 );
             }
 
-            if (isset($productData['distributor_mrp']) && !empty($productData['distributor_mrp'])) {
+            /*
+            |--------------------------------------------------------------------------
+            | DISTRIBUTOR PRICE
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                array_key_exists('distributor_mrp', $productData)
+                && $productData['distributor_mrp'] !== null
+                && $productData['distributor_mrp'] !== ''
+            ) {
+
                 $productData['distributor_price'] = $this->calculatePrice(
                     $productData['distributor_mrp'],
                     $productData['distributor_discount_type'] ?? null,
                     $productData['distributor_discount_value'] ?? null
                 );
-            } elseif (isset($productData['distributor_mrp']) && empty($productData['distributor_mrp'])) {
+            } elseif (
+                array_key_exists('distributor_mrp', $productData)
+                && (
+                    $productData['distributor_mrp'] === null
+                    || $productData['distributor_mrp'] === ''
+                )
+            ) {
+
                 $productData['distributor_price'] = null;
                 $productData['distributor_mrp'] = null;
                 $productData['distributor_discount_type'] = null;
                 $productData['distributor_discount_value'] = null;
             }
 
-            // Handle slug
-            if (isset($productData['slug']) || isset($productData['name'])) {
-                if (empty($productData['slug']) && isset($productData['name'])) {
+            /*
+            |--------------------------------------------------------------------------
+            | SLUG
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                array_key_exists('slug', $productData)
+                || array_key_exists('name', $productData)
+            ) {
+
+                if (
+                    empty($productData['slug'])
+                    && array_key_exists('name', $productData)
+                ) {
                     $productData['slug'] = Str::slug($productData['name']);
                 }
-                if (isset($productData['slug']) && $productData['slug'] !== $product->slug) {
-                    $productData['slug'] = $this->generateUniqueSlug($productData['slug'], $product->id);
+
+                if (
+                    array_key_exists('slug', $productData)
+                    && $productData['slug'] !== $product->slug
+                ) {
+                    $productData['slug'] = $this->generateUniqueSlug(
+                        $productData['slug'],
+                        $product->id
+                    );
                 }
             }
 
-            // Check if variants exist in request
-            $hasVariants = isset($validated['variants']) && !empty($validated['variants']);
+            /*
+            |--------------------------------------------------------------------------
+            | VARIANTS EXIST?
+            |--------------------------------------------------------------------------
+            */
 
-            // If variants exist, remove stock_quantity from product data
-            // It will be calculated from variants sum
+            $hasVariants = array_key_exists('variants', $validated)
+                && is_array($validated['variants'])
+                && count($validated['variants']) > 0;
+
+            /*
+            |--------------------------------------------------------------------------
+            | IF VARIANTS EXIST
+            |--------------------------------------------------------------------------
+            |
+            | Product stock will be calculated from variant stock.
+            |
+            */
+
             if ($hasVariants) {
-                // Don't unset stock_quantity if it's not in the array
+
                 if (array_key_exists('stock_quantity', $productData)) {
                     unset($productData['stock_quantity']);
                 }
             }
 
-            // Remove the dd() debug statement
-            // dd($productData);
+            /*
+            |--------------------------------------------------------------------------
+            | UPDATE PRODUCT
+            |--------------------------------------------------------------------------
+            */
 
-            $product->update($productData);
+            if (!empty($productData)) {
+                $product->update($productData);
+            }
 
-            // Handle product images
-            $this->handleProductImageUpdates($request, $product);
+            /*
+            |--------------------------------------------------------------------------
+            | PRODUCT IMAGES
+            |--------------------------------------------------------------------------
+            */
+
+            $this->handleProductImageUpdates(
+                $request,
+                $product
+            );
+
             $variantUpdateDetails = [];
 
-            // Handle variants
+            /*
+            |--------------------------------------------------------------------------
+            | REMOVE VARIANTS
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                array_key_exists('remove_variants', $validated)
+                && !empty($validated['remove_variants'])
+            ) {
+
+                ProductVariant::where('product_id', $product->id)
+                    ->whereIn('id', $validated['remove_variants'])
+                    ->delete();
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | HANDLE VARIANTS
+            |--------------------------------------------------------------------------
+            */
+
             if ($hasVariants) {
-                $totalStock = $this->handleVariantUpdates($product, $validated);
-                $product->update(['stock_quantity' => $totalStock]);
-                // Get updated variants for audit
+
+                $totalStock = $this->handleVariantUpdates(
+                    $product,
+                    $validated
+                );
+
+                /*
+                |--------------------------------------------------------------------------
+                | UPDATE PRODUCT STOCK FROM VARIANTS
+                |--------------------------------------------------------------------------
+                */
+
+                $product->update([
+                    'stock_quantity' => $totalStock
+                ]);
+
+                /*
+                |--------------------------------------------------------------------------
+                | GET UPDATED VARIANTS
+                |--------------------------------------------------------------------------
+                */
+
                 $updatedVariants = $product->variants()->get();
+
                 foreach ($updatedVariants as $variant) {
+
                     $variantUpdateDetails[] = [
                         'id' => $variant->id,
                         'sku' => $variant->sku,
                         'attributes' => $variant->attributes,
                         'retail_mrp' => $variant->retail_mrp,
+                        'retail_price' => $variant->retail_price,
+                        'retail_discount_type' => $variant->retail_discount_type,
+                        'retail_discount_value' => $variant->retail_discount_value,
+
                         'distributor_mrp' => $variant->distributor_mrp,
+                        'distributor_price' => $variant->distributor_price,
+                        'distributor_discount_type' => $variant->distributor_discount_type,
+                        'distributor_discount_value' => $variant->distributor_discount_value,
+
                         'stock_quantity' => $variant->stock_quantity,
+                        'low_stock_threshold' => $variant->low_stock_threshold,
+                        'sort_order' => $variant->sort_order,
                         'is_active' => $variant->is_active,
                     ];
                 }
             } else {
-                // If no variants, ensure stock_quantity is preserved from the request
-                if (isset($validated['stock_quantity'])) {
-                    $product->update(['stock_quantity' => $validated['stock_quantity']]);
+
+                /*
+                |--------------------------------------------------------------------------
+                | NO VARIANTS
+                |--------------------------------------------------------------------------
+                */
+
+                if (array_key_exists('stock_quantity', $validated)) {
+
+                    $product->update([
+                        'stock_quantity' => $validated['stock_quantity']
+                    ]);
                 }
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | COMMIT
+            |--------------------------------------------------------------------------
+            */
+
             DB::commit();
-            $product->load(['category', 'taxCategory', 'images', 'variants.images']);
+
+            /*
+            |--------------------------------------------------------------------------
+            | LOAD RELATIONS
+            |--------------------------------------------------------------------------
+            */
+
+            $product->load([
+                'category',
+                'taxCategory',
+                'images',
+                'variants.images'
+            ]);
+
+            /*
+            |--------------------------------------------------------------------------
+            | NEW VALUES / AUDIT
+            |--------------------------------------------------------------------------
+            */
+
             $newValues = [
                 'product_id' => $product->id,
                 'product_code' => $product->product_code,
                 'name' => $product->name,
                 'slug' => $product->slug,
+
                 'category_id' => $product->category_id,
                 'category_name' => $product->category?->name,
+
                 'tax_category_id' => $product->tax_category_id,
+
                 'retail_mrp' => $product->retail_mrp,
                 'retail_price' => $product->retail_price,
                 'retail_discount_type' => $product->retail_discount_type,
                 'retail_discount_value' => $product->retail_discount_value,
+
                 'distributor_mrp' => $product->distributor_mrp,
                 'distributor_price' => $product->distributor_price,
                 'distributor_discount_type' => $product->distributor_discount_type,
                 'distributor_discount_value' => $product->distributor_discount_value,
+
                 'stock_quantity' => $product->stock_quantity,
                 'low_stock_threshold' => $product->low_stock_threshold,
+
                 'is_published' => $product->is_published,
                 'is_trending' => $product->is_trending,
                 'trending_sort_order' => $product->trending_sort_order,
+
                 'sale_type' => $product->sale_type,
+
                 'description' => $product->description,
                 'specification' => $product->specification,
                 'hsn_code' => $product->hsn_code,
                 'uom' => $product->uom,
+
                 'has_variants' => $hasVariants,
                 'variants_count' => count($variantUpdateDetails),
                 'variants' => $variantUpdateDetails,
+
                 'updated_by' => $this->getAdminId(),
                 'updated_at' => now()->toDateTimeString(),
             ];
+
             $this->logAudit(
                 'product_update',
                 'catalogue',
                 $oldValues,
                 $newValues
             );
-            return response()->json($this->formatProduct($product));
+
+            /*
+            |--------------------------------------------------------------------------
+            | RESPONSE
+            |--------------------------------------------------------------------------
+            */
+
+            return response()->json(
+                $this->formatProduct($product)
+            );
         } catch (\Exception $e) {
+
             DB::rollBack();
+
             Log::error('Failed to update product:', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
+
             return response()->json([
                 'message' => 'Failed to update product',
                 'error' => $e->getMessage()
@@ -1680,176 +2186,499 @@ class ProductController extends Controller
     /**
      * Handle variant updates
      */
-    protected function handleVariantUpdates($product, $validated)
+    // protected function handleVariantUpdates($product, $validated)
+    // {
+    //     $totalStock = 0;
+
+    //     // Remove specified variants
+    //     $removeVariants = $validated['remove_variants'] ?? [];
+    //     if (!empty($removeVariants)) {
+    //         $variantsToRemove = ProductVariant::whereIn('id', $removeVariants)
+    //             ->where('product_id', $product->id)
+    //             ->get();
+
+    //         foreach ($variantsToRemove as $variant) {
+    //             // Delete variant images
+    //             foreach ($variant->images as $image) {
+    //                 if (Storage::disk('public')->exists($image->image)) {
+    //                     Storage::disk('public')->delete($image->image);
+    //                 }
+    //                 $image->delete();
+    //             }
+    //             $variant->delete();
+    //         }
+    //     }
+
+    //     // Update or create variants
+    //     $variants = $validated['variants'] ?? [];
+    //     $existingVariantIds = [];
+
+    //     foreach ($variants as $variantData) {
+    //         // Get stock quantity for this variant
+    //         $variantStock = $variantData['stock_quantity'] ?? 0;
+
+    //         // Extract images from variant data
+    //         $variantImages = $variantData['images'] ?? [];
+    //         unset($variantData['images']);
+
+    //         if (isset($variantData['id'])) {
+    //             // Update existing variant
+    //             $variant = ProductVariant::where('id', $variantData['id'])
+    //                 ->where('product_id', $product->id)
+    //                 ->first();
+
+    //             if ($variant) {
+    //                 $existingVariantIds[] = $variant->id;
+
+    //                 // Calculate prices
+    //                 $variantData['retail_price'] = $this->calculatePrice(
+    //                     $variantData['retail_mrp'],
+    //                     $variantData['retail_discount_type'] ?? null,
+    //                     $variantData['retail_discount_value'] ?? null
+    //                 );
+
+    //                 if (!empty($variantData['distributor_mrp'])) {
+    //                     $variantData['distributor_price'] = $this->calculatePrice(
+    //                         $variantData['distributor_mrp'],
+    //                         $variantData['distributor_discount_type'] ?? null,
+    //                         $variantData['distributor_discount_value'] ?? null
+    //                     );
+    //                 } else {
+    //                     $variantData['distributor_price'] = null;
+    //                     $variantData['distributor_mrp'] = null;
+    //                     $variantData['distributor_discount_type'] = null;
+    //                     $variantData['distributor_discount_value'] = null;
+    //                 }
+
+    //                 $variantData['low_stock_threshold'] = $variantData['low_stock_threshold'] ?? 5;
+    //                 $variantData['is_active'] = $variantData['is_active'] ?? true;
+    //                 $variantData['sort_order'] = $variantData['sort_order'] ?? 0;
+
+    //                 // Remove id from data before update
+    //                 unset($variantData['id']);
+
+    //                 $variant->update($variantData);
+    //             }
+    //         } else {
+    //             // Create new variant
+    //             // Remove any id that might be present
+    //             unset($variantData['id']);
+
+    //             $variantData['product_id'] = $product->id;
+    //             $variantData['low_stock_threshold'] = $variantData['low_stock_threshold'] ?? 5;
+    //             $variantData['is_active'] = $variantData['is_active'] ?? true;
+    //             $variantData['sort_order'] = $variantData['sort_order'] ?? 0;
+
+    //             // Calculate prices for new variant
+    //             $variantData['retail_price'] = $this->calculatePrice(
+    //                 $variantData['retail_mrp'],
+    //                 $variantData['retail_discount_type'] ?? null,
+    //                 $variantData['retail_discount_value'] ?? null
+    //             );
+
+    //             if (!empty($variantData['distributor_mrp'])) {
+    //                 $variantData['distributor_price'] = $this->calculatePrice(
+    //                     $variantData['distributor_mrp'],
+    //                     $variantData['distributor_discount_type'] ?? null,
+    //                     $variantData['distributor_discount_value'] ?? null
+    //                 );
+    //             } else {
+    //                 $variantData['distributor_price'] = null;
+    //                 $variantData['distributor_mrp'] = null;
+    //                 $variantData['distributor_discount_type'] = null;
+    //                 $variantData['distributor_discount_value'] = null;
+    //             }
+
+    //             $variant = ProductVariant::create($variantData);
+
+    //             // Handle variant images if any
+    //             if (!empty($variantImages)) {
+    //                 $imageCount = 0;
+    //                 $hasPrimary = false;
+
+    //                 foreach ($variantImages as $imageData) {
+    //                     // Check if we have a file upload or a URL
+    //                     if (isset($imageData['image']) && $imageData['image'] instanceof \Illuminate\Http\UploadedFile) {
+    //                         $path = $imageData['image']->store('variants', 'public');
+
+    //                         $isPrimary = $imageData['is_primary'] ?? false;
+    //                         if (!$hasPrimary && $imageCount === 0) {
+    //                             $isPrimary = true;
+    //                         }
+
+    //                         VariantImage::create([
+    //                             'variant_id' => $variant->id,
+    //                             'image' => $path,
+    //                             'is_primary' => $isPrimary,
+    //                             'sort_order' => $imageData['sort_order'] ?? $imageCount,
+    //                         ]);
+
+    //                         if ($isPrimary) {
+    //                             $hasPrimary = true;
+    //                         }
+    //                     } elseif (isset($imageData['image_url'])) {
+    //                         $isPrimary = $imageData['is_primary'] ?? false;
+    //                         if (!$hasPrimary && $imageCount === 0) {
+    //                             $isPrimary = true;
+    //                         }
+
+    //                         VariantImage::create([
+    //                             'variant_id' => $variant->id,
+    //                             'image' => $imageData['image_url'],
+    //                             'is_primary' => $isPrimary,
+    //                             'sort_order' => $imageData['sort_order'] ?? $imageCount,
+    //                         ]);
+
+    //                         if ($isPrimary) {
+    //                             $hasPrimary = true;
+    //                         }
+    //                     }
+    //                     $imageCount++;
+    //                 }
+
+    //                 if (!$hasPrimary && $imageCount > 0) {
+    //                     $firstImage = VariantImage::where('variant_id', $variant->id)
+    //                         ->orderBy('sort_order')
+    //                         ->first();
+    //                     if ($firstImage) {
+    //                         $firstImage->update(['is_primary' => true]);
+    //                     }
+    //                 }
+    //             }
+    //         }
+
+    //         // Add variant stock to total
+    //         $totalStock += $variantStock;
+    //     }
+
+    //     // Soft delete variants that are not in the update list (if we have existing IDs)
+    //     if (!empty($existingVariantIds)) {
+    //         ProductVariant::where('product_id', $product->id)
+    //             ->whereNotIn('id', $existingVariantIds)
+    //             ->delete();
+    //     }
+
+    //     return $totalStock;
+    // }
+    private function handleVariantUpdates(Product $product, array $validated): int
     {
         $totalStock = 0;
 
-        // Remove specified variants
-        $removeVariants = $validated['remove_variants'] ?? [];
-        if (!empty($removeVariants)) {
-            $variantsToRemove = ProductVariant::whereIn('id', $removeVariants)
-                ->where('product_id', $product->id)
-                ->get();
-
-            foreach ($variantsToRemove as $variant) {
-                // Delete variant images
-                foreach ($variant->images as $image) {
-                    if (Storage::disk('public')->exists($image->image)) {
-                        Storage::disk('public')->delete($image->image);
-                    }
-                    $image->delete();
-                }
-                $variant->delete();
-            }
-        }
-
-        // Update or create variants
         $variants = $validated['variants'] ?? [];
-        $existingVariantIds = [];
 
         foreach ($variants as $variantData) {
-            // Get stock quantity for this variant
-            $variantStock = $variantData['stock_quantity'] ?? 0;
 
-            // Extract images from variant data
-            $variantImages = $variantData['images'] ?? [];
-            unset($variantData['images']);
+            /*
+            |--------------------------------------------------------------------------
+            | Get Existing Variant
+            |--------------------------------------------------------------------------
+            */
 
-            if (isset($variantData['id'])) {
-                // Update existing variant
-                $variant = ProductVariant::where('id', $variantData['id'])
+            $variantId = $variantData['id'] ?? null;
+
+            if ($variantId) {
+
+                $variant = ProductVariant::where('id', $variantId)
                     ->where('product_id', $product->id)
                     ->first();
 
-                if ($variant) {
-                    $existingVariantIds[] = $variant->id;
-
-                    // Calculate prices
-                    $variantData['retail_price'] = $this->calculatePrice(
-                        $variantData['retail_mrp'],
-                        $variantData['retail_discount_type'] ?? null,
-                        $variantData['retail_discount_value'] ?? null
-                    );
-
-                    if (!empty($variantData['distributor_mrp'])) {
-                        $variantData['distributor_price'] = $this->calculatePrice(
-                            $variantData['distributor_mrp'],
-                            $variantData['distributor_discount_type'] ?? null,
-                            $variantData['distributor_discount_value'] ?? null
-                        );
-                    } else {
-                        $variantData['distributor_price'] = null;
-                        $variantData['distributor_mrp'] = null;
-                        $variantData['distributor_discount_type'] = null;
-                        $variantData['distributor_discount_value'] = null;
-                    }
-
-                    $variantData['low_stock_threshold'] = $variantData['low_stock_threshold'] ?? 5;
-                    $variantData['is_active'] = $variantData['is_active'] ?? true;
-                    $variantData['sort_order'] = $variantData['sort_order'] ?? 0;
-
-                    // Remove id from data before update
-                    unset($variantData['id']);
-
-                    $variant->update($variantData);
+                if (!$variant) {
+                    continue;
                 }
             } else {
-                // Create new variant
-                // Remove any id that might be present
-                unset($variantData['id']);
 
-                $variantData['product_id'] = $product->id;
-                $variantData['low_stock_threshold'] = $variantData['low_stock_threshold'] ?? 5;
-                $variantData['is_active'] = $variantData['is_active'] ?? true;
-                $variantData['sort_order'] = $variantData['sort_order'] ?? 0;
+                /*
+                |--------------------------------------------------------------------------
+                | Create New Variant
+                |--------------------------------------------------------------------------
+                */
 
-                // Calculate prices for new variant
-                $variantData['retail_price'] = $this->calculatePrice(
-                    $variantData['retail_mrp'],
-                    $variantData['retail_discount_type'] ?? null,
-                    $variantData['retail_discount_value'] ?? null
-                );
+                $variant = new ProductVariant();
 
-                if (!empty($variantData['distributor_mrp'])) {
-                    $variantData['distributor_price'] = $this->calculatePrice(
-                        $variantData['distributor_mrp'],
-                        $variantData['distributor_discount_type'] ?? null,
-                        $variantData['distributor_discount_value'] ?? null
-                    );
-                } else {
-                    $variantData['distributor_price'] = null;
-                    $variantData['distributor_mrp'] = null;
-                    $variantData['distributor_discount_type'] = null;
-                    $variantData['distributor_discount_value'] = null;
+                $variant->product_id = $product->id;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Basic Fields
+            |--------------------------------------------------------------------------
+            */
+
+            if (array_key_exists('sku', $variantData)) {
+                $variant->sku = $variantData['sku'];
+            }
+
+            if (array_key_exists('attributes', $variantData)) {
+
+                $attributes = $variantData['attributes'];
+
+                if (is_string($attributes)) {
+                    $attributes = json_decode($attributes, true);
                 }
 
-                $variant = ProductVariant::create($variantData);
+                $variant->attributes = $attributes;
+            }
 
-                // Handle variant images if any
-                if (!empty($variantImages)) {
-                    $imageCount = 0;
-                    $hasPrimary = false;
+            /*
+            |--------------------------------------------------------------------------
+            | RETAIL MRP
+            |--------------------------------------------------------------------------
+            |
+            | IMPORTANT:
+            | Never use:
+            |
+            | $variantData['retail_mrp']
+            |
+            | because the key may not exist.
+            |
+            */
 
-                    foreach ($variantImages as $imageData) {
-                        // Check if we have a file upload or a URL
-                        if (isset($imageData['image']) && $imageData['image'] instanceof \Illuminate\Http\UploadedFile) {
-                            $path = $imageData['image']->store('variants', 'public');
+            if (array_key_exists('retail_mrp', $variantData)) {
 
-                            $isPrimary = $imageData['is_primary'] ?? false;
-                            if (!$hasPrimary && $imageCount === 0) {
-                                $isPrimary = true;
-                            }
+                $variant->retail_mrp = $variantData['retail_mrp'];
 
-                            VariantImage::create([
-                                'variant_id' => $variant->id,
-                                'image' => $path,
-                                'is_primary' => $isPrimary,
-                                'sort_order' => $imageData['sort_order'] ?? $imageCount,
-                            ]);
+                $variant->retail_discount_type =
+                    $variantData['retail_discount_type'] ?? null;
 
-                            if ($isPrimary) {
-                                $hasPrimary = true;
-                            }
-                        } elseif (isset($imageData['image_url'])) {
-                            $isPrimary = $imageData['is_primary'] ?? false;
-                            if (!$hasPrimary && $imageCount === 0) {
-                                $isPrimary = true;
-                            }
+                $variant->retail_discount_value =
+                    $variantData['retail_discount_value'] ?? null;
 
-                            VariantImage::create([
-                                'variant_id' => $variant->id,
-                                'image' => $imageData['image_url'],
-                                'is_primary' => $isPrimary,
-                                'sort_order' => $imageData['sort_order'] ?? $imageCount,
-                            ]);
+                if ($variant->retail_mrp !== null) {
 
-                            if ($isPrimary) {
-                                $hasPrimary = true;
-                            }
-                        }
-                        $imageCount++;
+                    $variant->retail_price = $this->calculatePrice(
+                        $variant->retail_mrp,
+                        $variant->retail_discount_type,
+                        $variant->retail_discount_value
+                    );
+                } else {
+
+                    $variant->retail_price = null;
+                }
+            } elseif (!$variant->exists) {
+
+                /*
+                |--------------------------------------------------------------------------
+                | New Variant Without Retail MRP
+                |--------------------------------------------------------------------------
+                */
+
+                $variant->retail_mrp = null;
+                $variant->retail_price = null;
+                $variant->retail_discount_type = null;
+                $variant->retail_discount_value = null;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Retail Discount Fields
+            |--------------------------------------------------------------------------
+            |
+            | Allow discount to be updated even if MRP was not sent.
+            |
+            */
+
+            if (array_key_exists('retail_discount_type', $variantData)) {
+                $variant->retail_discount_type =
+                    $variantData['retail_discount_type'];
+            }
+
+            if (array_key_exists('retail_discount_value', $variantData)) {
+                $variant->retail_discount_value =
+                    $variantData['retail_discount_value'];
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Recalculate Retail Price
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                $variant->retail_mrp !== null
+                && (
+                    array_key_exists('retail_discount_type', $variantData)
+                    || array_key_exists('retail_discount_value', $variantData)
+                    || array_key_exists('retail_mrp', $variantData)
+                )
+            ) {
+
+                $variant->retail_price = $this->calculatePrice(
+                    $variant->retail_mrp,
+                    $variant->retail_discount_type,
+                    $variant->retail_discount_value
+                );
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | DISTRIBUTOR MRP
+            |--------------------------------------------------------------------------
+            */
+
+            if (array_key_exists('distributor_mrp', $variantData)) {
+
+                $distributorMrp = $variantData['distributor_mrp'];
+
+                if (
+                    $distributorMrp !== null
+                    && $distributorMrp !== ''
+                ) {
+
+                    $variant->distributor_mrp = $distributorMrp;
+
+                    if (array_key_exists(
+                        'distributor_discount_type',
+                        $variantData
+                    )) {
+                        $variant->distributor_discount_type =
+                            $variantData['distributor_discount_type'];
                     }
 
-                    if (!$hasPrimary && $imageCount > 0) {
-                        $firstImage = VariantImage::where('variant_id', $variant->id)
-                            ->orderBy('sort_order')
-                            ->first();
-                        if ($firstImage) {
-                            $firstImage->update(['is_primary' => true]);
-                        }
+                    if (array_key_exists(
+                        'distributor_discount_value',
+                        $variantData
+                    )) {
+                        $variant->distributor_discount_value =
+                            $variantData['distributor_discount_value'];
                     }
+
+                    $variant->distributor_price =
+                        $this->calculatePrice(
+                            $variant->distributor_mrp,
+                            $variant->distributor_discount_type,
+                            $variant->distributor_discount_value
+                        );
+                } else {
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Clear Distributor Pricing
+                    |--------------------------------------------------------------------------
+                    */
+
+                    $variant->distributor_mrp = null;
+                    $variant->distributor_price = null;
+                    $variant->distributor_discount_type = null;
+                    $variant->distributor_discount_value = null;
+                }
+            } else {
+
+                /*
+                |--------------------------------------------------------------------------
+                | If MRP wasn't sent, only update discount fields when provided
+                |--------------------------------------------------------------------------
+                */
+
+                if (array_key_exists(
+                    'distributor_discount_type',
+                    $variantData
+                )) {
+                    $variant->distributor_discount_type =
+                        $variantData['distributor_discount_type'];
+                }
+
+                if (array_key_exists(
+                    'distributor_discount_value',
+                    $variantData
+                )) {
+                    $variant->distributor_discount_value =
+                        $variantData['distributor_discount_value'];
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | Recalculate Existing Distributor Price
+                |--------------------------------------------------------------------------
+                */
+
+                if (
+                    $variant->distributor_mrp !== null
+                    && (
+                        array_key_exists(
+                            'distributor_discount_type',
+                            $variantData
+                        )
+                        || array_key_exists(
+                            'distributor_discount_value',
+                            $variantData
+                        )
+                    )
+                ) {
+
+                    $variant->distributor_price =
+                        $this->calculatePrice(
+                            $variant->distributor_mrp,
+                            $variant->distributor_discount_type,
+                            $variant->distributor_discount_value
+                        );
                 }
             }
 
-            // Add variant stock to total
-            $totalStock += $variantStock;
-        }
+            /*
+            |--------------------------------------------------------------------------
+            | Stock
+            |--------------------------------------------------------------------------
+            */
 
-        // Soft delete variants that are not in the update list (if we have existing IDs)
-        if (!empty($existingVariantIds)) {
-            ProductVariant::where('product_id', $product->id)
-                ->whereNotIn('id', $existingVariantIds)
-                ->delete();
+            if (array_key_exists('stock_quantity', $variantData)) {
+                $variant->stock_quantity =
+                    $variantData['stock_quantity'] ?? 0;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Low Stock Threshold
+            |--------------------------------------------------------------------------
+            */
+
+            if (array_key_exists(
+                'low_stock_threshold',
+                $variantData
+            )) {
+
+                $variant->low_stock_threshold =
+                    $variantData['low_stock_threshold'] ?? 0;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Sort Order
+            |--------------------------------------------------------------------------
+            */
+
+            if (array_key_exists('sort_order', $variantData)) {
+
+                $variant->sort_order =
+                    $variantData['sort_order'] ?? 0;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Active Status
+            |--------------------------------------------------------------------------
+            */
+
+            if (array_key_exists('is_active', $variantData)) {
+
+                $variant->is_active =
+                    $variantData['is_active'];
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Save Variant
+            |--------------------------------------------------------------------------
+            */
+
+            $variant->save();
+
+            /*
+            |--------------------------------------------------------------------------
+            | Total Stock
+            |--------------------------------------------------------------------------
+            */
+
+            $totalStock += (int) ($variant->stock_quantity ?? 0);
         }
 
         return $totalStock;
