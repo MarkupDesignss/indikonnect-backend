@@ -2007,7 +2007,8 @@ class ReturnService
      * RETURN HAS PRIORITY
      */
         if ($returnPendingCount === $activeCount) {
-            $finalStatus = 'returned';
+            $finalStatus = 'refunded';
+            // $finalStatus = 'returned';
         } elseif ($returnPendingCount > 0) {
             $finalStatus = 'partial_returned';
         }
@@ -2321,7 +2322,8 @@ class ReturnService
 
                     $orderLine->update([
                         'return_status' => 'returned',
-                        'delivery_status' => 'returned',
+                        'delivery_status' => 'refunded',
+                        // 'delivery_status' => 'returned',
                         'return_completed_at' => now(),
                     ]);
 
