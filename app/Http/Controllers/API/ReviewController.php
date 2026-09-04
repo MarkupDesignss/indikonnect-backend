@@ -338,12 +338,12 @@ class ReviewController extends Controller
 
         // Check if this order line already has a review
         $existingReview = ProductReview::where('order_line_id', $request->order_line_id)->first();
-        if ($existingReview) {
-            return response()->json([
-                'message' => 'This order item has already been reviewed',
-                'review' => $existingReview
-            ], 409);
-        }
+        // if ($existingReview) {
+        //     return response()->json([
+        //         'message' => 'This order item has already been reviewed',
+        //         'review' => $existingReview
+        //     ], 409);
+        // }
 
         // Check if user already reviewed this product (optional)
         $existingProductReview = ProductReview::where('user_id', $userId)
@@ -351,12 +351,12 @@ class ReviewController extends Controller
             ->where('product_id', $request->product_id)
             ->first();
 
-        if ($existingProductReview) {
-            return response()->json([
-                'message' => 'You have already reviewed this product',
-                'review' => $existingProductReview
-            ], 409);
-        }
+        // if ($existingProductReview) {
+        //     return response()->json([
+        //         'message' => 'You have already reviewed this product',
+        //         'review' => $existingProductReview
+        //     ], 409);
+        // }
 
         try {
             DB::beginTransaction();
