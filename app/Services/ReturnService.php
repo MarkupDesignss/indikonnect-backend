@@ -3168,6 +3168,7 @@ protected function generateCreditNoteForCancellation(Order $order, int $refundId
     $creditNoteService = app(\App\Services\CreditNoteService::class);
 
     $returnOrder = new \App\Models\OrderReturn();
+    $returnOrder->order_id = $order->id;
     $returnOrder->order = $order;
     $returnOrder->user_id = $order->user_id;
     $returnOrder->type = 'cancellation';

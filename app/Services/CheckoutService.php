@@ -3032,6 +3032,7 @@ class CheckoutService
     protected function generateCreditNoteForLine(Order $order, OrderLine $orderLine, int $refundId, string $reason): void
     {
         $returnOrder = new \App\Models\OrderReturn();
+        $returnOrder->order_id = $order->id;
         $returnOrder->order = $order;
         $returnOrder->user_id = $order->user_id;
         $returnOrder->type = 'cancellation';
