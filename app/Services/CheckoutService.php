@@ -2943,45 +2943,49 @@ class CheckoutService
         ];
     }
 
-    protected function processPartialRefund(Order $order, OrderLine $orderLine): void
+    protected function processPartialRefund(Order $order, OrderLine $orderLine, string $reason): void
     {
-        // Calculate refund amount for this specific line
+        // 1Calculate total already refunded for this order
+        $alreadyRefunded = Refund::where('order_id', $order->id)
+            ->where('status', 'completed')
+            ->sum('amount');
+
+        // Remaining balance on the original payment
+        $remainingBalance = max(0, (float) $order->amount_paid - $alreadyRefunded);
+
+        // Calculate requested refund for this line (as before)
         $refundAmount = (float) $orderLine->line_total + (float) ($orderLine->tax ?? 0);
 
-        // Calculate proportional discount if any
+        // Adjust for proportional discount (if any)
         if ($order->discount_amount > 0 && $order->subtotal > 0) {
-            $proportionalDiscount =
-                ($orderLine->line_total / $order->subtotal)
-                * $order->discount_amount;
-
+            $proportionalDiscount = ($orderLine->line_total / $order->subtotal) * $order->discount_amount;
             $refundAmount -= $proportionalDiscount;
         }
-
-        // Prevent negative/zero refund
         $refundAmount = round($refundAmount, 2);
 
+        // Cap the refund to the remaining balance
+        $refundAmount = min($refundAmount, $remainingBalance);
+
         if ($refundAmount <= 0) {
-            throw new \Exception(
-                "Invalid refund amount for order line ID: {$orderLine->id}"
-            );
+            Log::warning('Partial refund skipped: amount is zero or exceeds remaining balance', [
+                'order_id' => $order->id,
+                'order_line_id' => $orderLine->id,
+                'remaining_balance' => $remainingBalance,
+                'requested' => $refundAmount,
+            ]);
+            return;
         }
 
+        // Process Razorpay partial refund
         $gateway = $order->payment_gateway ?? 'razorpay';
-
         if ($gateway === 'razorpay') {
-
             if (!$order->gateway_transaction_id) {
-                throw new \Exception(
-                    "Payment transaction ID not found for order {$order->order_reference}."
-                );
+                throw new \Exception("Payment transaction ID not found for order {$order->order_reference}.");
             }
-
-            // Razorpay partial refund
             $refundResponse = $this->razorpayService->processPartialRefund(
                 $order->gateway_transaction_id,
                 $refundAmount
             );
-
             Log::info('Razorpay partial refund completed', [
                 'order_id' => $order->id,
                 'order_line_id' => $orderLine->id,
@@ -2991,43 +2995,33 @@ class CheckoutService
             ]);
         }
 
-        // Create local refund record
+        // Create refund record (with order_line_id)
         $refund = Refund::create([
             'order_id' => $order->id,
-            'order_line_id' => $orderLine->id,
+            'order_line_id' => $orderLine->id,  // column exists now
             'amount' => $refundAmount,
             'reason' => $reason,
             'status' => 'completed',
             'completed_at' => now(),
+            'gateway_reference' => $refundResponse['refund_id'] ?? null,
         ]);
 
         // Generate credit note for this line
-        try {
-            $this->generateCreditNoteForLine($order, $orderLine, $refund->id, $reason);
-        } catch (\Exception $e) {
-            Log::error('Credit note generation failed for partial cancellation', [
-                'order_line_id' => $orderLine->id,
-                'error' => $e->getMessage()
-            ]);
-        }
+        $this->generateCreditNoteForLine($order, $orderLine, $refund->id, $reason);
 
         // Update order paid amount
-        $newAmountPaid = max(
-            0,
-            (float) $order->amount_paid - $refundAmount
-        );
-
+        $newAmountPaid = max(0, (float) $order->amount_paid - $refundAmount);
         $order->update([
             'amount_paid' => $newAmountPaid,
             'refund_status' => 'partial',
             'refunded_at' => now(),
         ]);
 
-        Log::info('Partial refund processed for order line', [
+        Log::info('Partial refund processed', [
             'order' => $order->order_reference,
             'order_line_id' => $orderLine->id,
             'amount' => $refundAmount,
-            'remaining_amount' => $newAmountPaid,
+            'remaining_balance_after' => $newAmountPaid,
         ]);
     }
 
