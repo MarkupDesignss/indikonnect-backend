@@ -465,8 +465,6 @@ Route::middleware('auth:sanctum')->prefix('notification-settings')->group(functi
     Route::post('/deactivate-all', [NotificationSettingsController::class, 'deactivateAll']);
 });
 
-
-
 Route::middleware('auth:sanctum')->prefix('user-notifications')->group(function () {
     Route::get('/', [NotificationSettingsController::class, 'index']);
     Route::put('/', [NotificationSettingsController::class, 'update']);
@@ -650,4 +648,5 @@ Route::prefix('brands')->group(function () {
     Route::post('/', [BrandController::class, 'store']);
     Route::get('/{id}', [BrandController::class, 'show']);
     Route::post('/{id}', [BrandController::class, 'update']);
+    Route::delete('/{id}', [BrandController::class, 'destroy']);
 });
