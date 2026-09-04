@@ -11,7 +11,8 @@ class Brand extends Model
         'title',
         'discount_percentage',
         'logo',
-        'banner'
+        'banner',
+        'status',
     ];
 
     protected $casts = [

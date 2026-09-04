@@ -17,12 +17,22 @@ class BrandController extends Controller
     public function index(Request $request)
     {
         try {
-            $brands = Brand::orderBy('created_at', 'desc')->get();
+            $query = Brand::query();
+
+            // New Arrivals - last 30 days
+            if ($request->boolean('new_arrivals')) {
+                $query->where('created_at', '>=', now()->subDays(30));
+            }
+
+            $brands = $query
+                ->orderBy('created_at', 'desc')
+                ->get();
 
             $data = $brands->map(function ($brand) {
                 return [
                     'id' => $brand->id,
                     'title' => $brand->title,
+                    'status' => $brand->status,
                     'discount_percentage' => $brand->discount_percentage,
                     'logo' => $brand->logo_url,
                     'banner' => $brand->banner_url,
@@ -54,14 +64,13 @@ class BrandController extends Controller
             // Validation
             $validated = $request->validate([
                 'title' => 'required|string|max:255|unique:brands,title',
-                'discount_percentage' => 'required|integer|min:0|max:100',
+                'discount_percentage' => 'nullable|integer|min:0|max:100',
+                'status' => 'nullable',
                 'logo' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:5120',
                 'banner' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:10240',
             ], [
                 'title.required' => 'Brand heading is required',
                 'title.unique' => 'This brand already exists',
-                'discount_percentage.required' => 'Discount percentage is required',
-                'discount_percentage.min' => 'Discount percentage must be at least 0',
                 'discount_percentage.max' => 'Discount percentage cannot exceed 100',
                 'logo.max' => 'Logo must not be larger than 5MB',
                 'banner.max' => 'Banner must not be larger than 10MB',
@@ -83,6 +92,7 @@ class BrandController extends Controller
             $brand = Brand::create([
                 'title' => $validated['title'],
                 'discount_percentage' => $validated['discount_percentage'],
+                'status' => $request->status ?? true,
                 'logo' => $logoPath,
                 'banner' => $bannerPath,
             ]);
@@ -172,46 +182,100 @@ class BrandController extends Controller
 
             // Validation
             $validated = $request->validate([
-                'title' => ['required', 'string', 'max:255', Rule::unique('brands', 'title')->ignore($id)],
-                'discount_percentage' => 'required|integer|min:0|max:100',
-                'logo' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:5120',
-                'banner' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:10240',
+                'title' => [
+                    'sometimes',
+                    'nullable',
+                    'string',
+                    'max:255',
+                    Rule::unique('brands', 'title')->ignore($id),
+                ],
+
+                'discount_percentage' => [
+                    'sometimes',
+                    'nullable',
+                    'integer',
+                    'min:0',
+                    'max:100',
+                ],
+
+                'status' => [
+                    'sometimes',
+                    'nullable',
+                    'boolean',
+                ],
+
+                'logo' => [
+                    'sometimes',
+                    'nullable',
+                    'image',
+                    'mimes:png,jpg,jpeg,webp',
+                    'max:5120',
+                ],
+
+                'banner' => [
+                    'sometimes',
+                    'nullable',
+                    'image',
+                    'mimes:png,jpg,jpeg,webp',
+                    'max:10240',
+                ],
             ], [
-                'title.required' => 'Brand heading is required',
                 'title.unique' => 'This brand already exists',
-                'discount_percentage.required' => 'Discount percentage is required',
-                'discount_percentage.min' => 'Discount percentage must be at least 0',
                 'discount_percentage.max' => 'Discount percentage cannot exceed 100',
                 'logo.max' => 'Logo must not be larger than 5MB',
                 'banner.max' => 'Banner must not be larger than 10MB',
             ]);
 
-            // Prepare update data
-            $updateData = [
-                'title' => $validated['title'],
-                'discount_percentage' => $validated['discount_percentage'],
-            ];
+            // Only update fields that were actually sent
+            $updateData = [];
+
+            if ($request->has('title')) {
+                $updateData['title'] = $validated['title'];
+            }
+
+            if ($request->has('discount_percentage')) {
+                $updateData['discount_percentage'] = $validated['discount_percentage'];
+            }
+
+            if ($request->has('status')) {
+                $updateData['status'] = $validated['status'];
+            }
 
             // Handle logo upload
             if ($request->hasFile('logo')) {
+
                 // Delete old logo
                 if ($brand->logo) {
                     Storage::disk('public')->delete($brand->logo);
                 }
-                $updateData['logo'] = $this->uploadFile($request->file('logo'), 'brands/logos');
+
+                $updateData['logo'] = $this->uploadFile(
+                    $request->file('logo'),
+                    'brands/logos'
+                );
             }
 
             // Handle banner upload
             if ($request->hasFile('banner')) {
+
                 // Delete old banner
                 if ($brand->banner) {
                     Storage::disk('public')->delete($brand->banner);
                 }
-                $updateData['banner'] = $this->uploadFile($request->file('banner'), 'brands/banners');
+
+                $updateData['banner'] = $this->uploadFile(
+                    $request->file('banner'),
+                    'brands/banners'
+                );
             }
 
             // Update brand
-            $brand->update($updateData);
+            if (!empty($updateData)) {
+                $brand->update($updateData);
+            }
+
+            // Refresh model to get latest data
+            $brand->refresh();
 
             return response()->json([
                 'success' => true,
@@ -220,13 +284,15 @@ class BrandController extends Controller
                     'id' => $brand->id,
                     'title' => $brand->title,
                     'discount_percentage' => $brand->discount_percentage,
+                    'status' => $brand->status,
                     'logo' => $brand->logo_url,
                     'banner' => $brand->banner_url,
                     'created_at' => $brand->created_at?->toISOString(),
                     'updated_at' => $brand->updated_at?->toISOString(),
                 ],
-            ]);
+            ], 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
+
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
@@ -234,6 +300,7 @@ class BrandController extends Controller
                 'data' => null,
             ], 422);
         } catch (\Exception $e) {
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update brand: ' . $e->getMessage(),

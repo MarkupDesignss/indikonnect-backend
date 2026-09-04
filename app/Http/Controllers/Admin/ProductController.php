@@ -228,9 +228,155 @@ class ProductController extends Controller
     /**
      * Get all products with filtering and pagination
      */
+    // public function index(Request $request)
+    // {
+    //     $query = Product::with(['category', 'taxCategory', 'images', 'variants.images']);
+
+    //     // Filter by multiple categories
+    //     if ($request->has('category_ids') && $request->category_ids) {
+    //         $categoryIds = is_array($request->category_ids)
+    //             ? $request->category_ids
+    //             : explode(',', $request->category_ids);
+
+    //         $query->whereIn('category_id', $categoryIds);
+    //     }
+
+    //     // Alternative: Filter by single category (backward compatibility)
+    //     if ($request->has('category_id') && $request->category_id && !$request->has('category_ids')) {
+    //         $query->where('category_id', $request->category_id);
+    //     }
+
+    //     // Filter by price range (retail_price)
+    //     if ($request->has('min_price') && is_numeric($request->min_price)) {
+    //         $query->where('retail_price', '>=', $request->min_price);
+    //     }
+
+    //     if ($request->has('max_price') && is_numeric($request->max_price)) {
+    //         $query->where('retail_price', '<=', $request->max_price);
+    //     }
+
+    //     // Filter by published status
+    //     if ($request->has('is_published')) {
+    //         $query->where('is_published', $request->boolean('is_published'));
+    //     }
+
+    //     // Filter by stock status (considering both product and variants)
+    //     if ($request->has('stock_status')) {
+    //         $stockStatus = $request->stock_status;
+
+    //         if (is_array($stockStatus)) {
+    //             $query->where(function ($q) use ($stockStatus) {
+    //                 $q->where(function ($sub) use ($stockStatus) {
+    //                     // In Stock: stock_quantity > low_stock_threshold
+    //                     if (in_array('in_stock', $stockStatus)) {
+    //                         $sub->orWhereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //                     }
+    //                     // Low Stock: stock_quantity between 1 and low_stock_threshold
+    //                     if (in_array('low_stock', $stockStatus)) {
+    //                         $sub->orWhere(function ($q) {
+    //                             $q->where('stock_quantity', '>', 0)
+    //                                 ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //                         });
+    //                     }
+    //                     // Out of Stock: stock_quantity = 0
+    //                     if (in_array('out_of_stock', $stockStatus)) {
+    //                         $sub->orWhere('stock_quantity', '=', 0);
+    //                     }
+    //                 });
+    //             });
+    //         } else {
+    //             switch ($stockStatus) {
+    //                 case 'in_stock':
+    //                     $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //                     break;
+    //                 case 'low_stock':
+    //                     $query->where('stock_quantity', '>', 0)
+    //                         ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //                     break;
+    //                 case 'out_of_stock':
+    //                     $query->where('stock_quantity', '=', 0);
+    //                     break;
+    //             }
+    //         }
+    //     }
+
+    //     // Legacy: Backward compatibility for old filters
+    //     if ($request->has('in_stock') && $request->boolean('in_stock')) {
+    //         $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //     }
+
+    //     if ($request->has('low_stock') && $request->boolean('low_stock')) {
+    //         $query->where('stock_quantity', '>', 0)
+    //             ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //     }
+
+    //     // NEW ARRIVALS FILTER - Last 30 days products
+    //     if ($request->has('new-arrivals')) {
+    //         $query->where('created_at', '>=', now()->subDays(30));
+    //     }
+
+    //     // Alternative: New arrivals with custom days parameter
+    //     if ($request->has('new_arrival_days') && is_numeric($request->new_arrival_days)) {
+    //         $days = (int) $request->new_arrival_days;
+    //         $query->where('created_at', '>=', now()->subDays($days));
+    //     }
+
+    //     // Search by name or product code
+    //     if ($request->has('search') && $request->search) {
+    //         $search = $request->search;
+    //         $query->where(function ($q) use ($search) {
+    //             $q->where('name', 'LIKE', "%{$search}%")
+    //                 ->orWhere('product_code', 'LIKE', "%{$search}%")
+    //                 ->orWhere('slug', 'LIKE', "%{$search}%")
+    //                 ->orWhereHas('variants', function ($variantQuery) use ($search) {
+    //                     $variantQuery->where('sku', 'LIKE', "%{$search}%");
+    //                 });
+    //         });
+    //     }
+
+    //     // Sort
+    //     $sortField = $request->get('sort_by', 'created_at');
+    //     $sortDirection = $request->get('sort_direction', 'desc');
+
+    //     $allowedSortFields = ['id', 'name', 'product_code', 'retail_price', 'stock_quantity', 'created_at', 'updated_at'];
+    //     if (!in_array($sortField, $allowedSortFields)) {
+    //         $sortField = 'created_at';
+    //     }
+
+    //     $query->orderBy($sortField, $sortDirection);
+
+    //     // Pagination
+    //     $perPage = $request->get('per_page', 15);
+    //     $products = $query->paginate($perPage);
+
+    //     // Get price range for filters
+    //     $priceRange = $this->getPriceRange();
+
+    //     // Get wishlist IDs for authenticated user
+    //     $userId = $request->query('user_id');
+    //     $wishlistIds = $this->getUserWishlistIds();
+
+    //     return response()->json([
+    //         'data' => $this->formatProductCollection($products, $wishlistIds),
+    //         'pagination' => [
+    //             'total' => $products->total(),
+    //             'per_page' => $products->perPage(),
+    //             'current_page' => $products->currentPage(),
+    //             'last_page' => $products->lastPage(),
+    //             'from' => $products->firstItem(),
+    //             'to' => $products->lastItem(),
+    //         ],
+    //         'filters' => [
+    //             'price_range' => $priceRange,
+    //         ],
+    //     ]);
+    // }
     public function index(Request $request)
     {
-        $query = Product::with(['category', 'taxCategory', 'images', 'variants.images']);
+        $query = Product::with(['category', 'taxCategory', 'images', 'variants.images', 'brand'])
+            ->whereHas('brand', function ($q) {
+                $q->where('status', true);
+            });
 
         // Filter by multiple categories
         if ($request->has('category_ids') && $request->category_ids) {
@@ -246,6 +392,14 @@ class ProductController extends Controller
             $query->where('category_id', $request->category_id);
         }
 
+        // Filter by multiple brands
+        if ($request->has('brand_ids') && $request->brand_ids) {
+            $brandIds = is_array($request->brand_ids)
+                ? $request->brand_ids
+                : explode(',', $request->brand_ids);
+
+            $query->whereIn('brand_id', $brandIds);
+        }
         // Filter by price range (retail_price)
         if ($request->has('min_price') && is_numeric($request->min_price)) {
             $query->where('retail_price', '>=', $request->min_price);
@@ -482,6 +636,13 @@ class ProductController extends Controller
                 'product_code' => $product->product_code,
                 'name' => $product->name,
                 'brand_id' => $product->brand_id ?? null,
+                'brand_name' => $product->brand->title,
+                'brand_logo' => $product->brand?->logo
+                    ? asset('storage/' . $product->brand->logo)
+                    : null,
+                'brand_banner' => $product->brand?->banner
+                    ? asset('storage/' . $product->brand->banner)
+                    : null,
                 'slug' => $product->slug,
                 'description' => $product->description,
                 'specification' => $product->specification,
@@ -614,9 +775,25 @@ class ProductController extends Controller
     protected function getVariantAttributes($variants)
     {
         $attributes = [];
+
         foreach ($variants as $variant) {
+            // Check if attributes exist and is not empty
             if (!empty($variant->attributes)) {
-                foreach ($variant->attributes as $key => $value) {
+                // Get attributes and decode if it's a string
+                $variantAttributes = $variant->attributes;
+
+                // If it's a string, decode it to array
+                if (is_string($variantAttributes)) {
+                    $variantAttributes = json_decode($variantAttributes, true);
+                }
+
+                // Skip if it's not an array after decoding
+                if (!is_array($variantAttributes) || empty($variantAttributes)) {
+                    continue;
+                }
+
+                // Now loop through the attributes
+                foreach ($variantAttributes as $key => $value) {
                     if (!isset($attributes[$key])) {
                         $attributes[$key] = [];
                     }
@@ -626,6 +803,7 @@ class ProductController extends Controller
                 }
             }
         }
+
         return $attributes;
     }
 
@@ -1250,7 +1428,7 @@ class ProductController extends Controller
             'variants' => ['nullable', 'array'],
             'variants.*.id' => ['nullable', 'exists:product_variants,id'],
             'variants.*.sku' => ['required_with:variants', 'string', 'max:255'],
-            'variants.*.attributes' => ['required_with:variants', 'array'],
+            'variants.*.attributes' => ['required_with:variants'],
             'variants.*.retail_mrp' => ['required_with:variants', 'numeric', 'min:0'],
             'variants.*.retail_discount_type' => ['nullable', 'in:percentage,fixed'],
             'variants.*.retail_discount_value' => ['nullable', 'numeric', 'min:0'],
@@ -1920,6 +2098,591 @@ class ProductController extends Controller
     //     return response()->json($formattedProduct);
     // }
 
+    // public function showBySlug($slug)
+    // {
+    //     $product = Product::with([
+    //         'category',
+    //         'taxCategory',
+    //         'images',
+    //         'variants.images'
+    //     ])
+    //         ->where('slug', $slug)
+    //         ->firstOrFail();
+
+    //     $userId = request()->query('user_id');
+    //     $wishlistIds = $this->getUserWishlistIds($userId);
+
+    //     // Get selected variant from query parameter
+    //     $selectedVariantId = request()->query('variant_id');
+    //     $selectedAttributes = request()->query('attributes');
+
+    //     $selectedVariant = null;
+    //     $isVariantSelected = false;
+
+    //     // If variant_id is provided
+    //     if ($selectedVariantId) {
+    //         $selectedVariant = $product->variants
+    //             ->where('id', $selectedVariantId)
+    //             ->first();
+
+    //         if ($selectedVariant) {
+    //             $isVariantSelected = true;
+    //         }
+    //     }
+
+    //     // If attributes are provided, find matching variant
+    //     if (!$selectedVariant && $selectedAttributes) {
+
+    //         $attributes = is_string($selectedAttributes)
+    //             ? json_decode($selectedAttributes, true)
+    //             : $selectedAttributes;
+
+    //         if (is_array($attributes)) {
+
+    //             $selectedVariant = $product->variants->first(
+    //                 function ($variant) use ($attributes) {
+
+    //                     $variantAttributes = $variant->attributes ?? [];
+
+    //                     foreach ($attributes as $key => $value) {
+
+    //                         if (
+    //                             !isset($variantAttributes[$key]) ||
+    //                             $variantAttributes[$key] != $value
+    //                         ) {
+    //                             return false;
+    //                         }
+    //                     }
+
+    //                     return true;
+    //                 }
+    //             );
+
+    //             if ($selectedVariant) {
+    //                 $isVariantSelected = true;
+    //             }
+    //         }
+    //     }
+
+    //     /*
+    //  |--------------------------------------------------------------------------
+    //     | Get all approved reviews
+    //     |--------------------------------------------------------------------------
+    //     |
+    //     | orderLine.order is loaded so we can get:
+    //     | - order_line_id
+    //     | - order_id
+    //     | - order_reference
+    //     |
+    //     */
+    //     $reviews = ProductReview::with([
+    //         'user' => function ($query) {
+    //             $query->select(
+    //                 'id',
+    //                 'full_name',
+    //                 'email',
+    //                 'profile_picture'
+    //             );
+    //         },
+
+    //         'images',
+
+    //         'orderLine.order' => function ($query) {
+    //             $query->select(
+    //                 'id',
+    //                 'order_reference'
+    //             );
+    //         },
+    //     ])
+    //         ->where('product_id', $product->id)
+    //         ->where('status', 'approved')
+    //         ->orderBy('created_at', 'desc')
+    //         ->get();
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Review Summary
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $averageRating = ProductReview::where('product_id', $product->id)
+    //         ->where('status', 'approved')
+    //         ->avg('rating');
+
+    //     $totalReviews = ProductReview::where('product_id', $product->id)
+    //         ->where('status', 'approved')
+    //         ->count();
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Rating Distribution
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $ratingDistribution = [
+    //         1 => ProductReview::where('product_id', $product->id)
+    //             ->where('status', 'approved')
+    //             ->where('rating', 1)
+    //             ->count(),
+
+    //         2 => ProductReview::where('product_id', $product->id)
+    //             ->where('status', 'approved')
+    //             ->where('rating', 2)
+    //             ->count(),
+
+    //         3 => ProductReview::where('product_id', $product->id)
+    //             ->where('status', 'approved')
+    //             ->where('rating', 3)
+    //             ->count(),
+
+    //         4 => ProductReview::where('product_id', $product->id)
+    //             ->where('status', 'approved')
+    //             ->where('rating', 4)
+    //             ->count(),
+
+    //         5 => ProductReview::where('product_id', $product->id)
+    //             ->where('status', 'approved')
+    //             ->where('rating', 5)
+    //             ->count(),
+    //     ];
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Product Attributes
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $productAttributes = $this->getProductAttributes($product->variants);
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Selected Variant
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     if ($isVariantSelected && $selectedVariant) {
+
+    //         // Get primary image for selected variant
+    //         $primaryImage = $selectedVariant->images
+    //             ->where('is_primary', true)
+    //             ->first()
+    //             ?? $selectedVariant->images->first();
+
+    //         // Fallback to product image
+    //         if (!$primaryImage) {
+
+    //             $primaryImage = $product->images
+    //                 ->where('is_primary', true)
+    //                 ->first()
+    //                 ?? $product->images->first();
+    //         }
+
+    //         $formattedProduct = [
+
+    //             'id' => $product->id,
+
+    //             'product_code' => $product->product_code,
+
+    //             'name' => $product->name,
+
+    //             'slug' => $product->slug,
+
+    //             'description' => $product->description,
+
+    //             'specification' => $product->specification,
+
+    //             'hsn_code' => $product->hsn_code,
+
+    //             'uom' => $product->uom,
+
+    //             'brand_id' => $product->brand_id ?? null,
+    //             'category_id' => $product->category_id,
+
+    //             'category' => $product->category
+    //                 ? [
+    //                     'id' => $product->category->id,
+    //                     'name' => $product->category->title,
+    //                     'slug' => $product->category->slug,
+    //                     'description' => $product->category->description,
+    //                 ]
+    //                 : null,
+
+    //             'tax_category_id' => $product->tax_category_id,
+
+    //             'tax_category' => $product->taxCategory
+    //                 ? [
+    //                     'id' => $product->taxCategory->id,
+    //                     'name' => $product->taxCategory->name,
+    //                     'rate' => $product->taxCategory->rate,
+    //                 ]
+    //                 : null,
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Retail Pricing
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'retail_mrp' => $selectedVariant->retail_mrp,
+
+    //             'retail_price' => $selectedVariant->retail_price,
+
+    //             'retail_discount_type' => $selectedVariant->retail_discount_type,
+
+    //             'retail_discount_value' => $selectedVariant->retail_discount_value,
+
+    //             'retail_discount_amount' =>
+    //             $selectedVariant->retail_mrp -
+    //                 $selectedVariant->retail_price,
+
+    //             'retail_discount_percentage' =>
+    //             $selectedVariant->retail_mrp > 0
+    //                 ? round(
+    //                     (
+    //                         (
+    //                             $selectedVariant->retail_mrp -
+    //                             $selectedVariant->retail_price
+    //                         )
+    //                         / $selectedVariant->retail_mrp
+    //                     ) * 100,
+    //                     2
+    //                 )
+    //                 : 0,
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Distributor Pricing
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'distributor_mrp' => $selectedVariant->distributor_mrp,
+
+    //             'distributor_price' => $selectedVariant->distributor_price,
+
+    //             'distributor_discount_type' =>
+    //             $selectedVariant->distributor_discount_type,
+
+    //             'distributor_discount_value' =>
+    //             $selectedVariant->distributor_discount_value,
+
+    //             'distributor_discount_amount' =>
+    //             $selectedVariant->distributor_mrp &&
+    //                 $selectedVariant->distributor_price
+    //                 ? $selectedVariant->distributor_mrp -
+    //                 $selectedVariant->distributor_price
+    //                 : null,
+
+    //             'distributor_discount_percentage' =>
+    //             $selectedVariant->distributor_mrp &&
+    //                 $selectedVariant->distributor_price &&
+    //                 $selectedVariant->distributor_mrp > 0
+    //                 ? round(
+    //                     (
+    //                         (
+    //                             $selectedVariant->distributor_mrp -
+    //                             $selectedVariant->distributor_price
+    //                         )
+    //                         / $selectedVariant->distributor_mrp
+    //                     ) * 100,
+    //                     2
+    //                 )
+    //                 : null,
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Variant Stock
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'stock_quantity' => (int) $selectedVariant->stock_quantity,
+
+    //             'low_stock_threshold' =>
+    //             (int) $selectedVariant->low_stock_threshold,
+
+    //             'status' => $this->getVariantStatus($selectedVariant),
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Product Flags
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'is_published' => (bool) $product->is_published,
+
+    //             'is_trending' => (bool) $product->is_trending,
+
+    //             'trending_sort_order' =>
+    //             (int) $product->trending_sort_order,
+
+    //             'is_deal_of_the_day' =>
+    //             (bool) $product->is_deal_of_the_day,
+
+    //             'is_active_deal' =>
+    //             $product->isActiveDealOfTheDay(),
+
+    //             'deal_of_the_day_starts_at' =>
+    //             $product->deal_of_the_day_starts_at?->toISOString(),
+
+    //             'deal_of_the_day_ends_at' =>
+    //             $product->deal_of_the_day_ends_at?->toISOString(),
+
+    //             'sale_type' => $product->sale_type,
+
+    //             'is_wishlisted' =>
+    //             in_array($product->id, $wishlistIds),
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Images
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'images' => $selectedVariant->images->isNotEmpty()
+
+    //                 ? $selectedVariant->images
+    //                 ->map(function ($image) {
+
+    //                     return [
+    //                         'id' => $image->id,
+    //                         'image' => $image->image,
+    //                         'image_url' =>
+    //                         asset('storage/' . $image->image),
+    //                         'sort_order' => $image->sort_order,
+    //                         'is_primary' =>
+    //                         (bool) $image->is_primary,
+    //                     ];
+    //                 })
+    //                 ->values()
+    //                 ->toArray()
+
+    //                 : $product->images
+    //                 ->map(function ($image) {
+
+    //                     return [
+    //                         'id' => $image->id,
+    //                         'image' => $image->image,
+    //                         'image_url' =>
+    //                         asset('storage/' . $image->image),
+    //                         'sort_order' => $image->sort_order,
+    //                         'is_primary' =>
+    //                         (bool) $image->is_primary,
+    //                     ];
+    //                 })
+    //                 ->values()
+    //                 ->toArray(),
+
+    //             'primary_image' =>
+    //             $primaryImage
+    //                 ? $primaryImage->image
+    //                 : null,
+
+    //             'primary_image_url' =>
+    //             $primaryImage
+    //                 ? asset('storage/' . $primaryImage->image)
+    //                 : null,
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Selected Variant
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'selected_variant' =>
+    //             $this->formatSingleVariant($selectedVariant),
+
+    //             'selected_variant_id' =>
+    //             $selectedVariant->id,
+
+    //             'selected_variant_sku' =>
+    //             $selectedVariant->sku,
+
+    //             'selected_attributes' =>
+    //             $selectedVariant->attributes,
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Available Attributes
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'available_attributes' => $productAttributes,
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Only Selected Variant
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'variants' => [
+    //                 $this->formatSingleVariant($selectedVariant)
+    //             ],
+
+    //             'created_at' =>
+    //             $product->created_at?->toISOString(),
+
+    //             'updated_at' =>
+    //             $product->updated_at?->toISOString(),
+    //         ];
+    //     } else {
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | No Variant Selected
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $formattedProduct =
+    //             $this->formatProduct(
+    //                 $product,
+    //                 $wishlistIds
+    //             );
+
+    //         $formattedProduct['available_attributes'] =
+    //             $productAttributes;
+
+    //         $formattedProduct['variants'] =
+    //             $this->formatVariants(
+    //                 $product->variants,
+    //                 $product->id,
+    //                 $wishlistIds
+    //             );
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Add Reviews + Review Summary
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $formattedProduct['reviews'] = [
+
+    //         'summary' => [
+
+    //             'average_rating' =>
+    //             $averageRating !== null
+    //                 ? round($averageRating, 1)
+    //                 : 0,
+
+    //             'total_reviews' =>
+    //             $totalReviews,
+
+    //             'rating_distribution' =>
+    //             $ratingDistribution,
+    //         ],
+    //         'data' => $reviews
+    //             ->map(function ($review) {
+
+    //                 return [
+
+    //                     /*
+    //                 |--------------------------------------------------------------------------
+    //                 | Review
+    //                 |--------------------------------------------------------------------------
+    //                 */
+
+    //                     'id' => $review->id,
+
+    //                     'rating' => $review->rating,
+
+    //                     'review_text' => $review->review_text,
+
+    //                     /*
+    //                 |--------------------------------------------------------------------------
+    //                 | Reviewer Details
+    //                 |--------------------------------------------------------------------------
+    //                 */
+
+    //                     'user' => [
+
+    //                         'id' =>
+    //                         $review->user?->id,
+
+    //                         'full_name' =>
+    //                         $review->user?->full_name,
+
+    //                         'profile_picture' =>
+    //                         $review->user?->profile_picture
+    //                             ? asset(
+    //                                 'storage/' .
+    //                                     $review->user->profile_picture
+    //                             )
+    //                             : null,
+    //                     ],
+
+    //                     /*
+    //                 |--------------------------------------------------------------------------
+    //                 | Order Details
+    //                 |--------------------------------------------------------------------------
+    //                 */
+
+    //                     'order_line_id' =>
+    //                     $review->order_line_id,
+
+    //                     'order_id' =>
+    //                     $review->orderLine?->order?->id
+    //                         ?? $review->order_id,
+
+    //                     'order_reference' =>
+    //                     $review->orderLine?->order?->order_reference,
+
+    //                     /*
+    //                 |--------------------------------------------------------------------------
+    //                 | Dates
+    //                 |--------------------------------------------------------------------------
+    //                 */
+
+    //                     'created_at' =>
+    //                     $review->created_at
+    //                         ? $review->created_at->format('M d, Y')
+    //                         : null,
+
+    //                     'updated_at' =>
+    //                     $review->updated_at
+    //                         ? $review->updated_at->format('M d, Y')
+    //                         : null,
+
+    //                     /*
+    //                 |--------------------------------------------------------------------------
+    //                 | Verified Purchase
+    //                 |--------------------------------------------------------------------------
+    //                 */
+
+    //                     'is_verified_purchase' =>
+    //                     $this->isVerifiedPurchase(
+    //                         $review->order_id
+    //                     ),
+
+    //                     /*
+    //                 |--------------------------------------------------------------------------
+    //                 | Review Images
+    //                 |--------------------------------------------------------------------------
+    //                 */
+
+    //                     'images' =>
+    //                     $review->images
+    //                         ->map(function ($image) {
+
+    //                             return [
+    //                                 'id' => $image->id,
+
+    //                                 'image_url' =>
+    //                                 $image->image_url,
+
+    //                                 'sort_order' =>
+    //                                 $image->sort_order,
+    //                             ];
+    //                         })
+    //                         ->values()
+    //                         ->toArray(),
+    //                 ];
+    //             })
+    //             ->values()
+    //             ->toArray(),
+    //     ];
+
+    //     return response()->json($formattedProduct);
+    // }
+
     public function showBySlug($slug)
     {
         $product = Product::with([
@@ -2089,6 +2852,7 @@ class ProductController extends Controller
                 ->where('is_primary', true)
                 ->first()
                 ?? $selectedVariant->images->first();
+
 
             // Fallback to product image
             if (!$primaryImage) {
@@ -2610,6 +3374,183 @@ class ProductController extends Controller
             'data' => $this->formatProductCollection($products, $wishlistIds),
         ]);
     }
+    public function productsByBrand(Request $request, $brandId)
+    {
+        $limit = $request->get('limit', 20);
+        $excludeId = $request->get('exclude_product_id');
+
+        $query = Product::with(['brand', 'images', 'variants.images', 'category', 'taxCategory'])
+            ->where('brand_id', $brandId)
+            ->where('is_published', true);
+
+        // Exclude specific product if needed
+        if ($excludeId) {
+            $query->where('id', '!=', $excludeId);
+        }
+
+        // Exclude out of stock products
+        if ($request->get('exclude_out_of_stock', false)) {
+            $query->where('stock_quantity', '>', 0);
+        }
+
+        // New Arrivals filter
+        // Products created within the last 30 days
+        if ($request->get('new_arrivals', false)) {
+            $query->where('created_at', '>=', now()->subDays(30));
+        }
+
+        // Sort options
+        $sortBy = $request->get('sort_by', 'created_at');
+        $sortDirection = $request->get('sort_direction', 'desc');
+
+        $allowedSortFields = [
+            'id',
+            'name',
+            'retail_price',
+            'stock_quantity',
+            'created_at',
+            'updated_at'
+        ];
+
+        if (in_array($sortBy, $allowedSortFields)) {
+            $query->orderBy($sortBy, $sortDirection);
+        }
+
+        $products = $query->limit($limit)->get();
+
+        // Get wishlist IDs for authenticated user
+        $userId = $request->query('user_id');
+        $wishlistIds = $this->getUserWishlistIds($userId);
+
+        // Format products manually with brand details inside each product
+        $formattedProducts = $products->map(function ($product) use ($wishlistIds) {
+            $isWishlisted = in_array($product->id, $wishlistIds);
+            $isActiveDeal = $product->isActiveDealOfTheDay();
+
+            // Get product reviews
+            $averageRating = ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->avg('rating');
+
+            $totalReviews = ProductReview::where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->count();
+
+            $primaryImage = $product->images->where('is_primary', true)->first()
+                ?? $product->images->first();
+
+            return [
+                'id' => $product->id,
+                'product_code' => $product->product_code,
+                'name' => $product->name,
+                'slug' => $product->slug,
+
+
+                // Brand details inside each product
+                'brand' => [
+                    'id' => $product->brand?->id,
+                    'title' => $product->brand?->title,
+                    'discount_percentage' => $product->brand?->discount_percentage,
+                    'logo' => $product->brand?->logo
+                        ? asset('storage/' . $product->brand->logo)
+                        : null,
+                    'banner' => $product->brand?->banner
+                        ? asset('storage/' . $product->brand->banner)
+                        : null,
+                ],
+
+
+
+                // Pricing
+                'retail_mrp' => $product->retail_mrp,
+                'retail_price' => $product->retail_price,
+                'retail_discount_percentage' => $product->retail_mrp > 0
+                    ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
+                    : 0,
+
+                'distributor_mrp' => $product->distributor_mrp,
+                'distributor_price' => $product->distributor_price,
+
+                // Deal of the day
+                'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+                'is_active_deal' => $isActiveDeal,
+                'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+                'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+                'sale_type' => $product->sale_type,
+
+                // Stock
+                'stock_quantity' => (int) $product->stock_quantity,
+                'low_stock_threshold' => (int) $product->low_stock_threshold,
+                'stock_status' => $this->getProductStatus($product),
+                'is_published' => (bool) $product->is_published,
+                'is_trending' => (bool) $product->is_trending,
+                'trending_sort_order' => (int) $product->trending_sort_order,
+                'is_wishlisted' => $isWishlisted,
+
+                // Reviews Summary
+                'reviews_summary' => [
+                    'average_rating' => round($averageRating, 1),
+                    'total_reviews' => $totalReviews,
+                ],
+
+                // Images
+                'images' => $product->images->map(function ($image) {
+                    return [
+                        'id' => $image->id,
+                        'image_url' => asset('storage/' . $image->image),
+                        'is_primary' => (bool) $image->is_primary,
+                        'sort_order' => $image->sort_order,
+                    ];
+                })->values()->toArray(),
+                'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+
+                // Variants
+                'variants' => $product->variants->map(function ($variant) {
+                    $primaryVariantImage = $variant->images->where('is_primary', true)->first()
+                        ?? $variant->images->first();
+
+                    $attributes = $variant->attributes;
+                    if (is_string($attributes)) {
+                        $attributes = json_decode($attributes, true);
+                    }
+
+                    return [
+                        'id' => $variant->id,
+                        'product_id' => $variant->product_id,
+                        'sku' => $variant->sku,
+                        'attributes' => $attributes,
+                        'retail_price' => $variant->retail_price,
+                        'retail_mrp' => $variant->retail_mrp,
+                        'retail_discount_type' => $variant->retail_discount_type,
+                        'retail_discount_value' => $variant->retail_discount_value,
+                        'distributor_price' => $variant->distributor_price,
+                        'distributor_mrp' => $variant->distributor_mrp,
+                        'distributor_discount_type' => $variant->distributor_discount_type,
+                        'distributor_discount_value' => $variant->distributor_discount_value,
+                        'stock_quantity' => (int) $variant->stock_quantity,
+                        'low_stock_threshold' => (int) $variant->low_stock_threshold,
+                        'sort_order' => (int) $variant->sort_order,
+                        'is_active' => (bool) $variant->is_active,
+                        'images' => $variant->images->map(function ($image) {
+                            return [
+                                'id' => $image->id,
+                                'variant_id' => $image->variant_id,
+                                'image_url' => asset('storage/' . $image->image),
+                                'sort_order' => $image->sort_order,
+                                'is_primary' => (bool) $image->is_primary,
+                            ];
+                        })->values()->toArray(),
+                        'primary_image_url' => $primaryVariantImage ? asset('storage/' . $primaryVariantImage->image) : null,
+                    ];
+                })->values()->toArray(),
+            ];
+        })->values()->toArray();
+
+        return response()->json([
+            'total' => $products->count(),
+            'data' => $formattedProducts,
+        ]);
+    }
 
     /**
      * Delete multiple images from a product
@@ -2789,11 +3730,97 @@ class ProductController extends Controller
     /**
      * Get trending products
      */
+    // public function trending()
+    // {
+    //     $products = Product::with(['images', 'variants.images'])
+    //         ->where('is_published', true)
+    //         ->where('is_trending', true)
+    //         ->orderBy('trending_sort_order', 'asc')
+    //         ->get();
+
+    //     $data = $products->map(function ($product) {
+    //         // Get reviews for trending products
+    //         $averageRating = ProductReview::where('product_id', $product->id)
+    //             ->where('status', 'approved')
+    //             ->avg('rating');
+
+    //         $totalReviews = ProductReview::where('product_id', $product->id)
+    //             ->where('status', 'approved')
+    //             ->count();
+
+    //         $primaryImage = $product->images->where('is_primary', true)->first()
+    //             ?? $product->images->first();
+
+    //         // Get variant summary
+    //         $variantsSummary = $this->getVariantsSummary($product->variants);
+
+    //         return [
+    //             'id' => $product->id,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'description' => $product->description,
+    //             'product_code' => $product->product_code,
+    //             'category_id' => $product->category_id,
+    //             'tax_category_id' => $product->tax_category_id,
+
+    //             // Retail pricing
+    //             'retail_price' => $product->retail_price,
+    //             'retail_mrp' => $product->retail_mrp,
+    //             'retail_discount_type' => $product->retail_discount_type,
+    //             'retail_discount_value' => $product->retail_discount_value,
+    //             'retail_discount_percentage' => $product->retail_mrp > 0
+    //                 ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
+    //                 : 0,
+
+    //             // Distributor pricing
+    //             'distributor_price' => $product->distributor_price,
+    //             'distributor_mrp' => $product->distributor_mrp,
+    //             'distributor_discount_type' => $product->distributor_discount_type,
+    //             'distributor_discount_value' => $product->distributor_discount_value,
+
+    //             // Stock
+    //             'stock_quantity' => (int) $product->stock_quantity,
+    //             'stock_status' => $this->getProductStatus($product),
+
+    //             // Review Summary
+    //             'reviews' => [
+    //                 'average_rating' => round($averageRating, 1),
+    //                 'total_reviews' => $totalReviews,
+    //             ],
+
+    //             // Variants summary
+    //             'variants_summary' => $variantsSummary,
+
+    //             // Images
+    //             'images' => $product->images->map(function ($image) {
+    //                 return [
+    //                     'id' => $image->id,
+    //                     'image_url' => asset('storage/' . $image->image),
+    //                     'is_primary' => (bool) $image->is_primary,
+    //                     'sort_order' => $image->sort_order,
+    //                 ];
+    //             })->values()->toArray(),
+    //             'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+
+    //             'is_trending' => (bool) $product->is_trending,
+    //             'trending_sort_order' => (int) $product->trending_sort_order,
+    //         ];
+    //     });
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'Trending products retrieved successfully.',
+    //         'data' => $data,
+    //     ]);
+    // }
     public function trending()
     {
-        $products = Product::with(['images', 'variants.images'])
+        $products = Product::with(['brand', 'images', 'variants.images'])
             ->where('is_published', true)
             ->where('is_trending', true)
+            ->whereHas('brand', function ($q) {
+                $q->where('status', true);
+            })
             ->orderBy('trending_sort_order', 'asc')
             ->get();
 
@@ -2821,6 +3848,15 @@ class ProductController extends Controller
                 'product_code' => $product->product_code,
                 'category_id' => $product->category_id,
                 'tax_category_id' => $product->tax_category_id,
+                'brand_id' => $product->brand_id,
+
+                // Brand information
+                'brand' => $product->brand ? [
+                    'id' => $product->brand->id,
+                    'title' => $product->brand->title,
+                    'logo' => $product->brand->logo_url,
+                    'discount_percentage' => $product->brand->discount_percentage,
+                ] : null,
 
                 // Retail pricing
                 'retail_price' => $product->retail_price,
@@ -3229,16 +4265,29 @@ class ProductController extends Controller
         return response()->json($response);
     }
 
-    protected function getProductAttributes($variants)
+    private function getProductAttributes($variants)
     {
         $attributes = [];
 
         foreach ($variants as $variant) {
             if (!empty($variant->attributes)) {
-                foreach ($variant->attributes as $key => $value) {
+                // Decode the JSON string to an array if it's a string
+                $variantAttributes = $variant->attributes;
+
+                if (is_string($variantAttributes)) {
+                    $variantAttributes = json_decode($variantAttributes, true);
+                }
+
+                // Skip if it's not an array or is empty after decoding
+                if (!is_array($variantAttributes) || empty($variantAttributes)) {
+                    continue;
+                }
+
+                foreach ($variantAttributes as $key => $value) {
                     if (!isset($attributes[$key])) {
                         $attributes[$key] = [];
                     }
+
                     if (!in_array($value, $attributes[$key])) {
                         $attributes[$key][] = $value;
                     }
