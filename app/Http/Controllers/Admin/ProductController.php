@@ -5396,31 +5396,81 @@ class ProductController extends Controller
         return response()->json($response);
     }
 
+    // private function getProductAttributes($variants)
+    // {
+    //     $attributes = [];
+
+    //     foreach ($variants as $variant) {
+    //         if (!empty($variant->attributes)) {
+    //             // Decode the JSON string to an array if it's a string
+    //             $variantAttributes = $variant->attributes;
+
+    //             if (is_string($variantAttributes)) {
+    //                 $variantAttributes = json_decode($variantAttributes, true);
+    //             }
+
+    //             // Skip if it's not an array or is empty after decoding
+    //             if (!is_array($variantAttributes) || empty($variantAttributes)) {
+    //                 continue;
+    //             }
+
+    //             foreach ($variantAttributes as $key => $value) {
+    //                 if (!isset($attributes[$key])) {
+    //                     $attributes[$key] = [];
+    //                 }
+
+    //                 if (!in_array($value, $attributes[$key])) {
+    //                     $attributes[$key][] = $value;
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     return $attributes;
+    // }
     private function getProductAttributes($variants)
     {
         $attributes = [];
 
         foreach ($variants as $variant) {
-            if (!empty($variant->attributes)) {
-                // Decode the JSON string to an array if it's a string
-                $variantAttributes = $variant->attributes;
 
-                if (is_string($variantAttributes)) {
-                    $variantAttributes = json_decode($variantAttributes, true);
+            $variantAttributes = $variant->attributes ?? [];
+
+            // Decode JSON if required
+            if (is_string($variantAttributes)) {
+                $variantAttributes = json_decode($variantAttributes, true);
+            }
+
+            if (!is_array($variantAttributes) || empty($variantAttributes)) {
+                continue;
+            }
+
+            foreach ($variantAttributes as $key => $value) {
+
+                if (!isset($attributes[$key])) {
+                    $attributes[$key] = [];
                 }
 
-                // Skip if it's not an array or is empty after decoding
-                if (!is_array($variantAttributes) || empty($variantAttributes)) {
-                    continue;
+                /*
+                 * If value is comma-separated:
+                 * "18,24" => ["18", "24"]
+                 */
+                if (is_string($value) && str_contains($value, ',')) {
+                    $values = array_map(
+                        'trim',
+                        explode(',', $value)
+                    );
+                } else {
+                    $values = [$value];
                 }
 
-                foreach ($variantAttributes as $key => $value) {
-                    if (!isset($attributes[$key])) {
-                        $attributes[$key] = [];
-                    }
+                foreach ($values as $singleValue) {
 
-                    if (!in_array($value, $attributes[$key])) {
-                        $attributes[$key][] = $value;
+                    if (
+                        $singleValue !== '' &&
+                        !in_array($singleValue, $attributes[$key], true)
+                    ) {
+                        $attributes[$key][] = $singleValue;
                     }
                 }
             }
@@ -5428,6 +5478,7 @@ class ProductController extends Controller
 
         return $attributes;
     }
+
 
     /**
      * Format a single variant
