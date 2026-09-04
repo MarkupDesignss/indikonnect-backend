@@ -2945,25 +2945,27 @@ class CheckoutService
 
     protected function processPartialRefund(Order $order, OrderLine $orderLine, string $reason): void
     {
-        // 1Calculate total already refunded for this order
+        // Total already refunded for this order (cash refunds only)
         $alreadyRefunded = Refund::where('order_id', $order->id)
             ->where('status', 'completed')
             ->sum('amount');
 
-        // Remaining balance on the original payment
         $remainingBalance = max(0, (float) $order->amount_paid - $alreadyRefunded);
 
-        // Calculate requested refund for this line (as before)
-        $refundAmount = (float) $orderLine->line_total + (float) ($orderLine->tax ?? 0);
+        // Refund amount = line_total (already includes tax and discounts)
+        // No need to add tax separately because line_total already has it.
+        $refundAmount = (float) $orderLine->line_total;
 
-        // Adjust for proportional discount (if any)
-        if ($order->discount_amount > 0 && $order->subtotal > 0) {
-            $proportionalDiscount = ($orderLine->line_total / $order->subtotal) * $order->discount_amount;
-            $refundAmount -= $proportionalDiscount;
+        // Proportional shipping refund (if shipping was charged)
+        if ($order->shipping_charge > 0 && $order->subtotal > 0) {
+            $proportion = $orderLine->line_total / $order->subtotal;
+            $shippingRefund = $order->shipping_charge * $proportion;
+            $refundAmount += $shippingRefund;
         }
+
         $refundAmount = round($refundAmount, 2);
 
-        // Cap the refund to the remaining balance
+        // Cap by remaining balance
         $refundAmount = min($refundAmount, $remainingBalance);
 
         if ($refundAmount <= 0) {
@@ -2976,7 +2978,7 @@ class CheckoutService
             return;
         }
 
-        // Process Razorpay partial refund
+        // Razorpay partial refund
         $gateway = $order->payment_gateway ?? 'razorpay';
         if ($gateway === 'razorpay') {
             if (!$order->gateway_transaction_id) {
@@ -2995,10 +2997,10 @@ class CheckoutService
             ]);
         }
 
-        // Create refund record (with order_line_id)
+        // Create refund record
         $refund = Refund::create([
             'order_id' => $order->id,
-            'order_line_id' => $orderLine->id,  // column exists now
+            'order_line_id' => $orderLine->id,
             'amount' => $refundAmount,
             'reason' => $reason,
             'status' => 'completed',
