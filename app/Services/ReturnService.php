@@ -2785,7 +2785,7 @@ class ReturnService
         }
 
         // Store in database notifications table
-        \DB::table('notifications')->insert([
+        DB::table('notifications')->insert([
             'id' => (string) \Illuminate\Support\Str::uuid(),
             'type' => 'App\\Notifications\\DynamicNotification',
             'notifiable_type' => 'App\\Models\\User',
