@@ -3087,4 +3087,112 @@ class ReturnService
             ];
         });
     }
+
+    // app/Services/ReturnService.php
+
+/**
+ * Process full refund for cancellation (creates refunds table & credit note)
+ */
+public function processRefundForOrder(Order $order, string $reason): void
+{
+    $refundAmount = (float) $order->amount_paid;
+
+    if ($refundAmount <= 0) {
+        Log::warning('Refund skipped: amount_paid is zero', ['order_id' => $order->id]);
+        return;
+    }
+
+    $gateway = $order->payment_gateway ?? 'razorpay';
+    $paymentId = $order->gateway_transaction_id;
+
+    if ($gateway !== 'razorpay') {
+        throw new Exception('Refund not supported for gateway: ' . $gateway);
+    }
+
+    if (empty($paymentId)) {
+        throw new Exception('Payment ID missing for order: ' . $order->order_reference);
+    }
+
+    try {
+        $refundResponse = $this->razorpayService->refundPayment($paymentId, $refundAmount);
+
+        if (empty($refundResponse['refund_id'])) {
+            throw new Exception('Razorpay refund failed: no refund ID');
+        }
+
+        $statusMap = [
+            'processing' => 'initiated',
+            'processed'  => 'completed',
+            'failed'     => 'failed',
+        ];
+        $refundStatus = $statusMap[$refundResponse['status']] ?? 'completed';
+
+        $refund = Refund::create([
+            'order_id'          => $order->id,
+            'return_id'         => null,
+            'amount'            => $refundAmount,
+            'gateway_reference' => $refundResponse['refund_id'],
+            'status'            => $refundStatus,
+            'completed_at'      => ($refundStatus === 'completed') ? now() : null,
+            'failure_reason'    => null,
+        ]);
+
+        $order->update([
+            'refund_status' => $refundStatus,
+            'refunded_at'   => now(),
+        ]);
+
+        // ✅ Generate credit note for full cancellation
+        $this->generateCreditNoteForCancellation($order, $refund->id, $reason);
+
+        Log::info('Full order refund processed via cancellation', [
+            'order_id' => $order->id,
+            'refund_id' => $refund->id,
+            'amount' => $refundAmount,
+        ]);
+
+    } catch (\Throwable $e) {
+        Log::error('Refund failed for order cancellation', [
+            'order_id' => $order->id,
+            'error' => $e->getMessage(),
+        ]);
+        throw $e;
+    }
+}
+
+/**
+ * Generate credit note for full order cancellation
+ */
+protected function generateCreditNoteForCancellation(Order $order, int $refundId, string $reason): void
+{
+    $creditNoteService = app(\App\Services\CreditNoteService::class);
+
+    $returnOrder = new \App\Models\OrderReturn();
+    $returnOrder->order = $order;
+    $returnOrder->user_id = $order->user_id;
+    $returnOrder->type = 'cancellation';
+    $returnOrder->reason = $reason;
+    $returnOrder->items = [];
+
+    foreach ($order->lines as $line) {
+        $returnOrder->items[] = [
+            'order_line_id' => $line->id,
+            'product_id'    => $line->product_id,
+            'product_name'  => $line->product?->name ?? 'Unknown',
+            'quantity'      => $line->quantity,
+            'unit_price'    => (float) $line->unit_price,
+            'gst_rate'      => (float) $line->gst_rate,
+            'subtotal'      => (float) $line->unit_price * $line->quantity,
+            'tax'           => (float) ($line->gst_amount ?? 0),
+            'line_total'    => (float) $line->line_total,
+            'reason'        => $reason,
+            'image_paths'   => [],
+            'return_status' => 'completed',
+        ];
+    }
+    $returnOrder->total_refund_amount = (float) $order->amount_paid;
+
+    $creditNoteService->generateFromReturn($returnOrder, $refundId);
+}
+
 }
