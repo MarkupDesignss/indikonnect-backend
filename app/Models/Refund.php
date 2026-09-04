@@ -8,6 +8,7 @@ class Refund extends Model
 {
     protected $fillable = [
         'order_id',
+        'order_line_id',
         'return_id',
         'amount',
         'gateway_reference',

@@ -25,6 +25,7 @@ use App\Models\ProductVariant;
 use App\Models\Refund;
 use Illuminate\Support\Facades\Auth;
 use App\Traits\AuditLogTrait;
+use App\Services\ReturnService;
 
 class CheckoutService
 {
@@ -35,19 +36,22 @@ class CheckoutService
     protected RazorpayService $razorpayService;
     protected NotificationService $notificationService;
     protected $pdfInvoiceService;
+    protected ReturnService $returnService;
 
     public function __construct(
         GSTCalculator $gstCalculator,
         InvoiceService $invoiceService,
         RazorpayService $razorpayService,
         PdfInvoiceService $pdfInvoiceService,
-        NotificationService $notificationService
+        NotificationService $notificationService,
+        ReturnService $returnService
     ) {
         $this->gstCalculator = $gstCalculator;
         $this->invoiceService = $invoiceService;
         $this->razorpayService = $razorpayService;
         $this->pdfInvoiceService = $pdfInvoiceService;
         $this->notificationService = $notificationService;
+        $this->returnService = $returnService;
     }
 
     /**
@@ -2887,8 +2891,8 @@ class CheckoutService
                 ]);
 
                 // Process full refund if order was paid
-                if ($order->amount_paid > 0) {
-                    $this->processRefund($order);
+                 if ($order->amount_paid > 0) {
+                    $this->returnService->processRefundForOrder($order, $reason);
                 }
 
                 // Create reversal event for full order
@@ -2912,7 +2916,7 @@ class CheckoutService
             } else {
                 // Process partial refund for this specific line
                 if ($orderLine->line_total > 0) {
-                    $this->processPartialRefund($order, $orderLine);
+                    $this->processPartialRefund($order, $orderLine, $reason);
                 }
 
                 Log::info('Order line cancelled', [
@@ -2988,14 +2992,24 @@ class CheckoutService
         }
 
         // Create local refund record
-        Refund::create([
+        $refund = Refund::create([
             'order_id' => $order->id,
             'order_line_id' => $orderLine->id,
             'amount' => $refundAmount,
-            'reason' => $orderLine->cancellation_reason ?? 'Item cancelled',
+            'reason' => $reason,
             'status' => 'completed',
             'completed_at' => now(),
         ]);
+
+        // Generate credit note for this line
+        try {
+            $this->generateCreditNoteForLine($order, $orderLine, $refund->id, $reason);
+        } catch (\Exception $e) {
+            Log::error('Credit note generation failed for partial cancellation', [
+                'order_line_id' => $orderLine->id,
+                'error' => $e->getMessage()
+            ]);
+        }
 
         // Update order paid amount
         $newAmountPaid = max(
@@ -3015,6 +3029,37 @@ class CheckoutService
             'amount' => $refundAmount,
             'remaining_amount' => $newAmountPaid,
         ]);
+    }
+
+    /**
+     * Generate credit note for a cancelled line
+    */
+    
+    protected function generateCreditNoteForLine(Order $order, OrderLine $orderLine, int $refundId, string $reason): void
+    {
+        $returnOrder = new \App\Models\OrderReturn();
+        $returnOrder->order = $order;
+        $returnOrder->user_id = $order->user_id;
+        $returnOrder->type = 'cancellation';
+        $returnOrder->reason = $reason;
+        $returnOrder->items = [[
+            'order_line_id' => $orderLine->id,
+            'product_id'    => $orderLine->product_id,
+            'product_name'  => $orderLine->product?->name ?? 'Unknown',
+            'quantity'      => $orderLine->quantity,
+            'unit_price'    => (float) $orderLine->unit_price,
+            'gst_rate'      => (float) $orderLine->gst_rate,
+            'subtotal'      => (float) $orderLine->unit_price * $orderLine->quantity,
+            'tax'           => (float) ($orderLine->gst_amount ?? 0),
+            'line_total'    => (float) $orderLine->line_total,
+            'reason'        => $reason,
+            'image_paths'   => [],
+            'return_status' => 'completed',
+        ]];
+        $returnOrder->total_refund_amount = (float) $orderLine->line_total;
+
+        $creditNoteService = app(\App\Services\CreditNoteService::class);
+        $creditNoteService->generateFromReturn($returnOrder, $refundId);
     }
 
     /**
