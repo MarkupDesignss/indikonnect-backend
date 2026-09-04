@@ -3160,38 +3160,52 @@ public function processRefundForOrder(Order $order, string $reason): void
     }
 }
 
-/**
- * Generate credit note for full order cancellation
- */
 protected function generateCreditNoteForCancellation(Order $order, int $refundId, string $reason): void
 {
     $creditNoteService = app(\App\Services\CreditNoteService::class);
 
-    $returnOrder = new \App\Models\OrderReturn();
-    $returnOrder->order = $order;
-    $returnOrder->user_id = $order->user_id;
-    $returnOrder->type = 'cancellation';
-    $returnOrder->reason = $reason;
-    $returnOrder->items = [];
+    // Build items array
+    $items = [];
+    $refundSubtotal = 0;
+    $refundTax = 0;
 
     foreach ($order->lines as $line) {
-        $returnOrder->items[] = [
+        $subtotal = (float) $line->unit_price * $line->quantity;
+        $tax = (float) ($line->gst_amount ?? 0);
+        $lineTotal = $subtotal + $tax;
+
+        $items[] = [
             'order_line_id' => $line->id,
             'product_id'    => $line->product_id,
             'product_name'  => $line->product?->name ?? 'Unknown',
             'quantity'      => $line->quantity,
             'unit_price'    => (float) $line->unit_price,
             'gst_rate'      => (float) $line->gst_rate,
-            'subtotal'      => (float) $line->unit_price * $line->quantity,
-            'tax'           => (float) ($line->gst_amount ?? 0),
-            'line_total'    => (float) $line->line_total,
+            'subtotal'      => $subtotal,
+            'tax'           => $tax,
+            'line_total'    => $lineTotal,
             'reason'        => $reason,
             'image_paths'   => [],
             'return_status' => 'completed',
         ];
+
+        $refundSubtotal += $subtotal;
+        $refundTax += $tax;
     }
+
+    // Create dummy OrderReturn – assign everything at once
+    $returnOrder = new \App\Models\OrderReturn();
+    $returnOrder->order = $order;
+    $returnOrder->user_id = $order->user_id;
+    $returnOrder->type = 'cancellation';
+    $returnOrder->reason = $reason;
+    $returnOrder->items = $items;
+    $returnOrder->refund_subtotal = $refundSubtotal;
+    $returnOrder->refund_tax = $refundTax;
+    $returnOrder->refund_shipping = (float) $order->shipping_charge; // full shipping refund
     $returnOrder->total_refund_amount = (float) $order->amount_paid;
 
+    // Generate credit note
     $creditNoteService->generateFromReturn($returnOrder, $refundId);
 }
 
