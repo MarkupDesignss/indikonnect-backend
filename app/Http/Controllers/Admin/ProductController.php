@@ -373,7 +373,7 @@ class ProductController extends Controller
     // }
     public function index(Request $request)
     {
-        $query = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+        $query = Product::with(['category', 'taxCategory', 'images', 'variants.images', 'brand'])
             ->whereHas('brand', function ($q) {
                 $q->where('status', true);
             });
