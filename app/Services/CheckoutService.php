@@ -25,6 +25,7 @@ use App\Models\ProductVariant;
 use App\Models\Refund;
 use Illuminate\Support\Facades\Auth;
 use App\Traits\AuditLogTrait;
+use App\Services\ReturnService;
 
 class CheckoutService
 {
@@ -35,19 +36,22 @@ class CheckoutService
     protected RazorpayService $razorpayService;
     protected NotificationService $notificationService;
     protected $pdfInvoiceService;
+    protected ReturnService $returnService;
 
     public function __construct(
         GSTCalculator $gstCalculator,
         InvoiceService $invoiceService,
         RazorpayService $razorpayService,
         PdfInvoiceService $pdfInvoiceService,
-        NotificationService $notificationService
+        NotificationService $notificationService,
+        ReturnService $returnService
     ) {
         $this->gstCalculator = $gstCalculator;
         $this->invoiceService = $invoiceService;
         $this->razorpayService = $razorpayService;
         $this->pdfInvoiceService = $pdfInvoiceService;
         $this->notificationService = $notificationService;
+        $this->returnService = $returnService;
     }
 
     /**
@@ -2887,8 +2891,8 @@ class CheckoutService
                 ]);
 
                 // Process full refund if order was paid
-                if ($order->amount_paid > 0) {
-                    $this->processRefund($order);
+                 if ($order->amount_paid > 0) {
+                    $this->returnService->processRefundForOrder($order, $reason);
                 }
 
                 // Create reversal event for full order
@@ -2912,7 +2916,7 @@ class CheckoutService
             } else {
                 // Process partial refund for this specific line
                 if ($orderLine->line_total > 0) {
-                    $this->processPartialRefund($order, $orderLine);
+                    $this->processPartialRefund($order, $orderLine, $reason);
                 }
 
                 Log::info('Order line cancelled', [
@@ -2939,45 +2943,51 @@ class CheckoutService
         ];
     }
 
-    protected function processPartialRefund(Order $order, OrderLine $orderLine): void
+    protected function processPartialRefund(Order $order, OrderLine $orderLine, string $reason): void
     {
-        // Calculate refund amount for this specific line
-        $refundAmount = (float) $orderLine->line_total + (float) ($orderLine->tax ?? 0);
+        // Total already refunded for this order (cash refunds only)
+        $alreadyRefunded = Refund::where('order_id', $order->id)
+            ->where('status', 'completed')
+            ->sum('amount');
 
-        // Calculate proportional discount if any
-        if ($order->discount_amount > 0 && $order->subtotal > 0) {
-            $proportionalDiscount =
-                ($orderLine->line_total / $order->subtotal)
-                * $order->discount_amount;
+        $remainingBalance = max(0, (float) $order->amount_paid - $alreadyRefunded);
 
-            $refundAmount -= $proportionalDiscount;
+        // Refund amount = line_total (already includes tax and discounts)
+        // No need to add tax separately because line_total already has it.
+        $refundAmount = (float) $orderLine->line_total;
+
+        // Proportional shipping refund (if shipping was charged)
+        if ($order->shipping_charge > 0 && $order->subtotal > 0) {
+            $proportion = $orderLine->line_total / $order->subtotal;
+            $shippingRefund = $order->shipping_charge * $proportion;
+            $refundAmount += $shippingRefund;
         }
 
-        // Prevent negative/zero refund
         $refundAmount = round($refundAmount, 2);
 
+        // Cap by remaining balance
+        $refundAmount = min($refundAmount, $remainingBalance);
+
         if ($refundAmount <= 0) {
-            throw new \Exception(
-                "Invalid refund amount for order line ID: {$orderLine->id}"
-            );
+            Log::warning('Partial refund skipped: amount is zero or exceeds remaining balance', [
+                'order_id' => $order->id,
+                'order_line_id' => $orderLine->id,
+                'remaining_balance' => $remainingBalance,
+                'requested' => $refundAmount,
+            ]);
+            return;
         }
 
+        // Razorpay partial refund
         $gateway = $order->payment_gateway ?? 'razorpay';
-
         if ($gateway === 'razorpay') {
-
             if (!$order->gateway_transaction_id) {
-                throw new \Exception(
-                    "Payment transaction ID not found for order {$order->order_reference}."
-                );
+                throw new \Exception("Payment transaction ID not found for order {$order->order_reference}.");
             }
-
-            // Razorpay partial refund
             $refundResponse = $this->razorpayService->processPartialRefund(
                 $order->gateway_transaction_id,
                 $refundAmount
             );
-
             Log::info('Razorpay partial refund completed', [
                 'order_id' => $order->id,
                 'order_line_id' => $orderLine->id,
@@ -2987,34 +2997,75 @@ class CheckoutService
             ]);
         }
 
-        // Create local refund record
-        Refund::create([
+        // Create refund record
+        $refund = Refund::create([
             'order_id' => $order->id,
             'order_line_id' => $orderLine->id,
             'amount' => $refundAmount,
-            'reason' => $orderLine->cancellation_reason ?? 'Item cancelled',
+            'reason' => $reason,
             'status' => 'completed',
             'completed_at' => now(),
+            'gateway_reference' => $refundResponse['refund_id'] ?? null,
         ]);
 
-        // Update order paid amount
-        $newAmountPaid = max(
-            0,
-            (float) $order->amount_paid - $refundAmount
-        );
+        // Generate credit note for this line
+        $this->generateCreditNoteForLine($order, $orderLine, $refund->id, $reason);
 
+        // Update order paid amount
+        $newAmountPaid = max(0, (float) $order->amount_paid - $refundAmount);
         $order->update([
             'amount_paid' => $newAmountPaid,
             'refund_status' => 'partial',
             'refunded_at' => now(),
         ]);
 
-        Log::info('Partial refund processed for order line', [
+        Log::info('Partial refund processed', [
             'order' => $order->order_reference,
             'order_line_id' => $orderLine->id,
             'amount' => $refundAmount,
-            'remaining_amount' => $newAmountPaid,
+            'remaining_balance_after' => $newAmountPaid,
         ]);
+    }
+
+    /**
+     * Generate credit note for a cancelled line
+    */
+    
+    protected function generateCreditNoteForLine(Order $order, OrderLine $orderLine, int $refundId, string $reason): void
+    {
+        $creditNoteService = app(\App\Services\CreditNoteService::class);
+
+        $subtotal = (float) $orderLine->unit_price * $orderLine->quantity;
+        $tax = (float) ($orderLine->gst_amount ?? 0);
+        $lineTotal = $subtotal + $tax;
+
+        $items = [[
+            'order_line_id' => $orderLine->id,
+            'product_id'    => $orderLine->product_id,
+            'product_name'  => $orderLine->product?->name ?? 'Unknown',
+            'quantity'      => $orderLine->quantity,
+            'unit_price'    => (float) $orderLine->unit_price,
+            'gst_rate'      => (float) $orderLine->gst_rate,
+            'subtotal'      => $subtotal,
+            'tax'           => $tax,
+            'line_total'    => $lineTotal,
+            'reason'        => $reason,
+            'image_paths'   => [],
+            'return_status' => 'completed',
+        ]];
+
+        $returnOrder = new \App\Models\OrderReturn();
+        $returnOrder->order = $order;
+        $returnOrder->user_id = $order->user_id;
+        $returnOrder->type = 'cancellation';
+        $returnOrder->reason = $reason;
+        $returnOrder->items = $items;
+        $returnOrder->refund_subtotal = $subtotal;
+        $returnOrder->refund_tax = $tax;
+        $returnOrder->refund_shipping = 0; // Partial line cancellation – shipping not refunded proportionally? You can add logic if needed.
+        $returnOrder->total_refund_amount = $lineTotal; // or include proportional shipping if you want
+
+        $creditNoteService->generateFromReturn($returnOrder, $refundId);
     }
 
     /**
