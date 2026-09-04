@@ -3033,29 +3033,38 @@ class CheckoutService
     
     protected function generateCreditNoteForLine(Order $order, OrderLine $orderLine, int $refundId, string $reason): void
     {
-        $returnOrder = new \App\Models\OrderReturn();
-        $returnOrder->order_id = $order->id;
-        $returnOrder->order = $order;
-        $returnOrder->user_id = $order->user_id;
-        $returnOrder->type = 'cancellation';
-        $returnOrder->reason = $reason;
-        $returnOrder->items = [[
+        $creditNoteService = app(\App\Services\CreditNoteService::class);
+
+        $subtotal = (float) $orderLine->unit_price * $orderLine->quantity;
+        $tax = (float) ($orderLine->gst_amount ?? 0);
+        $lineTotal = $subtotal + $tax;
+
+        $items = [[
             'order_line_id' => $orderLine->id,
             'product_id'    => $orderLine->product_id,
             'product_name'  => $orderLine->product?->name ?? 'Unknown',
             'quantity'      => $orderLine->quantity,
             'unit_price'    => (float) $orderLine->unit_price,
             'gst_rate'      => (float) $orderLine->gst_rate,
-            'subtotal'      => (float) $orderLine->unit_price * $orderLine->quantity,
-            'tax'           => (float) ($orderLine->gst_amount ?? 0),
-            'line_total'    => (float) $orderLine->line_total,
+            'subtotal'      => $subtotal,
+            'tax'           => $tax,
+            'line_total'    => $lineTotal,
             'reason'        => $reason,
             'image_paths'   => [],
             'return_status' => 'completed',
         ]];
-        $returnOrder->total_refund_amount = (float) $orderLine->line_total;
 
-        $creditNoteService = app(\App\Services\CreditNoteService::class);
+        $returnOrder = new \App\Models\OrderReturn();
+        $returnOrder->order = $order;
+        $returnOrder->user_id = $order->user_id;
+        $returnOrder->type = 'cancellation';
+        $returnOrder->reason = $reason;
+        $returnOrder->items = $items;
+        $returnOrder->refund_subtotal = $subtotal;
+        $returnOrder->refund_tax = $tax;
+        $returnOrder->refund_shipping = 0; // Partial line cancellation – shipping not refunded proportionally? You can add logic if needed.
+        $returnOrder->total_refund_amount = $lineTotal; // or include proportional shipping if you want
+
         $creditNoteService->generateFromReturn($returnOrder, $refundId);
     }
 
