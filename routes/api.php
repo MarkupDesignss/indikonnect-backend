@@ -44,6 +44,7 @@ use App\Http\Controllers\API\CoolingOffController;
 use App\Http\Controllers\API\CreditNoteController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Admin\FAQController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\API\BrandController;
@@ -649,4 +650,18 @@ Route::prefix('brands')->group(function () {
     Route::get('/{id}', [BrandController::class, 'show']);
     Route::post('/{id}', [BrandController::class, 'update']);
     Route::delete('/{id}', [BrandController::class, 'destroy']);
+});
+
+
+
+Route::prefix('faqs')->group(function () {
+    // Standard CRUD routes
+    Route::get('/', [FAQController::class, 'index']);
+    Route::post('/', [FAQController::class, 'store']);
+    Route::get('/{id}', [FAQController::class, 'show']);
+    Route::post('/{id}', [FAQController::class, 'update']);
+    Route::delete('/{id}', [FAQController::class, 'destroy']);
+
+    // Additional useful endpoints
+    Route::post('/bulk-delete', [FAQController::class, 'bulkDestroy']);
 });
