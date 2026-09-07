@@ -95,6 +95,10 @@ class Product extends Model
     {
         return $query->where('is_published', true);
     }
+    public function scopeUnpublished($query)
+    {
+        return $query->where('is_published', false);
+    }
 
     public function scopeInStock($query)
     {

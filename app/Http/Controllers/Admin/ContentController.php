@@ -551,4 +551,30 @@ class ContentController extends Controller
             return $this->formatContent($content);
         })->values();
     }
+    public function deleteMedia($id)
+    {
+        try {
+            $media = ContentMedia::find($id);
+
+            if (!$media) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Media not found',
+                ], 404);
+            }
+
+            $media->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Media deleted successfully',
+            ], 200);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete media',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
 }
