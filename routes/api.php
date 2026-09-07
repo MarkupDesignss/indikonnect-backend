@@ -128,7 +128,7 @@ Route::prefix('contents')->group(function () {
         Route::delete('/delete/{id}', [ContentController::class, 'destroy']);
     });
 });
-
+Route::delete('/content-media/{id}', [ContentController::class, 'deleteMedia']);
 // Categories
 Route::prefix('categories')->group(function () {
     // Public routes (No middleware)
@@ -183,7 +183,7 @@ Route::prefix('subscribers')->group(function () {
         Route::delete('/{email}', [SubscriberController::class, 'destroy']);
     });
 });
-
+Route::post('/publish/{product}/product', [ProductController::class, 'togglePublished']);
 Route::prefix('products')->group(function () {
     // Public routes with optional authentication
     Route::middleware('optional.auth:sanctum')->group(function () {

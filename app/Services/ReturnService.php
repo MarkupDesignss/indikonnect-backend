@@ -1873,90 +1873,83 @@ class ReturnService
      */
     // private function updateOrderMainStatus(Order $order): void
     // {
-    //     $lines = $order->lines;
-    //     $totalLines = $lines->count();
+    //     $lines = $order->lines()->get();
 
-    //     if ($totalLines === 0) {
+    //     if ($lines->isEmpty()) {
     //         $order->update(['status' => 'pending']);
     //         return;
     //     }
 
-    //     // First, determine delivery status
-    //     $deliveryCounts = [
-    //         'pending' => 0,
-    //         'shipped' => 0,
-    //         'delivered' => 0,
-    //         'cancelled' => 0,
-    //     ];
+    //     // Exclude cancelled lines from main status calculation
+    //     $activeLines = $lines->filter(function ($line) {
+    //         return $line->delivery_status !== 'cancelled';
+    //     });
 
-    //     foreach ($lines as $line) {
-    //         $status = $line->delivery_status ?? 'pending';
-    //         if (isset($deliveryCounts[$status])) {
-    //             $deliveryCounts[$status]++;
-    //         }
-    //     }
+    //     $activeCount = $activeLines->count();
 
-    //     // Determine delivery status
-    //     $deliveryStatus = 'pending';
-    //     if ($deliveryCounts['delivered'] === $totalLines) {
-    //         $deliveryStatus = 'delivered';
-    //     } elseif ($deliveryCounts['delivered'] > 0) {
-    //         $deliveryStatus = 'partial_delivered';
-    //     } elseif ($deliveryCounts['shipped'] === $totalLines) {
-    //         $deliveryStatus = 'shipped';
-    //     } elseif ($deliveryCounts['shipped'] > 0) {
-    //         $deliveryStatus = 'processing';
-    //     }
-
-    //     // Now, determine return status based on delivered items only
-    //     $deliveredLines = $lines->where('delivery_status', 'delivered');
-    //     $deliveredCount = $deliveredLines->count();
-
-    //     if ($deliveredCount === 0) {
-    //         // If no items delivered, just use delivery status
-    //         $order->update(['status' => $deliveryStatus]);
+    //     if ($activeCount === 0) {
+    //         $order->update(['status' => 'cancelled']);
     //         return;
     //     }
 
-    //     $returnCounts = [
-    //         'pending' => 0,
-    //         'approved' => 0,
-    //         'rejected' => 0,
-    //         'returned' => 0,
-    //         'none' => 0,
-    //     ];
+    //     // Count lines with return-related statuses
+    //     $returnPendingCount = $activeLines
+    //         ->whereIn('delivery_status', ['return_pending', 'returned', 'return_approved', 'return_rejected'])
+    //         ->count();
 
-    //     foreach ($deliveredLines as $line) {
-    //         $status = $line->return_status ?? 'none';
-    //         if (isset($returnCounts[$status])) {
-    //             $returnCounts[$status]++;
-    //         }
-    //     }
+    //     $deliveredCount = $activeLines
+    //         ->where('delivery_status', 'delivered')
+    //         ->count();
 
-    //     // Determine final order status (combining delivery and return)
-    //     $finalStatus = $deliveryStatus;
+    //     $shippedCount = $activeLines
+    //         ->where('delivery_status', 'shipped')
+    //         ->count();
 
-    //     // If ALL delivered items are returned
-    //     if ($returnCounts['returned'] === $deliveredCount && $deliveredCount > 0) {
-    //         // Check if all items are delivered and returned
-    //         if ($deliveryCounts['delivered'] === $totalLines) {
-    //             $finalStatus = 'returned'; // Full order returned
-    //         } else {
-    //             // Some items are not delivered, but all delivered ones are returned
-    //             $finalStatus = 'partial_return';
-    //         }
-    //     }
-    //     // If SOME delivered items are returned
-    //     elseif ($returnCounts['returned'] > 0) {
+    //     $dispatchedCount = $activeLines
+    //         ->where('delivery_status', 'dispatched')
+    //         ->count();
+
+    //     $confirmedCount = $activeLines
+    //         ->where('delivery_status', 'confirmed')
+    //         ->count();
+
+    //     $pendingCount = $activeLines
+    //         ->where('delivery_status', 'pending')
+    //         ->count();
+
+    //     /*
+    //  * RETURN HAS PRIORITY
+    //  */
+    //     if ($returnPendingCount === $activeCount) {
+    //         $finalStatus = 'returned';
+    //     } elseif ($returnPendingCount > 0) {
     //         $finalStatus = 'partial_returned';
     //     }
-    //     // If no delivered items are returned but some have pending/approved/rejected
-    //     elseif ($returnCounts['pending'] > 0 || $returnCounts['approved'] > 0 || $returnCounts['rejected'] > 0) {
-    //         // Keep the delivery status, but we could add a prefix if needed
-    //         // For now, keep delivery status as is
+    //     /*
+    //  * NORMAL DELIVERY FLOW
+    //  */ elseif ($deliveredCount === $activeCount) {
+    //         $finalStatus = 'delivered';
+    //     } elseif ($deliveredCount > 0) {
+    //         $finalStatus = 'partial_delivered';
+    //     } elseif ($shippedCount === $activeCount) {
+    //         $finalStatus = 'shipped';
+    //     } elseif ($shippedCount > 0) {
+    //         $finalStatus = 'partial_shipped';
+    //     } elseif ($dispatchedCount === $activeCount) {
+    //         $finalStatus = 'dispatched';
+    //     } elseif ($dispatchedCount > 0) {
+    //         $finalStatus = 'partial_dispatched';
+    //     } elseif ($confirmedCount === $activeCount) {
+    //         $finalStatus = 'confirmed';
+    //     } elseif ($confirmedCount > 0) {
+    //         $finalStatus = 'partial_confirmed';
+    //     } else {
+    //         $finalStatus = 'pending';
     //     }
 
-    //     $order->update(['status' => $finalStatus]);
+    //     $order->update([
+    //         'status' => $finalStatus,
+    //     ]);
     // }
     private function updateOrderMainStatus(Order $order): void
     {
@@ -1979,10 +1972,22 @@ class ReturnService
             return;
         }
 
-        $returnPendingCount = $activeLines
-            ->whereIn('delivery_status', ['return_pending', 'returned'])
+        // Check for APPROVED returns (these are the ones that will be returned)
+        $approvedCount = $activeLines
+            ->whereIn('delivery_status', ['return_approved', 'refunded', 'returned'])
             ->count();
 
+        // Check for REJECTED returns (these stay with customer, should be considered delivered)
+        $rejectedCount = $activeLines
+            ->where('delivery_status', 'return_rejected')
+            ->count();
+
+        // Check for PENDING returns
+        $pendingCount = $activeLines
+            ->where('delivery_status', 'return_pending')
+            ->count();
+
+        // Check normal delivery statuses
         $deliveredCount = $activeLines
             ->where('delivery_status', 'delivered')
             ->count();
@@ -1999,23 +2004,40 @@ class ReturnService
             ->where('delivery_status', 'confirmed')
             ->count();
 
-        $pendingCount = $activeLines
-            ->where('delivery_status', 'pending')
+        // CRITICAL LOGIC:
+        // 1. If there are any approved returns (return_approved/refunded/returned), order is returned/partial_returned
+        // 2. If ALL items are either rejected OR delivered, order is delivered
+        // 3. If there are pending returns and no approved returns, order remains delivered
+
+        // Check if all items are either delivered or rejected (customer keeps everything)
+        $deliveredOrRejectedCount = $activeLines
+            ->whereIn('delivery_status', ['delivered', 'return_rejected'])
             ->count();
 
-        /*
-     * RETURN HAS PRIORITY
-     */
-        if ($returnPendingCount === $activeCount) {
-            $finalStatus = 'refunded';
-            // $finalStatus = 'returned';
-        } elseif ($returnPendingCount > 0) {
+        $allItemsDeliveredOrRejected = ($deliveredOrRejectedCount === $activeCount);
+
+        // Check if all items are returned/approved
+        $allItemsReturned = ($approvedCount === $activeCount);
+
+        // Check if any item is approved for return
+        $hasApprovedReturns = ($approvedCount > 0);
+
+        // Check if any item is pending for return
+        $hasPendingReturns = ($pendingCount > 0);
+
+        // Determine final status
+        if ($allItemsDeliveredOrRejected) {
+            // ALL items are either delivered or rejected → ORDER IS DELIVERED
+            $finalStatus = 'delivered';
+        } elseif ($allItemsReturned) {
+            // ALL items are returned/approved → ORDER IS RETURNED
+            $finalStatus = 'returned';
+        } elseif ($hasApprovedReturns) {
+            // SOME items are returned/approved → ORDER IS PARTIAL RETURNED
             $finalStatus = 'partial_returned';
         }
-
-        /*
-     * NORMAL DELIVERY FLOW
-     */ elseif ($deliveredCount === $activeCount) {
+        // Normal delivery flow (no returns involved)
+        elseif ($deliveredCount === $activeCount) {
             $finalStatus = 'delivered';
         } elseif ($deliveredCount > 0) {
             $finalStatus = 'partial_delivered';
@@ -3090,123 +3112,121 @@ class ReturnService
 
     // app/Services/ReturnService.php
 
-/**
- * Process full refund for cancellation (creates refunds table & credit note)
- */
-public function processRefundForOrder(Order $order, string $reason): void
-{
-    $refundAmount = (float) $order->amount_paid;
+    /**
+     * Process full refund for cancellation (creates refunds table & credit note)
+     */
+    public function processRefundForOrder(Order $order, string $reason): void
+    {
+        $refundAmount = (float) $order->amount_paid;
 
-    if ($refundAmount <= 0) {
-        Log::warning('Refund skipped: amount_paid is zero', ['order_id' => $order->id]);
-        return;
-    }
-
-    $gateway = $order->payment_gateway ?? 'razorpay';
-    $paymentId = $order->gateway_transaction_id;
-
-    if ($gateway !== 'razorpay') {
-        throw new Exception('Refund not supported for gateway: ' . $gateway);
-    }
-
-    if (empty($paymentId)) {
-        throw new Exception('Payment ID missing for order: ' . $order->order_reference);
-    }
-
-    try {
-        $refundResponse = $this->razorpayService->refundPayment($paymentId, $refundAmount);
-
-        if (empty($refundResponse['refund_id'])) {
-            throw new Exception('Razorpay refund failed: no refund ID');
+        if ($refundAmount <= 0) {
+            Log::warning('Refund skipped: amount_paid is zero', ['order_id' => $order->id]);
+            return;
         }
 
-        $statusMap = [
-            'processing' => 'initiated',
-            'processed'  => 'completed',
-            'failed'     => 'failed',
-        ];
-        $refundStatus = $statusMap[$refundResponse['status']] ?? 'completed';
+        $gateway = $order->payment_gateway ?? 'razorpay';
+        $paymentId = $order->gateway_transaction_id;
 
-        $refund = Refund::create([
-            'order_id'          => $order->id,
-            'return_id'         => null,
-            'amount'            => $refundAmount,
-            'gateway_reference' => $refundResponse['refund_id'],
-            'status'            => $refundStatus,
-            'completed_at'      => ($refundStatus === 'completed') ? now() : null,
-            'failure_reason'    => null,
-        ]);
+        if ($gateway !== 'razorpay') {
+            throw new Exception('Refund not supported for gateway: ' . $gateway);
+        }
 
-        $order->update([
-            'refund_status' => $refundStatus,
-            'refunded_at'   => now(),
-        ]);
+        if (empty($paymentId)) {
+            throw new Exception('Payment ID missing for order: ' . $order->order_reference);
+        }
 
-        // ✅ Generate credit note for full cancellation
-        $this->generateCreditNoteForCancellation($order, $refund->id, $reason);
+        try {
+            $refundResponse = $this->razorpayService->refundPayment($paymentId, $refundAmount);
 
-        Log::info('Full order refund processed via cancellation', [
-            'order_id' => $order->id,
-            'refund_id' => $refund->id,
-            'amount' => $refundAmount,
-        ]);
+            if (empty($refundResponse['refund_id'])) {
+                throw new Exception('Razorpay refund failed: no refund ID');
+            }
 
-    } catch (\Throwable $e) {
-        Log::error('Refund failed for order cancellation', [
-            'order_id' => $order->id,
-            'error' => $e->getMessage(),
-        ]);
-        throw $e;
-    }
-}
+            $statusMap = [
+                'processing' => 'initiated',
+                'processed'  => 'completed',
+                'failed'     => 'failed',
+            ];
+            $refundStatus = $statusMap[$refundResponse['status']] ?? 'completed';
 
-protected function generateCreditNoteForCancellation(Order $order, int $refundId, string $reason): void
-{
-    $creditNoteService = app(\App\Services\CreditNoteService::class);
+            $refund = Refund::create([
+                'order_id'          => $order->id,
+                'return_id'         => null,
+                'amount'            => $refundAmount,
+                'gateway_reference' => $refundResponse['refund_id'],
+                'status'            => $refundStatus,
+                'completed_at'      => ($refundStatus === 'completed') ? now() : null,
+                'failure_reason'    => null,
+            ]);
 
-    // Build items array
-    $items = [];
-    $refundSubtotal = 0;
-    $refundTax = 0;
+            $order->update([
+                'refund_status' => $refundStatus,
+                'refunded_at'   => now(),
+            ]);
 
-    foreach ($order->lines as $line) {
-        $subtotal = (float) $line->unit_price * $line->quantity;
-        $tax = (float) ($line->gst_amount ?? 0);
-        $lineTotal = $subtotal + $tax;
+            // ✅ Generate credit note for full cancellation
+            $this->generateCreditNoteForCancellation($order, $refund->id, $reason);
 
-        $items[] = [
-            'order_line_id' => $line->id,
-            'product_id'    => $line->product_id,
-            'product_name'  => $line->product?->name ?? 'Unknown',
-            'quantity'      => $line->quantity,
-            'unit_price'    => (float) $line->unit_price,
-            'gst_rate'      => (float) $line->gst_rate,
-            'subtotal'      => $subtotal,
-            'tax'           => $tax,
-            'line_total'    => $lineTotal,
-            'reason'        => $reason,
-            'image_paths'   => [],
-            'return_status' => 'completed',
-        ];
-
-        $refundSubtotal += $subtotal;
-        $refundTax += $tax;
+            Log::info('Full order refund processed via cancellation', [
+                'order_id' => $order->id,
+                'refund_id' => $refund->id,
+                'amount' => $refundAmount,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Refund failed for order cancellation', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
     }
 
-    // Create dummy OrderReturn – assign everything at once
-    $returnOrder = new \App\Models\OrderReturn();
-    $returnOrder->order = $order;
-    $returnOrder->user_id = $order->user_id;
-    $returnOrder->type = 'cancellation';
-    $returnOrder->reason = $reason;
-    $returnOrder->items = $items;
-    $returnOrder->refund_subtotal = $refundSubtotal;
-    $returnOrder->refund_tax = $refundTax;
-    $returnOrder->refund_shipping = (float) $order->shipping_charge; // full shipping refund
-    $returnOrder->total_refund_amount = (float) $order->amount_paid;
+    protected function generateCreditNoteForCancellation(Order $order, int $refundId, string $reason): void
+    {
+        $creditNoteService = app(\App\Services\CreditNoteService::class);
 
-    // Generate credit note
-    $creditNoteService->generateFromReturn($returnOrder, $refundId);
-}
+        // Build items array
+        $items = [];
+        $refundSubtotal = 0;
+        $refundTax = 0;
 
+        foreach ($order->lines as $line) {
+            $subtotal = (float) $line->unit_price * $line->quantity;
+            $tax = (float) ($line->gst_amount ?? 0);
+            $lineTotal = $subtotal + $tax;
+
+            $items[] = [
+                'order_line_id' => $line->id,
+                'product_id'    => $line->product_id,
+                'product_name'  => $line->product?->name ?? 'Unknown',
+                'quantity'      => $line->quantity,
+                'unit_price'    => (float) $line->unit_price,
+                'gst_rate'      => (float) $line->gst_rate,
+                'subtotal'      => $subtotal,
+                'tax'           => $tax,
+                'line_total'    => $lineTotal,
+                'reason'        => $reason,
+                'image_paths'   => [],
+                'return_status' => 'completed',
+            ];
+
+            $refundSubtotal += $subtotal;
+            $refundTax += $tax;
+        }
+
+        // Create dummy OrderReturn – assign everything at once
+        $returnOrder = new \App\Models\OrderReturn();
+        $returnOrder->order = $order;
+        $returnOrder->user_id = $order->user_id;
+        $returnOrder->type = 'cancellation';
+        $returnOrder->reason = $reason;
+        $returnOrder->items = $items;
+        $returnOrder->refund_subtotal = $refundSubtotal;
+        $returnOrder->refund_tax = $refundTax;
+        $returnOrder->refund_shipping = (float) $order->shipping_charge; // full shipping refund
+        $returnOrder->total_refund_amount = (float) $order->amount_paid;
+
+        // Generate credit note
+        $creditNoteService->generateFromReturn($returnOrder, $refundId);
+    }
 }

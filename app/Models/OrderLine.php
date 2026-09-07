@@ -131,6 +131,38 @@ class OrderLine extends Model
     /**
      * Check if item is returnable
      */
+    // public function isReturnable(): bool
+    // {
+    //     // Only delivered items can be returned
+    //     if ($this->delivery_status !== 'delivered') {
+    //         return false;
+    //     }
+
+    //     // Check if return window hasn't expired (30 days from delivery)
+    //     $returnWindow = setting('return_window_days', 30);
+    //     if ($this->delivered_at && now()->diffInDays($this->delivered_at) > $returnWindow) {
+    //         return false;
+    //     }
+
+    //     // Check if item hasn't been returned already
+    //     if ($this->return_status === 'returned') {
+    //         return false;
+    //     }
+
+    //     // Check if there's no pending or approved return
+    //     if (in_array($this->return_status, ['pending', 'approved'])) {
+    //         return false;
+    //     }
+
+    //     // Check if there's any quantity available for return
+    //     if ($this->getAvailableForReturnAttribute() <= 0) {
+    //         return false;
+    //     }
+
+    //     // Check product returnability flag
+    //     return (bool) $this->is_returnable;
+    // }
+
     public function isReturnable(): bool
     {
         // Only delivered items can be returned
@@ -139,8 +171,30 @@ class OrderLine extends Model
         }
 
         // Check if return window hasn't expired (30 days from delivery)
-        $returnWindow = setting('return_window_days', 30);
-        if ($this->delivered_at && now()->diffInDays($this->delivered_at) > $returnWindow) {
+        // Use config() instead of setting() to avoid dependency issues
+        $returnWindow = config('settings.return_window_days', 30);
+        // OR if you have a helper function, make sure it's properly loaded
+        // $returnWindow = app('setting')->get('return_window_days', 30);
+
+        // Make sure delivered_at is a Carbon instance and is in the past
+        if ($this->delivered_at) {
+            $deliveredDate = $this->delivered_at instanceof \Carbon\Carbon
+                ? $this->delivered_at
+                : \Carbon\Carbon::parse($this->delivered_at);
+
+            // Check if delivery date is in the future (shouldn't happen, but handle it)
+            if ($deliveredDate->isFuture()) {
+                return false;
+            }
+
+            // Use diffInDays correctly (positive if now is after delivered_at)
+            $daysSinceDelivery = $deliveredDate->diffInDays(now());
+
+            if ($daysSinceDelivery > $returnWindow) {
+                return false;
+            }
+        } else {
+            // If no delivered_at date, item can't be returned
             return false;
         }
 

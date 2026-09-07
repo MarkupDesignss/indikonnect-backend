@@ -1257,7 +1257,8 @@ class OrderController extends Controller
                     'return_status' => $line->return_status ?? 'none',
                     'returned_quantity' => (int) ($line->returned_quantity ?? 0),
                     'available_for_return' => $line->getAvailableForReturnAttribute(),
-                    'is_returnable' => $line->is_returnable ?? true,
+                    'is_returnable' => $line->isReturnable() ?? true,
+                    // 'is_returnable' => $line->is_returnable ?? true,
 
                     // Timeline at Order Line Level
                     'timeline' => [
@@ -1409,7 +1410,7 @@ class OrderController extends Controller
             foreach ($orders as $order) {
                 $formattedItems = [];
 
-                foreach ($order->lines as $line) {  // 'lines' use karo
+                foreach ($order->lines as $line) {  
                     $product = $line->product;
 
                     // Get product images

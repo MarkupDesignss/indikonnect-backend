@@ -378,7 +378,7 @@ class ProductController extends Controller
             ->whereHas('brand', function ($q) {
                 $q->where('status', true);
             });
-
+        $query->orderBy('stock_quantity', 'desc');
         // Filter by multiple categories
         if ($request->has('category_ids') && $request->category_ids) {
             $categoryIds = is_array($request->category_ids)
@@ -6886,5 +6886,42 @@ class ProductController extends Controller
                 'total_results' => $products->total() + $admins->total() + $users->total()
             ]
         ]);
+    }
+
+    public function togglePublished(Request $request, Product $product)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'is_published' => ['required', 'boolean'],
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $product->is_published = $request->boolean('is_published');
+            $product->save();
+
+            return response()->json([
+                'success' => true,
+                'message' => $product->is_published
+                    ? 'Product published successfully'
+                    : 'Product unpublished successfully',
+                'data' => [
+                    'id' => $product->id,
+                    'is_published' => (bool) $product->is_published,
+                ],
+            ], 200);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update product publish status',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 }
