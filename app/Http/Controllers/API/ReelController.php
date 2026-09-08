@@ -22,7 +22,7 @@ class ReelController extends Controller
     {
         $cacheKey = 'reels_' . md5($request->fullUrl());
 
-        $reels =  Reel::with(['product.images', 'product.primaryImage'])
+        $reels =  Reel::with(['product.images', 'product.primaryImage', 'product.subcategory'])
             // ->published()
             ->ordered()
             ->paginate($request->get('per_page', 15));
@@ -488,6 +488,13 @@ class ReelController extends Controller
             'created_at' => $reel->created_at?->toISOString(),
             'updated_at' => $reel->updated_at?->toISOString(),
             'product' => $this->formatProduct($reel->product),
+            'subcategory_id ' => $reel->product->subcategory_id,
+            'subcategory' => $reel->product->subcategory ? [
+                'id' => $reel->product->subcategory->id,
+                'category_id' => $reel->product->subcategory->category_id,
+                'name' => $reel->product->subcategory->name,
+                'slug' => $reel->product->subcategory->slug,
+            ] : null,
         ];
     }
 

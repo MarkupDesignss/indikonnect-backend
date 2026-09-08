@@ -375,11 +375,15 @@ class ProductController extends Controller
     // }
     public function index(Request $request)
     {
-        $query = Product::with(['category', 'taxCategory', 'images', 'variants.images', 'brand'])
-            ->where('is_published', true)
+        $query = Product::with(['category', 'subcategory', 'taxCategory', 'images', 'variants.images', 'brand'])
             ->whereHas('brand', function ($q) {
                 $q->where('status', true);
             });
+
+        // Conditionally apply is_published filter
+        // if (!$request->has('is_admin') || !$request->boolean('is_admin')) {
+        //     $query->where('is_published', true);
+        // }
         $query->orderBy('stock_quantity', 'desc');
         // Filter by multiple categories
         if ($request->has('category_ids') && $request->category_ids) {
@@ -661,6 +665,13 @@ class ProductController extends Controller
                     'id' => $product->taxCategory->id,
                     'name' => $product->taxCategory->name,
                     'rate' => $product->taxCategory->rate,
+                ] : null,
+                'subcategory_id ' => $product->subcategory_id,
+                'subcategory' => $product->subcategory ? [
+                    'id' => $product->subcategory->id,
+                    'category_id' => $product->subcategory->category_id,
+                    'name' => $product->subcategory->name,
+                    'slug' => $product->subcategory->slug,
                 ] : null,
 
                 'retail_mrp' => $product->retail_mrp,
@@ -3840,6 +3851,7 @@ class ProductController extends Controller
     {
         $product = Product::with([
             'category',
+            'subCategory',
             'taxCategory',
             'images',
             'variants.images'
@@ -4055,6 +4067,14 @@ class ProductController extends Controller
                         'rate' => $product->taxCategory->rate,
                     ]
                     : null,
+
+                'subcategory_id ' => $product->subcategory_id,
+                'subcategory' => $product->subcategory ? [
+                    'id' => $product->subcategory->id,
+                    'category_id' => $product->subcategory->category_id,
+                    'name' => $product->subcategory->name,
+                    'slug' => $product->subcategory->slug,
+                ] : null,
 
                 /*
             |--------------------------------------------------------------------------
@@ -4968,7 +4988,7 @@ class ProductController extends Controller
     // }
     public function trending()
     {
-        $products = Product::with(['brand', 'images', 'variants.images'])
+        $products = Product::with(['brand', 'subCategory', 'images', 'variants.images'])
             ->where('is_published', true)
             ->where('is_trending', true)
             ->whereHas('brand', function ($q) {
@@ -5009,6 +5029,14 @@ class ProductController extends Controller
                     'title' => $product->brand->title,
                     'logo' => $product->brand->logo_url,
                     'discount_percentage' => $product->brand->discount_percentage,
+                ] : null,
+
+                'subcategory_id ' => $product->subcategory_id,
+                'subcategory' => $product->subcategory ? [
+                    'id' => $product->subcategory->id,
+                    'category_id' => $product->subcategory->category_id,
+                    'name' => $product->subcategory->name,
+                    'slug' => $product->subcategory->slug,
                 ] : null,
 
                 // Retail pricing
@@ -5068,7 +5096,7 @@ class ProductController extends Controller
     public function getProductSections(Request $request)
     {
         // 1. NEW ARRIVALS - Products created within last 30 days
-        $newArrivals = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+        $newArrivals = Product::with(['category',  'subcategory', 'taxCategory', 'images', 'variants.images'])
             ->where('is_published', true)
             ->where('created_at', '>=', now()->subDays(30))
             ->orderBy('created_at', 'desc')
@@ -5085,14 +5113,14 @@ class ProductController extends Controller
             ->pluck('product_id')
             ->toArray();
 
-        $bestSellers = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+        $bestSellers = Product::with(['category', 'subcategory', 'taxCategory', 'images', 'variants.images'])
             ->whereIn('id', $bestSellerIds)
             ->where('is_published', true)
             ->get();
 
         // If no best sellers found, get default products
         if ($bestSellers->isEmpty()) {
-            $bestSellers = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+            $bestSellers = Product::with(['category', 'subcategory', 'taxCategory', 'images', 'variants.images'])
                 ->where('is_published', true)
                 ->limit(8)
                 ->get();
@@ -5101,7 +5129,7 @@ class ProductController extends Controller
         // 3. BEST OFFERS - Products with discounts based on user type
         $userType = $request->query('user_type', 'customer'); // 'customer' or 'distributor'
 
-        $bestOffers = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+        $bestOffers = Product::with(['category',  'subcategory', 'taxCategory', 'images', 'variants.images'])
             ->where('is_published', true)
             ->where(function ($query) use ($userType) {
                 if ($userType === 'distributor') {
@@ -5195,6 +5223,13 @@ class ProductController extends Controller
                         'id' => $product->category->id,
                         'name' => $product->category->title,
                         'slug' => $product->category->slug,
+                    ] : null,
+                    'subcategory_id ' => $product->subcategory_id,
+                    'subcategory' => $product->subcategory ? [
+                        'id' => $product->subcategory->id,
+                        'category_id' => $product->subcategory->category_id,
+                        'name' => $product->subcategory->name,
+                        'slug' => $product->subcategory->slug,
                     ] : null,
 
                     // Price information based on user type
@@ -5319,7 +5354,7 @@ class ProductController extends Controller
     public function getProductBySlug($slug)
     {
         $product = Product::where('slug', $slug)
-            ->with(['category', 'images', 'taxCategory', 'variants.images'])
+            ->with(['category', 'subCategory', 'images', 'taxCategory', 'variants.images'])
             ->first();
         if (!$product) {
             return response()->json([
@@ -5376,6 +5411,14 @@ class ProductController extends Controller
                     'id' => $product->taxCategory->id,
                     'name' => $product->taxCategory->name,
                     'rate' => $product->taxCategory->rate,
+                ] : null,
+
+                'subcategory_id ' => $product->subcategory_id,
+                'subcategory' => $product->subcategory ? [
+                    'id' => $product->subcategory->id,
+                    'category_id' => $product->subcategory->category_id,
+                    'name' => $product->subcategory->name,
+                    'slug' => $product->subcategory->slug,
                 ] : null,
 
                 // Product level pricing

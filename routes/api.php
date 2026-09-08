@@ -49,6 +49,7 @@ use App\Http\Controllers\Admin\FAQController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\API\BrandController;
+use App\Http\Controllers\API\SubcategoryController;
 
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
@@ -674,4 +675,12 @@ Route::prefix('faqs')->group(function () {
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notify-me', [ProductController::class, 'notifyMe']);
+});
+
+Route::prefix('subcategories')->group(function () {
+    Route::get('/', [SubcategoryController::class, 'index']);
+    Route::get('/category/{categoryId}', [SubcategoryController::class, 'getByCategory']);
+    Route::post('/', [SubcategoryController::class, 'store']);
+    Route::post('/{id}', [SubcategoryController::class, 'update']);
+    Route::post('/{id}/toggle-status', [SubcategoryController::class, 'toggleStatus']);
 });
