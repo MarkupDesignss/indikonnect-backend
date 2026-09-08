@@ -15,12 +15,11 @@ class MenuController extends Controller
     {
         try {
             $logo = Menu::where('type', 'logo')->first();
-    
+
             $menus = Menu::where('type', 'menu')
-                ->where('status', 1)
                 ->orderBy('sort_order')
                 ->get();
-    
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -30,7 +29,7 @@ class MenuController extends Controller
                         'logo' => $logo->logo_url,        // Changed to logo_url
                         'favicon' => $logo->favicon_url,  // Changed to favicon_url
                     ] : null,
-    
+
                     'menus' => $menus->map(function ($menu) {
                         return [
                             'id' => $menu->id,

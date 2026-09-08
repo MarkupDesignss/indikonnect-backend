@@ -7,6 +7,7 @@ use App\Http\Requests\CategoryRequest;
 use App\Http\Resources\CategoryResource;
 use App\Models\Category;
 use App\Models\Brand;
+use App\Models\Subcategory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -258,7 +259,18 @@ class CategoryController extends Controller
                     return [
                         'id' => $brand->id,
                         'title' => $brand->title,
-                        'products_count' => $brand->products_count, // 👈 Added this
+                        'products_count' => $brand->products_count,
+                    ];
+                });
+            $subCategory = Subcategory::select('id', 'name')
+                ->withCount(['products' => function ($query) {}])
+                ->orderBy('name', 'asc')
+                ->get()
+                ->map(function ($brand) {
+                    return [
+                        'id' => $brand->id,
+                        'name' => $brand->name,
+                        'products_count' => $brand->products_count,
                     ];
                 });
 
@@ -271,6 +283,7 @@ class CategoryController extends Controller
 
                 // Brands with product count
                 'brands' => $brands,
+                'subCategory' => $subCategory,
 
                 // Overall most expensive price
                 'most_expensive_price' => $mostExpensivePrice,

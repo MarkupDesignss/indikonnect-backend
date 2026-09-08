@@ -24,6 +24,11 @@ class Category extends Model
         'updated_at' => 'datetime'
     ];
 
+    public function subcategories()
+    {
+        return $this->hasMany(Subcategory::class, 'category_id');
+    }
+
     // Auto-generate slug from title
     protected static function boot()
     {
