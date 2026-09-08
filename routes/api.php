@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\ReconciliationController;
 use App\Http\Controllers\Admin\KycController;
 use App\Http\Controllers\Admin\AttributeController;
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\API\AddressController;
 use App\Http\Controllers\API\AuthController as APIAuthController;
 use App\Http\Controllers\API\CartController;
@@ -622,6 +623,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
     Route::get('/credit-notes/{id}', [CreditNoteController::class, 'show']);
     Route::get('/credit-notes/{id}/download-data', [CreditNoteController::class, 'downloadAdminData']);
     Route::get('/credit-notes/export', [CreditNoteController::class, 'export']);
+
+    // Admin User Management (for distributors)
+    Route::post('/users', [AdminUserController::class, 'store']);
 });
 
 Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);
