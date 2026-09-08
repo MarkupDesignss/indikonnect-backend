@@ -25,7 +25,6 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Password;
-use Illuminate\Support\Facades\Http;
 use App\Services\TwilioService;
 
 class AuthController extends Controller
@@ -2070,7 +2069,6 @@ class AuthController extends Controller
             $validator = Validator::make($request->all(), [
                 'phone' => 'required|min:10|max:15',
                 'sponsor_id' => 'nullable|max:20',
-                'distributor_id ' => 'nullable|max:20',
                 'placement_leg' => 'nullable|in:left,right',
             ]);
 
@@ -2101,7 +2099,6 @@ class AuthController extends Controller
             // Update sponsor information
             $user->update([
                 'sponsor_id' => $request->sponsor_id,
-                'distributor_id ' => $request->distributor_id,
                 'placement_leg' => $request->placement_leg,
                 'registration_step' => 2
             ]);
@@ -2394,173 +2391,69 @@ class AuthController extends Controller
     /**
      * DISTRIBUTOR: Step 6 - Location Consent
      */
-    // public function distributorStep6Location(Request $request)
-    // {
-    //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'phone' => 'required|min:10|max:15',
-    //             'location_consent' => 'required|in:0,1',
-    //             'latitude' => 'nullable|numeric',
-    //             'longitude' => 'nullable|numeric',
-    //         ]);
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'errors' => $validator->errors()
-    //             ], 422);
-    //         }
-
-    //         $user = User::where('phone', $request->phone)->first();
-
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'User not found.'
-    //             ], 422);
-    //         }
-
-    //         // Check if step 5 is completed
-    //         if ($user->registration_step < 5) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Please complete step 5 (Bank) first.'
-    //             ], 422);
-    //         }
-
-    //         // Store location consent
-    //         $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
-    //         if ($distributorProfile) {
-    //             $distributorProfile->update([
-    //                 'location_consent' => $request->location_consent,
-    //                 'latitude' => $request->latitude,
-    //                 'longitude' => $request->longitude,
-    //                 'location_consent_at' => $request->location_consent == 1 ? now() : null
-    //             ]);
-    //         }
-
-    //         $user->update([
-    //             'registration_step' => 6,
-    //             'location_consent_given' => $request->location_consent
-    //         ]);
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'message' => 'Location consent saved successfully',
-    //             'step' => 6,
-    //             'next_step' => 7,
-    //             'location_consent' => $request->location_consent == 1
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('Distributor step 6 location error: ' . $e->getMessage());
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
-
     public function distributorStep6Location(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'phone'            => 'required|min:10|max:15',
-            'location_consent' => 'required|in:0,1',
-            'latitude'         => 'nullable|numeric',
-            'longitude'        => 'nullable|numeric',
-            'pincode'          => 'nullable|string|min:6|max:6',
-            'city'             => 'nullable|string|max:255',
-            'state'            => 'nullable|string|max:255',
-        ]);
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'location_consent' => 'required|in:0,1',
+                'latitude' => 'nullable|numeric',
+                'longitude' => 'nullable|numeric',
+            ]);
 
-        if ($validator->fails()) {
-            return response()->json(['status' => false, 'errors' => $validator->errors()], 422);
-        }
-
-        $user = User::where('phone', $request->phone)->first();
-        if (!$user) {
-            return response()->json(['status' => false, 'message' => 'User not found.'], 422);
-        }
-
-        // Ensure previous steps are done
-        if ($user->registration_step < 5) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Please complete step 5 (Bank) first.'
-            ], 422);
-        }
-
-        // ----- Determine city & state (auto‑fetch if only pincode given) -----
-        if ($request->filled('pincode') && !$request->filled('city')) {
-            $location = $this->fetchLocationFromPincode($request->pincode);
-            if ($location) {
-                $city  = $location['city'];
-                $state = $location['state'];
-            } else {
+            if ($validator->fails()) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Invalid PIN code. Please enter a valid PIN code.'
+                    'errors' => $validator->errors()
                 ], 422);
             }
-        } else {
-            $city  = $request->city;
-            $state = $request->state;
-        }
 
-        // ----- RESTRICTION: Block Telangana -----
-        if ($state && strcasecmp(trim($state), 'Telangana') === 0) {
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found.'
+                ], 422);
+            }
+
+            // Check if step 5 is completed
+            if ($user->registration_step < 5) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please complete step 5 (Bank) first.'
+                ], 422);
+            }
+
+            // Store location consent
+            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            if ($distributorProfile) {
+                $distributorProfile->update([
+                    'location_consent' => $request->location_consent,
+                    'latitude' => $request->latitude,
+                    'longitude' => $request->longitude,
+                    'location_consent_at' => $request->location_consent == 1 ? now() : null
+                ]);
+            }
+
+            $user->update([
+                'registration_step' => 6,
+                'location_consent_given' => $request->location_consent
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Location consent saved successfully',
+                'step' => 6,
+                'next_step' => 7,
+                'location_consent' => $request->location_consent == 1
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Distributor step 6 location error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
-                'message' => 'Registration is not allowed for users from Telangana. Please contact support.'
-            ], 403);
-        }
-
-        // ----- Save location data (only if allowed) -----
-        $profile = BusinessProfile::where('user_id', $user->id)->first();
-        if ($profile) {
-            $profile->update([
-                'location_consent'      => $request->location_consent,
-                'latitude'              => $request->latitude,
-                'longitude'             => $request->longitude,
-                'pincode'               => $request->pincode,
-                'city'                  => $city,
-                'state'                 => $state,
-                'location_consent_at'   => $request->location_consent == 1 ? now() : null,
-            ]);
-        }
-
-        // Advance to step 6
-        $user->update([
-            'registration_step'     => 6,
-            'location_consent_given' => $request->location_consent,
-        ]);
-
-        return response()->json([
-            'status'   => true,
-            'message'  => 'Location details saved successfully',
-            'step'     => 6,
-            'next_step'=> 7,
-            'data'     => compact('city', 'state', 'pincode', 'location_consent', 'latitude', 'longitude'),
-        ]);
-    }
-
-    private function fetchLocationFromPincode($pincode)
-    {
-        try {
-            $response = Http::get("https://api.postalpincode.in/pincode/{$pincode}");
-            $data = $response->json();
-            if ($data && isset($data[0]['Status']) && $data[0]['Status'] === 'Success') {
-                $postOffice = $data[0]['PostOffice'][0] ?? null;
-                if ($postOffice) {
-                    return [
-                        'city'  => $postOffice['District'] ?? null,
-                        'state' => $postOffice['State'] ?? null,
-                    ];
-                }
-            }
-            return null;
-        } catch (\Exception $e) {
-            Log::error('fetchLocationFromPincode error: ' . $e->getMessage());
-            return null;
+                'message' => $e->getMessage()
+            ], 500);
         }
     }
 
@@ -2737,178 +2630,13 @@ class AuthController extends Controller
     }
 
     /**
-     * Get city and state from PIN code (India)
-     */
-    public function getLocationByPincode(Request $request)
-    {
-        $request->validate(['pincode' => 'required|string|min:6|max:6']);
-
-        $pincode = $request->pincode;
-
-        // Option 1: Use a local database (recommended)
-        // $location = DB::table('pincodes')->where('pincode', $pincode)->first();
-
-        // Option 2: Use free external API (India Post)
-        try {
-            $response = Http::get("https://api.postalpincode.in/pincode/{$pincode}");
-            $data = $response->json();
-
-            if ($data && isset($data[0]['Status']) && $data[0]['Status'] === 'Success') {
-                $postOffice = $data[0]['PostOffice'][0] ?? null;
-                if ($postOffice) {
-                    return response()->json([
-                        'status' => true,
-                        'data' => [
-                            'city'  => $postOffice['District'] ?? null,
-                            'state' => $postOffice['State'] ?? null,
-                            'country' => $postOffice['Country'] ?? 'India',
-                        ]
-                    ]);
-                }
-            }
-            return response()->json(['status' => false, 'message' => 'Invalid PIN code.'], 404);
-        } catch (\Exception $e) {
-            Log::error('Pincode lookup error: ' . $e->getMessage());
-            return response()->json(['status' => false, 'message' => 'Service unavailable. Please try again.'], 500);
-        }
-    }
-
-    /**
      * Distributor Login with Email and Password
      */
-    // public function distributorLogin(Request $request)
-    // {
-    //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'email' => 'required|email',
-    //             'password' => 'required|string'
-    //         ]);
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'errors' => $validator->errors()
-    //             ], 422);
-    //         }
-
-    //         // Find user by email
-    //         $user = User::where('email', $request->email)
-    //             ->where('account_type', 'distributor')
-    //             ->first();
-
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'No distributor account found with this email.'
-    //             ], 422);
-    //         }
-
-    //         // Check if user is registered
-    //         if ($user->is_registered == 0) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Please complete your registration first.'
-    //             ], 422);
-    //         }
-
-    //         // Check if password exists and verify
-    //         if (empty($user->password)) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Password not set. Please use OTP login or reset your password.'
-    //             ], 422);
-    //         }
-
-    //         if (!Hash::check($request->password, $user->password)) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Invalid password.'
-    //             ], 422);
-    //         }
-
-    //         // Check if account is active
-    //         if ($user->is_active == 0) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Your account is blocked by admin. Please contact support.'
-    //             ], 422);
-    //         }
-
-    //         // Check distributor status
-    //         // if ($user->distributor_status !== 'active') {
-    //         //     $statusMessage = $user->distributor_status === 'pending'
-    //         //         ? 'Your distributor account is pending admin approval.'
-    //         //         : 'Your distributor account is not active. Status: ' . $user->distributor_status;
-
-    //         //     return response()->json([
-    //         //         'status' => false,
-    //         //         'message' => $statusMessage,
-    //         //         'distributor_status' => $user->distributor_status
-    //         //     ], 422);
-    //         // }
-
-    //         // Generate tokens
-    //         $token = $user->createToken('distributor-auth')->plainTextToken;
-    //         $refreshToken = Str::random(100);
-
-    //         RefreshToken::create([
-    //             'user_id' => $user->id,
-    //             'token' => hash('sha256', $refreshToken),
-    //             'expires_at' => now()->addDays(7),
-    //             'last_used_at' => now()
-    //         ]);
-
-    //         // Get role
-    //         $role = $this->getUserRole($user);
-
-    //         // Get distributor profile
-    //         $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'message' => 'Distributor login successful',
-    //             'token' => $token,
-    //             'expires_in' => 3600,
-    //             'refresh_token' => $refreshToken,
-    //             'user' => [
-    //                 'id' => $user->id,
-    //                 'full_name' => $user->full_name,
-    //                 'email' => $user->email,
-    //                 'phone' => $user->phone,
-    //                 'account_type' => $user->account_type,
-    //                 'distributor_status' => $user->distributor_status,
-    //                 'profile_picture' => $user->profile_picture ? asset('storage/' . $user->profile_picture) : null,
-    //             ],
-    //             'role' => $role ? [
-    //                 'id' => $role->id,
-    //                 'name' => $role->name,
-    //                 'slug' => $role->slug
-    //             ] : null,
-    //             'distributor_profile' => $distributorProfile ? [
-    //                 'id' => $distributorProfile->id,
-    //                 'kyc_status' => $distributorProfile->kyc_status,
-    //                 'bank_name' => $distributorProfile->bank_name,
-    //                 'bank_holder_name' => $distributorProfile->bank_holder_name,
-    //                 'bank_ifsc' => $distributorProfile->bank_ifsc,
-    //                 'aadhaar_verified' => $distributorProfile->aadhaar_verified,
-    //                 'pan_verified' => $distributorProfile->pan_verified,
-    //                 'registration_completed' => $distributorProfile->registration_completed,
-    //             ] : null
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('Distributor login error: ' . $e->getMessage());
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
     public function distributorLogin(Request $request)
     {
         try {
             $validator = Validator::make($request->all(), [
-                'email' => 'nullable|email|required_without:distributor_id',
-                'distributor_id' => 'nullable|string|required_without:email',
+                'email' => 'required|email',
                 'password' => 'required|string'
             ]);
 
@@ -2919,26 +2647,15 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Find user by email OR distributor_id
-            $user = User::where('account_type', 'distributor')
-                ->where(function ($query) use ($request) {
-
-                    if ($request->filled('email')) {
-                        $query->where('email', $request->email);
-                    }
-
-                    if ($request->filled('distributor_id')) {
-                        $query->orWhere('distributor_id', $request->distributor_id);
-                    }
-                })
+            // Find user by email
+            $user = User::where('email', $request->email)
+                ->where('account_type', 'distributor')
                 ->first();
 
             if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => $request->filled('distributor_id')
-                        ? 'No distributor account found with this distributor ID.'
-                        : 'No distributor account found with this email.'
+                    'message' => 'No distributor account found with this email.'
                 ], 422);
             }
 
@@ -2973,9 +2690,21 @@ class AuthController extends Controller
                 ], 422);
             }
 
+            // Check distributor status
+            // if ($user->distributor_status !== 'active') {
+            //     $statusMessage = $user->distributor_status === 'pending'
+            //         ? 'Your distributor account is pending admin approval.'
+            //         : 'Your distributor account is not active. Status: ' . $user->distributor_status;
+
+            //     return response()->json([
+            //         'status' => false,
+            //         'message' => $statusMessage,
+            //         'distributor_status' => $user->distributor_status
+            //     ], 422);
+            // }
+
             // Generate tokens
             $token = $user->createToken('distributor-auth')->plainTextToken;
-
             $refreshToken = Str::random(100);
 
             RefreshToken::create([
@@ -2997,26 +2726,20 @@ class AuthController extends Controller
                 'token' => $token,
                 'expires_in' => 3600,
                 'refresh_token' => $refreshToken,
-
                 'user' => [
                     'id' => $user->id,
-                    'distributor_id' => $user->distributor_id,
                     'full_name' => $user->full_name,
                     'email' => $user->email,
                     'phone' => $user->phone,
                     'account_type' => $user->account_type,
                     'distributor_status' => $user->distributor_status,
-                    'profile_picture' => $user->profile_picture
-                        ? asset('storage/' . $user->profile_picture)
-                        : null,
+                    'profile_picture' => $user->profile_picture ? asset('storage/' . $user->profile_picture) : null,
                 ],
-
                 'role' => $role ? [
                     'id' => $role->id,
                     'name' => $role->name,
                     'slug' => $role->slug
                 ] : null,
-
                 'distributor_profile' => $distributorProfile ? [
                     'id' => $distributorProfile->id,
                     'kyc_status' => $distributorProfile->kyc_status,
@@ -3030,7 +2753,6 @@ class AuthController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::error('Distributor login error: ' . $e->getMessage());
-
             return response()->json([
                 'status' => false,
                 'message' => $e->getMessage()
