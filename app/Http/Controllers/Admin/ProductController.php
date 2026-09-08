@@ -81,6 +81,13 @@ class ProductController extends Controller
                 'name' => $product->taxCategory->name,
                 'rate' => $product->taxCategory->rate,
             ] : null,
+            'subcategory_id ' => $product->subcategory_id ?? null,
+            'subcategory' => $product->subcategory ? [
+                'id' => $product->subcategory->id,
+                'category_id' => $product->subcategory->category_id,
+                'name' => $product->subcategory->name,
+                'slug' => $product->subcategory->slug,
+            ] : null,
 
             // Retail pricing
             'retail_mrp' => $product->retail_mrp,
@@ -3024,7 +3031,7 @@ class ProductController extends Controller
      */
     public function show(Product $product)
     {
-        $product->load(['category', 'taxCategory', 'images', 'variants.images']);
+        $product->load(['category', 'subcategory', 'taxCategory', 'images', 'variants.images']);
 
         $userId = request()->query('user_id');
         $wishlistIds = $this->getUserWishlistIds($userId);
