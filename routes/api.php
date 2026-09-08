@@ -255,6 +255,7 @@ Route::prefix('distributor')->group(function () {
     Route::get('/step-data/{step}/{identifier}', [APIAuthController::class, 'getStepData']);
     Route::post('progress', [APIAuthController::class, 'getDistributorProgress']);
     Route::post('login', [APIAuthController::class, 'distributorLogin']);
+    Route::get('location-by-pincode', [APIAuthController::class, 'getLocationByPincode']);
 });
 
 Route::group(['prefix' => 'distributor'], function () {
