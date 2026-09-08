@@ -1951,6 +1951,139 @@ class ReturnService
     //         'status' => $finalStatus,
     //     ]);
     // }
+    // private function updateOrderMainStatus(Order $order): void
+    // {
+    //     $lines = $order->lines()->get();
+
+    //     if ($lines->isEmpty()) {
+    //         $order->update(['status' => 'pending']);
+    //         return;
+    //     }
+
+    //     // Exclude cancelled lines from main status calculation
+    //     $activeLines = $lines->filter(function ($line) {
+    //         return $line->delivery_status !== 'cancelled';
+    //     });
+
+    //     $activeCount = $activeLines->count();
+
+    //     if ($activeCount === 0) {
+    //         $order->update(['status' => 'cancelled']);
+    //         return;
+    //     }
+
+    //     // Check for RETURN statuses (priority)
+    //     $returnPendingCount = $activeLines
+    //         ->whereIn('delivery_status', ['return_pending'])
+    //         ->count();
+
+    //     $returnApprovedCount = $activeLines
+    //         ->whereIn('delivery_status', ['return_approved'])
+    //         ->count();
+
+    //     $returnRejectedCount = $activeLines
+    //         ->whereIn('delivery_status', ['return_rejected'])
+    //         ->count();
+
+    //     $returnedCount = $activeLines
+    //         ->whereIn('delivery_status', ['refunded', 'returned'])
+    //         ->count();
+
+    //     // Check normal delivery statuses
+    //     $deliveredCount = $activeLines
+    //         ->where('delivery_status', 'delivered')
+    //         ->count();
+
+    //     $shippedCount = $activeLines
+    //         ->where('delivery_status', 'shipped')
+    //         ->count();
+
+    //     $dispatchedCount = $activeLines
+    //         ->where('delivery_status', 'dispatched')
+    //         ->count();
+
+    //     $confirmedCount = $activeLines
+    //         ->where('delivery_status', 'confirmed')
+    //         ->count();
+
+    //     /*
+    //      * CRITICAL: RETURN STATUS LOGIC
+    //      *
+    //      * 1. If ALL items are return_pending → Order = 'return_pending'
+    //      * 2. If ANY item is return_pending → Order = 'partial_return_pending'
+    //      * 3. If ANY item is return_approved → Order = 'partial_returned' or 'returned'
+    //      * 4. If ALL items are rejected or delivered → Order = 'delivered'
+    //      * 5. If ALL items are returned → Order = 'returned'
+    //      */
+
+    //     // Count items that are either delivered or rejected (customer keeps them)
+    //     $deliveredOrRejectedCount = $activeLines
+    //         ->whereIn('delivery_status', ['delivered', 'return_rejected'])
+    //         ->count();
+
+    //     // Count items that are approved for return
+    //     $approvedReturnCount = $activeLines
+    //         ->whereIn('delivery_status', ['return_approved', 'refunded', 'returned'])
+    //         ->count();
+
+    //     // Determine if all items are delivered or rejected
+    //     $allDeliveredOrRejected = ($deliveredOrRejectedCount === $activeCount);
+
+    //     // Determine if all items are returned
+    //     $allReturned = ($returnedCount === $activeCount);
+
+    //     // Determine if all items are pending return
+    //     $allReturnPending = ($returnPendingCount === $activeCount);
+
+    //     // Determine if any items are pending return
+    //     $hasReturnPending = ($returnPendingCount > 0);
+
+    //     // Determine if any items are approved for return
+    //     $hasApprovedReturn = ($approvedReturnCount > 0);
+
+    //     // Determine final status
+    //     if ($allReturnPending) {
+    //         // ALL items are pending return → ORDER IS RETURN PENDING
+    //         $finalStatus = 'return_pending';
+    //     } elseif ($hasReturnPending && !$hasApprovedReturn) {
+    //         // SOME items pending return, none approved yet → ORDER IS PARTIAL RETURN PENDING
+    //         $finalStatus = 'partial_return_pending';
+    //     } elseif ($allDeliveredOrRejected) {
+    //         // ALL items are either delivered or rejected → ORDER IS DELIVERED
+    //         $finalStatus = 'delivered';
+    //     } elseif ($allReturned) {
+    //         // ALL items are returned → ORDER IS RETURNED
+    //         $finalStatus = 'returned';
+    //     } elseif ($hasApprovedReturn && $returnedCount > 0) {
+    //         // SOME items are returned/approved → ORDER IS PARTIAL RETURNED
+    //         $finalStatus = 'partial_returned';
+    //     }
+    //     // Normal delivery flow (no returns involved)
+    //     elseif ($deliveredCount === $activeCount) {
+    //         $finalStatus = 'delivered';
+    //     } elseif ($deliveredCount > 0) {
+    //         $finalStatus = 'partial_delivered';
+    //     } elseif ($shippedCount === $activeCount) {
+    //         $finalStatus = 'shipped';
+    //     } elseif ($shippedCount > 0) {
+    //         $finalStatus = 'partial_shipped';
+    //     } elseif ($dispatchedCount === $activeCount) {
+    //         $finalStatus = 'dispatched';
+    //     } elseif ($dispatchedCount > 0) {
+    //         $finalStatus = 'partial_dispatched';
+    //     } elseif ($confirmedCount === $activeCount) {
+    //         $finalStatus = 'confirmed';
+    //     } elseif ($confirmedCount > 0) {
+    //         $finalStatus = 'partial_confirmed';
+    //     } else {
+    //         $finalStatus = 'pending';
+    //     }
+
+    //     $order->update([
+    //         'status' => $finalStatus,
+    //     ]);
+    // }
+
     private function updateOrderMainStatus(Order $order): void
     {
         $lines = $order->lines()->get();
@@ -1985,6 +2118,11 @@ class ReturnService
             ->whereIn('delivery_status', ['return_rejected'])
             ->count();
 
+        // Check for REFUNDED status (completed returns)
+        $refundedCount = $activeLines
+            ->where('delivery_status', 'refunded')
+            ->count();
+
         $returnedCount = $activeLines
             ->whereIn('delivery_status', ['refunded', 'returned'])
             ->count();
@@ -2011,9 +2149,12 @@ class ReturnService
          *
          * 1. If ALL items are return_pending → Order = 'return_pending'
          * 2. If ANY item is return_pending → Order = 'partial_return_pending'
-         * 3. If ANY item is return_approved → Order = 'partial_returned' or 'returned'
-         * 4. If ALL items are rejected or delivered → Order = 'delivered'
-         * 5. If ALL items are returned → Order = 'returned'
+         * 3. If ALL items are return_approved → Order = 'returned' (or 'return_approved' if you want to show this state)
+         * 4. If ANY item is return_approved → Order = 'partial_returned'
+         * 5. If ALL items are rejected or delivered → Order = 'delivered'
+         * 6. If ALL items are refunded (completed) → Order = 'refunded' ⭐ NEW
+         * 7. If ALL items are returned (refunded) → Order = 'returned'
+         * 8. If SOME items are returned → Order = 'partial_returned'
          */
 
         // Count items that are either delivered or rejected (customer keeps them)
@@ -2021,19 +2162,30 @@ class ReturnService
             ->whereIn('delivery_status', ['delivered', 'return_rejected'])
             ->count();
 
-        // Count items that are approved for return
+        // Count items that are approved for return (including 'return_approved' status)
         $approvedReturnCount = $activeLines
             ->whereIn('delivery_status', ['return_approved', 'refunded', 'returned'])
+            ->count();
+
+        // Count items that are in any return-related status
+        $anyReturnStatusCount = $activeLines
+            ->whereIn('delivery_status', ['return_pending', 'return_approved', 'refunded', 'returned'])
             ->count();
 
         // Determine if all items are delivered or rejected
         $allDeliveredOrRejected = ($deliveredOrRejectedCount === $activeCount);
 
-        // Determine if all items are returned
+        // Determine if all items are refunded (completed)
+        $allRefunded = ($refundedCount === $activeCount);
+
+        // Determine if all items are returned (completed)
         $allReturned = ($returnedCount === $activeCount);
 
         // Determine if all items are pending return
         $allReturnPending = ($returnPendingCount === $activeCount);
+
+        // Determine if all items are approved for return (but not yet refunded)
+        $allReturnApproved = ($returnApprovedCount === $activeCount);
 
         // Determine if any items are pending return
         $hasReturnPending = ($returnPendingCount > 0);
@@ -2041,10 +2193,19 @@ class ReturnService
         // Determine if any items are approved for return
         $hasApprovedReturn = ($approvedReturnCount > 0);
 
+        // Determine if any items are in return process (pending or approved)
+        $hasAnyReturnStatus = ($anyReturnStatusCount > 0);
+
         // Determine final status
         if ($allReturnPending) {
             // ALL items are pending return → ORDER IS RETURN PENDING
             $finalStatus = 'return_pending';
+        } elseif ($allReturnApproved) {
+            // ALL items are approved for return → ORDER IS RETURNED
+            $finalStatus = 'returned';
+        } elseif ($allRefunded) {
+            // ALL items are refunded (completed) → ORDER IS REFUNDED ⭐ NEW
+            $finalStatus = 'refunded';
         } elseif ($hasReturnPending && !$hasApprovedReturn) {
             // SOME items pending return, none approved yet → ORDER IS PARTIAL RETURN PENDING
             $finalStatus = 'partial_return_pending';
@@ -2052,10 +2213,13 @@ class ReturnService
             // ALL items are either delivered or rejected → ORDER IS DELIVERED
             $finalStatus = 'delivered';
         } elseif ($allReturned) {
-            // ALL items are returned → ORDER IS RETURNED
+            // ALL items are returned/refunded → ORDER IS RETURNED
             $finalStatus = 'returned';
         } elseif ($hasApprovedReturn && $returnedCount > 0) {
-            // SOME items are returned/approved → ORDER IS PARTIAL RETURNED
+            // SOME items are returned/refunded → ORDER IS PARTIAL RETURNED
+            $finalStatus = 'partial_returned';
+        } elseif ($hasApprovedReturn) {
+            // SOME items are approved for return (but not yet refunded) → ORDER IS PARTIAL RETURNED
             $finalStatus = 'partial_returned';
         }
         // Normal delivery flow (no returns involved)

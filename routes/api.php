@@ -665,3 +665,8 @@ Route::prefix('faqs')->group(function () {
     // Additional useful endpoints
     Route::post('/bulk-delete', [FAQController::class, 'bulkDestroy']);
 });
+
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/notify-me', [ProductController::class, 'notifyMe']);
+});
