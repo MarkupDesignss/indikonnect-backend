@@ -91,4 +91,9 @@ class Coupon extends Model
             return min($this->value, $orderAmount);
         }
     }
+
+    public function userUsages()
+    {
+        return $this->hasMany(CouponUsage::class)->where('user_id', auth()->id());
+    }
 }

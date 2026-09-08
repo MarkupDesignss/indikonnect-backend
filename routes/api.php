@@ -369,13 +369,14 @@ Route::prefix('shipping-methods')->group(function () {
     Route::delete('/{id}', [ShippingMethodController::class, 'destroy']);
 });
 
-
-Route::prefix('coupons')->group(function () {
-    Route::get('/', [CouponController::class, 'index']);
-    Route::post('/', [CouponController::class, 'store']);
-    Route::get('/{id}', [CouponController::class, 'show']);
-    Route::post('/{id}', [CouponController::class, 'update']);
-    Route::delete('/{id}', [CouponController::class, 'destroy']);
+Route::middleware('optional.auth:sanctum')->group(function () {
+    Route::prefix('coupons')->group(function () {
+        Route::get('/', [CouponController::class, 'index']);
+        Route::post('/', [CouponController::class, 'store']);
+        Route::get('/{id}', [CouponController::class, 'show']);
+        Route::post('/{id}', [CouponController::class, 'update']);
+        Route::delete('/{id}', [CouponController::class, 'destroy']);
+    });
 });
 
 Route::middleware('auth:sanctum')->group(function () {

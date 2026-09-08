@@ -488,13 +488,13 @@ class ReelController extends Controller
             'created_at' => $reel->created_at?->toISOString(),
             'updated_at' => $reel->updated_at?->toISOString(),
             'product' => $this->formatProduct($reel->product),
-            'subcategory_id ' => $reel->product->subcategory_id,
-            'subcategory' => $reel->product->subcategory ? [
-                'id' => $reel->product->subcategory->id,
-                'category_id' => $reel->product->subcategory->category_id,
-                'name' => $reel->product->subcategory->name,
-                'slug' => $reel->product->subcategory->slug,
-            ] : null,
+            // 'subcategory_id ' => $reel->product->subcategory_id,
+            // 'subcategory' => $reel->product->subcategory ? [
+            //     'id' => $reel->product->subcategory->id,
+            //     'category_id' => $reel->product->subcategory->category_id,
+            //     'name' => $reel->product->subcategory->name,
+            //     'slug' => $reel->product->subcategory->slug,
+            // ] : null,
         ];
     }
 
