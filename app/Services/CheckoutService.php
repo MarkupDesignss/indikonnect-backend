@@ -1008,6 +1008,11 @@ class CheckoutService
 
         if ($couponCode) {
             $coupon = Coupon::where('code', strtoupper($couponCode))->first();
+            $validationResult = $this->validateCouponForUser($coupon, $userId);
+
+            if ($validationResult !== true) {
+                throw new Exception($validationResult);
+            }
 
             if ($coupon && $coupon->isValid() && $this->validateCouponForUser($coupon, $userId)) {
                 $couponDiscount = $this->calculateCouponDiscount($coupon, $subtotal);
@@ -1325,6 +1330,8 @@ class CheckoutService
     }
 
 
+
+
     /**
      * Calculate coupon discount
      */
@@ -1373,23 +1380,59 @@ class CheckoutService
     /**
      * Validate coupon for user
      */
-    private function validateCouponForUser(Coupon $coupon, int $userId): bool
+    // private function validateCouponForUser(Coupon $coupon, int $userId): bool
+    // {
+    //     if ($coupon->max_uses && $coupon->used_count >= $coupon->max_uses) {
+    //         throw new Exception('This coupon has reached its usage limit');
+    //     }
+
+    //     $userUsage = CouponUsage::where('coupon_id', $coupon->id)
+    //         ->where('user_id', $userId)
+    //         ->count();
+
+    //     if ($userUsage > 0) {
+    //         throw new Exception('You have already used this coupon');
+    //     }
+
+    //     return true;
+    // }
+
+    private function validateCouponForUser($coupon, $userId): string|bool
     {
-        if ($coupon->max_uses && $coupon->used_count >= $coupon->max_uses) {
-            throw new Exception('This coupon has reached its usage limit');
+        if (!$coupon->is_active) {
+            return 'This coupon is currently inactive.';
         }
 
-        $userUsage = CouponUsage::where('coupon_id', $coupon->id)
+        if ($coupon->expires_at && $coupon->expires_at < now()) {
+            return 'This coupon has expired.';
+        }
+
+        if ($coupon->max_uses && $coupon->used_count >= $coupon->max_uses) {
+            return 'This coupon has reached its maximum usage limit.';
+        }
+
+        $userUsageCount = CouponUsage::where('coupon_id', $coupon->id)
             ->where('user_id', $userId)
             ->count();
 
-        if ($userUsage > 0) {
-            throw new Exception('You have already used this coupon');
+        if ($coupon->max_uses_per_user) {
+            if ($userUsageCount >= $coupon->max_uses_per_user) {
+                return 'You have already used this coupon. (Maximum ' . $coupon->max_uses_per_user . ' time(s) per user)';
+            }
+        } else {
+            if ($userUsageCount > 0) {
+                return 'You have already used this coupon. Each coupon can only be used once per user.';
+            }
+        }
+
+        if ($coupon->min_order && $coupon->min_order > 0) {
+            // You'll need to pass the subtotal here
+            // For now, we'll skip this check in this method
+            // Better to handle it in the calling method
         }
 
         return true;
     }
-
     /**
      * Apply coupon to cart
      */
@@ -2358,6 +2401,31 @@ class CheckoutService
                 'amount_paid' => $order->total_payable,
             ]);
 
+            // =============================================
+            // RECORD COUPON USAGE
+            // =============================================
+            if ($order->coupon_code) {
+                $coupon = Coupon::where('code', $order->coupon_code)->first();
+
+                if ($coupon) {
+                    // Check if usage already exists for this order
+                    $existingUsage = CouponUsage::where('order_id', $order->id)->first();
+
+                    if (!$existingUsage) {
+                        // Create coupon usage entry
+                        CouponUsage::create([
+                            'coupon_id' => $coupon->id,
+                            'user_id' => $order->user_id,
+                            'order_id' => $order->id,
+                            'discount_amount' => $order->coupon_discount,
+                        ]);
+
+                        // Increment used_count on coupon
+                        $coupon->increment('used_count');
+                    }
+                }
+            }
+
             $lowStockAlerts = [];
 
             // Decrement stock for products and variants
@@ -2891,7 +2959,7 @@ class CheckoutService
                 ]);
 
                 // Process full refund if order was paid
-                 if ($order->amount_paid > 0) {
+                if ($order->amount_paid > 0) {
                     $this->returnService->processRefundForOrder($order, $reason);
                 }
 
@@ -3029,8 +3097,8 @@ class CheckoutService
 
     /**
      * Generate credit note for a cancelled line
-    */
-    
+     */
+
     protected function generateCreditNoteForLine(Order $order, OrderLine $orderLine, int $refundId, string $reason): void
     {
         $creditNoteService = app(\App\Services\CreditNoteService::class);

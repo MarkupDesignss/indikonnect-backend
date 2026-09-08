@@ -14,6 +14,36 @@ class CouponController extends Controller
     /**
      * Get all coupons
      */
+    // public function index(Request $request)
+    // {
+    //     $query = Coupon::query();
+
+    //     // Filter by active status
+    //     if ($request->has('is_active')) {
+    //         $query->where('is_active', $request->is_active);
+    //     }
+
+    //     // Filter by type
+    //     if ($request->has('type')) {
+    //         $query->where('type', $request->type);
+    //     }
+
+    //     // Search by code or title
+    //     if ($request->has('search')) {
+    //         $search = $request->search;
+    //         $query->where(function ($q) use ($search) {
+    //             $q->where('code', 'LIKE', "%{$search}%")
+    //                 ->orWhere('title', 'LIKE', "%{$search}%");
+    //         });
+    //     }
+
+    //     $coupons = $query->orderBy('created_at', 'desc')->paginate(15);
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'data' => $coupons
+    //     ]);
+    // }
     public function index(Request $request)
     {
         $query = Coupon::query();
@@ -31,20 +61,45 @@ class CouponController extends Controller
         // Search by code or title
         if ($request->has('search')) {
             $search = $request->search;
+
             $query->where(function ($q) use ($search) {
                 $q->where('code', 'LIKE', "%{$search}%")
                     ->orWhere('title', 'LIKE', "%{$search}%");
             });
         }
 
-        $coupons = $query->orderBy('created_at', 'desc')->paginate(15);
+        // Get user ID from Sanctum authentication
+        $userId = auth('sanctum')->id();
+
+        if ($userId) {
+
+            // Exclude coupons already used by authenticated user
+            $query->whereDoesntHave('usages', function ($q) use ($userId) {
+                $q->where('user_id', $userId);
+            });
+
+            // Exclude coupons that reached global usage limit
+            $query->where(function ($q) {
+                $q->whereNull('max_uses')
+                    ->orWhereColumn('used_count', '<', 'max_uses');
+            });
+        }
+
+        // Exclude expired coupons
+        $query->where(function ($q) {
+            $q->whereNull('expires_at')
+                ->orWhere('expires_at', '>', now());
+        });
+
+        $coupons = $query
+            ->orderBy('created_at', 'desc')
+            ->paginate(15);
 
         return response()->json([
             'success' => true,
             'data' => $coupons
         ]);
     }
-
     /**
      * Get single coupon
      */

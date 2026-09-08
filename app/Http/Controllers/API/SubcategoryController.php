@@ -61,7 +61,7 @@ class SubcategoryController extends Controller
             'category_id' => 'required|exists:categories,id',
             'name' => 'required|string|max:255',
             'slug' => 'required|string|max:255|unique:subcategories,slug',
-            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048', // Image validation
+            'image' => 'nullable',
             'status' => 'nullable|boolean'
         ], [
             'category_id.required' => 'Category ID is required',
@@ -148,7 +148,7 @@ class SubcategoryController extends Controller
                 'max:255',
                 Rule::unique('subcategories', 'slug')->ignore($id)
             ],
-            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048', // Image validation
+            'image' => 'nullable', // Image validation
             'status' => 'nullable|boolean'
         ], [
             'category_id.required' => 'Category ID is required',
