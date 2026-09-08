@@ -446,9 +446,32 @@ class ReelController extends Controller
     /**
      * Format single reel response
      */
+    // protected function formatReel($reel)
+    // {
+    //     // dd($reel->product->primaryImage);
+    //     return [
+    //         'id' => $reel->id,
+    //         'title' => $reel->title,
+    //         'creator_handle' => $reel->creator_handle,
+    //         'followers_count' => $reel->followers_count,
+    //         'video_path' => $reel->video_path,
+    //         'video_url' => $reel->video_url,
+    //         'video_full_url' => $reel->video_full_url,
+    //         'video_full_path' => $reel->video_full_path,
+    //         'thumbnail' => $reel->thumbnail,
+    //         'thumbnail_url' => $reel->thumbnail ? asset('storage/' . $reel->thumbnail) : null,
+    //         // 'thumbnail_full_url' => $reel->thumbnail ? url('storage/' . $reel->thumbnail) : null,
+    //         'is_published' => (bool) $reel->is_published,
+    //         'sort_order' => $reel->sort_order,
+    //         'created_at' => $reel->created_at?->toISOString(),
+    //         'updated_at' => $reel->updated_at?->toISOString(),
+    //         'product' => $this->formatProduct($reel->product),
+    //     ];
+    // }
     protected function formatReel($reel)
     {
-        // dd($reel->product->primaryImage);
+        $frontendUrl = env('FRONTEND_URL', 'https://your-frontend-domain.com');
+
         return [
             'id' => $reel->id,
             'title' => $reel->title,
@@ -460,7 +483,6 @@ class ReelController extends Controller
             'video_full_path' => $reel->video_full_path,
             'thumbnail' => $reel->thumbnail,
             'thumbnail_url' => $reel->thumbnail ? asset('storage/' . $reel->thumbnail) : null,
-            // 'thumbnail_full_url' => $reel->thumbnail ? url('storage/' . $reel->thumbnail) : null,
             'is_published' => (bool) $reel->is_published,
             'sort_order' => $reel->sort_order,
             'created_at' => $reel->created_at?->toISOString(),
@@ -490,7 +512,7 @@ class ReelController extends Controller
 
         $primaryImage = $product->images->where('is_primary', true)->first()
             ?? $product->images->first();
-
+        $frontendUrl = env('FRONTEND_URL', 'https://your-frontend-domain.com');
         return [
             'id' => $product->id,
             'product_code' => $product->product_code,
@@ -509,6 +531,9 @@ class ReelController extends Controller
                         'image' => asset('storage/' . $product->primaryImage->image),
                     ]
                 )
+                : null,
+            'product_link' => $product && $product->slug
+                ? $frontendUrl . '/product/' . $product->slug
                 : null,
         ];
     }
