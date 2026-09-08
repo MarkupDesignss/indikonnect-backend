@@ -25,6 +25,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Http;
 use App\Services\TwilioService;
 
 class AuthController extends Controller
@@ -2393,69 +2394,173 @@ class AuthController extends Controller
     /**
      * DISTRIBUTOR: Step 6 - Location Consent
      */
+    // public function distributorStep6Location(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone' => 'required|min:10|max:15',
+    //             'location_consent' => 'required|in:0,1',
+    //             'latitude' => 'nullable|numeric',
+    //             'longitude' => 'nullable|numeric',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $user = User::where('phone', $request->phone)->first();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'User not found.'
+    //             ], 422);
+    //         }
+
+    //         // Check if step 5 is completed
+    //         if ($user->registration_step < 5) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please complete step 5 (Bank) first.'
+    //             ], 422);
+    //         }
+
+    //         // Store location consent
+    //         $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+    //         if ($distributorProfile) {
+    //             $distributorProfile->update([
+    //                 'location_consent' => $request->location_consent,
+    //                 'latitude' => $request->latitude,
+    //                 'longitude' => $request->longitude,
+    //                 'location_consent_at' => $request->location_consent == 1 ? now() : null
+    //             ]);
+    //         }
+
+    //         $user->update([
+    //             'registration_step' => 6,
+    //             'location_consent_given' => $request->location_consent
+    //         ]);
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Location consent saved successfully',
+    //             'step' => 6,
+    //             'next_step' => 7,
+    //             'location_consent' => $request->location_consent == 1
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Distributor step 6 location error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function distributorStep6Location(Request $request)
     {
-        try {
-            $validator = Validator::make($request->all(), [
-                'phone' => 'required|min:10|max:15',
-                'location_consent' => 'required|in:0,1',
-                'latitude' => 'nullable|numeric',
-                'longitude' => 'nullable|numeric',
-            ]);
+        $validator = Validator::make($request->all(), [
+            'phone'            => 'required|min:10|max:15',
+            'location_consent' => 'required|in:0,1',
+            'latitude'         => 'nullable|numeric',
+            'longitude'        => 'nullable|numeric',
+            'pincode'          => 'nullable|string|min:6|max:6',
+            'city'             => 'nullable|string|max:255',
+            'state'            => 'nullable|string|max:255',
+        ]);
 
-            if ($validator->fails()) {
-                return response()->json([
-                    'status' => false,
-                    'errors' => $validator->errors()
-                ], 422);
-            }
+        if ($validator->fails()) {
+            return response()->json(['status' => false, 'errors' => $validator->errors()], 422);
+        }
 
-            $user = User::where('phone', $request->phone)->first();
+        $user = User::where('phone', $request->phone)->first();
+        if (!$user) {
+            return response()->json(['status' => false, 'message' => 'User not found.'], 422);
+        }
 
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'User not found.'
-                ], 422);
-            }
-
-            // Check if step 5 is completed
-            if ($user->registration_step < 5) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Please complete step 5 (Bank) first.'
-                ], 422);
-            }
-
-            // Store location consent
-            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
-            if ($distributorProfile) {
-                $distributorProfile->update([
-                    'location_consent' => $request->location_consent,
-                    'latitude' => $request->latitude,
-                    'longitude' => $request->longitude,
-                    'location_consent_at' => $request->location_consent == 1 ? now() : null
-                ]);
-            }
-
-            $user->update([
-                'registration_step' => 6,
-                'location_consent_given' => $request->location_consent
-            ]);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Location consent saved successfully',
-                'step' => 6,
-                'next_step' => 7,
-                'location_consent' => $request->location_consent == 1
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Distributor step 6 location error: ' . $e->getMessage());
+        // Ensure previous steps are done
+        if ($user->registration_step < 5) {
             return response()->json([
                 'status' => false,
-                'message' => $e->getMessage()
-            ], 500);
+                'message' => 'Please complete step 5 (Bank) first.'
+            ], 422);
+        }
+
+        // ----- Determine city & state (auto‑fetch if only pincode given) -----
+        if ($request->filled('pincode') && !$request->filled('city')) {
+            $location = $this->fetchLocationFromPincode($request->pincode);
+            if ($location) {
+                $city  = $location['city'];
+                $state = $location['state'];
+            } else {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid PIN code. Please enter a valid PIN code.'
+                ], 422);
+            }
+        } else {
+            $city  = $request->city;
+            $state = $request->state;
+        }
+
+        // ----- RESTRICTION: Block Telangana -----
+        if ($state && strcasecmp(trim($state), 'Telangana') === 0) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Registration is not allowed for users from Telangana. Please contact support.'
+            ], 403);
+        }
+
+        // ----- Save location data (only if allowed) -----
+        $profile = BusinessProfile::where('user_id', $user->id)->first();
+        if ($profile) {
+            $profile->update([
+                'location_consent'      => $request->location_consent,
+                'latitude'              => $request->latitude,
+                'longitude'             => $request->longitude,
+                'pincode'               => $request->pincode,
+                'city'                  => $city,
+                'state'                 => $state,
+                'location_consent_at'   => $request->location_consent == 1 ? now() : null,
+            ]);
+        }
+
+        // Advance to step 6
+        $user->update([
+            'registration_step'     => 6,
+            'location_consent_given' => $request->location_consent,
+        ]);
+
+        return response()->json([
+            'status'   => true,
+            'message'  => 'Location details saved successfully',
+            'step'     => 6,
+            'next_step'=> 7,
+            'data'     => compact('city', 'state', 'pincode', 'location_consent', 'latitude', 'longitude'),
+        ]);
+    }
+
+    private function fetchLocationFromPincode($pincode)
+    {
+        try {
+            $response = Http::get("https://api.postalpincode.in/pincode/{$pincode}");
+            $data = $response->json();
+            if ($data && isset($data[0]['Status']) && $data[0]['Status'] === 'Success') {
+                $postOffice = $data[0]['PostOffice'][0] ?? null;
+                if ($postOffice) {
+                    return [
+                        'city'  => $postOffice['District'] ?? null,
+                        'state' => $postOffice['State'] ?? null,
+                    ];
+                }
+            }
+            return null;
+        } catch (\Exception $e) {
+            Log::error('fetchLocationFromPincode error: ' . $e->getMessage());
+            return null;
         }
     }
 
@@ -2628,6 +2733,43 @@ class AuthController extends Controller
                 'status' => false,
                 'message' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Get city and state from PIN code (India)
+     */
+    public function getLocationByPincode(Request $request)
+    {
+        $request->validate(['pincode' => 'required|string|min:6|max:6']);
+
+        $pincode = $request->pincode;
+
+        // Option 1: Use a local database (recommended)
+        // $location = DB::table('pincodes')->where('pincode', $pincode)->first();
+
+        // Option 2: Use free external API (India Post)
+        try {
+            $response = Http::get("https://api.postalpincode.in/pincode/{$pincode}");
+            $data = $response->json();
+
+            if ($data && isset($data[0]['Status']) && $data[0]['Status'] === 'Success') {
+                $postOffice = $data[0]['PostOffice'][0] ?? null;
+                if ($postOffice) {
+                    return response()->json([
+                        'status' => true,
+                        'data' => [
+                            'city'  => $postOffice['District'] ?? null,
+                            'state' => $postOffice['State'] ?? null,
+                            'country' => $postOffice['Country'] ?? 'India',
+                        ]
+                    ]);
+                }
+            }
+            return response()->json(['status' => false, 'message' => 'Invalid PIN code.'], 404);
+        } catch (\Exception $e) {
+            Log::error('Pincode lookup error: ' . $e->getMessage());
+            return response()->json(['status' => false, 'message' => 'Service unavailable. Please try again.'], 500);
         }
     }
 
