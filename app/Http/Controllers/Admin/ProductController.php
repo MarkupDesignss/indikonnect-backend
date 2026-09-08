@@ -1275,8 +1275,9 @@ class ProductController extends Controller
      * Update a product with variants
      */
 
-    //     public function update(Request $request, $id)
+    // public function update(Request $request, $id)
     // {
+
     //     $product = Product::where('id', $id)->first();
     //     if (!$product) {
     //         return response()->json([
@@ -1314,9 +1315,9 @@ class ProductController extends Controller
     //         'stock_quantity' => ['nullable', 'integer', 'min:0'],
     //         'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
 
-    //         // Status
-    //         'is_published' => ['nullable', 'boolean'],
-    //         'is_trending' => ['nullable', 'boolean'],
+    //         // Status - FIXED: Use 'sometimes' instead of 'nullable' for better boolean handling
+    //         'is_published' => ['sometimes', 'boolean'],
+    //         'is_trending' => ['sometimes', 'boolean'],
     //         'trending_sort_order' => ['nullable', 'integer', 'min:0'],
     //         'sale_type' => ['nullable', 'string', 'in:today_best,limited'],
 
@@ -1401,7 +1402,7 @@ class ProductController extends Controller
     //             'nullable',
     //             'image',
     //             'mimes:jpg,jpeg,png,webp,avif',
-    //             'max:2048', // 2MB max
+    //             'max:2048',
     //         ],
     //         'variants.*.images.*.sort_order' => ['nullable', 'integer', 'min:0'],
     //         'variants.*.images.*.is_primary' => ['nullable', 'boolean'],
@@ -1480,36 +1481,63 @@ class ProductController extends Controller
     //             ])
     //             ->toArray();
 
+    //         if ($request->has('is_trending')) {
+    //             $isTrending = $request->input('is_trending');
+
+    //             // If frontend sends 0/false unintentionally, preserve existing value
+    //             if (
+    //                 $isTrending === '0' ||
+    //                 $isTrending === 0 ||
+    //                 $isTrending === false ||
+    //                 $isTrending === 'false'
+    //             ) {
+    //                 unset($productData['is_trending']);
+    //             }
+    //         }
+
+    //         /*
+    //         |--------------------------------------------------------------------------
+    //         | CAST BOOLEAN VALUES PROPERLY
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //         // Ensure boolean fields are properly cast
+    //         if (array_key_exists('is_published', $productData)) {
+    //             $productData['is_published'] = filter_var($productData['is_published'], FILTER_VALIDATE_BOOLEAN);
+    //         }
+
+    //         if (array_key_exists('is_trending', $productData)) {
+    //             $productData['is_trending'] = filter_var($productData['is_trending'], FILTER_VALIDATE_BOOLEAN);
+    //         }
+
+    //         // Also handle variant is_active boolean
+    //         if (array_key_exists('variants', $validated)) {
+    //             foreach ($validated['variants'] as $key => $variant) {
+    //                 if (array_key_exists('is_active', $variant)) {
+    //                     $validated['variants'][$key]['is_active'] = filter_var($variant['is_active'], FILTER_VALIDATE_BOOLEAN);
+    //                 }
+    //             }
+    //         }
+
     //         /*
     //         |--------------------------------------------------------------------------
     //         | SET DEFAULT BRAND ID
     //         |--------------------------------------------------------------------------
-    //         |
-    //         | If brand_id is provided as null or not sent, set it to default 1.
-    //         |
     //         */
 
     //         if (array_key_exists('brand_id', $productData)) {
-    //             // If brand_id is explicitly set to null or empty, use default
     //             if (empty($productData['brand_id'])) {
     //                 $productData['brand_id'] = 1;
     //             }
-    //         } else {
-    //             // If brand_id is not in the request, keep the existing value
-    //             // No change needed
     //         }
 
     //         /*
     //         |--------------------------------------------------------------------------
     //         | RETAIL PRICE
     //         |--------------------------------------------------------------------------
-    //         |
-    //         | Only calculate if retail_mrp was actually supplied.
-    //         |
     //         */
 
     //         if (array_key_exists('retail_mrp', $productData)) {
-
     //             $productData['retail_price'] = $this->calculatePrice(
     //                 $productData['retail_mrp'],
     //                 $productData['retail_discount_type'] ?? null,
@@ -1528,7 +1556,6 @@ class ProductController extends Controller
     //             && $productData['distributor_mrp'] !== null
     //             && $productData['distributor_mrp'] !== ''
     //         ) {
-
     //             $productData['distributor_price'] = $this->calculatePrice(
     //                 $productData['distributor_mrp'],
     //                 $productData['distributor_discount_type'] ?? null,
@@ -1541,7 +1568,6 @@ class ProductController extends Controller
     //                 || $productData['distributor_mrp'] === ''
     //             )
     //         ) {
-
     //             $productData['distributor_price'] = null;
     //             $productData['distributor_mrp'] = null;
     //             $productData['distributor_discount_type'] = null;
@@ -1558,7 +1584,6 @@ class ProductController extends Controller
     //             array_key_exists('slug', $productData)
     //             || array_key_exists('name', $productData)
     //         ) {
-
     //             if (
     //                 empty($productData['slug'])
     //                 && array_key_exists('name', $productData)
@@ -1591,13 +1616,9 @@ class ProductController extends Controller
     //         |--------------------------------------------------------------------------
     //         | IF VARIANTS EXIST
     //         |--------------------------------------------------------------------------
-    //         |
-    //         | Product stock will be calculated from variant stock.
-    //         |
     //         */
 
     //         if ($hasVariants) {
-
     //             if (array_key_exists('stock_quantity', $productData)) {
     //                 unset($productData['stock_quantity']);
     //             }
@@ -1636,7 +1657,6 @@ class ProductController extends Controller
     //             array_key_exists('remove_variants', $validated)
     //             && !empty($validated['remove_variants'])
     //         ) {
-
     //             ProductVariant::where('product_id', $product->id)
     //                 ->whereIn('id', $validated['remove_variants'])
     //                 ->delete();
@@ -1649,33 +1669,19 @@ class ProductController extends Controller
     //         */
 
     //         if ($hasVariants) {
-
     //             $totalStock = $this->handleVariantUpdates(
     //                 $product,
-    //                 $request,  // Pass the request object for file access
+    //                 $request,
     //                 $validated
     //             );
-
-    //             /*
-    //             |--------------------------------------------------------------------------
-    //             | UPDATE PRODUCT STOCK FROM VARIANTS
-    //             |--------------------------------------------------------------------------
-    //             */
 
     //             $product->update([
     //                 'stock_quantity' => $totalStock
     //             ]);
 
-    //             /*
-    //             |--------------------------------------------------------------------------
-    //             | GET UPDATED VARIANTS
-    //             |--------------------------------------------------------------------------
-    //             */
-
     //             $updatedVariants = $product->variants()->get();
 
     //             foreach ($updatedVariants as $variant) {
-
     //                 $variantUpdateDetails[] = [
     //                     'id' => $variant->id,
     //                     'sku' => $variant->sku,
@@ -1695,7 +1701,6 @@ class ProductController extends Controller
     //                     'sort_order' => $variant->sort_order,
     //                     'is_active' => $variant->is_active,
 
-    //                     // Include variant images in the details
     //                     'images' => $variant->images->map(function ($image) {
     //                         return [
     //                             'id' => $image->id,
@@ -1707,15 +1712,7 @@ class ProductController extends Controller
     //                 ];
     //             }
     //         } else {
-
-    //             /*
-    //             |--------------------------------------------------------------------------
-    //             | NO VARIANTS
-    //             |--------------------------------------------------------------------------
-    //             */
-
     //             if (array_key_exists('stock_quantity', $validated)) {
-
     //                 $product->update([
     //                     'stock_quantity' => $validated['stock_quantity']
     //                 ]);
@@ -1810,7 +1807,6 @@ class ProductController extends Controller
     //             $this->formatProduct($product)
     //         );
     //     } catch (\Exception $e) {
-
     //         DB::rollBack();
 
     //         Log::error('Failed to update product:', [
@@ -2161,6 +2157,16 @@ class ProductController extends Controller
                 && is_array($validated['variants'])
                 && count($validated['variants']) > 0;
 
+            $oldProductStock = $product->stock_quantity;
+            $oldVariantStocks = [];
+
+            if ($product->variants()->count() > 0) {
+                $oldVariantStocks = $product->variants()
+                    ->pluck('stock_quantity', 'id')
+                    ->toArray();
+            }
+
+
             /*
             |--------------------------------------------------------------------------
             | IF VARIANTS EXIST
@@ -2231,6 +2237,16 @@ class ProductController extends Controller
                 $updatedVariants = $product->variants()->get();
 
                 foreach ($updatedVariants as $variant) {
+                    $oldStock = $oldVariantStocks[$variant->id] ?? 0;
+                    $newStock = $variant->stock_quantity;
+
+                    // If stock was 0 and now > 0, send notification
+                    if ($oldStock == 0 && $newStock > 0) {
+                        $this->sendBackInStockNotifications(null, $variant->id);
+                    }
+                }
+
+                foreach ($updatedVariants as $variant) {
                     $variantUpdateDetails[] = [
                         'id' => $variant->id,
                         'sku' => $variant->sku,
@@ -2265,6 +2281,10 @@ class ProductController extends Controller
                     $product->update([
                         'stock_quantity' => $validated['stock_quantity']
                     ]);
+                    // === CHECK IF PRODUCT RESTOCKED ===
+                    if ($oldProductStock == 0 && $product->stock_quantity > 0) {
+                        $this->sendBackInStockNotifications($product->id, null);
+                    }
                 }
             }
 

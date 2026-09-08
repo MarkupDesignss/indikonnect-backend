@@ -8,7 +8,7 @@
 <body>
     <h2>Good News!</h2>
 
-    <p>Dear {{ $user->name }},</p>
+    <p>Dear {{ $user->full_name }},</p>
 
     <p>The item you were interested in is now back in stock!</p>
 
@@ -19,14 +19,15 @@
         <p><strong>Available Stock:</strong> {{ $variant->stock_quantity }}</p>
     @else
         <p><strong>Product:</strong> {{ $product->name }}</p>
-        <p><strong>Available Stock:</strong> {{ $product->stock_quantity }}</p>
     @endif
 
     <p>
-        <a href="{{ url('/products/' . $product->id) }}"
+    <p>
+        <a href="{{ rtrim(env('FRONTEND_URL'), '/') . '/product/' . $product->slug }}"
             style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px;">
             View Product
         </a>
+    </p>
     </p>
 
     <p>Thank you for your interest!</p>
