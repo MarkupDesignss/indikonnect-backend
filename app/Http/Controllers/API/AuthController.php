@@ -2069,6 +2069,7 @@ class AuthController extends Controller
             $validator = Validator::make($request->all(), [
                 'phone' => 'required|min:10|max:15',
                 'sponsor_id' => 'nullable|max:20',
+                'distributor_id ' => 'nullable|max:20',
                 'placement_leg' => 'nullable|in:left,right',
             ]);
 
@@ -2099,6 +2100,7 @@ class AuthController extends Controller
             // Update sponsor information
             $user->update([
                 'sponsor_id' => $request->sponsor_id,
+                'distributor_id ' => $request->distributor_id,
                 'placement_leg' => $request->placement_leg,
                 'registration_step' => 2
             ]);
@@ -2632,11 +2634,139 @@ class AuthController extends Controller
     /**
      * Distributor Login with Email and Password
      */
+    // public function distributorLogin(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'email' => 'required|email',
+    //             'password' => 'required|string'
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         // Find user by email
+    //         $user = User::where('email', $request->email)
+    //             ->where('account_type', 'distributor')
+    //             ->first();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'No distributor account found with this email.'
+    //             ], 422);
+    //         }
+
+    //         // Check if user is registered
+    //         if ($user->is_registered == 0) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please complete your registration first.'
+    //             ], 422);
+    //         }
+
+    //         // Check if password exists and verify
+    //         if (empty($user->password)) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Password not set. Please use OTP login or reset your password.'
+    //             ], 422);
+    //         }
+
+    //         if (!Hash::check($request->password, $user->password)) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Invalid password.'
+    //             ], 422);
+    //         }
+
+    //         // Check if account is active
+    //         if ($user->is_active == 0) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Your account is blocked by admin. Please contact support.'
+    //             ], 422);
+    //         }
+
+    //         // Check distributor status
+    //         // if ($user->distributor_status !== 'active') {
+    //         //     $statusMessage = $user->distributor_status === 'pending'
+    //         //         ? 'Your distributor account is pending admin approval.'
+    //         //         : 'Your distributor account is not active. Status: ' . $user->distributor_status;
+
+    //         //     return response()->json([
+    //         //         'status' => false,
+    //         //         'message' => $statusMessage,
+    //         //         'distributor_status' => $user->distributor_status
+    //         //     ], 422);
+    //         // }
+
+    //         // Generate tokens
+    //         $token = $user->createToken('distributor-auth')->plainTextToken;
+    //         $refreshToken = Str::random(100);
+
+    //         RefreshToken::create([
+    //             'user_id' => $user->id,
+    //             'token' => hash('sha256', $refreshToken),
+    //             'expires_at' => now()->addDays(7),
+    //             'last_used_at' => now()
+    //         ]);
+
+    //         // Get role
+    //         $role = $this->getUserRole($user);
+
+    //         // Get distributor profile
+    //         $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Distributor login successful',
+    //             'token' => $token,
+    //             'expires_in' => 3600,
+    //             'refresh_token' => $refreshToken,
+    //             'user' => [
+    //                 'id' => $user->id,
+    //                 'full_name' => $user->full_name,
+    //                 'email' => $user->email,
+    //                 'phone' => $user->phone,
+    //                 'account_type' => $user->account_type,
+    //                 'distributor_status' => $user->distributor_status,
+    //                 'profile_picture' => $user->profile_picture ? asset('storage/' . $user->profile_picture) : null,
+    //             ],
+    //             'role' => $role ? [
+    //                 'id' => $role->id,
+    //                 'name' => $role->name,
+    //                 'slug' => $role->slug
+    //             ] : null,
+    //             'distributor_profile' => $distributorProfile ? [
+    //                 'id' => $distributorProfile->id,
+    //                 'kyc_status' => $distributorProfile->kyc_status,
+    //                 'bank_name' => $distributorProfile->bank_name,
+    //                 'bank_holder_name' => $distributorProfile->bank_holder_name,
+    //                 'bank_ifsc' => $distributorProfile->bank_ifsc,
+    //                 'aadhaar_verified' => $distributorProfile->aadhaar_verified,
+    //                 'pan_verified' => $distributorProfile->pan_verified,
+    //                 'registration_completed' => $distributorProfile->registration_completed,
+    //             ] : null
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Distributor login error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function distributorLogin(Request $request)
     {
         try {
             $validator = Validator::make($request->all(), [
-                'email' => 'required|email',
+                'email' => 'nullable|email|required_without:distributor_id',
+                'distributor_id' => 'nullable|string|required_without:email',
                 'password' => 'required|string'
             ]);
 
@@ -2647,15 +2777,26 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Find user by email
-            $user = User::where('email', $request->email)
-                ->where('account_type', 'distributor')
+            // Find user by email OR distributor_id
+            $user = User::where('account_type', 'distributor')
+                ->where(function ($query) use ($request) {
+
+                    if ($request->filled('email')) {
+                        $query->where('email', $request->email);
+                    }
+
+                    if ($request->filled('distributor_id')) {
+                        $query->orWhere('distributor_id', $request->distributor_id);
+                    }
+                })
                 ->first();
 
             if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'No distributor account found with this email.'
+                    'message' => $request->filled('distributor_id')
+                        ? 'No distributor account found with this distributor ID.'
+                        : 'No distributor account found with this email.'
                 ], 422);
             }
 
@@ -2690,21 +2831,9 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Check distributor status
-            // if ($user->distributor_status !== 'active') {
-            //     $statusMessage = $user->distributor_status === 'pending'
-            //         ? 'Your distributor account is pending admin approval.'
-            //         : 'Your distributor account is not active. Status: ' . $user->distributor_status;
-
-            //     return response()->json([
-            //         'status' => false,
-            //         'message' => $statusMessage,
-            //         'distributor_status' => $user->distributor_status
-            //     ], 422);
-            // }
-
             // Generate tokens
             $token = $user->createToken('distributor-auth')->plainTextToken;
+
             $refreshToken = Str::random(100);
 
             RefreshToken::create([
@@ -2726,20 +2855,26 @@ class AuthController extends Controller
                 'token' => $token,
                 'expires_in' => 3600,
                 'refresh_token' => $refreshToken,
+
                 'user' => [
                     'id' => $user->id,
+                    'distributor_id' => $user->distributor_id,
                     'full_name' => $user->full_name,
                     'email' => $user->email,
                     'phone' => $user->phone,
                     'account_type' => $user->account_type,
                     'distributor_status' => $user->distributor_status,
-                    'profile_picture' => $user->profile_picture ? asset('storage/' . $user->profile_picture) : null,
+                    'profile_picture' => $user->profile_picture
+                        ? asset('storage/' . $user->profile_picture)
+                        : null,
                 ],
+
                 'role' => $role ? [
                     'id' => $role->id,
                     'name' => $role->name,
                     'slug' => $role->slug
                 ] : null,
+
                 'distributor_profile' => $distributorProfile ? [
                     'id' => $distributorProfile->id,
                     'kyc_status' => $distributorProfile->kyc_status,
@@ -2753,6 +2888,7 @@ class AuthController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::error('Distributor login error: ' . $e->getMessage());
+
             return response()->json([
                 'status' => false,
                 'message' => $e->getMessage()
