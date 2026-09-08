@@ -30,4 +30,8 @@ class Brand extends Model
     {
         return $this->banner ? asset('storage/' . $this->banner) : null;
     }
+    public function products()
+    {
+        return $this->hasMany(Product::class, 'brand_id');
+    }
 }
