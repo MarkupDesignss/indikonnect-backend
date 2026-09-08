@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Models\RoleUser;
 use App\Models\BusinessProfile;
 use App\Models\UserNotificationSetting;
 use Illuminate\Http\Request;
@@ -12,6 +11,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class AdminUserController extends Controller
 {
@@ -25,11 +25,9 @@ class AdminUserController extends Controller
             'country'           => 'nullable|string|max:255',
             'date_of_birth'     => 'nullable|date|before:-18 years',
             'distributor_status'=> 'nullable|in:active,pending,suspended',
-            // Location data
             'location'          => 'nullable|array',
             'location.city'     => 'nullable|string|max:255',
             'location.address'  => 'nullable|string',
-            // Optional KYC / bank (admin can pre‑fill)
             'aadhaar'           => 'nullable|string|size:12',
             'pan'               => 'nullable|string|size:10',
             'bank_details'      => 'nullable|array',
@@ -45,7 +43,7 @@ class AdminUserController extends Controller
 
         DB::beginTransaction();
         try {
-            // 1. Create user
+            // 1. User - account_type = 'distributor'
             $user = User::create([
                 'full_name'          => $request->full_name,
                 'email'              => $request->email,
@@ -60,14 +58,7 @@ class AdminUserController extends Controller
                 'registration_completed_at' => now(),
             ]);
 
-            // 2. Assign distributor role
-            $roleId = Role::where('slug', 'distributor')->value('id');
-            if ($roleId) {
-                RoleUser::updateOrInsert(['user_id' => $user->id], ['role_id' => $roleId]);
-                $user->update(['role_id' => $roleId]);
-            }
-
-            // 3. Create BusinessProfile
+            // 2. BusinessProfile
             $profileData = [
                 'user_id'            => $user->id,
                 'kyc_status'         => 'verified',
@@ -79,7 +70,6 @@ class AdminUserController extends Controller
                 'address'            => $request->location['address'] ?? null,
             ];
 
-            // KYC fields (if provided, mark as verified)
             if ($request->filled('aadhaar')) {
                 $profileData['encrypted_aadhaar'] = encrypt($request->aadhaar);
                 $profileData['aadhaar_verified'] = 1;
@@ -105,7 +95,7 @@ class AdminUserController extends Controller
 
             $businessProfile = BusinessProfile::create($profileData);
 
-            // 4. Notification settings
+            // 3. Notification settings
             UserNotificationSetting::updateOrCreate(
                 ['user_id' => $user->id],
                 [
@@ -117,7 +107,7 @@ class AdminUserController extends Controller
                 ]
             );
 
-            // 5. Send welcome email (optional)
+            // 4. Welcome email (optional)
             // Mail::to($user->email)->send(new DistributorWelcomeMail($user, $request->password));
 
             DB::commit();
@@ -130,7 +120,7 @@ class AdminUserController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('Admin user creation error: ' . $e->getMessage());
+            Log::error('Admin user creation error: ' . $e->getMessage());
             return response()->json([
                 'status'  => false,
                 'message' => 'Failed to create user. ' . $e->getMessage(),
