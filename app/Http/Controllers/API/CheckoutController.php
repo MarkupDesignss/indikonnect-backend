@@ -154,6 +154,7 @@ class CheckoutController extends Controller
 
             return response()->json([
                 'success' => true,
+              
                 'data' => array_merge($summary, [
                     'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
                 ]),

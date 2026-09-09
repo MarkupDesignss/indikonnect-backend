@@ -400,6 +400,13 @@ class ProductController extends Controller
 
             $query->whereIn('category_id', $categoryIds);
         }
+        if ($request->has('subcategory_ids') && $request->subcategory_ids) {
+            $subcategoryIds = is_array($request->subcategory_ids)
+                ? $request->subcategory_ids
+                : explode(',', $request->subcategory_ids);
+
+            $query->whereIn('subcategory_id', $subcategoryIds);
+        }
 
         // Alternative: Filter by single category (backward compatibility)
         if ($request->has('category_id') && $request->category_id && !$request->has('category_ids')) {
@@ -5100,7 +5107,7 @@ class ProductController extends Controller
     /**
      * Get product sections (new arrivals, best sellers, best offers) with variants
      */
-    public function     getProductSections(Request $request)
+    public function  getProductSections(Request $request)
     {
         // 1. NEW ARRIVALS - Products created within last 30 days
         $newArrivals = Product::with(['category',  'subcategory', 'taxCategory', 'images', 'variants.images'])

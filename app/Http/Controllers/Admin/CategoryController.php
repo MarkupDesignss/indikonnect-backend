@@ -155,12 +155,162 @@ class CategoryController extends Controller
     //     }
     // }
 
+    // public function index(Request $request)
+    // {
+    //     try {
+    //         $query = Category::query();
+
+    //         // Search by title
+    //         if ($request->has('search')) {
+    //             $query->where(function ($q) use ($request) {
+    //                 $q->where('title', 'like', '%' . $request->search . '%')
+    //                     ->orWhere('description', 'like', '%' . $request->search . '%');
+    //             });
+    //         }
+
+    //         // Filter by status
+    //         if ($request->has('status')) {
+    //             $query->where('status', $request->status);
+    //         }
+
+    //         // Eager load products for efficiency
+    //         $query->with(['products' => function ($q) {
+    //             $q->whereNull('deleted_at');
+    //         }]);
+
+    //         // Sorting
+    //         $sortField = $request->get('sort_by', 'created_at');
+    //         $sortDirection = $request->get('sort_direction', 'desc');
+    //         $query->orderBy($sortField, $sortDirection);
+
+    //         // Pagination
+    //         $perPage = $request->get('per_page', 10);
+    //         $categories = $query->paginate($perPage);
+
+    //         // Find the most expensive product across ALL categories
+    //         $allProducts = collect();
+
+    //         $categories->each(function ($category) use (&$allProducts) {
+    //             $allProducts = $allProducts->merge($category->products);
+    //         });
+
+    //         $mostExpensiveProduct = $allProducts->sortByDesc('distributor_price')
+    //             ->first() ??
+    //             $allProducts->sortByDesc('retail_price')
+    //             ->first();
+
+    //         $mostExpensivePrice = $mostExpensiveProduct
+    //             ? ($mostExpensiveProduct->retail_price
+    //                 ?? $mostExpensiveProduct->distributor_price
+    //                 ?? 0)
+    //             : 0;
+
+    //         $data = $categories->map(function ($category) {
+
+    //             $products = $category->products;
+    //             $productsCount = $products->count();
+
+    //             // Find most expensive product in this category
+    //             $maxPriceProduct = $products->sortByDesc(function ($product) {
+    //                 return max(
+    //                     $product->retail_price ?? 0,
+    //                     $product->distributor_price ?? 0
+    //                 );
+    //             })->first();
+
+    //             $maxPrice = $maxPriceProduct
+    //                 ? max(
+    //                     $maxPriceProduct->retail_price ?? 0,
+    //                     $maxPriceProduct->distributor_price ?? 0
+    //                 )
+    //                 : 0;
+
+    //             return [
+    //                 'id' => $category->id,
+    //                 'title' => $category->title,
+    //                 'image' => $category->image
+    //                     ? asset('storage/categories/' . $category->image)
+    //                     : null,
+    //                 'description' => $category->description,
+    //                 'status' => $category->status,
+    //                 'created_at' => $category->created_at,
+    //                 'updated_at' => $category->updated_at,
+    //                 'products_count' => $productsCount,
+    //                 'max_price' => $maxPrice,
+    //                 'max_price_formatted' => number_format($maxPrice, 2),
+
+    //                 'max_price_product' => $maxPriceProduct ? [
+    //                     'id' => $maxPriceProduct->id,
+    //                     'name' => $maxPriceProduct->name,
+    //                     'product_code' => $maxPriceProduct->product_code,
+    //                     'retail_price' => $maxPriceProduct->retail_price,
+    //                     'distributor_price' => $maxPriceProduct->distributor_price,
+    //                 ] : null,
+    //             ];
+    //         });
+
+    //         $brands = Brand::select('id', 'title')
+    //             ->withCount(['products' => function ($query) {
+    //                 $query->whereNull('deleted_at'); // Only count active products
+    //             }])
+    //             ->orderBy('title', 'asc')
+    //             ->get()
+    //             ->map(function ($brand) {
+    //                 return [
+    //                     'id' => $brand->id,
+    //                     'title' => $brand->title,
+    //                     'products_count' => $brand->products_count,
+    //                 ];
+    //             });
+    //         $subCategory = Subcategory::select('id', 'name')
+    //             ->withCount(['products' => function ($query) {}])
+    //             ->orderBy('name', 'asc')
+    //             ->get()
+    //             ->map(function ($brand) {
+    //                 return [
+    //                     'id' => $brand->id,
+    //                     'name' => $brand->name,
+    //                     'products_count' => $brand->products_count,
+    //                 ];
+    //             });
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Categories retrieved successfully',
+
+    //             // Categories
+    //             'data' => $data,
+
+    //             // Brands with product count
+    //             'brands' => $brands,
+    //             'subCategory' => $subCategory,
+
+    //             // Overall most expensive price
+    //             'most_expensive_price' => $mostExpensivePrice,
+
+    //             // Pagination
+    //             'meta' => [
+    //                 'current_page' => $categories->currentPage(),
+    //                 'per_page' => $categories->perPage(),
+    //                 'total' => $categories->total(),
+    //                 'last_page' => $categories->lastPage(),
+    //             ]
+    //         ], 200);
+    //     } catch (\Exception $e) {
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to retrieve categories',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function index(Request $request)
     {
         try {
             $query = Category::query();
 
-            // Search by title
+            // Search by title / description
             if ($request->has('search')) {
                 $query->where(function ($q) use ($request) {
                     $q->where('title', 'like', '%' . $request->search . '%')
@@ -173,50 +323,74 @@ class CategoryController extends Controller
                 $query->where('status', $request->status);
             }
 
-            // Eager load products for efficiency
-            $query->with(['products' => function ($q) {
-                $q->whereNull('deleted_at');
-            }]);
+            // Eager load products and subcategories
+            $query->with([
+                'products' => function ($q) {
+                    $q->whereNull('deleted_at');
+                },
+
+                'subcategories' => function ($q) {
+                    $q->select(
+                        'id',
+                        'category_id',
+                        'name',
+                        'slug',
+                        'image',
+                        'status',
+                        'created_at',
+                        'updated_at'
+                    )->orderBy('name', 'asc');
+                }
+            ]);
 
             // Sorting
             $sortField = $request->get('sort_by', 'created_at');
             $sortDirection = $request->get('sort_direction', 'desc');
+
             $query->orderBy($sortField, $sortDirection);
 
             // Pagination
             $perPage = $request->get('per_page', 10);
             $categories = $query->paginate($perPage);
 
-            // Find the most expensive product across ALL categories
+            // Find the most expensive product across current categories
             $allProducts = collect();
 
             $categories->each(function ($category) use (&$allProducts) {
                 $allProducts = $allProducts->merge($category->products);
             });
 
-            $mostExpensiveProduct = $allProducts->sortByDesc('distributor_price')
-                ->first() ??
-                $allProducts->sortByDesc('retail_price')
+            $mostExpensiveProduct = $allProducts
+                ->sortByDesc(function ($product) {
+                    return max(
+                        $product->distributor_price ?? 0,
+                        $product->retail_price ?? 0
+                    );
+                })
                 ->first();
 
             $mostExpensivePrice = $mostExpensiveProduct
-                ? ($mostExpensiveProduct->retail_price
-                    ?? $mostExpensiveProduct->distributor_price
-                    ?? 0)
+                ? max(
+                    $mostExpensiveProduct->retail_price ?? 0,
+                    $mostExpensiveProduct->distributor_price ?? 0
+                )
                 : 0;
 
+            // Format categories
             $data = $categories->map(function ($category) {
 
                 $products = $category->products;
                 $productsCount = $products->count();
 
                 // Find most expensive product in this category
-                $maxPriceProduct = $products->sortByDesc(function ($product) {
-                    return max(
-                        $product->retail_price ?? 0,
-                        $product->distributor_price ?? 0
-                    );
-                })->first();
+                $maxPriceProduct = $products
+                    ->sortByDesc(function ($product) {
+                        return max(
+                            $product->retail_price ?? 0,
+                            $product->distributor_price ?? 0
+                        );
+                    })
+                    ->first();
 
                 $maxPrice = $maxPriceProduct
                     ? max(
@@ -228,14 +402,18 @@ class CategoryController extends Controller
                 return [
                     'id' => $category->id,
                     'title' => $category->title,
+
                     'image' => $category->image
                         ? asset('storage/categories/' . $category->image)
                         : null,
+
                     'description' => $category->description,
                     'status' => $category->status,
                     'created_at' => $category->created_at,
                     'updated_at' => $category->updated_at,
+
                     'products_count' => $productsCount,
+
                     'max_price' => $maxPrice,
                     'max_price_formatted' => number_format($maxPrice, 2),
 
@@ -246,13 +424,37 @@ class CategoryController extends Controller
                         'retail_price' => $maxPriceProduct->retail_price,
                         'distributor_price' => $maxPriceProduct->distributor_price,
                     ] : null,
+
+                    // Subcategories belonging to this category
+                    'subcategories' => $category->subcategories->map(function ($subcategory) {
+                        return [
+                            'id' => $subcategory->id,
+                            'category_id' => $subcategory->category_id,
+                            'name' => $subcategory->name,
+                            'slug' => $subcategory->slug,
+
+                            'image' => $subcategory->image
+                                ? asset('storage/' . $subcategory->image)
+                                : null,
+
+                            'status' => $subcategory->status,
+                            'created_at' => $subcategory->created_at,
+                            'updated_at' => $subcategory->updated_at,
+
+                            // If you want product count for each subcategory
+                            'products_count' => $subcategory->products()->count(),
+                        ];
+                    })->values(),
                 ];
             });
 
+            // Brands with product count
             $brands = Brand::select('id', 'title')
-                ->withCount(['products' => function ($query) {
-                    $query->whereNull('deleted_at'); // Only count active products
-                }])
+                ->withCount([
+                    'products' => function ($query) {
+                        $query->whereNull('deleted_at');
+                    }
+                ])
                 ->orderBy('title', 'asc')
                 ->get()
                 ->map(function ($brand) {
@@ -262,28 +464,16 @@ class CategoryController extends Controller
                         'products_count' => $brand->products_count,
                     ];
                 });
-            $subCategory = Subcategory::select('id', 'name')
-                ->withCount(['products' => function ($query) {}])
-                ->orderBy('name', 'asc')
-                ->get()
-                ->map(function ($brand) {
-                    return [
-                        'id' => $brand->id,
-                        'name' => $brand->name,
-                        'products_count' => $brand->products_count,
-                    ];
-                });
 
             return response()->json([
                 'success' => true,
                 'message' => 'Categories retrieved successfully',
 
-                // Categories
+                // Categories with their subcategories
                 'data' => $data,
 
-                // Brands with product count
+                // Brands
                 'brands' => $brands,
-                'subCategory' => $subCategory,
 
                 // Overall most expensive price
                 'most_expensive_price' => $mostExpensivePrice,
@@ -305,6 +495,7 @@ class CategoryController extends Controller
             ], 500);
         }
     }
+
 
 
     /**

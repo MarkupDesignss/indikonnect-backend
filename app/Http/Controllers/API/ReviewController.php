@@ -26,8 +26,8 @@ class ReviewController extends Controller
             ->approved()
             ->with([
                 'user:id,full_name,profile_picture',
-                'images', // Load review images
-                'orderLine' // Load order line relationship
+                'images',
+                'orderLine'
             ])
             ->latest()
             ->paginate($request->get('per_page', 10));
