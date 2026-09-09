@@ -385,7 +385,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders/confirmed/{order_reference}', [OrderController::class, 'getConfirmedOrder']);
     // Or use a more generic route
     Route::get('/my-orders', [OrderController::class, 'getOrder']);
-    Route::post('/orders/{orderReference}/cancel/{id}', [OrderController::class, 'cancel']);
+    Route::post('/orders/{orderReference}/cancel/{id}', [OrderController::class, 'requestCancellation']);
 });
 
 Route::get('/orders/statuses', [OrderController::class, 'statuses']);
