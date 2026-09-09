@@ -264,7 +264,7 @@ class OrderController extends Controller
     protected function sendAdminNotification($title, $message, $type, $referenceId, $priority = 'medium', $extraData = [])
     {
         AdminNotification::create([
-            'admin_id' => null,
+            'admin_id' => "1",
             'type' => $type,
             'title' => $title,
             'message' => $message,
