@@ -144,7 +144,7 @@ Route::prefix('categories')->group(function () {
         Route::delete('/delete/{id}', [CategoryController::class, 'destroy']);
         Route::post('/update/{id}/status', [CategoryController::class, 'updateStatus']);
         Route::post('/bulk-delete', [CategoryController::class, 'bulkDelete']);
-        Route::delete('/delete-image/{id}', [CategoryController::class, 'deleteImage']);
+        // Route::delete('/delete-image/{id}', [CategoryController::class, 'deleteImage']);
     });
 });
 
