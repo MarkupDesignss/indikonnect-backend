@@ -697,3 +697,25 @@ Route::prefix('testimonials')->group(function () {
     Route::delete('/{testimonial}', [TestimonialController::class, 'destroy']);
     Route::patch('/{testimonial}/toggle-active', [TestimonialController::class, 'toggleActive']);
 });
+
+Route::prefix('admin')->middleware('admin')->group(function () {
+    Route::get(
+        '/cancellation-requests',
+        [CancellationApprovalController::class, 'getPendingRequests']
+    );
+
+    Route::get(
+        '/cancellation-requests/{orderLineId}',
+        [CancellationApprovalController::class, 'getRequestDetails']
+    );
+
+    Route::post(
+        '/cancellation-requests/{orderLineId}/approve',
+        [CancellationApprovalController::class, 'approve']
+    );
+
+    Route::post(
+        '/cancellation-requests/{orderLineId}/reject',
+        [CancellationApprovalController::class, 'reject']
+    );
+});
