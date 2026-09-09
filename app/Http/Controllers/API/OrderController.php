@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdminNotification;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\OrderShippingDetail;
@@ -12,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use App\Services\CancellationService;
 use Exception;
 use App\Traits\AuditLogTrait;
 use Illuminate\Support\Facades\Log;
@@ -24,11 +26,15 @@ class OrderController extends Controller
     protected $checkoutService;
     protected $invoiceService;
 
+    protected $cancellationService;
+
     public function __construct(
         CheckoutService $checkoutService,
-        InvoiceService $invoiceService
+        InvoiceService $invoiceService,
+        CancellationService $cancellationService
     ) {
         $this->checkoutService = $checkoutService;
+        $this->cancellationService = $cancellationService;
         $this->invoiceService = $invoiceService;
     }
 
@@ -95,55 +101,6 @@ class OrderController extends Controller
      * POST /api/order/{orderReference}/cancel
      */
 
-    // public function cancel(Request $request, string $orderReference): JsonResponse
-    // {
-    //     try {
-    //         $request->validate([
-    //             'reason' => 'required|string|max:500',
-    //         ]);
-
-    //         // Get order before cancellation for audit
-    //         $order = Order::where('order_reference', $orderReference)->first();
-    //         $oldStatus = $order?->status;
-
-    //         $result = $this->checkoutService->cancelOrder(
-    //             auth()->id(),
-    //             $orderReference,
-    //             $request->reason
-    //         );
-
-    //         // Log cancellation
-    //         $this->logAudit(
-    //             'order_cancel',
-    //             'orders',
-    //             [
-    //                 'order_reference' => $orderReference,
-    //                 'status' => $oldStatus,
-    //                 'amount' => $order?->total_payable,
-    //                 'user_id' => auth()->id(),
-    //             ],
-    //             [
-    //                 'order_reference' => $orderReference,
-    //                 'status' => 'cancelled',
-    //                 'reason' => $request->reason,
-    //                 'cancelled_by' => auth()->id(),
-    //                 'cancelled_by_type' => Auth::guard('admin')->check() ? 'admin' : 'user',
-    //                 'cancelled_at' => now()->toDateTimeString(),
-    //             ],
-    //             auth()->id()
-    //         );
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'data' => $result,
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 400);
-    //     }
-    // }
     public function cancel(Request $request, string $orderReference, int $orderLineId): JsonResponse
     {
         try {
@@ -206,6 +163,119 @@ class OrderController extends Controller
                 'message' => $e->getMessage(),
             ], 400);
         }
+    }
+
+    // public function requestCancellation(Request $request, string $orderReference, int $orderLineId): JsonResponse
+    // {
+    //     try {
+    //         $request->validate([
+    //             'reason' => 'required|string|max:500',
+    //         ]);
+
+    //         // Get order line
+    //         $orderLine = OrderLine::where('id', $orderLineId)
+    //             ->with('order')
+    //             ->firstOrFail();
+
+    //         $order = $orderLine->order;
+
+    //         // Check if order belongs to authenticated user
+    //         if ($order->user_id !== auth()->id()) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Unauthorized to cancel this order item',
+    //             ], 403);
+    //         }
+
+    //         // Check if line is already cancelled or in pending state
+    //         if (in_array($orderLine->delivery_status, ['cancelled', 'cancel_pending', 'cancel_rejected'])) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'This item cannot be cancelled',
+    //             ], 400);
+    //         }
+
+    //         // Check if item can be cancelled
+    //         if (in_array($orderLine->delivery_status, ['dispatched', 'delivered', 'shipped'])) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Items that are dispatched, shipped or delivered cannot be cancelled',
+    //             ], 400);
+    //         }
+
+    //         // Process cancellation request
+    //         $result = $this->cancellationService->requestCancellation(
+    //             auth()->id(),
+    //             $orderReference,
+    //             $orderLineId,
+    //             $request->reason
+    //         );
+
+
+    //         // Send notification to admin
+    //         $this->sendAdminNotification(
+    //             'New Cancellation Request',
+    //             "User " . auth()->user()->name . " requested cancellation for order #{$orderReference}",
+    //             'order_cancellation_request',
+    //             $orderLineId,
+    //             'high',
+    //             [
+    //                 'order_reference' => $orderReference,
+    //                 'order_line_id' => $orderLineId,
+    //                 'user_id' => auth()->id(),
+    //                 'user_name' => auth()->user()->name,
+    //                 'user_email' => auth()->user()->email,
+    //                 'reason' => $request->reason,
+    //                 'order_total' => $order->total,
+    //                 'line_total' => $orderLine->line_total,
+    //                 'product_name' => $orderLine->product->name ?? 'Unknown Product',
+    //                 'quantity' => $orderLine->quantity,
+    //                 'requested_at' => now()->toDateTimeString()
+    //             ]
+    //         );
+
+    //         // Log the request
+    //         Log::info('Cancellation request submitted', [
+    //             'order_reference' => $orderReference,
+    //             'order_line_id' => $orderLineId,
+    //             'user_id' => auth()->id(),
+    //             'reason' => $request->reason
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $result,
+    //             'message' => 'Cancellation request submitted successfully. Waiting for admin approval.',
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Cancellation request failed: ' . $e->getMessage(), [
+    //             'order_reference' => $orderReference,
+    //             'order_line_id' => $orderLineId,
+    //             'user_id' => auth()->id()
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
+
+    protected function sendAdminNotification($title, $message, $type, $referenceId, $priority = 'medium', $extraData = [])
+    {
+        AdminNotification::create([
+            'admin_id' => null,
+            'type' => $type,
+            'title' => $title,
+            'message' => $message,
+            'reference_type' => 'order_line',
+            'reference_id' => $referenceId,
+            'priority' => $priority,
+            'extra_data' => json_encode($extraData),
+            'read' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     public function getConfirmedOrder(string $order_reference): JsonResponse
@@ -1410,7 +1480,7 @@ class OrderController extends Controller
             foreach ($orders as $order) {
                 $formattedItems = [];
 
-                foreach ($order->lines as $line) {  
+                foreach ($order->lines as $line) {
                     $product = $line->product;
 
                     // Get product images

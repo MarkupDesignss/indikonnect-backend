@@ -69,6 +69,7 @@ class TestimonialController extends Controller
         $validator = Validator::make($request->all(), [
             'video' => 'required|file|mimes:mp4,mov,avi,wmv|max:102400', // Max 100MB
             'video_title' => 'nullable|string|max:255',
+            'view_counts' => 'nullable|string',
             'person_name' => 'required|string|max:255',
             'heading' => 'nullable|string|max:255',
             'rating' => 'required|numeric|min:0|max:10',
@@ -98,6 +99,7 @@ class TestimonialController extends Controller
             $testimonial = Testimonial::create([
                 'video_path' => $videoPath,
                 'video_title' => $request->video_title,
+                'view_counts' => $request->view_counts,
                 'person_name' => $request->person_name,
                 'heading' => $request->heading,
                 'rating' => $request->rating,
@@ -141,6 +143,7 @@ class TestimonialController extends Controller
         $validator = Validator::make($request->all(), [
             'video' => 'sometimes|file|mimes:mp4,mov,avi,wmv|max:102400',
             'video_title' => 'sometimes|string|max:255',
+            'view_counts' => 'nullable|string',
             'person_name' => 'sometimes|string|max:255',
             'heading' => 'sometimes|string|max:255',
             'rating' => 'sometimes|numeric|min:0|max:10',

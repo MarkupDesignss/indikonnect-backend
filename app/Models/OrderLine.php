@@ -22,6 +22,10 @@ class OrderLine extends Model
         'confirmed_at' => 'datetime',
     ];
 
+    const DELIVERY_STATUS_CANCEL_PENDING = 'cancel_pending';
+    const DELIVERY_STATUS_CANCELLED = 'cancelled';
+    const DELIVERY_STATUS_CANCEL_REJECTED = 'cancel_rejected';
+
     // Relationships
     public function review()
     {
