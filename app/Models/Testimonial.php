@@ -9,6 +9,7 @@ class Testimonial extends Model
     protected $fillable = [
         'video_path',
         'video_title',
+        'view_counts',
         'person_name',
         'heading',
         'rating',

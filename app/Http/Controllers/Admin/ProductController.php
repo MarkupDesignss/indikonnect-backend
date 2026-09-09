@@ -5100,7 +5100,7 @@ class ProductController extends Controller
     /**
      * Get product sections (new arrivals, best sellers, best offers) with variants
      */
-    public function getProductSections(Request $request)
+    public function     getProductSections(Request $request)
     {
         // 1. NEW ARRIVALS - Products created within last 30 days
         $newArrivals = Product::with(['category',  'subcategory', 'taxCategory', 'images', 'variants.images'])
