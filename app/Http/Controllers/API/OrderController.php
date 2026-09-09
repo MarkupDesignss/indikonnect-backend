@@ -101,165 +101,165 @@ class OrderController extends Controller
      * POST /api/order/{orderReference}/cancel
      */
 
-    public function cancel(Request $request, string $orderReference, int $orderLineId): JsonResponse
-    {
-        try {
-            $request->validate([
-                'reason' => 'required|string|max:500',
-            ]);
-
-            // Get order line before cancellation for audit
-            $orderLine = OrderLine::where('id', $orderLineId)
-                ->with('order')
-                ->firstOrFail();
-
-            $order = $orderLine->order;
-            $oldLineStatus = $orderLine->delivery_status;
-            $oldOrderStatus = $order->status;
-
-            $result = $this->checkoutService->cancelOrder(
-                auth()->id(),
-                $orderReference,
-                $orderLineId,
-                $request->reason
-            );
-
-            // Log cancellation
-            $this->logAudit(
-                'order_line_cancel',
-                'order_lines',
-                [
-                    'order_reference' => $orderReference,
-                    'order_line_id' => $orderLineId,
-                    'old_line_status' => $oldLineStatus,
-                    'old_order_status' => $oldOrderStatus,
-                    'line_amount' => $orderLine->line_total,
-                    'user_id' => auth()->id(),
-                ],
-                [
-                    'order_reference' => $orderReference,
-                    'order_line_id' => $orderLineId,
-                    'new_line_status' => 'cancelled',
-                    'new_order_status' => $result['order_status'],
-                    'reason' => $request->reason,
-                    'cancelled_by' => auth()->id(),
-                    'cancelled_by_type' => Auth::guard('admin')->check() ? 'admin' : 'user',
-                    'cancelled_at' => now(),
-                    'all_items_cancelled' => $result['all_items_cancelled'],
-                ],
-                auth()->id()
-            );
-
-            return response()->json([
-                'success' => true,
-                'data' => $result,
-                'message' => $result['all_items_cancelled']
-                    ? 'All items cancelled, order marked as cancelled'
-                    : 'Item cancelled successfully',
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ], 400);
-        }
-    }
-
-    // public function requestCancellation(Request $request, string $orderReference, int $orderLineId): JsonResponse
+    // public function cancel(Request $request, string $orderReference, int $orderLineId): JsonResponse
     // {
     //     try {
     //         $request->validate([
     //             'reason' => 'required|string|max:500',
     //         ]);
 
-    //         // Get order line
+    //         // Get order line before cancellation for audit
     //         $orderLine = OrderLine::where('id', $orderLineId)
     //             ->with('order')
     //             ->firstOrFail();
 
     //         $order = $orderLine->order;
+    //         $oldLineStatus = $orderLine->delivery_status;
+    //         $oldOrderStatus = $order->status;
 
-    //         // Check if order belongs to authenticated user
-    //         if ($order->user_id !== auth()->id()) {
-    //             return response()->json([
-    //                 'success' => false,
-    //                 'message' => 'Unauthorized to cancel this order item',
-    //             ], 403);
-    //         }
-
-    //         // Check if line is already cancelled or in pending state
-    //         if (in_array($orderLine->delivery_status, ['cancelled', 'cancel_pending', 'cancel_rejected'])) {
-    //             return response()->json([
-    //                 'success' => false,
-    //                 'message' => 'This item cannot be cancelled',
-    //             ], 400);
-    //         }
-
-    //         // Check if item can be cancelled
-    //         if (in_array($orderLine->delivery_status, ['dispatched', 'delivered', 'shipped'])) {
-    //             return response()->json([
-    //                 'success' => false,
-    //                 'message' => 'Items that are dispatched, shipped or delivered cannot be cancelled',
-    //             ], 400);
-    //         }
-
-    //         // Process cancellation request
-    //         $result = $this->cancellationService->requestCancellation(
+    //         $result = $this->checkoutService->cancelOrder(
     //             auth()->id(),
     //             $orderReference,
     //             $orderLineId,
     //             $request->reason
     //         );
 
-
-    //         // Send notification to admin
-    //         $this->sendAdminNotification(
-    //             'New Cancellation Request',
-    //             "User " . auth()->user()->name . " requested cancellation for order #{$orderReference}",
-    //             'order_cancellation_request',
-    //             $orderLineId,
-    //             'high',
+    //         // Log cancellation
+    //         $this->logAudit(
+    //             'order_line_cancel',
+    //             'order_lines',
     //             [
     //                 'order_reference' => $orderReference,
     //                 'order_line_id' => $orderLineId,
+    //                 'old_line_status' => $oldLineStatus,
+    //                 'old_order_status' => $oldOrderStatus,
+    //                 'line_amount' => $orderLine->line_total,
     //                 'user_id' => auth()->id(),
-    //                 'user_name' => auth()->user()->name,
-    //                 'user_email' => auth()->user()->email,
+    //             ],
+    //             [
+    //                 'order_reference' => $orderReference,
+    //                 'order_line_id' => $orderLineId,
+    //                 'new_line_status' => 'cancelled',
+    //                 'new_order_status' => $result['order_status'],
     //                 'reason' => $request->reason,
-    //                 'order_total' => $order->total,
-    //                 'line_total' => $orderLine->line_total,
-    //                 'product_name' => $orderLine->product->name ?? 'Unknown Product',
-    //                 'quantity' => $orderLine->quantity,
-    //                 'requested_at' => now()->toDateTimeString()
-    //             ]
+    //                 'cancelled_by' => auth()->id(),
+    //                 'cancelled_by_type' => Auth::guard('admin')->check() ? 'admin' : 'user',
+    //                 'cancelled_at' => now(),
+    //                 'all_items_cancelled' => $result['all_items_cancelled'],
+    //             ],
+    //             auth()->id()
     //         );
-
-    //         // Log the request
-    //         Log::info('Cancellation request submitted', [
-    //             'order_reference' => $orderReference,
-    //             'order_line_id' => $orderLineId,
-    //             'user_id' => auth()->id(),
-    //             'reason' => $request->reason
-    //         ]);
 
     //         return response()->json([
     //             'success' => true,
     //             'data' => $result,
-    //             'message' => 'Cancellation request submitted successfully. Waiting for admin approval.',
+    //             'message' => $result['all_items_cancelled']
+    //                 ? 'All items cancelled, order marked as cancelled'
+    //                 : 'Item cancelled successfully',
     //         ]);
     //     } catch (\Exception $e) {
-    //         Log::error('Cancellation request failed: ' . $e->getMessage(), [
-    //             'order_reference' => $orderReference,
-    //             'order_line_id' => $orderLineId,
-    //             'user_id' => auth()->id()
-    //         ]);
-
     //         return response()->json([
     //             'success' => false,
     //             'message' => $e->getMessage(),
     //         ], 400);
     //     }
     // }
+
+    public function requestCancellation(Request $request, string $orderReference, int $orderLineId): JsonResponse
+    {
+        try {
+            $request->validate([
+                'reason' => 'required|string|max:500',
+            ]);
+
+            // Get order line
+            $orderLine = OrderLine::where('id', $orderLineId)
+                ->with('order')
+                ->firstOrFail();
+
+            $order = $orderLine->order;
+
+            // Check if order belongs to authenticated user
+            if ($order->user_id !== auth()->id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized to cancel this order item',
+                ], 403);
+            }
+
+            // Check if line is already cancelled or in pending state
+            if (in_array($orderLine->delivery_status, ['cancelled', 'cancel_pending', 'cancel_rejected'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This item cannot be cancelled',
+                ], 400);
+            }
+
+            // Check if item can be cancelled
+            if (in_array($orderLine->delivery_status, ['dispatched', 'delivered', 'shipped'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Items that are dispatched, shipped or delivered cannot be cancelled',
+                ], 400);
+            }
+
+            // Process cancellation request
+            $result = $this->cancellationService->requestCancellation(
+                auth()->id(),
+                $orderReference,
+                $orderLineId,
+                $request->reason
+            );
+
+
+            // Send notification to admin
+            $this->sendAdminNotification(
+                'New Cancellation Request',
+                "User " . auth()->user()->name . " requested cancellation for order #{$orderReference}",
+                'order_cancellation_request',
+                $orderLineId,
+                'high',
+                [
+                    'order_reference' => $orderReference,
+                    'order_line_id' => $orderLineId,
+                    'user_id' => auth()->id(),
+                    'user_name' => auth()->user()->name,
+                    'user_email' => auth()->user()->email,
+                    'reason' => $request->reason,
+                    'order_total' => $order->total,
+                    'line_total' => $orderLine->line_total,
+                    'product_name' => $orderLine->product->name ?? 'Unknown Product',
+                    'quantity' => $orderLine->quantity,
+                    'requested_at' => now()->toDateTimeString()
+                ]
+            );
+
+            // Log the request
+            Log::info('Cancellation request submitted', [
+                'order_reference' => $orderReference,
+                'order_line_id' => $orderLineId,
+                'user_id' => auth()->id(),
+                'reason' => $request->reason
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => $result,
+                'message' => 'Cancellation request submitted successfully. Waiting for admin approval.',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Cancellation request failed: ' . $e->getMessage(), [
+                'order_reference' => $orderReference,
+                'order_line_id' => $orderLineId,
+                'user_id' => auth()->id()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        }
+    }
 
     protected function sendAdminNotification($title, $message, $type, $referenceId, $priority = 'medium', $extraData = [])
     {
