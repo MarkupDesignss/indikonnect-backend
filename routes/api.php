@@ -689,12 +689,11 @@ Route::prefix('subcategories')->group(function () {
 
 
 Route::prefix('testimonials')->group(function () {
-
     // Admin routes (protected with auth middleware)
     Route::get('/', [TestimonialController::class, 'index']);
     Route::post('/', [TestimonialController::class, 'store']);
     // Route::post('/upload-video', [TestimonialController::class, 'uploadVideo']);
-    Route::put('/{testimonial}', [TestimonialController::class, 'update']);
+    Route::post('/{testimonial}', [TestimonialController::class, 'update']);
     Route::delete('/{testimonial}', [TestimonialController::class, 'destroy']);
     Route::patch('/{testimonial}/toggle-active', [TestimonialController::class, 'toggleActive']);
 });
