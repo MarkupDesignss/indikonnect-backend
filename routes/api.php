@@ -50,6 +50,7 @@ use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\API\BrandController;
 use App\Http\Controllers\API\SubcategoryController;
+use App\Http\Controllers\API\TestimonialController;
 
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
@@ -684,4 +685,16 @@ Route::prefix('subcategories')->group(function () {
     Route::post('/', [SubcategoryController::class, 'store']);
     Route::post('/{id}', [SubcategoryController::class, 'update']);
     Route::post('/{id}/toggle-status', [SubcategoryController::class, 'toggleStatus']);
+});
+
+
+Route::prefix('testimonials')->group(function () {
+
+    // Admin routes (protected with auth middleware)
+    Route::get('/', [TestimonialController::class, 'index']);
+    Route::post('/', [TestimonialController::class, 'store']);
+    // Route::post('/upload-video', [TestimonialController::class, 'uploadVideo']);
+    Route::put('/{testimonial}', [TestimonialController::class, 'update']);
+    Route::delete('/{testimonial}', [TestimonialController::class, 'destroy']);
+    Route::patch('/{testimonial}/toggle-active', [TestimonialController::class, 'toggleActive']);
 });
