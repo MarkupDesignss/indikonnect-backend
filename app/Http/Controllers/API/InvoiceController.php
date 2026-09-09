@@ -340,16 +340,15 @@ class InvoiceController extends Controller
 
                 // Additional Data
                 'summary_data' => $summaryData,
-
                 // Addresses
                 'billing_address' => $order->billingAddress ? [
                     'id' => $order->billingAddress->id,
-                    'address_line_1' => $order->billingAddress->address_line_1,
-                    'address_line_2' => $order->billingAddress->address_line_2,
-                    'city' => $order->billingAddress->city,
-                    'state' => $order->billingAddress->state,
-                    'pincode' => $order->billingAddress->pincode,
-                    'country' => $order->billingAddress->country,
+                    'address_line_1' => $order->billingAddress->billing_address_line_1,
+                    'address_line_2' => $order->billingAddress->billing_address_line_2,
+                    'city' => $order->billingAddress->billing_city,
+                    'state' => $order->billingAddress->billing_state,
+                    'pincode' => $order->billingAddress->billing_postcode,
+                    'country' => $order->billingAddress->billing_country,
                 ] : null,
 
                 'delivery_address' => $order->deliveryAddress ? [

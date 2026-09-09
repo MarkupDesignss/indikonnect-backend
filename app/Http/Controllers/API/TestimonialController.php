@@ -68,9 +68,9 @@ class TestimonialController extends Controller
         // Validation rules
         $validator = Validator::make($request->all(), [
             'video' => 'required|file|mimes:mp4,mov,avi,wmv|max:102400', // Max 100MB
-            'video_title' => 'required|string|max:255',
+            'video_title' => 'nullable|string|max:255',
             'person_name' => 'required|string|max:255',
-            'heading' => 'required|string|max:255',
+            'heading' => 'nullable|string|max:255',
             'rating' => 'required|numeric|min:0|max:10',
             'text' => 'required|string|min:10',
             'is_active' => 'sometimes|boolean',
