@@ -698,7 +698,7 @@ Route::prefix('testimonials')->group(function () {
     Route::patch('/{testimonial}/toggle-active', [TestimonialController::class, 'toggleActive']);
 });
 
-Route::prefix('admin')->middleware('admin')->group(function () {
+Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get(
         '/cancellation-requests',
         [CancellationApprovalController::class, 'getPendingRequests']
