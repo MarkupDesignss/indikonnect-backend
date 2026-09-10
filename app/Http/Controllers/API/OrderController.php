@@ -402,7 +402,7 @@ class OrderController extends Controller
                     throw new \Exception('Order not found.');
                 }
 
-                // Optional: only order owner can withdraw cancellation
+                // Only order owner can withdraw cancellation
                 if ($request->user() && $order->user_id !== $request->user()->id) {
                     throw new \Exception(
                         'You are not authorized to withdraw the cancellation.'
@@ -410,7 +410,7 @@ class OrderController extends Controller
                 }
 
                 // Get only cancel_pending order lines
-                $orderLines = $order->orderLines()
+                $orderLines = $order->lines()
                     ->where('delivery_status', 'cancel_pending')
                     ->lockForUpdate()
                     ->get();
@@ -421,7 +421,7 @@ class OrderController extends Controller
                     );
                 }
 
-                // Withdraw cancellation request
+                // Withdraw cancellation
                 $orderLines->each(function ($line) {
                     $line->update([
                         'delivery_status'           => 'confirmed',
@@ -447,18 +447,16 @@ class OrderController extends Controller
 
                     'order_lines' => $result['lines']->map(function ($line) {
                         return [
-                            'id'              => $line->id,
-                            'order_id'        => $line->order_id,
-                            'product_id'      => $line->product_id,
-                            'variant_id'      => $line->variant_id,
-                            'quantity'        => $line->quantity,
-                            'shipping_charge' => $line->shipping_charge,
-                            'delivery_status' => $line->delivery_status,
-                            'cancelled_at'    => $line->cancelled_at,
-                            'cancellation_requested_at'
-                            => $line->cancellation_requested_at,
-                            'cancellation_reason'
-                            => $line->cancellation_reason,
+                            'id'                          => $line->id,
+                            'order_id'                    => $line->order_id,
+                            'product_id'                  => $line->product_id,
+                            'variant_id'                  => $line->variant_id,
+                            'quantity'                    => $line->quantity,
+                            'shipping_charge'             => $line->shipping_charge,
+                            'delivery_status'             => $line->delivery_status,
+                            'cancelled_at'                => $line->cancelled_at,
+                            'cancellation_requested_at'   => $line->cancellation_requested_at,
+                            'cancellation_reason'         => $line->cancellation_reason,
                         ];
                     }),
                 ],
