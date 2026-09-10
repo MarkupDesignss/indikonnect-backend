@@ -165,38 +165,4 @@ class RazorpayWebhookController extends Controller
 
         throw new \Exception('No order reference or group ID provided');
     }
-
-    public function createOrderForGroup(
-        float $amount,
-        string $orderGroupId,
-        array $notes = []
-    ): array {
-        $amountInPaise = (int) round($amount * 100);
-
-        if ($amountInPaise <= 0) {
-            throw new \Exception('Invalid Razorpay order amount.');
-        }
-
-        $razorpay = new \Razorpay\Api\Api(
-            config('services.razorpay.key_id'),
-            config('services.razorpay.key_secret')
-        );
-
-        $razorpayOrder = $razorpay->order->create([
-            'amount' => $amountInPaise,
-            'currency' => 'INR',
-            'receipt' => $orderGroupId,
-            'notes' => $notes,
-        ]);
-
-        return [
-            'id' => $razorpayOrder['id'],
-            'entity' => $razorpayOrder['entity'] ?? 'order',
-            'amount' => $razorpayOrder['amount'],
-            'currency' => $razorpayOrder['currency'],
-            'status' => $razorpayOrder['status'] ?? 'created',
-            'receipt' => $razorpayOrder['receipt'] ?? $orderGroupId,
-            'notes' => $razorpayOrder['notes'] ?? $notes,
-        ];
-    }
 }
