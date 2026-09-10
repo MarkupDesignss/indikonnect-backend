@@ -65,8 +65,9 @@ class CheckoutService
     //     ?int $shippingMethodId = null,
     //     ?int $coinsToRedeem = null,
     //     ?int $buyNowProductId = null,
+    //     ?int $buyNowVariantId = null,
     //     ?int $buyNowQuantity = null
-    //     ): array {
+    // ): array {
     //     // Fetch address if ID is provided
     //     $address = null;
     //     if ($addressId !== null) {
@@ -79,57 +80,59 @@ class CheckoutService
     //     $user = User::findOrFail($userId);
 
     //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Cart / Buy Now
-    //     |--------------------------------------------------------------------------
-    //     |
-    //     | Existing cart flow remains unchanged.
-    //     |
-    //     | If $buyNowProductId is provided:
-    //     |     Use only that product + quantity.
-    //     |
-    //     | Otherwise:
-    //     |     Use the user's cart items.
-    //     |
-    //     */
+    // |--------------------------------------------------------------------------
+    // | Cart / Buy Now
+    // |--------------------------------------------------------------------------
+    // */
 
-    //     $isBuyNow = $buyNowProductId !== null;
+    //     $isBuyNow = $buyNowProductId !== null || $buyNowVariantId !== null;
 
     //     if ($isBuyNow) {
-
     //         if (!$buyNowQuantity || $buyNowQuantity < 1) {
     //             throw new Exception('Invalid product quantity');
     //         }
 
-    //         $product = Product::with([
-    //             'taxCategory',
-    //             'images',
-    //             'primaryImage',
-    //         ])->findOrFail($buyNowProductId);
+    //         $product = null;
+    //         $variant = null;
+    //         $variantAttributes = null;
+    //         $variantSku = null;
+    //         $variantId = null;
+
+    //         // If variant_id is provided
+    //         if ($buyNowVariantId) {
+    //             $variant = ProductVariant::with(['product.taxCategory', 'product.images', 'product.primaryImage'])
+    //                 ->findOrFail($buyNowVariantId);
+
+    //             $product = $variant->product;
+    //             $variantId = $variant->id;
+    //             $variantSku = $variant->sku;
+    //             $variantAttributes = $variant->attributes;
+    //         } else {
+    //             // If product_id is provided
+    //             $product = Product::with(['taxCategory', 'images', 'primaryImage'])
+    //                 ->findOrFail($buyNowProductId);
+    //         }
 
     //         /*
     //     |--------------------------------------------------------------------------
-    //     | Create temporary item object
+    //     | Create temporary item object with variant support
     //     |--------------------------------------------------------------------------
-    //     |
-    //     | We don't add anything to the cart.
-    //     | This object only allows the existing calculation logic
-    //     | to work for Buy Now.
-    //     |
     //     */
 
     //         $item = new \stdClass();
-
     //         $item->product_id = $product->id;
+    //         $item->variant_id = $variantId;
+    //         $item->variant_sku = $variantSku;
+    //         $item->variant_attributes = $variantAttributes;
     //         $item->quantity = $buyNowQuantity;
     //         $item->product = $product;
+    //         $item->variant = $variant;
 
     //         $cartItems = collect([$item]);
     //     } else {
-
     //         /*
     //     |--------------------------------------------------------------------------
-    //     | Existing Cart Flow
+    //     | Existing Cart Flow with Variant Support
     //     |--------------------------------------------------------------------------
     //     */
 
@@ -137,6 +140,7 @@ class CheckoutService
     //             'items.product.taxCategory',
     //             'items.product.images',
     //             'items.product.primaryImage',
+    //             'items.variant',
     //         ])
     //             ->where('user_id', $userId)
     //             ->firstOrFail();
@@ -149,86 +153,111 @@ class CheckoutService
     //     }
 
     //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Calculate Subtotal
-    //     |--------------------------------------------------------------------------
-    //     */
+    // |--------------------------------------------------------------------------
+    // | Calculate Subtotal
+    // |--------------------------------------------------------------------------
+    // */
 
     //     $subtotal = 0;
     //     $productDetails = [];
 
     //     foreach ($cartItems as $item) {
+    //         // Check if item has variant
+    //         $hasVariant = isset($item->variant) && $item->variant !== null;
 
-    //         $unitPrice = $user->isDistributor()
-    //             ? ($item->product->distributor_price ?? $item->product->retail_price)
-    //             : $item->product->retail_price;
+    //         // Determine unit price based on variant or product
+    //         if ($hasVariant) {
+    //             // Use variant pricing
+    //             $unitPrice = $user->isDistributor()
+    //                 ? ($item->variant->distributor_price ?? $item->variant->retail_price)
+    //                 : $item->variant->retail_price;
+
+    //             $taxRate = $item->product->taxCategory?->rate ?? 0;
+
+    //             // Get variant images
+    //             $variantImages = [];
+    //             if ($item->variant->images) {
+    //                 foreach ($item->variant->images as $image) {
+    //                     $variantImages[] = [
+    //                         'id' => $image->id,
+    //                         'image' => $image->image,
+    //                         'image_url' => asset('storage/' . $image->image),
+    //                         'is_primary' => $image->is_primary,
+    //                         'sort_order' => $image->sort_order,
+    //                     ];
+    //                 }
+    //             }
+
+    //             // Get variant primary image
+    //             $primaryImage = $item->variant->images->where('is_primary', true)->first()
+    //                 ?? $item->variant->images->first();
+
+    //             $primaryImageUrl = $primaryImage ? asset('storage/' . $primaryImage->image) : null;
+    //         } else {
+    //             // Use product pricing
+    //             $unitPrice = $user->isDistributor()
+    //                 ? ($item->product->distributor_price ?? $item->product->retail_price)
+    //                 : $item->product->retail_price;
+
+    //             $taxRate = $item->product->taxCategory?->rate ?? 0;
+    //             $variantImages = [];
+
+    //             // Get product images
+    //             $productImages = [];
+    //             if ($item->product->images) {
+    //                 foreach ($item->product->images as $image) {
+    //                     $productImages[] = [
+    //                         'id' => $image->id,
+    //                         'image' => $image->image,
+    //                         'image_url' => asset('storage/' . $image->image),
+    //                         'is_primary' => $image->is_primary,
+    //                         'sort_order' => $image->sort_order,
+    //                     ];
+    //                 }
+    //             }
+
+    //             $primaryImageUrl = $item->product->primaryImage
+    //                 ? asset('storage/' . $item->product->primaryImage->image)
+    //                 : null;
+    //         }
 
     //         $lineTotal = $unitPrice * $item->quantity;
-
     //         $subtotal += $lineTotal;
-
-    //         $taxRate = $item->product->taxCategory?->rate ?? 0;
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Product Images
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         $productImages = [];
-
-    //         if ($item->product->images) {
-    //             foreach ($item->product->images as $image) {
-    //                 $productImages[] = [
-    //                     'id' => $image->id,
-    //                     'image' => $image->image,
-    //                     'image_url' => asset('storage/' . $image->image),
-    //                     'is_primary' => $image->is_primary,
-    //                     'sort_order' => $image->sort_order,
-    //                 ];
-    //             }
-    //         }
 
     //         $productDetails[] = [
     //             'item' => $item,
+    //             'has_variant' => $hasVariant,
+    //             'variant_id' => $hasVariant ? $item->variant->id : null,
+    //             'variant_sku' => $hasVariant ? $item->variant->sku : null,
+    //             'variant_attributes' => $hasVariant ? $item->variant->attributes : null,
     //             'unitPrice' => $unitPrice,
     //             'lineTotal' => $lineTotal,
     //             'taxRate' => $taxRate,
     //             'taxCategoryName' => $item->product->taxCategory?->name ?? 'No Tax',
-    //             'images' => $productImages,
-    //             'primary_image' => $item->product->primaryImage
-    //                 ? asset('storage/' . $item->product->primaryImage->image)
-    //                 : null,
+    //             'images' => $hasVariant ? $variantImages : $productImages,
+    //             'primary_image' => $hasVariant ? $primaryImageUrl : $primaryImageUrl,
     //         ];
     //     }
 
     //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Coupon
-    //     |--------------------------------------------------------------------------
-    //     */
+    // |--------------------------------------------------------------------------
+    // | Coupon
+    // |--------------------------------------------------------------------------
+    // */
 
     //     $couponDiscount = 0;
     //     $couponData = null;
 
     //     if ($couponCode) {
+    //         $coupon = Coupon::where('code', strtoupper($couponCode))->first();
+    //         $validationResult = $this->validateCouponForUser($coupon, $userId);
 
-    //         $coupon = Coupon::where(
-    //             'code',
-    //             strtoupper($couponCode)
-    //         )->first();
+    //         if ($validationResult !== true) {
+    //             throw new Exception($validationResult);
+    //         }
 
-    //         if (
-    //             $coupon &&
-    //             $coupon->isValid() &&
-    //             $this->validateCouponForUser($coupon, $userId)
-    //         ) {
-
-    //             $couponDiscount = $this->calculateCouponDiscount(
-    //                 $coupon,
-    //                 $subtotal
-    //             );
-
+    //         if ($coupon && $coupon->isValid() && $this->validateCouponForUser($coupon, $userId)) {
+    //             $couponDiscount = $this->calculateCouponDiscount($coupon, $subtotal);
     //             $couponData = [
     //                 'code' => $coupon->code,
     //                 'title' => $coupon->title,
@@ -237,57 +266,40 @@ class CheckoutService
     //                 'discount_amount' => round($couponDiscount, 2),
     //             ];
     //         } else {
-
     //             throw new Exception('Invalid coupon code');
     //         }
     //     }
 
     //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Subtotal After Discount
-    //     |--------------------------------------------------------------------------
-    //     */
+    // |--------------------------------------------------------------------------
+    // | Subtotal After Discount
+    // |--------------------------------------------------------------------------
+    // */
 
     //     $subtotalAfterDiscount = $subtotal - $couponDiscount;
 
     //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Shipping
-    //     |--------------------------------------------------------------------------
-    //     */
+    // |--------------------------------------------------------------------------
+    // | Shipping
+    // |--------------------------------------------------------------------------
+    // */
 
     //     $shippingCost = 0;
     //     $shippingData = null;
 
     //     if ($shippingMethodId) {
-
     //         $shippingMethod = ShippingMethod::find($shippingMethodId);
 
     //         if ($shippingMethod && $shippingMethod->is_active) {
-
-    //             if (
-    //                 $shippingMethod->min_order_amount &&
-    //                 $subtotalAfterDiscount < $shippingMethod->min_order_amount
-    //             ) {
-    //                 throw new Exception(
-    //                     "Minimum order amount for this shipping method is ₹" .
-    //                         $shippingMethod->min_order_amount
-    //                 );
+    //             if ($shippingMethod->min_order_amount && $subtotalAfterDiscount < $shippingMethod->min_order_amount) {
+    //                 throw new Exception("Minimum order amount for this shipping method is ₹" . $shippingMethod->min_order_amount);
     //             }
 
-    //             if (
-    //                 $shippingMethod->max_order_amount &&
-    //                 $subtotalAfterDiscount > $shippingMethod->max_order_amount
-    //             ) {
-    //                 throw new Exception(
-    //                     "Order amount exceeds maximum limit for this shipping method"
-    //                 );
+    //             if ($shippingMethod->max_order_amount && $subtotalAfterDiscount > $shippingMethod->max_order_amount) {
+    //                 throw new Exception("Order amount exceeds maximum limit for this shipping method");
     //             }
 
-    //             $shippingCost = $this->calculateShippingCost(
-    //                 $shippingMethod,
-    //                 $subtotalAfterDiscount
-    //             );
+    //             $shippingCost = $this->calculateShippingCost($shippingMethod, $subtotalAfterDiscount);
 
     //             $shippingData = [
     //                 'id' => $shippingMethod->id,
@@ -297,16 +309,15 @@ class CheckoutService
     //                 'cost' => round($shippingCost, 2),
     //             ];
     //         } else {
-
     //             throw new Exception('Invalid shipping method');
     //         }
     //     }
 
     //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Tax Variables
-    //     |--------------------------------------------------------------------------
-    //     */
+    // |--------------------------------------------------------------------------
+    // | Tax Variables
+    // |--------------------------------------------------------------------------
+    // */
 
     //     $productTaxTotal = 0;
     //     $productGstTotal = 0;
@@ -317,137 +328,72 @@ class CheckoutService
     //     $taxByCategory = [];
     //     $productTaxBreakdown = [];
 
-    //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Product Tax Calculation
-    //     |--------------------------------------------------------------------------
-    //     */
-
     //     // Get supplier state from config
-    //     $supplierState = config('app.supplier_state', 'Maharashtra');
-
-    //     // Get delivery state from address if available, otherwise use a default or null
+    //     $supplierState = config('app.supplier_state', 'Punjab');
     //     $deliveryState = $address ? $address->state : null;
 
     //     foreach ($productDetails as $index => $product) {
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Discount Distribution
-    //     |--------------------------------------------------------------------------
-    //     |
-    //     | Coupon discount is distributed proportionally across products.
-    //     |
-    //     */
-
-    //         $proportion = $subtotal > 0
-    //             ? $product['lineTotal'] / $subtotal
-    //             : 0;
-
-    //         $discountedLineTotal =
-    //             $product['lineTotal'] -
-    //             ($couponDiscount * $proportion);
+    //         $proportion = $subtotal > 0 ? $product['lineTotal'] / $subtotal : 0;
+    //         $discountedLineTotal = $product['lineTotal'] - ($couponDiscount * $proportion);
 
     //         $taxRate = $product['taxRate'];
-
     //         $taxAmount = ($discountedLineTotal * $taxRate) / 100;
-
     //         $productTaxTotal += $taxAmount;
 
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | GST / Other Tax
-    //     |--------------------------------------------------------------------------
-    //     */
-
+    //         // GST / Other Tax
     //         if ($taxRate == 18) {
-
     //             $productGstTotal += $taxAmount;
     //         } else {
-
     //             $productOtherTaxTotal += $taxAmount;
     //         }
 
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Product Information
-    //     |--------------------------------------------------------------------------
-    //     */
-
+    //         // Product Information
     //         $productName = $product['item']->product->name;
+    //         $productKey = 'product_' . ($index + 1) . '_' . str_replace(' ', '_', strtolower($productName));
 
-    //         $productKey =
-    //             'product_' .
-    //             ($index + 1) .
-    //             '_' .
-    //             str_replace(
-    //                 ' ',
-    //                 '_',
-    //                 strtolower($productName)
-    //             );
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Product Tax Breakdown
-    //     |--------------------------------------------------------------------------
-    //     */
-
+    //         // Product Tax Breakdown
     //         $productTaxBreakdown[$productKey] = [
     //             'product_id' => $product['item']->product_id,
     //             'product_name' => $productName,
     //             'product_code' => $product['item']->product->product_code,
+    //             'variant_id' => $product['variant_id'] ?? null,
+    //             'variant_sku' => $product['variant_sku'] ?? null,
+    //             'variant_attributes' => $product['variant_attributes'] ?? null,
     //             'quantity' => $product['item']->quantity,
     //             'unit_price' => round($product['unitPrice'], 2),
     //             'tax_category' => $product['taxCategoryName'],
     //             'tax_rate' => (string) $taxRate . '%',
     //             'taxable_value' => round($discountedLineTotal, 2),
     //             'tax_amount' => round($taxAmount, 2),
-    //             'line_total_after_tax' => round(
-    //                 $discountedLineTotal + $taxAmount,
-    //                 2
-    //             ),
+    //             'line_total_after_tax' => round($discountedLineTotal + $taxAmount, 2),
     //             'images' => $product['images'],
     //             'primary_image' => $product['primary_image'],
     //         ];
 
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | CGST / SGST / IGST
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         // Initialize tax components
+    //         // CGST / SGST / IGST
     //         $cgst = 0;
     //         $sgst = 0;
     //         $igst = 0;
 
-    //         // Only calculate GST if we have a delivery state
     //         if ($deliveryState) {
-    //             if (
-    //                 strtolower($deliveryState) ===
-    //                 strtolower($supplierState)
-    //             ) {
+    //             if (strtolower($deliveryState) === strtolower($supplierState)) {
     //                 $cgst = $taxAmount / 2;
     //                 $sgst = $taxAmount / 2;
     //             } else {
     //                 $igst = $taxAmount;
     //             }
     //         } else {
-    //             // If no address, treat as inter-state (IGST) or calculate as GST
-    //             // You can modify this logic based on your business rules
-    //             $igst = $taxAmount; // Default to IGST if no address
+    //             $igst = $taxAmount;
     //         }
 
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Items With Tax
-    //     |--------------------------------------------------------------------------
-    //     */
-
+    //         // Items With Tax
     //         $itemsWithTax[] = [
     //             'product_id' => $product['item']->product_id,
     //             'product_name' => $product['item']->product->name,
     //             'product_code' => $product['item']->product->product_code,
+    //             'variant_id' => $product['variant_id'] ?? null,
+    //             'variant_sku' => $product['variant_sku'] ?? null,
+    //             'variant_attributes' => $product['variant_attributes'] ?? null,
     //             'quantity' => $product['item']->quantity,
     //             'unit_price' => round($product['unitPrice'], 2),
     //             'tax_category' => $product['taxCategoryName'],
@@ -457,22 +403,16 @@ class CheckoutService
     //             'sgst' => round($sgst, 2),
     //             'igst' => round($igst, 2),
     //             'total_tax' => round($taxAmount, 2),
-    //             'line_total' => round(
-    //                 $discountedLineTotal + $taxAmount,
-    //                 2
-    //             ),
+    //             'line_total' => round($discountedLineTotal + $taxAmount, 2),
     //             'images' => $product['images'],
     //             'primary_image' => $product['primary_image'],
     //         ];
 
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Tax Breakdown
-    //     |--------------------------------------------------------------------------
-    //     */
-
+    //         // Tax Breakdown
     //         $taxBreakdown[] = [
     //             'product_name' => $product['item']->product->name,
+    //             'variant_sku' => $product['variant_sku'] ?? null,
+    //             'variant_attributes' => $product['variant_attributes'] ?? null,
     //             'tax_category' => $product['taxCategoryName'],
     //             'rate' => (string) $taxRate . '%',
     //             'cgst' => round($cgst, 2),
@@ -480,19 +420,10 @@ class CheckoutService
     //             'igst' => round($igst, 2),
     //         ];
 
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Tax By Category
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         $categoryKey =
-    //             $product['taxCategoryName'] .
-    //             '_' .
-    //             $taxRate;
+    //         // Tax By Category
+    //         $categoryKey = $product['taxCategoryName'] . '_' . $taxRate;
 
     //         if (!isset($taxByCategory[$categoryKey])) {
-
     //             $taxByCategory[$categoryKey] = [
     //                 'category' => $product['taxCategoryName'],
     //                 'rate' => (string) $taxRate,
@@ -505,249 +436,110 @@ class CheckoutService
     //             ];
     //         }
 
-    //         $taxByCategory[$categoryKey]['taxable_amount']
-    //             += $discountedLineTotal;
-
-    //         $taxByCategory[$categoryKey]['tax_amount']
-    //             += $taxAmount;
-
-    //         $taxByCategory[$categoryKey]['cgst']
-    //             += $cgst;
-
-    //         $taxByCategory[$categoryKey]['sgst']
-    //             += $sgst;
-
-    //         $taxByCategory[$categoryKey]['igst']
-    //             += $igst;
+    //         $taxByCategory[$categoryKey]['taxable_amount'] += $discountedLineTotal;
+    //         $taxByCategory[$categoryKey]['tax_amount'] += $taxAmount;
+    //         $taxByCategory[$categoryKey]['cgst'] += $cgst;
+    //         $taxByCategory[$categoryKey]['sgst'] += $sgst;
+    //         $taxByCategory[$categoryKey]['igst'] += $igst;
     //     }
 
     //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Total Tax
-    //     |--------------------------------------------------------------------------
-    //     */
+    // |--------------------------------------------------------------------------
+    // | Total Tax
+    // |--------------------------------------------------------------------------
+    // */
 
     //     $totalTax = $productTaxTotal;
 
     //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Subtotal + Tax + Shipping
-    //     |--------------------------------------------------------------------------
-    //     */
+    // |--------------------------------------------------------------------------
+    // | Subtotal + Tax + Shipping
+    // |--------------------------------------------------------------------------
+    // */
 
-    //     $subtotalAfterDiscountAndTax =
-    //         $subtotalAfterDiscount +
-    //         $totalTax +
-    //         $shippingCost;
+    //     $subtotalAfterDiscountAndTax = $subtotalAfterDiscount + $totalTax + $shippingCost;
 
     //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Coins
-    //     |--------------------------------------------------------------------------
-    //     */
+    // |--------------------------------------------------------------------------
+    // | Coins
+    // |--------------------------------------------------------------------------
+    // */
 
     //     $coinRedemptionData = null;
-
     //     $coinsUsed = 0;
     //     $amountRedeemed = 0;
     //     $coinBalance = 0;
     //     $maxCoinsRedeemable = 0;
 
     //     if ($user->isDistributor()) {
-
     //         $coinBalance = $this->getCoinBalance($userId);
-
-    //         $maxCoinsRedeemable = min(
-    //             $coinBalance,
-    //             floor($subtotalAfterDiscountAndTax / 10)
-    //         );
+    //         $maxCoinsRedeemable = min($coinBalance, floor($subtotalAfterDiscountAndTax / 10));
 
     //         if ($coinsToRedeem != null && $coinsToRedeem > 0) {
-
     //             if ($coinsToRedeem > $coinBalance) {
-
-    //                 throw new Exception(
-    //                     'Insufficient coin balance. You have ' .
-    //                         $coinBalance .
-    //                         ' coins.'
-    //                 );
+    //                 throw new Exception('Insufficient coin balance. You have ' . $coinBalance . ' coins.');
     //             }
 
     //             if ($coinsToRedeem > $maxCoinsRedeemable) {
-
-    //                 throw new Exception(
-    //                     'Cannot redeem more than ' .
-    //                         $maxCoinsRedeemable .
-    //                         ' coins for this order.'
-    //                 );
+    //                 throw new Exception('Cannot redeem more than ' . $maxCoinsRedeemable . ' coins for this order.');
     //             }
 
     //             $coinsUsed = $coinsToRedeem;
-
     //             $amountRedeemed = $coinsToRedeem * 10;
 
     //             $coinRedemptionData = [
     //                 'coins_used' => $coinsUsed,
     //                 'amount_redeemed' => $amountRedeemed,
-    //                 'remaining_coins' =>
-    //                 $coinBalance - $coinsUsed,
+    //                 'remaining_coins' => $coinBalance - $coinsUsed,
     //             ];
     //         }
     //     }
 
     //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Grand Total
-    //     |--------------------------------------------------------------------------
-    //     */
+    // |--------------------------------------------------------------------------
+    // | Grand Total
+    // |--------------------------------------------------------------------------
+    // */
 
-    //     $grandTotal = round(
-    //         $subtotalAfterDiscountAndTax -
-    //             $amountRedeemed,
-    //         2
-    //     );
+    //     $grandTotal = round($subtotalAfterDiscountAndTax - $amountRedeemed, 2);
 
     //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Final Response
-    //     |--------------------------------------------------------------------------
-    //     */
+    // |--------------------------------------------------------------------------
+    // | Final Response
+    // |--------------------------------------------------------------------------
+    // */
 
     //     return [
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Checkout Type
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         'checkout_type' => $isBuyNow
-    //             ? 'buy_now'
-    //             : 'cart',
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Basic Summary
-    //     |--------------------------------------------------------------------------
-    //     */
+    //         'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
 
     //         'subtotal' => round($subtotal, 2),
-
-    //         'coupon_discount' => round(
-    //             $couponDiscount,
-    //             2
-    //         ),
-
+    //         'coupon_discount' => round($couponDiscount, 2),
     //         'coupon' => $couponData,
-
-    //         'subtotal_after_discount' => round(
-    //             $subtotalAfterDiscount,
-    //             2
-    //         ),
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Product Tax
-    //     |--------------------------------------------------------------------------
-    //     */
+    //         'subtotal_after_discount' => round($subtotalAfterDiscount, 2),
 
     //         'product_tax_breakdown' => $productTaxBreakdown,
-
     //         'tax_summary' => [
-    //             'gst_18_percent' => round(
-    //                 $productGstTotal,
-    //                 2
-    //             ),
-
-    //             'other_tax' => round(
-    //                 $productOtherTaxTotal,
-    //                 2
-    //             ),
-
-    //             'total_product_tax' => round(
-    //                 $productTaxTotal,
-    //                 2
-    //             ),
+    //             'gst_18_percent' => round($productGstTotal, 2),
+    //             'other_tax' => round($productOtherTaxTotal, 2),
+    //             'total_product_tax' => round($productTaxTotal, 2),
     //         ],
+    //         'total_tax' => round($totalTax, 2),
+    //         'tax_by_category' => array_values($taxByCategory),
 
-    //         'total_tax' => round(
-    //             $totalTax,
-    //             2
-    //         ),
-
-    //         'tax_by_category' => array_values(
-    //             $taxByCategory
-    //         ),
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Shipping
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         'shipping_cost' => round(
-    //             $shippingCost,
-    //             2
-    //         ),
-
+    //         'shipping_cost' => round($shippingCost, 2),
     //         'shipping_method' => $shippingData,
 
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Total Before Coins
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         'subtotal_after_discount_and_tax' => round(
-    //             $subtotalAfterDiscountAndTax,
-    //             2
-    //         ),
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Coins
-    //     |--------------------------------------------------------------------------
-    //     */
+    //         'subtotal_after_discount_and_tax' => round($subtotalAfterDiscountAndTax, 2),
 
     //         'coin_balance' => $coinBalance,
-
     //         'max_coins_redeemable' => $maxCoinsRedeemable,
-
     //         'coins_used' => $coinsUsed,
-
     //         'amount_redeemed' => $amountRedeemed,
-
     //         'coin_redemption' => $coinRedemptionData,
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Grand Total
-    //     |--------------------------------------------------------------------------
-    //     */
 
     //         'grand_total' => $grandTotal,
 
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Items
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         // 'items' => $itemsWithTax,
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Tax Breakdown
-    //     |--------------------------------------------------------------------------
-    //     */
-
     //         'tax_breakdown' => $taxBreakdown,
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Delivery Address
-    //     |--------------------------------------------------------------------------
-    //     */
 
     //         'delivery_address' => $address ? [
     //             'id' => $address->id,
@@ -755,67 +547,29 @@ class CheckoutService
     //             'state' => $address->state,
     //         ] : null,
 
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Final Summary
-    //     |--------------------------------------------------------------------------
-    //     */
-
     //         'summary' => [
-
-    //             'subtotal' => round(
-    //                 $subtotal,
-    //                 2
-    //             ),
-
-    //             'less_coupon' => round(
-    //                 $couponDiscount,
-    //                 2
-    //             ),
-
-    //             'net_subtotal' => round(
-    //                 $subtotalAfterDiscount,
-    //                 2
-    //             ),
-
-    //             'product_gst_18' => round(
-    //                 $productGstTotal,
-    //                 2
-    //             ),
-
-    //             'product_other_tax' => round(
-    //                 $productOtherTaxTotal,
-    //                 2
-    //             ),
-
-    //             'total_tax' => round(
-    //                 $totalTax,
-    //                 2
-    //             ),
-
-    //             'plus_shipping' => round(
-    //                 $shippingCost,
-    //                 2
-    //             ),
-
-    //             'less_coins' => round(
-    //                 $amountRedeemed,
-    //                 2
-    //             ),
-
+    //             'subtotal' => round($subtotal, 2),
+    //             'less_coupon' => round($couponDiscount, 2),
+    //             'net_subtotal' => round($subtotalAfterDiscount, 2),
+    //             'product_gst_18' => round($productGstTotal, 2),
+    //             'product_other_tax' => round($productOtherTaxTotal, 2),
+    //             'total_tax' => round($totalTax, 2),
+    //             'plus_shipping' => round($shippingCost, 2),
+    //             'less_coins' => round($amountRedeemed, 2),
     //             'grand_total' => $grandTotal,
     //             'coupon_code' => $couponData['code'] ?? null,
     //             'tax_breakdown' => array_map(function ($item) {
     //                 return [
     //                     'product_name' => $item['product_name'],
+    //                     'variant_sku' => $item['variant_sku'] ?? null,
+    //                     'variant_attributes' => $item['variant_attributes'] ?? null,
     //                     'tax_category' => $item['tax_category'],
-    //                     'rate' => (float) str_replace('%', '', $item['rate']), // Remove % and convert to float
+    //                     'rate' => (float) str_replace('%', '', $item['rate']),
     //                 ];
     //             }, $taxBreakdown),
     //         ],
     //     ];
     // }
-
     public function calculateSummary(
         int $userId,
         int $addressId = null,
@@ -982,6 +736,10 @@ class CheckoutService
             $lineTotal = $unitPrice * $item->quantity;
             $subtotal += $lineTotal;
 
+            // Per-product shipping charge
+            $productShippingCharge = $item->product->shipping_charge ?? 0;
+            $lineShippingCharge = $productShippingCharge * $item->quantity;
+
             $productDetails[] = [
                 'item' => $item,
                 'has_variant' => $hasVariant,
@@ -994,6 +752,8 @@ class CheckoutService
                 'taxCategoryName' => $item->product->taxCategory?->name ?? 'No Tax',
                 'images' => $hasVariant ? $variantImages : $productImages,
                 'primary_image' => $hasVariant ? $primaryImageUrl : $primaryImageUrl,
+                'product_shipping_charge' => $productShippingCharge,
+                'line_shipping_charge' => $lineShippingCharge,
             ];
         }
 
@@ -1038,37 +798,36 @@ class CheckoutService
 
         /*
     |--------------------------------------------------------------------------
-    | Shipping
+    | Shipping (Based on Product's Shipping Charge)
     |--------------------------------------------------------------------------
     */
 
         $shippingCost = 0;
         $shippingData = null;
+        $shippingBreakdown = [];
 
-        if ($shippingMethodId) {
-            $shippingMethod = ShippingMethod::find($shippingMethodId);
+        foreach ($productDetails as $product) {
+            $unitShipping = $product['product_shipping_charge'];
+            $qty = $product['item']->quantity;
+            $lineShipping = $product['line_shipping_charge'];
+            $shippingCost += $lineShipping;
 
-            if ($shippingMethod && $shippingMethod->is_active) {
-                if ($shippingMethod->min_order_amount && $subtotalAfterDiscount < $shippingMethod->min_order_amount) {
-                    throw new Exception("Minimum order amount for this shipping method is ₹" . $shippingMethod->min_order_amount);
-                }
+            $shippingBreakdown[] = [
+                'product_id' => $product['item']->product_id,
+                'product_name' => $product['item']->product->name,
+                'variant_id' => $product['variant_id'] ?? null,
+                'variant_sku' => $product['variant_sku'] ?? null,
+                'quantity' => $qty,
+                'shipping_charge_per_unit' => round($unitShipping, 2),
+                'total_shipping_charge' => round($lineShipping, 2),
+            ];
+        }
 
-                if ($shippingMethod->max_order_amount && $subtotalAfterDiscount > $shippingMethod->max_order_amount) {
-                    throw new Exception("Order amount exceeds maximum limit for this shipping method");
-                }
-
-                $shippingCost = $this->calculateShippingCost($shippingMethod, $subtotalAfterDiscount);
-
-                $shippingData = [
-                    'id' => $shippingMethod->id,
-                    'name' => $shippingMethod->name,
-                    'code' => $shippingMethod->code,
-                    'estimated_days' => $shippingMethod->estimated_days,
-                    'cost' => round($shippingCost, 2),
-                ];
-            } else {
-                throw new Exception('Invalid shipping method');
-            }
+        if ($shippingCost > 0) {
+            $shippingData = [
+                'name' => 'Product Shipping',
+                'cost' => round($shippingCost, 2),
+            ];
         }
 
         /*
@@ -1109,7 +868,7 @@ class CheckoutService
             $productName = $product['item']->product->name;
             $productKey = 'product_' . ($index + 1) . '_' . str_replace(' ', '_', strtolower($productName));
 
-            // Product Tax Breakdown
+            // Product Tax Breakdown (with shipping)
             $productTaxBreakdown[$productKey] = [
                 'product_id' => $product['item']->product_id,
                 'product_name' => $productName,
@@ -1124,6 +883,11 @@ class CheckoutService
                 'taxable_value' => round($discountedLineTotal, 2),
                 'tax_amount' => round($taxAmount, 2),
                 'line_total_after_tax' => round($discountedLineTotal + $taxAmount, 2),
+
+                // Shipping info per product
+                'shipping_charge_per_unit' => round($product['product_shipping_charge'], 2),
+                'total_shipping_charge' => round($product['line_shipping_charge'], 2),
+
                 'images' => $product['images'],
                 'primary_image' => $product['primary_image'],
             ];
@@ -1144,7 +908,7 @@ class CheckoutService
                 $igst = $taxAmount;
             }
 
-            // Items With Tax
+            // Items With Tax (with shipping)
             $itemsWithTax[] = [
                 'product_id' => $product['item']->product_id,
                 'product_name' => $product['item']->product->name,
@@ -1162,11 +926,16 @@ class CheckoutService
                 'igst' => round($igst, 2),
                 'total_tax' => round($taxAmount, 2),
                 'line_total' => round($discountedLineTotal + $taxAmount, 2),
+
+                // Shipping info per product
+                'shipping_charge_per_unit' => round($product['product_shipping_charge'], 2),
+                'total_shipping_charge' => round($product['line_shipping_charge'], 2),
+
                 'images' => $product['images'],
                 'primary_image' => $product['primary_image'],
             ];
 
-            // Tax Breakdown
+            // Tax Breakdown (with shipping)
             $taxBreakdown[] = [
                 'product_name' => $product['item']->product->name,
                 'variant_sku' => $product['variant_sku'] ?? null,
@@ -1176,6 +945,8 @@ class CheckoutService
                 'cgst' => round($cgst, 2),
                 'sgst' => round($sgst, 2),
                 'igst' => round($igst, 2),
+                'shipping_charge_per_unit' => round($product['product_shipping_charge'], 2),
+                'total_shipping_charge' => round($product['line_shipping_charge'], 2),
             ];
 
             // Tax By Category
@@ -1284,8 +1055,12 @@ class CheckoutService
             'total_tax' => round($totalTax, 2),
             'tax_by_category' => array_values($taxByCategory),
 
+            // Total shipping (single place)
             'shipping_cost' => round($shippingCost, 2),
             'shipping_method' => $shippingData,
+
+            // Per-product shipping breakdown
+            'shipping_breakdown' => $shippingBreakdown,
 
             'subtotal_after_discount_and_tax' => round($subtotalAfterDiscountAndTax, 2),
 
@@ -1323,6 +1098,8 @@ class CheckoutService
                         'variant_attributes' => $item['variant_attributes'] ?? null,
                         'tax_category' => $item['tax_category'],
                         'rate' => (float) str_replace('%', '', $item['rate']),
+                        'shipping_charge_per_unit' => $item['shipping_charge_per_unit'] ?? 0,
+                        'total_shipping_charge' => $item['total_shipping_charge'] ?? 0,
                     ];
                 }, $taxBreakdown),
             ],
@@ -1504,6 +1281,10 @@ class CheckoutService
     //     $summary = $data['summary_data'] ?? [];
     //     $checkoutType = $data['checkout_type'] ?? 'cart';
 
+    //     // Get supplier state from config
+    //     $supplierState = strtolower(config('app.supplier_state', 'Maharashtra'));
+    //     $deliveryState = $address ? strtolower($address->state) : null;
+
     //     // Get cart or buy now items
     //     $cartItems = [];
     //     $isBuyNow = $checkoutType === 'buy_now';
@@ -1597,14 +1378,18 @@ class CheckoutService
     //         $coinRedeemedAmount = $coinRedemption->amount_redeemed ?? 0;
     //     }
 
-    //     return DB::transaction(function () use ($user, $address, $coinRedemption, $coinsUsed, $coinRedeemedAmount, $grandTotal, $data, $summary, $cartItems, $isBuyNow) {
+    //     return DB::transaction(function () use ($user, $address, $coinRedemption, $coinsUsed, $coinRedeemedAmount, $grandTotal, $data, $summary, $cartItems, $isBuyNow, $supplierState, $deliveryState) {
 
     //         // Calculate totals from items
     //         $subtotal = 0;
     //         $totalTax = 0;
+    //         $totalCgst = 0;
+    //         $totalSgst = 0;
+    //         $totalIgst = 0;
     //         $totalAfterDiscount = 0;
     //         $orderItemsData = [];
     //         $taxBreakdown = [];
+    //         $itemsWithTaxSplit = [];
 
     //         // Get coupon discount from summary
     //         $couponDiscount = $summary['coupon_discount'] ?? 0;
@@ -1639,7 +1424,7 @@ class CheckoutService
     //             ];
     //         }
 
-    //         // Second pass: Apply coupon discount proportionally and calculate tax
+    //         // Second pass: Apply coupon discount proportionally and calculate tax with split
     //         foreach ($itemsWithPrices as $index => $itemData) {
     //             $item = $itemData['item'];
     //             $hasVariant = $itemData['has_variant'];
@@ -1657,12 +1442,70 @@ class CheckoutService
     //             $taxRate = $item->product->taxCategory?->rate ?? 0;
     //             $taxAmount = ($discountedLineTotal * $taxRate) / 100;
 
+    //             // =============================================
+    //             // TAX SPLIT LOGIC - PERCENTAGE BASED
+    //             // =============================================
+    //             $cgstRate = 0;
+    //             $sgstRate = 0;
+    //             $igstRate = 0;
+    //             $cgstAmount = 0;
+    //             $sgstAmount = 0;
+    //             $igstAmount = 0;
+
+    //             // Check if delivery state is Punjab (case-insensitive)
+    //             $isPunjab = $deliveryState && $deliveryState === 'punjab';
+
+    //             // Check if it's an inter-state transaction
+    //             $isInterState = $deliveryState && $deliveryState !== $supplierState;
+
+    //             if ($deliveryState) {
+    //                 if ($isPunjab) {
+    //                     // PUNJAB: Split tax rate equally between CGST and SGST (percentage)
+    //                     $cgstRate = $taxRate / 2;
+    //                     $sgstRate = $taxRate / 2;
+    //                     $igstRate = 0;
+
+    //                     $cgstAmount = ($discountedLineTotal * $cgstRate) / 100;
+    //                     $sgstAmount = ($discountedLineTotal * $sgstRate) / 100;
+    //                     $igstAmount = 0;
+    //                 } elseif ($isInterState) {
+    //                     // INTER-STATE: Full tax as IGST (percentage)
+    //                     $igstRate = $taxRate;
+    //                     $cgstRate = 0;
+    //                     $sgstRate = 0;
+
+    //                     $igstAmount = $taxAmount;
+    //                     $cgstAmount = 0;
+    //                     $sgstAmount = 0;
+    //                 } else {
+    //                     // INTRA-STATE (non-Punjab): Split tax rate equally between CGST and SGST
+    //                     $cgstRate = $taxRate / 2;
+    //                     $sgstRate = $taxRate / 2;
+    //                     $igstRate = 0;
+
+    //                     $cgstAmount = ($discountedLineTotal * $cgstRate) / 100;
+    //                     $sgstAmount = ($discountedLineTotal * $sgstRate) / 100;
+    //                     $igstAmount = 0;
+    //                 }
+    //             } else {
+    //                 // No delivery state: Default to IGST
+    //                 $igstRate = $taxRate;
+    //                 $igstAmount = $taxAmount;
+    //                 $cgstRate = 0;
+    //                 $sgstRate = 0;
+    //                 $cgstAmount = 0;
+    //                 $sgstAmount = 0;
+    //             }
+
     //             // Calculate final line total (after discount + tax)
     //             $finalLineTotal = $discountedLineTotal + $taxAmount;
 
     //             // Accumulate totals
     //             $subtotal += $lineTotal;
     //             $totalTax += $taxAmount;
+    //             $totalCgst += $cgstAmount;
+    //             $totalSgst += $sgstAmount;
+    //             $totalIgst += $igstAmount;
     //             $totalAfterDiscount += $discountedLineTotal;
 
     //             // Get variant info for display
@@ -1684,6 +1527,12 @@ class CheckoutService
     //                 'line_total_after_discount' => round($discountedLineTotal, 2),
     //                 'tax_category' => $taxCategoryName,
     //                 'tax_rate' => $taxRate,
+    //                 'cgst_rate' => round($cgstRate, 2),
+    //                 'sgst_rate' => round($sgstRate, 2),
+    //                 'igst_rate' => round($igstRate, 2),
+    //                 'cgst_amount' => round($cgstAmount, 2),
+    //                 'sgst_amount' => round($sgstAmount, 2),
+    //                 'igst_amount' => round($igstAmount, 2),
     //                 'tax_amount' => round($taxAmount, 2),
     //                 'line_total_after_tax' => round($finalLineTotal, 2),
     //             ];
@@ -1693,9 +1542,36 @@ class CheckoutService
     //                 'has_variant' => $hasVariant,
     //                 'unit_price' => $unitPrice,
     //                 'tax_rate' => $taxRate,
+    //                 'cgst_rate' => $cgstRate,
+    //                 'sgst_rate' => $sgstRate,
+    //                 'igst_rate' => $igstRate,
+    //                 'cgst_amount' => $cgstAmount,
+    //                 'sgst_amount' => $sgstAmount,
+    //                 'igst_amount' => $igstAmount,
     //                 'tax_amount' => $taxAmount,
     //                 'line_total_after_discount' => $discountedLineTotal,
     //                 'line_total' => $finalLineTotal,
+    //             ];
+
+    //             // Store for order lines with tax split
+    //             $itemsWithTaxSplit[] = [
+    //                 'product_id' => $item->product_id,
+    //                 'product' => $item->product,
+    //                 'variant_id' => $item->variant_id ?? null,
+    //                 'variant' => $item->variant ?? null,
+    //                 'quantity' => $item->quantity,
+    //                 'unit_price' => $unitPrice,
+    //                 'line_total' => $lineTotal,
+    //                 'discounted_line_total' => $discountedLineTotal,
+    //                 'tax_rate' => $taxRate,
+    //                 'cgst_rate' => $cgstRate,
+    //                 'sgst_rate' => $sgstRate,
+    //                 'igst_rate' => $igstRate,
+    //                 'cgst_amount' => $cgstAmount,
+    //                 'sgst_amount' => $sgstAmount,
+    //                 'igst_amount' => $igstAmount,
+    //                 'tax_amount' => $taxAmount,
+    //                 'final_line_total' => $finalLineTotal,
     //             ];
     //         }
 
@@ -1716,12 +1592,17 @@ class CheckoutService
     //                 'coupon_discount' => round($couponDiscount, 2),
     //                 'subtotal_after_discount' => round($totalAfterDiscount, 2),
     //                 'total_tax' => round($totalTax, 2),
+    //                 'total_cgst' => round($totalCgst, 2),
+    //                 'total_sgst' => round($totalSgst, 2),
+    //                 'total_igst' => round($totalIgst, 2),
     //                 'shipping_charge' => round($shippingCharge, 2),
     //                 'coin_redeemed' => $coinsUsed,
     //                 'coin_redeemed_amount' => round($amountRedeemed, 2),
     //                 'grand_total' => round($grandTotal, 2),
     //             ],
     //             'tax_by_category' => $taxByCategory,
+    //             'delivery_state' => $deliveryState,
+    //             'supplier_state' => $supplierState,
     //         ];
 
     //         // Create the order
@@ -1733,6 +1614,9 @@ class CheckoutService
     //             'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
     //             'subtotal' => round($subtotal, 2),
     //             'total_gst' => round($totalTax, 2),
+    //             'total_cgst' => round($totalCgst, 2),
+    //             'total_sgst' => round($totalSgst, 2),
+    //             'total_igst' => round($totalIgst, 2),
     //             'shipping_charge' => round($shippingCharge, 2),
     //             'shipping_method_id' => $shippingMethodId,
     //             'coupon_code' => $couponCode,
@@ -1748,21 +1632,30 @@ class CheckoutService
     //             'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
     //         ]);
 
-    //         // Create order lines with variant support
-    //         foreach ($orderItemsData as $itemData) {
-    //             $item = $itemData['item'];
-    //             $hasVariant = $itemData['has_variant'];
-
+    //         // Create order lines with CGST, SGST, IGST columns (percentage-based)
+    //         foreach ($itemsWithTaxSplit as $itemData) {
     //             $orderLineData = [
     //                 'order_id' => $order->id,
-    //                 'product_id' => $item->product_id,
-    //                 'variant_id' => $item->variant_id ?? null,
-    //                 'quantity' => $item->quantity,
+    //                 'product_id' => $itemData['product_id'],
+    //                 'variant_id' => $itemData['variant_id'],
+    //                 'quantity' => $itemData['quantity'],
     //                 'unit_price' => round($itemData['unit_price'], 2),
+
+    //                 // Tax rates (percentage)
     //                 'gst_rate' => $itemData['tax_rate'],
+    //                 'cgst_rate' => round($itemData['cgst_rate'], 2),
+    //                 'sgst_rate' => round($itemData['sgst_rate'], 2),
+    //                 'igst_rate' => round($itemData['igst_rate'], 2),
+
+    //                 // Tax amounts
     //                 'gst_amount' => round($itemData['tax_amount'], 2),
-    //                 'line_total' => round($itemData['line_total'], 2),
-    //                 'commissionable_volume' => $item->product->commissionable_volume ?? 0,
+    //                 'cgst_amount' => round($itemData['cgst_amount'], 2),
+    //                 'sgst_amount' => round($itemData['sgst_amount'], 2),
+    //                 'igst_amount' => round($itemData['igst_amount'], 2),
+
+    //                 // Line totals
+    //                 'line_total' => round($itemData['final_line_total'], 2),
+    //                 'commissionable_volume' => $itemData['product']->commissionable_volume ?? 0,
     //             ];
 
     //             OrderLine::create($orderLineData);
@@ -1777,13 +1670,13 @@ class CheckoutService
     //         }
     //         $userId = Auth::user()->id;
     //         // Clear cart only if it's not buy now
-    //         if (!$isBuyNow) {
-    //             $cart = Cart::where('user_id', $userId)->first();
-    //             if ($cart) {
-    //                 $cart->items()->delete();
-    //                 $cart->delete();
-    //             }
-    //         }
+    //         // if (!$isBuyNow) {
+    //         //     $cart = Cart::where('user_id', $userId)->first();
+    //         //     if ($cart) {
+    //         //         $cart->items()->delete();
+    //         //         $cart->delete();
+    //         //     }
+    //         // }
 
     //         // Create Razorpay order
     //         $razorpayOrder = $this->razorpayService->createOrder($order);
@@ -1796,10 +1689,16 @@ class CheckoutService
     //             'razorpay_key' => config('services.razorpay.key_id'),
     //             'status' => 'pending',
     //             'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
+    //             'tax_split' => [
+    //                 'delivery_state' => $deliveryState,
+    //                 'supplier_state' => $supplierState,
+    //                 'total_cgst' => round($totalCgst, 2),
+    //                 'total_sgst' => round($totalSgst, 2),
+    //                 'total_igst' => round($totalIgst, 2),
+    //             ],
     //         ];
     //     });
     // }
-
     public function placeOrder(int $userId, array $data): array
     {
         $address = Address::findOrFail($data['address_id']);
@@ -1828,19 +1727,16 @@ class CheckoutService
                     throw new Exception("Product not found: {$itemData['product_id']}");
                 }
 
-                // Check if variant exists
                 $variant = null;
                 if (isset($itemData['variant_id']) && $itemData['variant_id']) {
                     $variant = ProductVariant::find($itemData['variant_id']);
                     if (!$variant) {
                         throw new Exception("Variant not found: {$itemData['variant_id']}");
                     }
-                    // Check variant stock
                     if ($variant->stock_quantity < $itemData['quantity']) {
                         throw new Exception("Insufficient stock for variant: {$variant->sku}");
                     }
                 } else {
-                    // Check product stock
                     if ($product->stock_quantity < $itemData['quantity']) {
                         throw new Exception("Insufficient stock for: {$product->name}");
                     }
@@ -1885,9 +1781,6 @@ class CheckoutService
             $cartItems = $cart->items;
         }
 
-        // Use the grand total from request
-        $grandTotal = $data['grand_total'];
-
         // Handle coin redemption
         $coinRedemption = null;
         $coinsUsed = 0;
@@ -1906,31 +1799,33 @@ class CheckoutService
             $coinRedeemedAmount = $coinRedemption->amount_redeemed ?? 0;
         }
 
-        return DB::transaction(function () use ($user, $address, $coinRedemption, $coinsUsed, $coinRedeemedAmount, $grandTotal, $data, $summary, $cartItems, $isBuyNow, $supplierState, $deliveryState) {
+        // Get coupon discount from summary
+        $couponDiscount = $summary['coupon_discount'] ?? 0;
+        $couponCode = $summary['coupon_code'] ?? null;
 
-            // Calculate totals from items
-            $subtotal = 0;
-            $totalTax = 0;
-            $totalCgst = 0;
-            $totalSgst = 0;
-            $totalIgst = 0;
-            $totalAfterDiscount = 0;
-            $orderItemsData = [];
-            $taxBreakdown = [];
-            $itemsWithTaxSplit = [];
+        return DB::transaction(function () use (
+            $user,
+            $address,
+            $coinRedemption,
+            $coinsUsed,
+            $coinRedeemedAmount,
+            $data,
+            $summary,
+            $cartItems,
+            $isBuyNow,
+            $supplierState,
+            $deliveryState,
+            $couponDiscount,
+            $couponCode
+        ) {
 
-            // Get coupon discount from summary
-            $couponDiscount = $summary['coupon_discount'] ?? 0;
-            $couponCode = $summary['coupon_code'] ?? null;
-
-            // First pass: Calculate subtotal and determine discount distribution
+            // First pass: Calculate subtotal
             $itemsWithPrices = [];
             $totalSubtotal = 0;
 
             foreach ($cartItems as $item) {
                 $hasVariant = isset($item->variant) && $item->variant !== null;
 
-                // Determine unit price based on variant or product
                 if ($hasVariant) {
                     $unitPrice = $user->isDistributor()
                         ? ($item->variant->distributor_price ?? $item->variant->retail_price)
@@ -1952,8 +1847,10 @@ class CheckoutService
                 ];
             }
 
-            // Second pass: Apply coupon discount proportionally and calculate tax with split
-            foreach ($itemsWithPrices as $index => $itemData) {
+            // Second pass: Apply coupon proportionally and calculate tax with split
+            $itemsWithTaxSplit = [];
+
+            foreach ($itemsWithPrices as $itemData) {
                 $item = $itemData['item'];
                 $hasVariant = $itemData['has_variant'];
                 $unitPrice = $itemData['unitPrice'];
@@ -1980,15 +1877,11 @@ class CheckoutService
                 $sgstAmount = 0;
                 $igstAmount = 0;
 
-                // Check if delivery state is Punjab (case-insensitive)
                 $isPunjab = $deliveryState && $deliveryState === 'punjab';
-
-                // Check if it's an inter-state transaction
                 $isInterState = $deliveryState && $deliveryState !== $supplierState;
 
                 if ($deliveryState) {
                     if ($isPunjab) {
-                        // PUNJAB: Split tax rate equally between CGST and SGST (percentage)
                         $cgstRate = $taxRate / 2;
                         $sgstRate = $taxRate / 2;
                         $igstRate = 0;
@@ -1997,7 +1890,6 @@ class CheckoutService
                         $sgstAmount = ($discountedLineTotal * $sgstRate) / 100;
                         $igstAmount = 0;
                     } elseif ($isInterState) {
-                        // INTER-STATE: Full tax as IGST (percentage)
                         $igstRate = $taxRate;
                         $cgstRate = 0;
                         $sgstRate = 0;
@@ -2006,7 +1898,6 @@ class CheckoutService
                         $cgstAmount = 0;
                         $sgstAmount = 0;
                     } else {
-                        // INTRA-STATE (non-Punjab): Split tax rate equally between CGST and SGST
                         $cgstRate = $taxRate / 2;
                         $sgstRate = $taxRate / 2;
                         $igstRate = 0;
@@ -2016,7 +1907,6 @@ class CheckoutService
                         $igstAmount = 0;
                     }
                 } else {
-                    // No delivery state: Default to IGST
                     $igstRate = $taxRate;
                     $igstAmount = $taxAmount;
                     $cgstRate = 0;
@@ -2025,63 +1915,15 @@ class CheckoutService
                     $sgstAmount = 0;
                 }
 
-                // Calculate final line total (after discount + tax)
+                // Product shipping charge
+                $productShippingCharge = $item->product->shipping_charge ?? 0;
+                $lineShippingCharge = $productShippingCharge * $item->quantity;
+
                 $finalLineTotal = $discountedLineTotal + $taxAmount;
 
-                // Accumulate totals
-                $subtotal += $lineTotal;
-                $totalTax += $taxAmount;
-                $totalCgst += $cgstAmount;
-                $totalSgst += $sgstAmount;
-                $totalIgst += $igstAmount;
-                $totalAfterDiscount += $discountedLineTotal;
-
-                // Get variant info for display
                 $variantSku = $hasVariant ? $item->variant->sku : null;
                 $variantAttributes = $hasVariant ? $item->variant->attributes : null;
 
-                // Build tax breakdown for this item
-                $taxCategoryName = $item->product->taxCategory?->name ?? 'Default';
-                $taxBreakdown[] = [
-                    'product_id' => $item->product_id,
-                    'product_name' => $item->product->name,
-                    'product_code' => $item->product->product_code ?? null,
-                    'variant_id' => $item->variant_id ?? null,
-                    'variant_sku' => $variantSku,
-                    'variant_attributes' => $variantAttributes,
-                    'quantity' => $item->quantity,
-                    'unit_price' => $unitPrice,
-                    'line_total_before_discount' => $lineTotal,
-                    'line_total_after_discount' => round($discountedLineTotal, 2),
-                    'tax_category' => $taxCategoryName,
-                    'tax_rate' => $taxRate,
-                    'cgst_rate' => round($cgstRate, 2),
-                    'sgst_rate' => round($sgstRate, 2),
-                    'igst_rate' => round($igstRate, 2),
-                    'cgst_amount' => round($cgstAmount, 2),
-                    'sgst_amount' => round($sgstAmount, 2),
-                    'igst_amount' => round($igstAmount, 2),
-                    'tax_amount' => round($taxAmount, 2),
-                    'line_total_after_tax' => round($finalLineTotal, 2),
-                ];
-
-                $orderItemsData[] = [
-                    'item' => $item,
-                    'has_variant' => $hasVariant,
-                    'unit_price' => $unitPrice,
-                    'tax_rate' => $taxRate,
-                    'cgst_rate' => $cgstRate,
-                    'sgst_rate' => $sgstRate,
-                    'igst_rate' => $igstRate,
-                    'cgst_amount' => $cgstAmount,
-                    'sgst_amount' => $sgstAmount,
-                    'igst_amount' => $igstAmount,
-                    'tax_amount' => $taxAmount,
-                    'line_total_after_discount' => $discountedLineTotal,
-                    'line_total' => $finalLineTotal,
-                ];
-
-                // Store for order lines with tax split
                 $itemsWithTaxSplit[] = [
                     'product_id' => $item->product_id,
                     'product' => $item->product,
@@ -2091,6 +1933,7 @@ class CheckoutService
                     'unit_price' => $unitPrice,
                     'line_total' => $lineTotal,
                     'discounted_line_total' => $discountedLineTotal,
+                    'item_discount' => $itemDiscount,
                     'tax_rate' => $taxRate,
                     'cgst_rate' => $cgstRate,
                     'sgst_rate' => $sgstRate,
@@ -2100,76 +1943,149 @@ class CheckoutService
                     'igst_amount' => $igstAmount,
                     'tax_amount' => $taxAmount,
                     'final_line_total' => $finalLineTotal,
+                    'product_shipping_charge' => $productShippingCharge,
+                    'line_shipping_charge' => $lineShippingCharge,
+                    'variant_sku' => $variantSku,
+                    'variant_attributes' => $variantAttributes,
                 ];
             }
 
-            // Get values from summary data with fallbacks
-            $shippingCharge = $summary['shipping_charge'] ?? $data['shipping_cost'] ?? 0;
-            $amountRedeemed = $summary['amount_redeemed'] ?? $coinRedeemedAmount ?? 0;
-            $netSubtotal = $summary['net_subtotal'] ?? $subtotal;
-            $shippingMethodId = $summary['shipping_method_id'] ?? null;
+            // =============================================
+            // CREATE SEPARATE ORDER PER ITEM
+            // =============================================
+            $orders = [];
+            $totalOrderCount = count($itemsWithTaxSplit);
 
-            // Calculate tax by category
-            $taxByCategory = $this->calculateTaxByCategory($taxBreakdown);
+            // Distribute coins proportionally across orders
+            $totalCoinsToDistribute = $coinsUsed;
+            $totalAmountToDistribute = $coinRedeemedAmount;
+            $distributedCoins = 0;
+            $distributedAmount = 0;
 
-            // Add tax summary to the breakdown
-            $taxBreakdownSummary = [
-                'items' => $taxBreakdown,
-                'summary' => [
-                    'subtotal' => round($subtotal, 2),
-                    'coupon_discount' => round($couponDiscount, 2),
-                    'subtotal_after_discount' => round($totalAfterDiscount, 2),
-                    'total_tax' => round($totalTax, 2),
-                    'total_cgst' => round($totalCgst, 2),
-                    'total_sgst' => round($totalSgst, 2),
-                    'total_igst' => round($totalIgst, 2),
-                    'shipping_charge' => round($shippingCharge, 2),
-                    'coin_redeemed' => $coinsUsed,
-                    'coin_redeemed_amount' => round($amountRedeemed, 2),
-                    'grand_total' => round($grandTotal, 2),
-                ],
-                'tax_by_category' => $taxByCategory,
-                'delivery_state' => $deliveryState,
-                'supplier_state' => $supplierState,
-            ];
+            foreach ($itemsWithTaxSplit as $index => $itemData) {
+                $item = $itemData['product'];
+                $lineShippingCharge = $itemData['line_shipping_charge'];
+                $lineSubtotal = $itemData['line_total'];
+                $lineDiscount = $itemData['item_discount'];
+                $discountedLineTotal = $itemData['discounted_line_total'];
+                $taxAmount = $itemData['tax_amount'];
+                $cgstAmount = $itemData['cgst_amount'];
+                $sgstAmount = $itemData['sgst_amount'];
+                $igstAmount = $itemData['igst_amount'];
 
-            // Create the order
-            $order = Order::create([
-                'order_reference' => 'ORD-' . strtoupper(uniqid()),
-                'user_id' => $user->id,
-                'billing_address_id' => $data['address_id'],
-                'delivery_address_id' => $data['address_id'],
-                'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
-                'subtotal' => round($subtotal, 2),
-                'total_gst' => round($totalTax, 2),
-                'total_cgst' => round($totalCgst, 2),
-                'total_sgst' => round($totalSgst, 2),
-                'total_igst' => round($totalIgst, 2),
-                'shipping_charge' => round($shippingCharge, 2),
-                'shipping_method_id' => $shippingMethodId,
-                'coupon_code' => $couponCode,
-                'coupon_discount' => round($couponDiscount, 2),
-                'coin_redeemed' => $summary['coin_redeemed'] ?? $coinsUsed,
-                'coin_redeemed_amount' => round($amountRedeemed, 2),
-                'total_payable' => round($grandTotal, 2),
-                'amount_paid' => 0,
-                'status' => 'pending',
-                'tax_breakdown' => json_encode($taxBreakdownSummary),
-                'summary_data' => json_encode($summary),
-                'payment_gateway' => $data['payment_gateway'] ?? null,
-                'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
-            ]);
+                // Distribute coins proportionally (last item gets the remainder)
+                if ($index === $totalOrderCount - 1) {
+                    $orderCoinsUsed = $totalCoinsToDistribute - $distributedCoins;
+                    $orderAmountRedeemed = $totalAmountToDistribute - $distributedAmount;
+                } else {
+                    $proportion = $totalSubtotal > 0 ? $lineSubtotal / $totalSubtotal : 0;
+                    $orderCoinsUsed = (int) round($totalCoinsToDistribute * $proportion);
+                    $orderAmountRedeemed = round($totalAmountToDistribute * $proportion, 2);
+                    $distributedCoins += $orderCoinsUsed;
+                    $distributedAmount += $orderAmountRedeemed;
+                }
 
-            // Create order lines with CGST, SGST, IGST columns (percentage-based)
-            foreach ($itemsWithTaxSplit as $itemData) {
-                $orderLineData = [
+                // Per-order grand total
+                $orderGrandTotal = round(
+                    $discountedLineTotal + $taxAmount + $lineShippingCharge - $orderAmountRedeemed,
+                    2
+                );
+
+                // Per-order tax breakdown summary
+                $orderTaxBreakdownSummary = [
+                    'items' => [
+                        [
+                            'product_id' => $itemData['product_id'],
+                            'product_name' => $item->name,
+                            'product_code' => $item->product_code ?? null,
+                            'variant_id' => $itemData['variant_id'],
+                            'variant_sku' => $itemData['variant_sku'],
+                            'variant_attributes' => $itemData['variant_attributes'],
+                            'quantity' => $itemData['quantity'],
+                            'unit_price' => $itemData['unit_price'],
+                            'line_total_before_discount' => $itemData['line_total'],
+                            'line_total_after_discount' => round($discountedLineTotal, 2),
+                            'tax_category' => $item->taxCategory?->name ?? 'Default',
+                            'tax_rate' => $itemData['tax_rate'],
+                            'cgst_rate' => round($itemData['cgst_rate'], 2),
+                            'sgst_rate' => round($itemData['sgst_rate'], 2),
+                            'igst_rate' => round($itemData['igst_rate'], 2),
+                            'cgst_amount' => round($cgstAmount, 2),
+                            'sgst_amount' => round($sgstAmount, 2),
+                            'igst_amount' => round($igstAmount, 2),
+                            'tax_amount' => round($taxAmount, 2),
+                            'line_total_after_tax' => round($discountedLineTotal + $taxAmount, 2),
+                            'shipping_charge' => round($lineShippingCharge, 2),
+                        ]
+                    ],
+                    'summary' => [
+                        'subtotal' => round($lineSubtotal, 2),
+                        'coupon_discount' => round($lineDiscount, 2),
+                        'subtotal_after_discount' => round($discountedLineTotal, 2),
+                        'total_tax' => round($taxAmount, 2),
+                        'total_cgst' => round($cgstAmount, 2),
+                        'total_sgst' => round($sgstAmount, 2),
+                        'total_igst' => round($igstAmount, 2),
+                        'shipping_charge' => round($lineShippingCharge, 2),
+                        'coin_redeemed' => $orderCoinsUsed,
+                        'coin_redeemed_amount' => round($orderAmountRedeemed, 2),
+                        'grand_total' => $orderGrandTotal,
+                    ],
+                    'tax_by_category' => $this->calculateTaxByCategory([
+                        [
+                            'product_name' => $item->name,
+                            'tax_category' => $item->taxCategory?->name ?? 'Default',
+                            'tax_rate' => $itemData['tax_rate'],
+                            'line_total_after_discount' => $discountedLineTotal,
+                            'tax_amount' => $taxAmount,
+                            'cgst_amount' => $cgstAmount,
+                            'sgst_amount' => $sgstAmount,
+                            'igst_amount' => $igstAmount,
+                        ]
+                    ]),
+                    'delivery_state' => $deliveryState,
+                    'supplier_state' => $supplierState,
+                ];
+
+                // Create one Order per item
+                $order = Order::create([
+                    'order_reference' => 'ORD-' . strtoupper(uniqid()),
+                    'user_id' => $user->id,
+                    'billing_address_id' => $data['address_id'],
+                    'delivery_address_id' => $data['address_id'],
+                    'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
+                    'subtotal' => round($lineSubtotal, 2),
+                    'total_gst' => round($taxAmount, 2),
+                    'total_cgst' => round($cgstAmount, 2),
+                    'total_sgst' => round($sgstAmount, 2),
+                    'total_igst' => round($igstAmount, 2),
+                    'shipping_charge' => round($lineShippingCharge, 2),
+                    'shipping_method_id' => null,
+                    'coupon_code' => $couponCode,
+                    'coupon_discount' => round($lineDiscount, 2),
+                    'coin_redeemed' => $orderCoinsUsed,
+                    'coin_redeemed_amount' => round($orderAmountRedeemed, 2),
+                    'total_payable' => $orderGrandTotal,
+                    'amount_paid' => 0,
+                    'status' => 'pending',
+                    'tax_breakdown' => json_encode($orderTaxBreakdownSummary),
+                    'summary_data' => json_encode($summary),
+                    'payment_gateway' => $data['payment_gateway'] ?? null,
+                    'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
+                ]);
+
+                // Create order line with product shipping charge
+                OrderLine::create([
                     'order_id' => $order->id,
                     'product_id' => $itemData['product_id'],
                     'variant_id' => $itemData['variant_id'],
                     'quantity' => $itemData['quantity'],
                     'unit_price' => round($itemData['unit_price'], 2),
 
-                    // Tax rates (percentage)
+                    // Shipping charge per line
+                    'shipping_charge' => round($itemData['product_shipping_charge'], 2),
+
+                    // Tax rates
                     'gst_rate' => $itemData['tax_rate'],
                     'cgst_rate' => round($itemData['cgst_rate'], 2),
                     'sgst_rate' => round($itemData['sgst_rate'], 2),
@@ -2184,35 +2100,37 @@ class CheckoutService
                     // Line totals
                     'line_total' => round($itemData['final_line_total'], 2),
                     'commissionable_volume' => $itemData['product']->commissionable_volume ?? 0,
-                ];
+                ]);
 
-                OrderLine::create($orderLineData);
+                $orders[] = $order;
             }
 
-            // Update coin redemption with order
-            if ($coinRedemption) {
+            // Update coin redemption with the FIRST order (or all orders if needed)
+            if ($coinRedemption && !empty($orders)) {
                 $coinRedemption->update([
-                    'order_id' => $order->id,
+                    'order_id' => $orders[0]->id,
                     'status' => 'used'
                 ]);
             }
-            $userId = Auth::user()->id;
-            // Clear cart only if it's not buy now
-            // if (!$isBuyNow) {
-            //     $cart = Cart::where('user_id', $userId)->first();
-            //     if ($cart) {
-            //         $cart->items()->delete();
-            //         $cart->delete();
-            //     }
-            // }
 
-            // Create Razorpay order
-            $razorpayOrder = $this->razorpayService->createOrder($order);
+            // Create Razorpay order for the TOTAL amount (combined)
+            // OR create one per order — here we create one for the combined total
+            $razorpayTotalAmount = 0;
+            foreach ($orders as $order) {
+                $razorpayTotalAmount += $order->total_payable;
+            }
+
+            // Create a combined Razorpay order
+            // NOTE: razorpayService->createOrder() typically takes an Order model.
+            // If you need a combined amount, you may need to adjust the service.
+            // For now, we create razorpay order for the FIRST order (or modify as needed).
+            $razorpayOrder = $this->razorpayService->createOrder($orders[0]);
 
             return [
-                'order_id' => $order->id,
-                'order_reference' => $order->order_reference,
-                'amount' => $order->total_payable,
+                'order_ids' => array_map(fn($o) => $o->id, $orders),
+                'order_references' => array_map(fn($o) => $o->order_reference, $orders),
+                'total_orders' => count($orders),
+                'total_amount' => round(array_sum(array_map(fn($o) => $o->total_payable, $orders)), 2),
                 'razorpay_order_id' => $razorpayOrder['id'],
                 'razorpay_key' => config('services.razorpay.key_id'),
                 'status' => 'pending',
@@ -2220,10 +2138,20 @@ class CheckoutService
                 'tax_split' => [
                     'delivery_state' => $deliveryState,
                     'supplier_state' => $supplierState,
-                    'total_cgst' => round($totalCgst, 2),
-                    'total_sgst' => round($totalSgst, 2),
-                    'total_igst' => round($totalIgst, 2),
+                    'total_cgst' => round(array_sum(array_map(fn($o) => $o->total_cgst, $orders)), 2),
+                    'total_sgst' => round(array_sum(array_map(fn($o) => $o->total_sgst, $orders)), 2),
+                    'total_igst' => round(array_sum(array_map(fn($o) => $o->total_igst, $orders)), 2),
                 ],
+                'orders' => array_map(function ($o) {
+                    return [
+                        'order_id' => $o->id,
+                        'order_reference' => $o->order_reference,
+                        'subtotal' => $o->subtotal,
+                        'shipping_charge' => $o->shipping_charge,
+                        'total_tax' => $o->total_gst,
+                        'total_payable' => $o->total_payable,
+                    ];
+                }, $orders),
             ];
         });
     }

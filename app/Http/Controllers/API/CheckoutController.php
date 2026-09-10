@@ -24,7 +24,7 @@ class CheckoutController extends Controller
     /**
      * Get cart summary
      */
-    // public function summary(Request $request)
+    //    public function summary(Request $request)
     // {
     //     try {
     //         $validated = $request->validate([
@@ -35,35 +35,36 @@ class CheckoutController extends Controller
 
     //             // Buy Now
     //             'product_id' => 'nullable|exists:products,id',
+    //             'variant_id' => 'nullable|exists:product_variants,id',
     //             'quantity' => 'nullable|integer|min:1',
     //         ]);
 
-    //         // product_id and quantity must come together
-    //         if (
-    //             isset($validated['product_id']) &&
-    //             !isset($validated['quantity'])
-    //         ) {
+    //         // Buy Now validation
+    //         $hasProduct = isset($validated['product_id']);
+    //         $hasVariant = isset($validated['variant_id']);
+    //         $hasQuantity = isset($validated['quantity']);
+
+    //         // If product_id or variant_id is provided, quantity is required
+    //         if (($hasProduct || $hasVariant) && !$hasQuantity) {
     //             return response()->json([
     //                 'success' => false,
     //                 'message' => 'Quantity is required for Buy Now.',
     //             ], 422);
     //         }
 
-    //         if (
-    //             isset($validated['quantity']) &&
-    //             !isset($validated['product_id'])
-    //         ) {
+    //         // Product and variant cannot be provided together
+    //         if ($hasProduct && $hasVariant) {
     //             return response()->json([
     //                 'success' => false,
-    //                 'message' => 'Product ID is required for Buy Now.',
+    //                 'message' => 'You cannot provide both product_id and variant_id.',
     //             ], 422);
     //         }
 
     //         // Get or find address
     //         $addressId = $validated['address_id'] ?? null;
 
-    //         // Buy Now if product_id is provided
-    //         $isBuyNow = isset($validated['product_id']);
+    //         // Buy Now if product_id or variant_id is provided
+    //         $isBuyNow = $hasProduct || $hasVariant;
 
     //         $summary = $this->checkoutService->calculateSummary(
     //             auth()->id(),
@@ -74,11 +75,13 @@ class CheckoutController extends Controller
 
     //             // Buy Now parameters
     //             $validated['product_id'] ?? null,
+    //             $validated['variant_id'] ?? null,
     //             $validated['quantity'] ?? null
     //         );
 
     //         return response()->json([
     //             'success' => true,
+
     //             'data' => array_merge($summary, [
     //                 'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
     //             ]),
@@ -96,14 +99,12 @@ class CheckoutController extends Controller
     //         ], 400);
     //     }
     // }
-
     public function summary(Request $request)
     {
         try {
             $validated = $request->validate([
                 'address_id' => 'nullable|exists:addresses,id,user_id,' . auth()->id(),
                 'coupon_code' => 'nullable|string|max:50',
-                'shipping_method_id' => 'nullable|exists:shipping_methods,id',
                 'coins' => 'nullable|integer|min:0',
 
                 // Buy Now
@@ -143,7 +144,6 @@ class CheckoutController extends Controller
                 auth()->id(),
                 $addressId,
                 $validated['coupon_code'] ?? null,
-                $validated['shipping_method_id'] ?? null,
                 $validated['coins'] ?? null,
 
                 // Buy Now parameters
@@ -154,7 +154,7 @@ class CheckoutController extends Controller
 
             return response()->json([
                 'success' => true,
-              
+
                 'data' => array_merge($summary, [
                     'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
                 ]),
