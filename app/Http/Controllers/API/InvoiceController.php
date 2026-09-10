@@ -158,6 +158,10 @@ class InvoiceController extends Controller
             $sku = $variant->sku;
         }
 
+        // Shipping charge per unit and line total
+        $shippingChargePerUnit = $line->shipping_charge ?? 0;
+        $lineShippingCharge = $shippingChargePerUnit * $line->quantity;
+
         return [
             'id' => $line->id,
             'product_id' => $line->product_id,
@@ -170,6 +174,11 @@ class InvoiceController extends Controller
             'quantity' => $line->quantity,
             'returned_quantity' => $line->returned_quantity,
             'unit_price' => $line->unit_price,
+
+            // Shipping charges
+            'shipping_charge_per_unit' => round($shippingChargePerUnit, 2),
+            'total_shipping_charge' => round($lineShippingCharge, 2),
+
             'gst_rate' => $line->gst_rate,
             'cgst_rate' => $line->cgst_rate,
             'sgst_rate' => $line->sgst_rate,
@@ -283,10 +292,6 @@ class InvoiceController extends Controller
                 'total' => $invoice->total,
                 'total_payable' => $invoice->total_payable,
 
-                // Line Items (from invoice)
-                // 'line_items' => $lineItems,
-
-
                 // PDF Path
                 'pdf_path' => $invoice->pdf_path,
             ],
@@ -340,6 +345,7 @@ class InvoiceController extends Controller
 
                 // Additional Data
                 'summary_data' => $summaryData,
+
                 // Addresses
                 'billing_address' => $order->billingAddress ? [
                     'id' => $order->billingAddress->id,
@@ -368,11 +374,11 @@ class InvoiceController extends Controller
                     'email' => $order->user->email,
                     'phone' => $order->user->phone ?? null,
                 ] : null,
+
                 'order_items' => $orderLines,
                 'items_count' => count($orderLines),
                 'total_items' => count($orderLines),
             ],
-
         ];
     }
 }
