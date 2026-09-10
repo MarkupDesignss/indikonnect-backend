@@ -709,13 +709,23 @@ class ReturnService
             );
         }
 
+        $firstDispatchedAt = $order->lines
+            ->whereNotNull('dispatched_at')
+            ->min('dispatched_at');
+
+        if (!$firstDispatchedAt) {
+            throw new Exception(
+                'Order has not been dispatched yet.'
+            );
+        }
+
         $returnWindowDays = setting('return_window_days', 30);
-        $firstDeliveredAt = Carbon::parse($firstDeliveredAt);
-        $returnDeadline = $firstDeliveredAt->copy()->addDays($returnWindowDays);
+        $firstDispatchedAt = Carbon::parse($firstDispatchedAt);
+        $returnDeadline = $firstDispatchedAt->copy()->addDays($returnWindowDays);
 
         if (now()->gt($returnDeadline)) {
             throw new Exception(
-                "Return window has expired. Returns must be initiated within {$returnWindowDays} days from delivery."
+                "Return window has expired. Returns must be initiated within {$returnWindowDays} days from dispatch."
             );
         }
 

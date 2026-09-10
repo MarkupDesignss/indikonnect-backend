@@ -2330,7 +2330,9 @@ class OrderController extends Controller
     //     try {
     //         DB::beginTransaction();
 
-    //         $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
+    //         $order = Order::where('order_reference', $request->order_reference)
+    //             ->with('lines.product')
+    //             ->firstOrFail();
 
     //         // Determine which items to deliver
     //         $itemsToDeliver = $this->getItemsToProcess($order, $request->items ?? []);
@@ -2355,10 +2357,34 @@ class OrderController extends Controller
     //                 'status' => 'delivered'
     //             ];
 
-    //             $this->updateShippingDetail($order, $orderLine, $request, 'delivered');
+    //             $this->updateShippingDetail(
+    //                 $order,
+    //                 $orderLine,
+    //                 $request,
+    //                 'delivered'
+    //             );
     //         }
 
+    //         // Update main order status
     //         $order->updateOrderStatus();
+
+    //         // Refresh order
+    //         $order = $order->fresh(['lines']);
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Generate Invoice
+    //     |--------------------------------------------------------------------------
+    //     | Generate invoice only when entire order is delivered
+    //     */
+    //         // if ($order->status == 'delivered') {
+
+    //         //     $existingInvoice = $order->invoice;
+
+    //         //     if (!$existingInvoice) {
+    //         //         $this->invoiceService->generateInvoice($order);
+    //         //     }
+    //         // }
 
     //         DB::commit();
 
@@ -2370,14 +2396,19 @@ class OrderController extends Controller
     //             'success' => true,
     //             'message' => $message,
     //             'order_reference' => $order->order_reference,
-    //             'order_status' => $order->fresh()->status,
+    //             'order_status' => $order->status,
     //             'processed_items' => $processedItems,
     //         ]);
     //     } catch (Exception $e) {
+
     //         DB::rollBack();
-    //         return response()->json(['error' => $e->getMessage()], 400);
+
+    //         return response()->json([
+    //             'error' => $e->getMessage()
+    //         ], 400);
     //     }
     // }
+
     public function deliver(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -2395,7 +2426,7 @@ class OrderController extends Controller
             DB::beginTransaction();
 
             $order = Order::where('order_reference', $request->order_reference)
-                ->with('lines.product')
+                ->with('lines.product', 'lines.variant')
                 ->firstOrFail();
 
             // Determine which items to deliver
@@ -2409,6 +2440,8 @@ class OrderController extends Controller
 
             foreach ($itemsToDeliver as $orderLine) {
                 $this->validateDeliverable($orderLine);
+
+                $this->decreaseStock($orderLine);
 
                 $orderLine->update([
                     'delivery_status' => 'delivered',
@@ -2435,21 +2468,6 @@ class OrderController extends Controller
             // Refresh order
             $order = $order->fresh(['lines']);
 
-            /*
-        |--------------------------------------------------------------------------
-        | Generate Invoice
-        |--------------------------------------------------------------------------
-        | Generate invoice only when entire order is delivered
-        */
-            // if ($order->status == 'delivered') {
-
-            //     $existingInvoice = $order->invoice;
-
-            //     if (!$existingInvoice) {
-            //         $this->invoiceService->generateInvoice($order);
-            //     }
-            // }
-
             DB::commit();
 
             $message = count($processedItems) === $order->lines->count()
@@ -2470,6 +2488,44 @@ class OrderController extends Controller
             return response()->json([
                 'error' => $e->getMessage()
             ], 400);
+        }
+    }
+
+    protected function decreaseStock($orderLine)
+    {
+        $quantity = $orderLine->quantity ?? 1;
+
+        if (!empty($orderLine->variant_id) && $orderLine->variant) {
+            $variant = $orderLine->variant;
+
+            if ($variant->stock_quantity < $quantity) {
+                throw new Exception(
+                    "Insufficient stock for variant '{$variant->name}' of product '{$orderLine->product->name}'. " .
+                        "Available: {$variant->stock_quantity}, Required: {$quantity}"
+                );
+            }
+
+            $variant->decrement('stock_quantity', $quantity);
+
+            // Optional: also update parent product stock if you maintain aggregate
+            if ($orderLine->product) {
+                $orderLine->product->decrement('stock_quantity', $quantity);
+            }
+
+            return;
+        }
+
+        if ($orderLine->product) {
+            $product = $orderLine->product;
+
+            if ($product->stock_quantity < $quantity) {
+                throw new Exception(
+                    "Insufficient stock for product '{$product->name}'. " .
+                        "Available: {$product->stock_quantity}, Required: {$quantity}"
+                );
+            }
+
+            $product->decrement('stock_quantity', $quantity);
         }
     }
 

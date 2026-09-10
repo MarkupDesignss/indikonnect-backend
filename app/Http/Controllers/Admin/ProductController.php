@@ -1873,6 +1873,7 @@ class ProductController extends Controller
             'uom' => ['nullable', 'string', 'max:50'],
             'category_id' => ['sometimes', 'required', 'exists:categories,id'],
             'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+            'subcategory_id' => ['nullable', 'exists:subcategories,id'],
 
             // Product pricing
             'retail_mrp' => ['sometimes', 'required', 'numeric', 'min:0'],
@@ -1996,7 +1997,6 @@ class ProductController extends Controller
         }
 
         DB::beginTransaction();
-
         try {
 
             $validated = $validator->validated();
@@ -2015,6 +2015,7 @@ class ProductController extends Controller
                 'brand_id' => $product->brand_id,
                 'category_id' => $product->category_id,
                 'tax_category_id' => $product->tax_category_id,
+                'subcategory_id' => $product->subcategory_id,
 
                 'retail_mrp' => $product->retail_mrp,
                 'retail_price' => $product->retail_price,
@@ -2355,6 +2356,7 @@ class ProductController extends Controller
                 'category_name' => $product->category?->name,
 
                 'tax_category_id' => $product->tax_category_id,
+                'subcategory_id' => $product->subcategory_id,
 
                 'retail_mrp' => $product->retail_mrp,
                 'retail_price' => $product->retail_price,
