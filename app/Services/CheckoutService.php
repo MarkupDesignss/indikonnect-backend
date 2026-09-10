@@ -2833,7 +2833,7 @@ class CheckoutService
             } else {
                 $product = $line->product;
                 if ($product) {
-                    $product->decrement('stock_quantity', $line->quantity);
+                    // $product->decrement('stock_quantity', $line->quantity);
 
                     StockMovement::create([
                         'product_id' => $line->product_id,
