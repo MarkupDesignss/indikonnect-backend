@@ -448,6 +448,26 @@ class CategoryController extends Controller
                 ];
             });
 
+            $allSubcategories = $categories->flatMap(function ($category) {
+                return $category->subcategories->map(function ($subcategory) {
+                    return [
+                        'id' => $subcategory->id,
+                        'category_id' => $subcategory->category_id,
+                        'category_title' => $subcategory->category->title ?? null, // optional
+                        'name' => $subcategory->name,
+                        'slug' => $subcategory->slug,
+                        'image' => $subcategory->image
+                            ? asset('storage/' . $subcategory->image)
+                            : null,
+                        'status' => $subcategory->status,
+                        'created_at' => $subcategory->created_at,
+                        'updated_at' => $subcategory->updated_at,
+                        'products_count' => $subcategory->products()->count(),
+                    ];
+                });
+            })->values();
+
+
             // Brands with product count
             $brands = Brand::select('id', 'title')
                 ->withCount([
@@ -474,6 +494,7 @@ class CategoryController extends Controller
 
                 // Brands
                 'brands' => $brands,
+                'subcategories' => $allSubcategories,
 
                 // Overall most expensive price
                 'most_expensive_price' => $mostExpensivePrice,

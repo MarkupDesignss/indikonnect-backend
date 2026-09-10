@@ -42,7 +42,7 @@ class CartController extends Controller
 
     /**
      * Get or create cart for the current user/session
-     */ 
+     */
     protected function getCart(Request $request)
     {
         $user = auth('sanctum')->user();
@@ -112,6 +112,101 @@ class CartController extends Controller
     /**
      * Add item to cart (supports both product and variant)
      */
+    // public function add(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'product_id' => ['required_without:variant_id', 'exists:products,id'],
+    //         'variant_id' => ['required_without:product_id', 'exists:product_variants,id'],
+    //         'quantity' => ['nullable', 'integer', 'min:1'],
+    //         'from_wishlist' => ['nullable', 'boolean'],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['errors' => $validator->errors()], 422);
+    //     }
+
+    //     $productId = $request->product_id;
+    //     $variantId = $request->variant_id;
+    //     $quantity = $request->quantity ?? 1;
+    //     $fromWishlist = $request->boolean('from_wishlist') ?? false;
+
+    //     // If variant_id is provided, get the product from variant
+    //     if ($variantId) {
+    //         $variant = ProductVariant::with('product')->find($variantId);
+    //         if (!$variant) {
+    //             return response()->json(['message' => 'Variant not found'], 404);
+    //         }
+    //         $product = $variant->product;
+    //         if (!$product) {
+    //             return response()->json(['message' => 'Product not found'], 404);
+    //         }
+    //     } else {
+    //         $product = Product::find($productId);
+    //         if (!$product) {
+    //             return response()->json(['message' => 'Product not found'], 404);
+    //         }
+    //     }
+
+    //     DB::beginTransaction();
+
+    //     try {
+    //         $cart = $this->getCart($request);
+
+    //         // Check if item already exists in cart (same product and variant)
+    //         $cartItem = CartItem::where('cart_id', $cart->id)
+    //             ->where('product_id', $product->id)
+    //             ->when($variantId, function ($query) use ($variantId) {
+    //                 return $query->where('variant_id', $variantId);
+    //             })
+    //             ->first();
+
+    //         if ($cartItem) {
+    //             $cartItem->quantity += $quantity;
+    //             $cartItem->unit_price = 0;
+    //             $cartItem->save();
+    //         } else {
+    //             $cartItem = CartItem::create([
+    //                 'cart_id' => $cart->id,
+    //                 'product_id' => $product->id,
+    //                 'variant_id' => $variantId,
+    //                 'quantity' => $quantity,
+    //                 'unit_price' => 0,
+    //             ]);
+    //         }
+
+    //         // If item was added to cart from wishlist, remove it from wishlist
+    //         if ($fromWishlist) {
+    //             $user = auth('sanctum')->user();
+    //             if ($user) {
+    //                 Wishlist::where('user_id', $user->id)
+    //                     ->where('product_id', $product->id)
+    //                     ->when($variantId, function ($query) use ($variantId) {
+    //                         return $query->where('variant_id', $variantId);
+    //                     })
+    //                     ->delete();
+    //             }
+    //         }
+
+    //         DB::commit();
+
+    //         $cart->load(['items.product.images', 'items.variant.images']);
+    //         $user = auth('sanctum')->user();
+
+    //         return response()->json([
+    //             'message' => 'Item added to cart successfully',
+    //             'data' => $this->formatCart($cart, $user),
+    //             'summary' => $this->getCartSummary($cart, $user),
+    //             'user_type' => $this->getUserType(),
+    //         ], 201);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         return response()->json([
+    //             'message' => 'Failed to add item to cart',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function add(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -152,6 +247,9 @@ class CartController extends Controller
         try {
             $cart = $this->getCart($request);
 
+            // Resolve shipping charge for this item (always from product)
+            $shippingCharge = $product->shipping_charge ?? 0;
+
             // Check if item already exists in cart (same product and variant)
             $cartItem = CartItem::where('cart_id', $cart->id)
                 ->where('product_id', $product->id)
@@ -163,14 +261,16 @@ class CartController extends Controller
             if ($cartItem) {
                 $cartItem->quantity += $quantity;
                 $cartItem->unit_price = 0;
+                $cartItem->shipping_charge = $shippingCharge;
                 $cartItem->save();
             } else {
                 $cartItem = CartItem::create([
-                    'cart_id' => $cart->id,
-                    'product_id' => $product->id,
-                    'variant_id' => $variantId,
-                    'quantity' => $quantity,
-                    'unit_price' => 0,
+                    'cart_id'         => $cart->id,
+                    'product_id'      => $product->id,
+                    'variant_id'      => $variantId,
+                    'quantity'        => $quantity,
+                    'unit_price'      => 0,
+                    'shipping_charge' => $shippingCharge,
                 ]);
             }
 
@@ -193,20 +293,19 @@ class CartController extends Controller
             $user = auth('sanctum')->user();
 
             return response()->json([
-                'message' => 'Item added to cart successfully',
-                'data' => $this->formatCart($cart, $user),
-                'summary' => $this->getCartSummary($cart, $user),
+                'message'   => 'Item added to cart successfully',
+                'data'      => $this->formatCart($cart, $user),
+                'summary'   => $this->getCartSummary($cart, $user),
                 'user_type' => $this->getUserType(),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
                 'message' => 'Failed to add item to cart',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
-
     /**
      * Update cart item quantity
      */
