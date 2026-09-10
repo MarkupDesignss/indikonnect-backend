@@ -18,6 +18,11 @@ return [
     'company_gstin' => env('COMPANY_GSTIN', ''),
     'company_address' => env('COMPANY_ADDRESS', ''),
     'supplier_state' => env('SUPPLIER_STATE', ''),
+    'company_email'   => env('COMPANY_EMAIL', 'care@indiekonnect.com'),
+    'company_phone'   => env('COMPANY_PHONE', '+91 98765 43210'),
+    'bank_account_no' => env('BANK_ACCOUNT_NO', '1234567890123'),
+    'bank_ifsc'       => env('BANK_IFSC', 'HDFC0001234'),
+    'bank_name'       => env('BANK_NAME', 'HDFC Ludhiana'),
 
     /*
     |--------------------------------------------------------------------------

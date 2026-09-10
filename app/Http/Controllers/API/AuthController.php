@@ -1965,6 +1965,7 @@ class AuthController extends Controller
                     })
                 ],
                 'full_name' => 'required|string|max:255',
+                'gst_in' => 'nullable|string|max:15',
                 'account_type' => 'nullable',
                 'country' => 'nullable|string|max:255',
                 'password' => 'nullable|string|min:8',
@@ -2023,6 +2024,7 @@ class AuthController extends Controller
                 'full_name' => $request->full_name,
                 'email' => $request->email,
                 'country' => $request->country,
+                'gst_in' => $request->gst_in ?? 'URP',
                 'account_type' => 'distributor',
                 'terms_condition' => $request->terms_condition,
                 'date_of_birth' => $request->date_of_birth,
@@ -3428,6 +3430,7 @@ class AuthController extends Controller
                     'encrypted_pan' => 'nullable|string',
                     'encrypted_bank_account' => 'nullable|string',
                     'bank_ifsc' => 'nullable|string|max:20',
+                    'gst_in' => 'nullable|string|max:15',
                     'bank_holder_name' => 'nullable|string|max:255',
                 ]);
             }

@@ -26,17 +26,19 @@ use App\Models\Refund;
 use Illuminate\Support\Facades\Auth;
 use App\Traits\AuditLogTrait;
 use App\Services\ReturnService;
+use App\Services\ProformaInvoiceService;
 
 class CheckoutService
 {
     use AuditLogTrait;
-
     protected GSTCalculator $gstCalculator;
     protected InvoiceService $invoiceService;
     protected RazorpayService $razorpayService;
     protected NotificationService $notificationService;
     protected $pdfInvoiceService;
     protected ReturnService $returnService;
+    protected ProformaInvoiceService $proformaInvoiceService;
+
 
     public function __construct(
         GSTCalculator $gstCalculator,
@@ -44,7 +46,8 @@ class CheckoutService
         RazorpayService $razorpayService,
         PdfInvoiceService $pdfInvoiceService,
         NotificationService $notificationService,
-        ReturnService $returnService
+        ReturnService $returnService,
+        ProformaInvoiceService $proformaInvoiceService
     ) {
         $this->gstCalculator = $gstCalculator;
         $this->invoiceService = $invoiceService;
@@ -52,6 +55,7 @@ class CheckoutService
         $this->pdfInvoiceService = $pdfInvoiceService;
         $this->notificationService = $notificationService;
         $this->returnService = $returnService;
+        $this->proformaInvoiceService = $proformaInvoiceService;
     }
 
     /**
@@ -2595,6 +2599,168 @@ class CheckoutService
     /**
      * Confirm a single order (existing logic)
      */
+    // private function confirmSingleOrder(Order $order, array $gatewayData): array
+    // {
+    //     $oldStatus = $order->status;
+
+    //     $order->update([
+    //         'status' => 'confirmed',
+    //         'confirmed_at' => now(),
+    //         'payment_gateway' => $gatewayData['gateway'],
+    //         'gateway_transaction_id' => $gatewayData['transaction_id'],
+    //         'amount_paid' => $order->total_payable,
+    //     ]);
+
+    //     // Coupon usage
+    //     if ($order->coupon_code) {
+    //         $coupon = Coupon::where('code', $order->coupon_code)->first();
+    //         if ($coupon) {
+    //             $existingUsage = CouponUsage::where('order_id', $order->id)->first();
+    //             if (!$existingUsage) {
+    //                 CouponUsage::create([
+    //                     'coupon_id' => $coupon->id,
+    //                     'user_id' => $order->user_id,
+    //                     'order_id' => $order->id,
+    //                     'discount_amount' => $order->coupon_discount,
+    //                 ]);
+    //                 $coupon->increment('used_count');
+    //             }
+    //         }
+    //     }
+
+    //     $lowStockAlerts = [];
+
+    //     foreach ($order->lines as $line) {
+    //         $shippingChargePerUnit = $line->shipping_charge ?? 0;
+    //         $lineShippingCharge = $shippingChargePerUnit * $line->quantity;
+
+    //         if ($line->variant_id) {
+    //             $variant = $line->variant;
+    //             if ($variant) {
+    //                 // $variant->decrement('stock_quantity', $line->quantity);
+
+    //                 $product = $line->product;
+    //                 if ($product) {
+    //                     // $product->decrement('stock_quantity', $line->quantity);
+    //                 }
+
+    //                 StockMovement::create([
+    //                     'product_id' => $line->product_id,
+    //                     'variant_id' => $line->variant_id,
+    //                     'quantity' => -$line->quantity,
+    //                     'available_quantity_after' => $variant->stock_quantity,
+    //                     'reason' => 'Order confirmed (variant): ' . $order->order_reference,
+    //                     'order_id' => $order->id,
+    //                 ]);
+
+    //                 $variant->refresh();
+    //                 if ($variant->stock_quantity <= $variant->low_stock_threshold) {
+    //                     $this->sendLowStockNotification($order, $line, 'variant');
+    //                     $lowStockAlerts[] = [
+    //                         'product_id' => $line->product_id,
+    //                         'variant_id' => $line->variant_id,
+    //                         'product_name' => $line->product?->name ?? 'Unknown',
+    //                         'stock' => $variant->stock_quantity,
+    //                         'threshold' => $variant->low_stock_threshold,
+    //                         'alert_type' => 'variant_low_stock',
+    //                         'shipping_charge_per_unit' => round($shippingChargePerUnit, 2),
+    //                         'total_shipping_charge' => round($lineShippingCharge, 2),
+    //                     ];
+    //                 }
+    //             }
+    //         } else {
+    //             $product = $line->product;
+    //             if ($product) {
+    //                 $product->decrement('stock_quantity', $line->quantity);
+
+    //                 StockMovement::create([
+    //                     'product_id' => $line->product_id,
+    //                     'variant_id' => null,
+    //                     'quantity' => -$line->quantity,
+    //                     'available_quantity_after' => $product->stock_quantity,
+    //                     'reason' => 'Order confirmed: ' . $order->order_reference,
+    //                     'order_id' => $order->id,
+    //                 ]);
+
+    //                 $product->refresh();
+    //                 if ($product->stock_quantity <= $product->low_stock_threshold) {
+    //                     $this->sendLowStockNotification($order, $line, 'product');
+    //                     $lowStockAlerts[] = [
+    //                         'product_id' => $line->product_id,
+    //                         'product_name' => $product->name,
+    //                         'stock' => $product->stock_quantity,
+    //                         'threshold' => $product->low_stock_threshold,
+    //                         'alert_type' => 'product_low_stock',
+    //                         'shipping_charge_per_unit' => round($shippingChargePerUnit, 2),
+    //                         'total_shipping_charge' => round($lineShippingCharge, 2),
+    //                     ];
+    //                 }
+    //             }
+    //         }
+
+    //         $line->update(['delivery_status' => 'confirmed']);
+    //     }
+
+    //     $this->logAudit(
+    //         'order_confirm',
+    //         'orders',
+    //         [
+    //             'order_reference' => $order->order_reference,
+    //             'status' => $oldStatus,
+    //             'total_amount' => $order->total_payable,
+    //             'user_id' => $order->user_id ?? Auth::user()->id,
+    //         ],
+    //         [
+    //             'order_reference' => $order->order_reference,
+    //             'status' => 'confirmed',
+    //             'confirmed_at' => now()->toDateTimeString(),
+    //             'payment_gateway' => $gatewayData['gateway'],
+    //             'transaction_id' => $gatewayData['transaction_id'],
+    //             'amount_paid' => $order->total_payable,
+    //             'shipping_charge' => round($order->shipping_charge, 2),
+    //             'low_stock_alerts' => $lowStockAlerts,
+    //             'confirmed_by' => $this->getAdminId(),
+    //         ]
+    //     );
+
+    //     foreach ($lowStockAlerts as $alert) {
+    //         $this->logAudit('low_stock_alert', 'inventory', null, $alert, null, $this->getClientIp());
+    //     }
+
+    //     // Delete cart only once per group — check if it's the FIRST order in the group
+    //     if ($order->checkout_type !== 'buy_now') {
+    //         $cart = Cart::where('user_id', $order->user_id)->first();
+    //         if ($cart) {
+    //             $cart->items()->delete();
+    //             $cart->delete();
+    //         }
+    //     }
+
+    //     $payload = $this->buildCommissionPayload($order);
+
+    //     CommissionApiEvent::create([
+    //         'event_type' => 'order_post',
+    //         'order_id' => $order->id,
+    //         'payload' => $payload,
+    //         'status' => 'pending',
+    //         'retry_count' => 0,
+    //         'max_retries' => 5,
+    //         'last_attempt' => null,
+    //         'error_message' => null,
+    //         'response_data' => null,
+    //     ]);
+
+    //     $this->sendOrderConfirmationNotification($order, $gatewayData);
+
+    //     return [
+    //         'success' => true,
+    //         'order_id' => $order->id,
+    //         'order_reference' => $order->order_reference,
+    //         'status' => 'confirmed',
+    //         'invoice_number' => $invoice->invoice_number ?? null,
+    //     ];
+    // }
+
     private function confirmSingleOrder(Order $order, array $gatewayData): array
     {
         $oldStatus = $order->status;
@@ -2747,6 +2913,8 @@ class CheckoutService
         ]);
 
         $this->sendOrderConfirmationNotification($order, $gatewayData);
+
+        $this->proformaInvoiceService->generateForOrder($order);
 
         return [
             'success' => true,
