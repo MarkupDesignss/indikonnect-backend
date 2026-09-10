@@ -2633,11 +2633,11 @@ class CheckoutService
             if ($line->variant_id) {
                 $variant = $line->variant;
                 if ($variant) {
-                    $variant->decrement('stock_quantity', $line->quantity);
+                    // $variant->decrement('stock_quantity', $line->quantity);
 
                     $product = $line->product;
                     if ($product) {
-                        $product->decrement('stock_quantity', $line->quantity);
+                        // $product->decrement('stock_quantity', $line->quantity);
                     }
 
                     StockMovement::create([
@@ -3090,23 +3090,23 @@ class CheckoutService
             ]);
 
             // Restore stock for this specific line
-            if ($orderLine->variant_id && $orderLine->variant) {
-                $orderLine->variant->increment(
-                    'stock_quantity',
-                    $orderLine->quantity
-                );
+            // if ($orderLine->variant_id && $orderLine->variant) {
+            //     $orderLine->variant->increment(
+            //         'stock_quantity',
+            //         $orderLine->quantity
+            //     );
 
-                // Also restore product-level stock if maintained
-                $orderLine->product->increment(
-                    'stock_quantity',
-                    $orderLine->quantity
-                );
-            } else {
-                $orderLine->product->increment(
-                    'stock_quantity',
-                    $orderLine->quantity
-                );
-            }
+            //     // Also restore product-level stock if maintained
+            //     $orderLine->product->increment(
+            //         'stock_quantity',
+            //         $orderLine->quantity
+            //     );
+            // } else {
+            //     $orderLine->product->increment(
+            //         'stock_quantity',
+            //         $orderLine->quantity
+            //     );
+            // }
 
             // Create stock movement
             StockMovement::create([

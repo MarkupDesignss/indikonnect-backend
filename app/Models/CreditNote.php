@@ -46,27 +46,7 @@ class CreditNote extends Model
      *
      * @var array<int, string>
      */
-    protected $fillable = [
-        'credit_note_number',
-        'order_id',
-        'original_invoice_number',
-        'refund_id',
-        'buyer_name',
-        'buyer_email',
-        'buyer_address',
-        'buyer_state',
-        'buyer_gstin',
-        'amount',
-        'taxable_value',
-        'cgst_amount',
-        'sgst_amount',
-        'igst_amount',
-        'total_gst',
-        'items',
-        'buyer_type',
-        'reason',
-        'issued_at',
-    ];
+    protected $guarded = [];
 
     /**
      * The attributes that should be cast.
@@ -122,7 +102,7 @@ class CreditNote extends Model
     public static function generateCreditNoteNumber(): string
     {
         $prefix = 'CN-' . now()->format('Ymd') . '-';
-        
+
         // Atomic database operation to get the next sequence number for today
         $lastNumber = DB::table('credit_notes')
             ->where('credit_note_number', 'like', $prefix . '%')
