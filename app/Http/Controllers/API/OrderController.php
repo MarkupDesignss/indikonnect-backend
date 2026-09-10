@@ -278,32 +278,91 @@ class OrderController extends Controller
         ]);
     }
 
-    public function getConfirmedOrder(string $order_reference): JsonResponse
+    public function getConfirmedOrder(string $orderGroupId): JsonResponse
     {
         try {
-            $order = Order::with([
+            // Fetch ALL orders in the group for this user
+            $orders = Order::with([
                 'user',
                 'lines.product',
                 'lines.product.images',
+                'lines.variant',
                 'billingAddress',
                 'deliveryAddress',
-            ])->where('order_reference', $order_reference)
+            ])
+                ->where('order_group_id', $orderGroupId)
                 ->where('user_id', auth()->id())
-                ->firstOrFail();
+                ->orderBy('id')
+                ->get();
 
-            // Check if order is confirmed
-            if ($order->status !== 'confirmed') {
+            if ($orders->isEmpty()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Order is not confirmed yet. Current status: ' . $order->status,
+                    'message' => 'No orders found for group: ' . $orderGroupId,
+                ], 404);
+            }
+
+            // Check if ALL orders in the group are confirmed
+            $unconfirmedOrders = $orders->where('status', '!=', 'confirmed');
+            if ($unconfirmedOrders->isNotEmpty()) {
+                $pendingRefs = $unconfirmedOrders->pluck('order_reference')->implode(', ');
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Some orders are not confirmed yet. Pending: ' . $pendingRefs,
                 ], 400);
             }
 
-            $formattedOrder = $this->formatOrderDetails($order);
+            // Format each order (shipping charge from order_lines)
+            $formattedOrders = $orders->map(function ($order) {
+                return $this->formatOrderDetails($order);
+            })->values()->toArray();
+
+            // =============================================
+            // AGGREGATE TOTALS ACROSS ALL ORDERS IN GROUP
+            // =============================================
+            $aggregated = [
+                'order_group_id' => $orderGroupId,
+                'total_orders' => $orders->count(),
+                'order_references' => $orders->pluck('order_reference')->toArray(),
+                'order_ids' => $orders->pluck('id')->toArray(),
+
+                'subtotal' => round($orders->sum('subtotal'), 2),
+                'total_gst' => round($orders->sum('total_gst'), 2),
+                'total_cgst' => round($orders->sum('total_cgst'), 2),
+                'total_sgst' => round($orders->sum('total_sgst'), 2),
+                'total_igst' => round($orders->sum('total_igst'), 2),
+
+                // Shipping pulled from order_lines per order
+                'shipping_charge' => round(
+                    $orders->sum(function ($order) {
+                        return $order->lines->sum(function ($line) {
+                            return ($line->shipping_charge ?? 0) * $line->quantity;
+                        });
+                    }),
+                    2
+                ),
+
+                'coupon_code' => $orders->first()->coupon_code,
+                'coupon_discount' => round($orders->sum('coupon_discount'), 2),
+                'coin_redeemed' => $orders->sum('coin_redeemed'),
+                'coin_redeemed_amount' => round($orders->sum('coin_redeemed_amount'), 2),
+                'total_payable' => round($orders->sum('total_payable'), 2),
+                'amount_paid' => round($orders->sum('amount_paid'), 2),
+
+                // Total items across all orders
+                'total_items' => $orders->sum(function ($order) {
+                    return $order->lines->count();
+                }),
+            ];
 
             return response()->json([
                 'success' => true,
-                'data' => $formattedOrder,
+                'data' => [
+                    'is_grouped' => $orders->count() > 1,
+                    'order_group_id' => $orderGroupId,
+                    'aggregated_summary' => $aggregated,
+                    'orders' => $formattedOrders,
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -312,133 +371,131 @@ class OrderController extends Controller
             ], 404);
         }
     }
+
+    /**
+     * Format order details — pulls shipping charge from order_lines
+     */
     private function formatOrderDetails(Order $order): array
     {
-        // Format order items with product details
-        $items = [];
-        foreach ($order->lines as $line) {
-            $product = $line->product;
+        $lines = $order->lines->map(function ($line) {
+            // Shipping charge from order_lines table
+            $shippingChargePerUnit = $line->shipping_charge ?? 0;
+            $lineShippingCharge = $shippingChargePerUnit * $line->quantity;
 
-            // Get product images
-            $images = [];
-            if ($product && $product->images) {
-                foreach ($product->images as $image) {
-                    $images[] = [
-                        'id' => $image->id,
-                        'image_url' => asset('storage/' . $image->image),
-                        'is_primary' => $image->is_primary,
-                    ];
-                }
-            }
+            // Product image
+            $primaryImage = $line->product?->images?->where('is_primary', true)->first()
+                ?? $line->product?->images?->first();
 
-            $items[] = [
+            return [
+                'id' => $line->id,
                 'product_id' => $line->product_id,
-                'product_name' => $product?->name ?? 'Product Not Found',
-                'product_code' => $product?->product_code ?? 'N/A',
+                'variant_id' => $line->variant_id,
+                'product_name' => $line->product?->name,
+                'product_code' => $line->product?->product_code,
+                'variant_sku' => $line->variant?->sku,
+                'variant_attributes' => $line->variant?->attributes,
                 'quantity' => $line->quantity,
-                'unit_price' => (float) $line->unit_price,
-                'gst_rate' => (float) $line->gst_rate,
-                'gst_amount' => (float) $line->gst_amount,
-                'line_total' => (float) $line->line_total,
-                'commissionable_volume' => (float) $line->commissionable_volume,
-                'images' => $images,
-                'primary_image' => !empty($images) ? $images[0]['image_url'] : null,
-            ];
-        }
+                'unit_price' => round($line->unit_price, 2),
 
-        // Format address
-        $billingAddress = $order->billingAddress;
-        $deliveryAddress = $order->deliveryAddress;
+                // Shipping from order_lines
+                'shipping_charge_per_unit' => round($shippingChargePerUnit, 2),
+                'total_shipping_charge' => round($lineShippingCharge, 2),
+
+                // Tax
+                'gst_rate' => $line->gst_rate,
+                'cgst_rate' => $line->cgst_rate,
+                'sgst_rate' => $line->sgst_rate,
+                'igst_rate' => $line->igst_rate,
+                'gst_amount' => round($line->gst_amount, 2),
+                'cgst_amount' => round($line->cgst_amount, 2),
+                'sgst_amount' => round($line->sgst_amount, 2),
+                'igst_amount' => round($line->igst_amount, 2),
+
+                // Line total
+                'line_total' => round($line->line_total, 2),
+
+                // Delivery
+                'delivery_status' => $line->delivery_status,
+                'return_status' => $line->return_status,
+
+                // Image
+                'product_image' => $primaryImage
+                    ? asset('storage/' . $primaryImage->image)
+                    : null,
+            ];
+        })->values()->toArray();
+
+        // Sum shipping from order lines (source of truth)
+        $totalShippingFromLines = collect($lines)->sum('total_shipping_charge');
 
         return [
-            // Order Basic Info
             'order_id' => $order->id,
             'order_reference' => $order->order_reference,
-            'order_status' => $order->status,
+            'order_group_id' => $order->order_group_id,
+            'status' => $order->status,
             'order_type' => $order->order_type,
-            'order_date' => $order->created_at->toDateTimeString(),
-            'confirmed_date' => $order->confirmed_at?->toDateTimeString(),
+            'checkout_type' => $order->checkout_type,
+            'confirmed_at' => $order->confirmed_at,
 
-            // Payment Info
-            'payment_gateway' => $order->payment_gateway ?? 'Razorpay',
+            // Financials
+            'subtotal' => round($order->subtotal, 2),
+            'coupon_code' => $order->coupon_code,
+            'coupon_discount' => round($order->coupon_discount, 2),
+            'coin_redeemed' => $order->coin_redeemed,
+            'coin_redeemed_amount' => round($order->coin_redeemed_amount, 2),
+
+            // Tax
+            'total_gst' => round($order->total_gst, 2),
+            'total_cgst' => round($order->total_cgst, 2),
+            'total_sgst' => round($order->total_sgst, 2),
+            'total_igst' => round($order->total_igst, 2),
+
+            // Shipping pulled from order_lines (not from orders.shipping_charge)
+            'shipping_charge' => round($totalShippingFromLines, 2),
+
+            'total_payable' => round($order->total_payable, 2),
+            'amount_paid' => round($order->amount_paid, 2),
+
+            // Payment
+            'payment_gateway' => $order->payment_gateway,
             'gateway_transaction_id' => $order->gateway_transaction_id,
-            'amount_paid' => (float) $order->amount_paid,
-            'payment_status' => $order->amount_paid > 0 ? 'paid' : 'unpaid',
-
-            // Financial Breakdown
-            'subtotal' => (float) $order->subtotal,
-            'total_gst' => (float) $order->total_gst,
-            'shipping_charge' => (float) $order->shipping_charge,
-            'coin_redeemed' => (int) $order->coin_redeemed,
-            'coin_redeemed_amount' => (float) $order->coin_redeemed_amount,
-            'total_payable' => (float) $order->total_payable,
-
-            // Tax Breakdown (if stored)
-            'tax_breakdown' => !empty($order->tax_breakdown)
-                ? json_decode($order->tax_breakdown, true)
-                : [],
-
-            // Order Items
-            'items' => $items,
 
             // Addresses
-            'billing_address' => $billingAddress ? [
-                'id' => $billingAddress->id,
-                'full_name' => $billingAddress->full_name ?? null,
-                'phone' => $billingAddress->phone ?? null,
-                'address_line_1' => $billingAddress->address_line_1,
-                'address_line_2' => $billingAddress->address_line_2 ?? null,
-                'city' => $billingAddress->city,
-                'state' => $billingAddress->state,
-                'postal_code' => $billingAddress->postal_code,
-                'country' => $billingAddress->country ?? 'India',
-                'full_address' => $this->formatAddress($billingAddress),
+            'billing_address' => $order->billingAddress ? [
+                'id' => $order->billingAddress->id,
+                'address_line_1' => $order->billingAddress->billing_address_line_1,
+                'address_line_2' => $order->billingAddress->billing_address_line_2,
+                'city' => $order->billingAddress->billing_city,
+                'state' => $order->billingAddress->billing_state,
+                'pincode' => $order->billingAddress->billing_postcode,
+                'country' => $order->billingAddress->billing_country,
             ] : null,
 
-            'delivery_address' => $deliveryAddress ? [
-                'id' => $deliveryAddress->id,
-                'full_name' => $deliveryAddress->full_name ?? null,
-                'phone' => $deliveryAddress->phone ?? null,
-                'address_line_1' => $deliveryAddress->address_line_1,
-                'address_line_2' => $deliveryAddress->address_line_2 ?? null,
-                'city' => $deliveryAddress->city,
-                'state' => $deliveryAddress->state,
-                'postal_code' => $deliveryAddress->postal_code,
-                'country' => $deliveryAddress->country ?? 'India',
-                'full_address' => $this->formatAddress($deliveryAddress),
+            'delivery_address' => $order->deliveryAddress ? [
+                'id' => $order->deliveryAddress->id,
+                'address_line_1' => $order->deliveryAddress->address_line_1,
+                'address_line_2' => $order->deliveryAddress->address_line_2,
+                'city' => $order->deliveryAddress->city,
+                'state' => $order->deliveryAddress->state,
+                'pincode' => $order->deliveryAddress->pincode,
+                'country' => $order->deliveryAddress->country,
             ] : null,
 
-            // // Coin Redemption Details
-            // 'coin_redemption' => $order->coinRedemption ? [
-            //     'id' => $order->coinRedemption->id,
-            //     'coins_used' => (int) $order->coinRedemption->coins_used,
-            //     'amount_redeemed' => (float) $order->coinRedemption->amount_redeemed,
-            //     'status' => $order->coinRedemption->status,
-            // ] : null,
-
-            // User Info
-            'user' => [
+            // User
+            'user' => $order->user ? [
                 'id' => $order->user->id,
                 'name' => $order->user->name,
                 'email' => $order->user->email,
                 'phone' => $order->user->phone ?? null,
-                'is_distributor' => $order->user->isDistributor(),
-            ],
-
-            // Invoice Info
-            'invoice' => $order->invoice ? [
-                'invoice_number' => $order->invoice->invoice_number,
-                'invoice_url' => asset('storage/invoices/' . $order->invoice->invoice_number . '.pdf'),
-                'generated_at' => $order->invoice->created_at->toDateTimeString(),
             ] : null,
 
-            // Timeline
-            'timeline' => [
-                'order_placed' => $order->created_at->toDateTimeString(),
-                'order_confirmed' => $order->confirmed_at?->toDateTimeString(),
-                'shipped_at' => $order->shipped_at?->toDateTimeString(),
-                'delivered_at' => $order->delivered_at?->toDateTimeString(),
-            ],
+            // Line items
+            'items' => $lines,
+            'items_count' => count($lines),
+
+            // Timestamps
+            'created_at' => $order->created_at,
+            'updated_at' => $order->updated_at,
         ];
     }
 
