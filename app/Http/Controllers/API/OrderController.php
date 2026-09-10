@@ -372,6 +372,111 @@ class OrderController extends Controller
         }
     }
 
+
+    public function withdrawCancel(Request $request, string $orderReference): JsonResponse
+    {
+        $validator = Validator::make(
+            ['order_reference' => $orderReference],
+            [
+                'order_reference' => 'required|string|exists:orders,order_reference',
+            ]
+        );
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid order reference.',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $result = DB::transaction(function () use ($orderReference, $request) {
+
+                // Find and lock order
+                $order = Order::where('order_reference', $orderReference)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$order) {
+                    throw new \Exception('Order not found.');
+                }
+
+                // Optional: only order owner can withdraw cancellation
+                if ($request->user() && $order->user_id !== $request->user()->id) {
+                    throw new \Exception(
+                        'You are not authorized to withdraw the cancellation.'
+                    );
+                }
+
+                // Get only cancel_pending order lines
+                $orderLines = $order->orderLines()
+                    ->where('delivery_status', 'cancel_pending')
+                    ->lockForUpdate()
+                    ->get();
+
+                if ($orderLines->isEmpty()) {
+                    throw new \Exception(
+                        'No order lines are pending cancellation for this order.'
+                    );
+                }
+
+                // Withdraw cancellation request
+                $orderLines->each(function ($line) {
+                    $line->update([
+                        'delivery_status'           => 'confirmed',
+                        'cancellation_requested_at' => null,
+                        'cancelled_at'              => null,
+                        'cancellation_reason'       => null,
+                        'updated_at'                => now(),
+                    ]);
+                });
+
+                return [
+                    'order' => $order,
+                    'lines' => $orderLines->fresh(),
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order cancellation withdrawn successfully.',
+                'data' => [
+                    'order_id'        => $result['order']->id,
+                    'order_reference' => $result['order']->order_reference,
+
+                    'order_lines' => $result['lines']->map(function ($line) {
+                        return [
+                            'id'              => $line->id,
+                            'order_id'        => $line->order_id,
+                            'product_id'      => $line->product_id,
+                            'variant_id'      => $line->variant_id,
+                            'quantity'        => $line->quantity,
+                            'shipping_charge' => $line->shipping_charge,
+                            'delivery_status' => $line->delivery_status,
+                            'cancelled_at'    => $line->cancelled_at,
+                            'cancellation_requested_at'
+                            => $line->cancellation_requested_at,
+                            'cancellation_reason'
+                            => $line->cancellation_reason,
+                        ];
+                    }),
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+
+            Log::error('Withdraw cancellation failed', [
+                'order_reference' => $orderReference,
+                'error'           => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
     /**
      * Format order details — pulls shipping charge from order_lines
      */
