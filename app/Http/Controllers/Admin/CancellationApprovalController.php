@@ -52,7 +52,11 @@ class CancellationApprovalController extends Controller
     public function getRequestDetails(int $orderLineId): JsonResponse
     {
         $orderLine = OrderLine::where('id', $orderLineId)
-            ->where('delivery_status', 'cancel_pending')
+            ->whereIn('delivery_status', [
+                'cancel_pending',
+                'cancelled',
+                'cancelled_rejected',
+            ])
             ->with(['order', 'order.user', 'product', 'variant'])
             ->firstOrFail();
 
