@@ -2054,9 +2054,9 @@ class OrderController extends Controller
 
                         // ── Category + Brand info (NEW) ──
                         'category_id'   => $product?->category_id,
-                        'category_name' => $product?->category?->name,
+                        'category_name' => $product?->category?->title,
                         'brand_id'      => $product?->brand_id,
-                        'brand_name'    => $product?->brand?->name,
+                        'brand_name'    => $product?->brand?->title,
 
                         // Product Status
                         'delivery_status'      => $line->delivery_status ?? 'pending',
