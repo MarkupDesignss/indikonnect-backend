@@ -259,6 +259,7 @@
 </head>
 
 <body>
+
     <div class="invoice">
         <div class="watermark">PROFORMA</div>
 
@@ -278,31 +279,83 @@
                     Email: {{ config('app.company_email', 'care@indiekonnect.com') }}</p>
             </div>
             <div class="meta-box">
-                <div class="meta-row"><span class="label">Proforma No</span><span
-                        class="value">{{ $invoice->proforma_invoice_number }}</span></div>
-                <div class="meta-row"><span class="label">Proforma Date</span><span
-                        class="value">{{ $invoice->issued_at?->format('d-M-Y') ?? now()->format('d-M-Y') }}</span>
+                <div class="meta-row">
+                    <span class="label">Proforma No</span>
+                    <span class="value">{{ $invoice->proforma_invoice_number }}</span>
                 </div>
-                <div class="meta-row"><span class="label">Valid Until</span><span class="value"
+                <div class="meta-row">
+                    <span class="label">Proforma Date</span>
+                    <span class="value">{{ $invoice->issued_at?->format('d-M-Y') ?? now()->format('d-M-Y') }}</span>
+                </div>
+                <div class="meta-row">
+                    <span class="label">Valid Until</span>
+                    <span class="value"
                         style="color:#DC2626">{{ ($invoice->issued_at ?? now())->addDays(7)->format('d-M-Y') }}</span>
                 </div>
-                <div class="meta-row"><span class="label">Order Ref</span><span
-                        class="value">{{ $invoice->summary_snapshot['order_reference'] ?? 'N/A' }}</span></div>
-                <div class="meta-row"><span class="label">Place of Supply</span><span
-                        class="value">{{ $invoice->delivery_state ?? 'N/A' }}</span></div>
+                <div class="meta-row">
+                    <span class="label">Order Ref</span>
+                    <span class="value">{{ $invoice->summary_snapshot['order_reference'] ?? 'N/A' }}</span>
+                </div>
+                <div class="meta-row">
+                    <span class="label">Place of Supply</span>
+                    <span class="value">{{ $invoice->delivery_state ?? 'N/A' }}</span>
+                </div>
             </div>
         </div>
 
+        {{-- ==== Addresses — SAFE, no null crashes ==== --}}
+        @php
+            $address = $invoice->order?->user?->addresses?->first();
+        @endphp
+
         <div class="addresses">
+
+            {{-- Billing Address --}}
             <div class="addr-box">
                 <h3>Billing Address</h3>
-                <p>{!! nl2br(e($invoice->buyer_address ?? 'N/A')) !!}<br>
-                    GSTIN: {{ $invoice->buyer_gstin ?? 'Unregistered' }}</p>
+                <p>
+                    {{ $address->billing_recipient_name ?? ($invoice->buyer_name ?? 'N/A') }}<br>
+
+                    {{ $address->billing_address_line_1 ?? '' }}<br>
+
+                    @if (!empty($address->billing_address_line_2))
+                        {{ $address->billing_address_line_2 }}<br>
+                    @endif
+
+                    {{ $address->billing_city ?? '' }},
+                    {{ $address->billing_state ?? '' }} -
+                    {{ $address->billing_postcode ?? '' }}<br>
+
+                    {{ $address->billing_country ?? '' }}<br>
+
+                    Contact: {{ $address->billing_contact_number ?? 'N/A' }}<br>
+
+                    GSTIN: {{ $invoice->buyer_gstin ?? 'URP' }}
+                </p>
             </div>
+
+            {{-- Shipping Address --}}
             <div class="addr-box">
                 <h3>Shipping Address</h3>
-                <p>{!! nl2br(e($invoice->buyer_address ?? 'N/A')) !!}</p>
+                <p>
+                    {{ $address->recipient_name ?? ($invoice->buyer_name ?? 'N/A') }}<br>
+
+                    {{ $address->address_line_1 ?? '' }}<br>
+
+                    @if (!empty($address->address_line_2))
+                        {{ $address->address_line_2 }}<br>
+                    @endif
+
+                    {{ $address->city ?? '' }},
+                    {{ $address->state ?? '' }} -
+                    {{ $address->postcode ?? '' }}<br>
+
+                    {{ $address->country ?? '' }}<br>
+
+                    Contact: {{ $address->contact_number ?? 'N/A' }}
+                </p>
             </div>
+
         </div>
 
         <table class="items">
@@ -310,65 +363,96 @@
                 <tr>
                     <th>#</th>
                     <th>Description</th>
-                    <th>HSN</th>
+                    <th>Code</th>
                     <th>Qty</th>
                     <th>Rate</th>
                     <th>Taxable</th>
+                    <th>Ship/Unit</th>
+                    <th>Ship Total</th>
                     <th>GST%</th>
                     <th>Total</th>
                 </tr>
             </thead>
             <tbody>
-                @foreach ($invoice->line_items as $index => $item)
+                @php $grandShipTotal = 0; @endphp
+                @forelse ($invoice->line_items ?? [] as $index => $item)
+                    @php
+                        $qty = (float) ($item['quantity'] ?? 0);
+                        $shipPerUnit = (float) ($item['shipping_charge'] ?? 0);
+                        $shipTotal = $shipPerUnit * $qty;
+                        $lineTotal = (float) ($item['line_total'] ?? 0);
+                        $grandShipTotal += $shipTotal;
+                    @endphp
                     <tr>
                         <td>{{ $index + 1 }}</td>
                         <td>{{ $item['name'] ?? '-' }}</td>
-                        <td>{{ $item['hsn_code'] ?? '-' }}</td>
-                        <td>{{ $item['quantity'] }}</td>
-                        <td>&#8377; {{ number_format($item['unit_price'], 2) }}</td>
-                        <td>&#8377; {{ number_format($item['line_total'], 2) }}</td>
-                        <td>{{ $item['gst_rate'] }}%</td>
-                        <td>&#8377; {{ number_format($item['line_total'] + $item['gst_amount'], 2) }}</td>
+                        <td>{{ $item['product_code'] ?? '-' }}</td>
+                        <td>{{ $qty }}</td>
+                        <td>&#8377; {{ number_format($item['unit_price'] ?? 0, 2) }}</td>
+                        <td>&#8377; {{ number_format($lineTotal, 2) }}</td>
+                        <td>&#8377; {{ number_format($shipPerUnit, 2) }}</td>
+                        <td>&#8377; {{ number_format($shipTotal, 2) }}</td>
+                        <td>{{ $item['gst_rate'] ?? 0 }}%</td>
+                        <td>&#8377; {{ number_format($lineTotal + $shipTotal, 2) }}</td>
                     </tr>
-                @endforeach
+                @empty
+                    <tr>
+                        <td colspan="10" style="text-align:center;">No items</td>
+                    </tr>
+                @endforelse
             </tbody>
         </table>
 
         <div class="summary">
             <div class="summary-box">
-                <div class="sum-row"><span>Subtotal</span><span>&#8377;
-                        {{ number_format($invoice->subtotal_before_redemption, 2) }}</span></div>
+                <div class="sum-row">
+                    <span>Subtotal</span>
+                    <span>&#8377; {{ number_format($invoice->subtotal_before_redemption ?? 0, 2) }}</span>
+                </div>
 
-                @if ($invoice->coupon_discount > 0)
-                    <div class="sum-row"><span>(-) Coupon ({{ $invoice->coupon_code }})</span><span>-&#8377;
-                            {{ number_format($invoice->coupon_discount, 2) }}</span></div>
+                @if (($invoice->coupon_discount ?? 0) > 0)
+                    <div class="sum-row">
+                        <span>(-) Coupon ({{ $invoice->coupon_code }})</span>
+                        <span>-&#8377; {{ number_format($invoice->coupon_discount, 2) }}</span>
+                    </div>
                 @endif
 
-                @if ($invoice->coin_redeemed > 0)
-                    <div class="sum-row"><span>(-) Coins Redeemed</span><span>-&#8377;
-                            {{ number_format($invoice->coin_redeemed, 2) }}</span></div>
+                @if (($invoice->coin_redeemed ?? 0) > 0)
+                    <div class="sum-row">
+                        <span>(-) Coins Redeemed</span>
+                        <span>-&#8377; {{ number_format($invoice->coin_redeemed, 2) }}</span>
+                    </div>
                 @endif
 
-                @if ($invoice->shipping_charge > 0)
-                    <div class="sum-row"><span>(+) Shipping Charge</span><span>+&#8377;
-                            {{ number_format($invoice->shipping_charge, 2) }}</span></div>
+                @if (($invoice->shipping_charge ?? 0) > 0)
+                    <div class="sum-row">
+                        <span>(+) Shipping Charge</span>
+                        <span>+&#8377; {{ number_format($invoice->shipping_charge, 2) }}</span>
+                    </div>
                 @endif
 
-                <div class="sum-row"><span>Taxable Amount</span><span>&#8377;
-                        {{ number_format($invoice->total_taxable, 2) }}</span></div>
+                <div class="sum-row">
+                    <span>Taxable Amount</span>
+                    <span>&#8377; {{ number_format($invoice->total_taxable ?? 0, 2) }}</span>
+                </div>
 
-                @if ($invoice->total_tax > 0)
-                    <div class="sum-row"><span>GST</span><span>&#8377;
-                            {{ number_format($invoice->total_tax, 2) }}</span></div>
+                @if (($invoice->total_tax ?? 0) > 0)
+                    <div class="sum-row">
+                        <span>GST</span>
+                        <span>&#8377; {{ number_format($invoice->total_tax, 2) }}</span>
+                    </div>
                 @endif
 
-                <div class="sum-row total"><span>TOTAL PAYABLE</span><span>&#8377;
-                        {{ number_format($invoice->total_payable, 2) }}</span></div>
+                <div class="sum-row total">
+                    <span>TOTAL PAYABLE</span>
+                    <span>&#8377; {{ number_format($invoice->total_payable ?? 0, 2) }}</span>
+                </div>
             </div>
         </div>
-
+        {{-- ==== Amount in Words — SAFE FALLBACK ==== --}}
         <div class="words">
-            <strong>Amount in Words:</strong> {{ $amountInWords }}
+            <strong>Amount in Words:</strong>
+            {{ $amountInWords ?? ($invoice->amount_in_words ?? 'N/A') }}
         </div>
 
         <div class="disclaimer">
