@@ -31,7 +31,11 @@ class CancellationApprovalController extends Controller
      */
     public function getPendingRequests(Request $request): JsonResponse
     {
-        $pendingRequests = OrderLine::where('delivery_status', 'cancel_pending')
+        $pendingRequests = OrderLine::whereIn('delivery_status', [
+                'cancel_pending',
+                'cancelled',
+                'cancelled_rejected'
+            ])
             ->with(['order', 'order.user', 'product', 'variant'])
             ->orderBy('cancellation_requested_at', 'asc')
             ->paginate($request->get('per_page', 20));
