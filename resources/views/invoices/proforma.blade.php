@@ -148,20 +148,25 @@
         table.items th {
             background: #1E40AF;
             color: white;
-            padding: 10px 8px;
-            font-size: 11px;
+            padding: 8px 6px;
+            font-size: 10px;
             text-align: left;
         }
 
         table.items td {
-            padding: 10px 8px;
-            font-size: 11px;
+            padding: 8px 6px;
+            font-size: 10px;
             border-bottom: 1px solid #E2E8F0;
             color: #334155;
         }
 
         table.items tr:nth-child(even) {
             background: #F8FAFC;
+        }
+
+        table.items td.num,
+        table.items th.num {
+            text-align: right;
         }
 
         .summary {
@@ -264,7 +269,6 @@
 
         <div class="header">
             <h1>PROFORMA INVOICE</h1>
-            <div class="sub">&#9888; This is NOT a Tax Invoice</div>
         </div>
 
         <div class="top-info">
@@ -282,9 +286,6 @@
                         class="value">{{ $invoice->proforma_invoice_number }}</span></div>
                 <div class="meta-row"><span class="label">Proforma Date</span><span
                         class="value">{{ $invoice->issued_at?->format('d-M-Y') ?? now()->format('d-M-Y') }}</span>
-                </div>
-                <div class="meta-row"><span class="label">Valid Until</span><span class="value"
-                        style="color:#DC2626">{{ ($invoice->issued_at ?? now())->addDays(7)->format('d-M-Y') }}</span>
                 </div>
                 <div class="meta-row"><span class="label">Order Ref</span><span
                         class="value">{{ $invoice->summary_snapshot['order_reference'] ?? 'N/A' }}</span></div>
@@ -305,32 +306,68 @@
             </div>
         </div>
 
+        @php
+            // Line-item shipping sum (per unit * qty) — safe fallback to order-level
+            $shippingFromLines = collect($invoice->line_items ?? [])->sum(
+                fn($i) => (float) ($i['shipping_charge'] ?? 0) * (float) ($i['quantity'] ?? 0),
+            );
+            $displayShipping = $shippingFromLines > 0 ? $shippingFromLines : (float) ($invoice->shipping_charge ?? 0);
+        @endphp
+
         <table class="items">
             <thead>
                 <tr>
                     <th>#</th>
                     <th>Description</th>
                     <th>HSN</th>
-                    <th>Qty</th>
-                    <th>Rate</th>
-                    <th>Taxable</th>
-                    <th>GST%</th>
-                    <th>Total</th>
+                    <th class="num">Qty</th>
+                    <th class="num">Rate</th>
+                    <th class="num">Taxable</th>
+                    <th class="num">Ship/Unit</th>
+                    <th class="num">Ship Total</th>
+                    <th class="num">GST%</th>
+                    <th class="num">Total</th>
                 </tr>
             </thead>
             <tbody>
-                @foreach ($invoice->line_items as $index => $item)
+                @forelse ($invoice->line_items ?? [] as $index => $item)
+                    @php
+                        $qty = (float) ($item['quantity'] ?? 0);
+                        $shipPerUnit = (float) ($item['shipping_charge'] ?? 0);
+                        $shipTotal = $shipPerUnit * $qty;
+                        $lineTotal = (float) ($item['line_total'] ?? 0);
+                        $gstAmount = (float) ($item['gst_amount'] ?? 0);
+                        $rowTotal = $lineTotal + $gstAmount + $shipTotal;
+                    @endphp
                     <tr>
                         <td>{{ $index + 1 }}</td>
                         <td>{{ $item['name'] ?? '-' }}</td>
                         <td>{{ $item['hsn_code'] ?? '-' }}</td>
-                        <td>{{ $item['quantity'] }}</td>
-                        <td>&#8377; {{ number_format($item['unit_price'], 2) }}</td>
-                        <td>&#8377; {{ number_format($item['line_total'], 2) }}</td>
-                        <td>{{ $item['gst_rate'] }}%</td>
-                        <td>&#8377; {{ number_format($item['line_total'] + $item['gst_amount'], 2) }}</td>
+                        <td class="num">{{ $qty }}</td>
+                        <td class="num">&#8377; {{ number_format($item['unit_price'] ?? 0, 2) }}</td>
+                        <td class="num">&#8377; {{ number_format($lineTotal, 2) }}</td>
+                        <td class="num">
+                            @if ($shipPerUnit > 0)
+                                &#8377; {{ number_format($shipPerUnit, 2) }}
+                            @else
+                                -
+                            @endif
+                        </td>
+                        <td class="num">
+                            @if ($shipTotal > 0)
+                                &#8377; {{ number_format($shipTotal, 2) }}
+                            @else
+                                -
+                            @endif
+                        </td>
+                        <td class="num">{{ $item['gst_rate'] ?? 0 }}%</td>
+                        <td class="num">&#8377; {{ number_format($rowTotal, 2) }}</td>
                     </tr>
-                @endforeach
+                @empty
+                    <tr>
+                        <td colspan="10" style="text-align:center;">No items</td>
+                    </tr>
+                @endforelse
             </tbody>
         </table>
 
@@ -349,9 +386,9 @@
                             {{ number_format($invoice->coin_redeemed, 2) }}</span></div>
                 @endif
 
-                @if ($invoice->shipping_charge > 0)
+                @if ($displayShipping > 0)
                     <div class="sum-row"><span>(+) Shipping Charge</span><span>+&#8377;
-                            {{ number_format($invoice->shipping_charge, 2) }}</span></div>
+                            {{ number_format($displayShipping, 2) }}</span></div>
                 @endif
 
                 <div class="sum-row"><span>Taxable Amount</span><span>&#8377;
@@ -368,7 +405,7 @@
         </div>
 
         <div class="words">
-            <strong>Amount in Words:</strong> {{ $amountInWords }}
+            <strong>Amount in Words:</strong> {{ $amountInWords ?? ($invoice->amount_in_words ?? 'N/A') }}
         </div>
 
         <div class="disclaimer">
@@ -377,8 +414,7 @@
                 This is a <strong>PROFORMA INVOICE</strong> only. It is <strong>NOT a Tax Invoice</strong>.<br>
                 This document is not a demand for payment of tax.<br>
                 Goods will be dispatched only after receipt of payment.<br><br>
-                &#128197; <strong>Validity:</strong> This proforma is valid till
-                <strong>{{ ($invoice->issued_at ?? now())->addDays(7)->format('d-M-Y') }}</strong>.<br>
+                &#128197;
                 &#128179; <strong>Payment Terms:</strong> 100% Advance Payment<br><br>
                 &#127974; <strong>Bank Details:</strong><br>
                 Account Name: {{ config('app.company_name', 'IndieKonnect Enterprises Pvt Ltd') }}<br>

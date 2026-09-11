@@ -265,7 +265,6 @@
 
         <div class="header">
             <h1>PROFORMA INVOICE</h1>
-            <div class="sub">&#9888; This is NOT a Tax Invoice</div>
         </div>
 
         <div class="top-info">
@@ -287,11 +286,7 @@
                     <span class="label">Proforma Date</span>
                     <span class="value">{{ $invoice->issued_at?->format('d-M-Y') ?? now()->format('d-M-Y') }}</span>
                 </div>
-                <div class="meta-row">
-                    <span class="label">Valid Until</span>
-                    <span class="value"
-                        style="color:#DC2626">{{ ($invoice->issued_at ?? now())->addDays(7)->format('d-M-Y') }}</span>
-                </div>
+
                 <div class="meta-row">
                     <span class="label">Order Ref</span>
                     <span class="value">{{ $invoice->summary_snapshot['order_reference'] ?? 'N/A' }}</span>
@@ -461,8 +456,7 @@
                 This is a <strong>PROFORMA INVOICE</strong> only. It is <strong>NOT a Tax Invoice</strong>.<br>
                 This document is not a demand for payment of tax.<br>
                 Goods will be dispatched only after receipt of payment.<br><br>
-                &#128197; <strong>Validity:</strong> This proforma is valid till
-                <strong>{{ ($invoice->issued_at ?? now())->addDays(7)->format('d-M-Y') }}</strong>.<br>
+                &#128197;
                 &#128179; <strong>Payment Terms:</strong> 100% Advance Payment<br><br>
                 &#127974; <strong>Bank Details:</strong><br>
                 Account Name: {{ config('app.company_name', 'IndieKonnect Enterprises Pvt Ltd') }}<br>
