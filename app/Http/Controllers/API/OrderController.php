@@ -1471,8 +1471,10 @@ class OrderController extends Controller
                     'confirmed_date' => $formatDate($order->confirmed_at),
 
                     // Line Item Details
+                    // Line Item Details
                     'line_id' => $line->id,
                     'product_id' => $line->product_id,
+                    'item_reference_id' => $line->item_reference_id,
                     'product_name' => $product?->name ?? 'Product Not Found',
                     'product_code' => $product?->product_code ?? 'N/A',
                     'quantity' => $line->quantity,
@@ -1480,6 +1482,8 @@ class OrderController extends Controller
                     'gst_rate' => (float) $line->gst_rate,
                     'gst_amount' => (float) $line->gst_amount,
                     'line_total' => (float) $line->line_total,
+                    'final_amount' => (float) $line->line_total + ($line->quantity * $line->shipping_charge),
+                    'shipping_charge' => ($line->quantity * $line->shipping_charge),
                     'commissionable_volume' => (float) $line->commissionable_volume,
 
                     // Product Status (Order Line Level)
