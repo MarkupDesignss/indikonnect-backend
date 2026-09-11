@@ -1483,7 +1483,7 @@ class OrderController extends Controller
                     'gst_amount' => (float) $line->gst_amount,
                     'line_total' => (float) $line->line_total,
                     'final_amount' => (float) $line->line_total + ($line->quantity * $line->shipping_charge),
-                    'shipping_charge' => ($line->quantity * $line->shipping_charge),
+                    'delivery_charges' => ($line->quantity * $line->shipping_charge),
                     'commissionable_volume' => (float) $line->commissionable_volume,
 
                     // Product Status (Order Line Level)
@@ -1756,6 +1756,7 @@ class OrderController extends Controller
 
                         // Line Item Details
                         'line_id' => $line->id,
+                        'item_reference_id' => $line->item_reference_id,
                         'product_id' => $line->product_id,
                         'product_name' => $product?->name ?? 'Product Not Found',
                         'product_code' => $product?->product_code ?? 'N/A',
@@ -1763,8 +1764,8 @@ class OrderController extends Controller
                         'unit_price' => (float) $line->unit_price,
                         'gst_rate' => (float) $line->gst_rate,
                         'gst_amount' => (float) $line->gst_amount,
-                        'line_total' => (float) $line->line_total,
-                        'commissionable_volume' => (float) $line->commissionable_volume,
+                        'line_total' => (float) $line->line_total + ($line->shipping_charge * $line->quantity),
+                        'delivery_charges' => ($line->quantity * $line->shipping_charge),
 
                         // Product Status
                         'delivery_status' => $line->delivery_status ?? 'pending',
@@ -2065,7 +2066,6 @@ class OrderController extends Controller
         }
     }
 
-
     public function statuses(): JsonResponse
     {
         try {
@@ -2110,13 +2110,6 @@ class OrderController extends Controller
      * ============================================================
      */
 
-    /**
-     * Get orders for external systems.
-     * Supports date range, status filter, and pagination.
-     *
-     * @param Request $request
-     * @return JsonResponse
-     */
     public function externalIndex(Request $request): JsonResponse
     {
         $request->validate([
