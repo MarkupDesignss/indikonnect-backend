@@ -33,12 +33,13 @@ class ProformaInvoiceService
 
         return DB::transaction(function () use ($order, $user) {
             $invoiceData = $this->buildInvoiceData($order, $user);
-            $invoice = ProformaInvoice::create($invoiceData);
+            $invoice     = ProformaInvoice::create($invoiceData);
 
-            $pdfPath = $this->generatePdf($invoice);
-            $invoice->update(['pdf_path' => $pdfPath]);
+            $pdf = $this->generatePdf($invoice);
 
-            $this->sendProformaInvoiceEmail($invoice, $user);
+            $invoice->update(['pdf_path' => $pdf['path']]);
+
+            $this->sendProformaInvoiceEmail($invoice->fresh(), $user, $pdf['content']);
 
             return $invoice;
         });
@@ -272,9 +273,10 @@ class ProformaInvoiceService
     }
 
     /**
-     * Generate PDF
+     * Generate PDF — saves into proper year-wise folder structure
+     * e.g. storage/app/public/proforma_invoices/2025/PI-2025-26-0001.pdf
      */
-    public function generatePdf(ProformaInvoice $invoice): string
+    public function generatePdf(ProformaInvoice $invoice): array
     {
         $amountInWords = $this->numberToWords((float) $invoice->total_payable);
 
@@ -284,36 +286,65 @@ class ProformaInvoiceService
         ]);
 
         $pdf->setPaper('A4', 'portrait');
+        $pdf->setOption('isRemoteEnabled', true);
+        $pdf->setOption('isHtml5ParserEnabled', true);
+        $pdf->setOption('defaultFont', 'DejaVu Sans');
 
-        $filename = 'proforma_invoices/' . $invoice->proforma_invoice_number . '.pdf';
-        $filename = str_replace('/', '_', $filename); // sanitize
+        $pdfContent = $pdf->output();
 
-        Storage::disk('public')->put($filename, $pdf->output());
+        if (substr($pdfContent, 0, 5) !== '%PDF-') {
+            throw new \Exception('Invalid PDF generated (missing %PDF- header)');
+        }
 
-        return $filename;
+        $safeNumber   = str_replace(['/', '\\'], '-', $invoice->proforma_invoice_number);
+        $year         = now()->format('Y');
+        $relativePath = "proforma_invoices/{$year}/{$safeNumber}.pdf";
+        $fullPath     = Storage::disk('public')->path($relativePath);
+
+        if (!file_exists(dirname($fullPath))) {
+            mkdir(dirname($fullPath), 0755, true);
+        }
+
+        file_put_contents($fullPath, $pdfContent);
+
+        return [
+            'path'    => $relativePath,
+            'content' => $pdfContent,
+        ];
     }
 
     /**
      * Send proforma invoice email
      */
-    private function sendProformaInvoiceEmail(ProformaInvoice $invoice, User $user): void
-    {
+    private function sendProformaInvoiceEmail(
+        ProformaInvoice $invoice,
+        User $user,
+        string $pdfContent
+    ): void {
         try {
-            $pdfPath = Storage::disk('public')->path($invoice->pdf_path);
+            if (substr($pdfContent, 0, 5) !== '%PDF-') {
+                Log::error('Proforma PDF content invalid, email not sent', [
+                    'invoice_id' => $invoice->id,
+                    'header'     => substr($pdfContent, 0, 5),
+                ]);
+                return;
+            }
 
             Mail::to($user->email)->send(
-                new ProformaInvoiceMail($invoice, $pdfPath)
+                new \App\Mail\ProformaInvoiceMail($invoice, $pdfContent)
             );
-
             Log::info('Proforma invoice email sent', [
                 'invoice_id'     => $invoice->id,
                 'invoice_number' => $invoice->proforma_invoice_number,
                 'user_email'     => $user->email,
+                'pdf_size'       => strlen($pdfContent),
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('Failed to send proforma invoice email', [
                 'invoice_id' => $invoice->id,
                 'error'      => $e->getMessage(),
+                'file'       => $e->getFile(),
+                'line'       => $e->getLine(),
             ]);
         }
     }
