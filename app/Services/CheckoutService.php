@@ -2133,23 +2133,11 @@ class CheckoutService
             // Collect all order references for webhook mapping
             $orderReferences = array_map(fn($o) => $o->order_reference, $orders);
 
-            // Create ONE Razorpay order for the COMBINED amount
-            // No order_group_id — only order_references in notes
-            $razorpayOrder = $this->razorpayService->createOrderForGroup(
-                $razorpayTotalAmount,
-                null,                       // <-- no group id
-                [
-                    'order_references' => implode(',', $orderReferences),
-                    'total_orders'     => count($orders),
-                ]
-            );
-
             return [
                 'order_ids'        => array_map(fn($o) => $o->id, $orders),
                 'order_references' => $orderReferences,
                 'total_orders'     => count($orders),
                 'total_amount'     => round($razorpayTotalAmount, 2),
-                'razorpay_order_id' => $razorpayOrder['id'],
                 'razorpay_key'     => config('services.razorpay.key_id'),
                 'status'           => 'pending',
                 'checkout_type'    => $isBuyNow ? 'buy_now' : 'cart',
@@ -2589,394 +2577,251 @@ class CheckoutService
     //         ];
     //     });
     // }
-    public function confirmOrder(string $orderReference, array $gatewayData): array
+    public function confirmOrder(string|array $orderReferences, array $gatewayData): array
     {
-        $order = Order::where('order_reference', $orderReference)->firstOrFail();
-
-        // If order belongs to a group, confirm ALL orders in the group
-        if ($order->order_group_id) {
-            return $this->confirmOrderGroup($order->order_group_id, $gatewayData);
+        // Normalize input to array
+        if (is_string($orderReferences)) {
+            $orderReferences = array_filter(array_map('trim', explode(',', $orderReferences)));
         }
 
-        // Fallback: single order (legacy)
-        return DB::transaction(function () use ($order, $gatewayData) {
-            return $this->confirmSingleOrder($order, $gatewayData);
-        });
-    }
+        if (empty($orderReferences)) {
+            throw new Exception('No order references provided for confirmation');
+        }
 
-    /**
-     * Confirm all orders in a group
-     */
-    private function confirmOrderGroup(string $orderGroupId, array $gatewayData): array
-    {
-        $orders = Order::where('order_group_id', $orderGroupId)->get();
+        $orders = Order::whereIn('order_reference', $orderReferences)
+            ->with(['lines.product', 'lines.variant'])
+            ->get();
 
         if ($orders->isEmpty()) {
-            throw new Exception('No orders found for group: ' . $orderGroupId);
+            throw new Exception('No orders found for the provided references');
         }
 
-        $newlyConfirmed = 0;
-        $alreadyConfirmed = 0;
-        $results = [];
+        // If ALL orders are already confirmed, return early
+        if ($orders->every(fn($o) => $o->status === 'confirmed')) {
+            return [
+                'success'          => true,
+                'message'          => 'Orders already confirmed',
+                'order_references' => $orders->pluck('order_reference')->toArray(),
+            ];
+        }
 
-        DB::transaction(function () use ($orders, $gatewayData, &$results, &$newlyConfirmed, &$alreadyConfirmed) {
+        return DB::transaction(function () use ($orders, $gatewayData) {
+            $confirmedOrders = [];
+            $allLowStockAlerts = [];
+
             foreach ($orders as $order) {
+                // Skip already confirmed orders (idempotency)
                 if ($order->status === 'confirmed') {
-                    $alreadyConfirmed++;
-                    $results[] = [
-                        'success' => true,
-                        'order_id' => $order->id,
-                        'order_reference' => $order->order_reference,
-                        'status' => 'confirmed',
-                        'message' => 'Already confirmed',
-                    ];
+                    $confirmedOrders[] = $order;
                     continue;
                 }
 
-                $results[] = $this->confirmSingleOrder($order, $gatewayData);
-                $newlyConfirmed++;
+                $oldStatus = $order->status;
+
+                // =============================================
+                // UPDATE ORDER STATUS
+                // =============================================
+                $order->update([
+                    'status'                 => 'confirmed',
+                    'confirmed_at'           => now(),
+                    'payment_gateway'        => $gatewayData['gateway'] ?? $order->payment_gateway,
+                    'gateway_transaction_id' => $gatewayData['transaction_id'] ?? null,
+                    'amount_paid'            => $order->total_payable,
+                ]);
+
+                // =============================================
+                // RECORD COUPON USAGE
+                // =============================================
+                if ($order->coupon_code) {
+                    $coupon = Coupon::where('code', $order->coupon_code)->first();
+
+                    if ($coupon) {
+                        $existingUsage = CouponUsage::where('order_id', $order->id)->first();
+
+                        if (!$existingUsage) {
+                            CouponUsage::create([
+                                'coupon_id'       => $coupon->id,
+                                'user_id'         => $order->user_id,
+                                'order_id'        => $order->id,
+                                'discount_amount' => $order->coupon_discount,
+                            ]);
+
+                            $coupon->increment('used_count');
+                        }
+                    }
+                }
+
+                $lowStockAlerts = [];
+
+                // =============================================
+                // DECREMENT STOCK FOR EACH ORDER LINE
+                // =============================================
+                foreach ($order->lines as $line) {
+                    if ($line->variant_id) {
+                        $variant = $line->variant;
+
+                        if ($variant) {
+                            $variant->decrement('stock_quantity', $line->quantity);
+
+                            $product = $line->product;
+                            if ($product) {
+                                $product->decrement('stock_quantity', $line->quantity);
+                            }
+
+                            StockMovement::create([
+                                'product_id'               => $line->product_id,
+                                'variant_id'               => $line->variant_id,
+                                'item_reference_id'        => $line->item_reference_id,   // <-- include
+                                'quantity'                 => -$line->quantity,
+                                'available_quantity_after' => $variant->stock_quantity,
+                                'reason'                   => 'Order confirmed (variant): ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
+                                'order_id'                 => $order->id,
+                            ]);
+
+                            $variant->refresh();
+                            if ($variant->stock_quantity <= $variant->low_stock_threshold) {
+                                $this->sendLowStockNotification($order, $line, 'variant');
+                                $alert = [
+                                    'product_id'    => $line->product_id,
+                                    'variant_id'    => $line->variant_id,
+                                    'item_reference_id' => $line->item_reference_id,
+                                    'product_name'  => $line->product?->name ?? 'Unknown',
+                                    'stock'         => $variant->stock_quantity,
+                                    'threshold'     => $variant->low_stock_threshold,
+                                    'alert_type'    => 'variant_low_stock',
+                                ];
+                                $lowStockAlerts[] = $alert;
+                                $allLowStockAlerts[] = $alert;
+                            }
+                        }
+                    } else {
+                        $product = $line->product;
+
+                        if ($product) {
+                            $product->decrement('stock_quantity', $line->quantity);
+
+                            StockMovement::create([
+                                'product_id'               => $line->product_id,
+                                'variant_id'               => null,
+                                'item_reference_id'        => $line->item_reference_id,   // <-- include
+                                'quantity'                 => -$line->quantity,
+                                'available_quantity_after' => $product->stock_quantity,
+                                'reason'                   => 'Order confirmed: ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
+                                'order_id'                 => $order->id,
+                            ]);
+
+                            $product->refresh();
+                            if ($product->stock_quantity <= $product->low_stock_threshold) {
+                                $this->sendLowStockNotification($order, $line, 'product');
+                                $alert = [
+                                    'product_id'    => $line->product_id,
+                                    'item_reference_id' => $line->item_reference_id,
+                                    'product_name'  => $product->name,
+                                    'stock'         => $product->stock_quantity,
+                                    'threshold'     => $product->low_stock_threshold,
+                                    'alert_type'    => 'product_low_stock',
+                                ];
+                                $lowStockAlerts[] = $alert;
+                                $allLowStockAlerts[] = $alert;
+                            }
+                        }
+                    }
+
+                    $line->update([
+                        'delivery_status' => 'confirmed',
+                    ]);
+                }
+
+                // =============================================
+                // AUDIT LOG: ORDER CONFIRM
+                // =============================================
+                $this->logAudit(
+                    'order_confirm',
+                    'orders',
+                    [
+                        'order_reference' => $order->order_reference,
+                        'status'          => $oldStatus,
+                        'total_amount'    => $order->total_payable,
+                        'user_id'         => $order->user_id ?? Auth::id(),
+                    ],
+                    [
+                        'order_reference'   => $order->order_reference,
+                        'status'            => 'confirmed',
+                        'confirmed_at'      => now()->toDateTimeString(),
+                        'payment_gateway'   => $gatewayData['gateway'] ?? null,
+                        'transaction_id'    => $gatewayData['transaction_id'] ?? null,
+                        'amount_paid'       => $order->total_payable,
+                        'low_stock_alerts'  => $lowStockAlerts,
+                        'confirmed_by'      => $this->getAdminId(),
+                    ]
+                );
+
+                // =============================================
+                // AUDIT LOG: LOW STOCK ALERTS
+                // =============================================
+                foreach ($lowStockAlerts as $alert) {
+                    $this->logAudit(
+                        'low_stock_alert',
+                        'inventory',
+                        null,
+                        $alert,
+                        null,
+                        $this->getClientIp()
+                    );
+                }
+
+                // =============================================
+                // COMMISSION API EVENT
+                // =============================================
+                $payload = $this->buildCommissionPayload($order);
+
+                CommissionApiEvent::create([
+                    'event_type'    => 'order_post',
+                    'order_id'      => $order->id,
+                    'payload'       => $payload,
+                    'status'        => 'pending',
+                    'retry_count'   => 0,
+                    'max_retries'   => 5,
+                    'last_attempt'  => null,
+                    'error_message' => null,
+                    'response_data' => null,
+                ]);
+
+                // =============================================
+                // SEND ORDER CONFIRMATION NOTIFICATION
+                // =============================================
+                $this->sendOrderConfirmationNotification($order, $gatewayData);
+
+                $confirmedOrders[] = $order;
             }
+
+            // =============================================
+            // DELETE CART (only once, for cart checkout)
+            // =============================================
+            $firstOrder = $confirmedOrders[0] ?? null;
+            if ($firstOrder && $firstOrder->checkout_type !== 'buy_now') {
+                $cart = Cart::where('user_id', $firstOrder->user_id)->first();
+                if ($cart) {
+                    $cart->items()->delete();
+                    $cart->delete();
+                }
+            }
+
+            if ($order->user->account_type == 'distributor') {
+                $this->proformaInvoiceService->generateForOrder($order);
+            }
+
+            return [
+                'success'          => true,
+                'order_ids'        => array_map(fn($o) => $o->id, $confirmedOrders),
+                'order_references' => array_map(fn($o) => $o->order_reference, $confirmedOrders),
+                'total_orders'     => count($confirmedOrders),
+                'total_amount'     => round(collect($confirmedOrders)->sum('total_payable'), 2),
+                'status'           => 'confirmed',
+                'low_stock_alerts' => $allLowStockAlerts,
+                'invoice_number'   => null, // set this if invoice service used
+            ];
         });
-
-        return [
-            'success' => true,
-            'order_group_id' => $orderGroupId,
-            'total_orders' => count($results),
-            'newly_confirmed' => $newlyConfirmed,
-            'already_confirmed' => $alreadyConfirmed,
-            'orders' => $results,
-        ];
-    }
-
-    /**
-     * Confirm a single order (existing logic)
-     */
-    // private function confirmSingleOrder(Order $order, array $gatewayData): array
-    // {
-    //     $oldStatus = $order->status;
-
-    //     $order->update([
-    //         'status' => 'confirmed',
-    //         'confirmed_at' => now(),
-    //         'payment_gateway' => $gatewayData['gateway'],
-    //         'gateway_transaction_id' => $gatewayData['transaction_id'],
-    //         'amount_paid' => $order->total_payable,
-    //     ]);
-
-    //     // Coupon usage
-    //     if ($order->coupon_code) {
-    //         $coupon = Coupon::where('code', $order->coupon_code)->first();
-    //         if ($coupon) {
-    //             $existingUsage = CouponUsage::where('order_id', $order->id)->first();
-    //             if (!$existingUsage) {
-    //                 CouponUsage::create([
-    //                     'coupon_id' => $coupon->id,
-    //                     'user_id' => $order->user_id,
-    //                     'order_id' => $order->id,
-    //                     'discount_amount' => $order->coupon_discount,
-    //                 ]);
-    //                 $coupon->increment('used_count');
-    //             }
-    //         }
-    //     }
-
-    //     $lowStockAlerts = [];
-
-    //     foreach ($order->lines as $line) {
-    //         $shippingChargePerUnit = $line->shipping_charge ?? 0;
-    //         $lineShippingCharge = $shippingChargePerUnit * $line->quantity;
-
-    //         if ($line->variant_id) {
-    //             $variant = $line->variant;
-    //             if ($variant) {
-    //                 // $variant->decrement('stock_quantity', $line->quantity);
-
-    //                 $product = $line->product;
-    //                 if ($product) {
-    //                     // $product->decrement('stock_quantity', $line->quantity);
-    //                 }
-
-    //                 StockMovement::create([
-    //                     'product_id' => $line->product_id,
-    //                     'variant_id' => $line->variant_id,
-    //                     'quantity' => -$line->quantity,
-    //                     'available_quantity_after' => $variant->stock_quantity,
-    //                     'reason' => 'Order confirmed (variant): ' . $order->order_reference,
-    //                     'order_id' => $order->id,
-    //                 ]);
-
-    //                 $variant->refresh();
-    //                 if ($variant->stock_quantity <= $variant->low_stock_threshold) {
-    //                     $this->sendLowStockNotification($order, $line, 'variant');
-    //                     $lowStockAlerts[] = [
-    //                         'product_id' => $line->product_id,
-    //                         'variant_id' => $line->variant_id,
-    //                         'product_name' => $line->product?->name ?? 'Unknown',
-    //                         'stock' => $variant->stock_quantity,
-    //                         'threshold' => $variant->low_stock_threshold,
-    //                         'alert_type' => 'variant_low_stock',
-    //                         'shipping_charge_per_unit' => round($shippingChargePerUnit, 2),
-    //                         'total_shipping_charge' => round($lineShippingCharge, 2),
-    //                     ];
-    //                 }
-    //             }
-    //         } else {
-    //             $product = $line->product;
-    //             if ($product) {
-    //                 $product->decrement('stock_quantity', $line->quantity);
-
-    //                 StockMovement::create([
-    //                     'product_id' => $line->product_id,
-    //                     'variant_id' => null,
-    //                     'quantity' => -$line->quantity,
-    //                     'available_quantity_after' => $product->stock_quantity,
-    //                     'reason' => 'Order confirmed: ' . $order->order_reference,
-    //                     'order_id' => $order->id,
-    //                 ]);
-
-    //                 $product->refresh();
-    //                 if ($product->stock_quantity <= $product->low_stock_threshold) {
-    //                     $this->sendLowStockNotification($order, $line, 'product');
-    //                     $lowStockAlerts[] = [
-    //                         'product_id' => $line->product_id,
-    //                         'product_name' => $product->name,
-    //                         'stock' => $product->stock_quantity,
-    //                         'threshold' => $product->low_stock_threshold,
-    //                         'alert_type' => 'product_low_stock',
-    //                         'shipping_charge_per_unit' => round($shippingChargePerUnit, 2),
-    //                         'total_shipping_charge' => round($lineShippingCharge, 2),
-    //                     ];
-    //                 }
-    //             }
-    //         }
-
-    //         $line->update(['delivery_status' => 'confirmed']);
-    //     }
-
-    //     $this->logAudit(
-    //         'order_confirm',
-    //         'orders',
-    //         [
-    //             'order_reference' => $order->order_reference,
-    //             'status' => $oldStatus,
-    //             'total_amount' => $order->total_payable,
-    //             'user_id' => $order->user_id ?? Auth::user()->id,
-    //         ],
-    //         [
-    //             'order_reference' => $order->order_reference,
-    //             'status' => 'confirmed',
-    //             'confirmed_at' => now()->toDateTimeString(),
-    //             'payment_gateway' => $gatewayData['gateway'],
-    //             'transaction_id' => $gatewayData['transaction_id'],
-    //             'amount_paid' => $order->total_payable,
-    //             'shipping_charge' => round($order->shipping_charge, 2),
-    //             'low_stock_alerts' => $lowStockAlerts,
-    //             'confirmed_by' => $this->getAdminId(),
-    //         ]
-    //     );
-
-    //     foreach ($lowStockAlerts as $alert) {
-    //         $this->logAudit('low_stock_alert', 'inventory', null, $alert, null, $this->getClientIp());
-    //     }
-
-    //     // Delete cart only once per group — check if it's the FIRST order in the group
-    //     if ($order->checkout_type !== 'buy_now') {
-    //         $cart = Cart::where('user_id', $order->user_id)->first();
-    //         if ($cart) {
-    //             $cart->items()->delete();
-    //             $cart->delete();
-    //         }
-    //     }
-
-    //     $payload = $this->buildCommissionPayload($order);
-
-    //     CommissionApiEvent::create([
-    //         'event_type' => 'order_post',
-    //         'order_id' => $order->id,
-    //         'payload' => $payload,
-    //         'status' => 'pending',
-    //         'retry_count' => 0,
-    //         'max_retries' => 5,
-    //         'last_attempt' => null,
-    //         'error_message' => null,
-    //         'response_data' => null,
-    //     ]);
-
-    //     $this->sendOrderConfirmationNotification($order, $gatewayData);
-
-    //     return [
-    //         'success' => true,
-    //         'order_id' => $order->id,
-    //         'order_reference' => $order->order_reference,
-    //         'status' => 'confirmed',
-    //         'invoice_number' => $invoice->invoice_number ?? null,
-    //     ];
-    // }
-
-    private function confirmSingleOrder(Order $order, array $gatewayData): array
-    {
-        $oldStatus = $order->status;
-
-        $order->update([
-            'status' => 'confirmed',
-            'confirmed_at' => now(),
-            'payment_gateway' => $gatewayData['gateway'],
-            'gateway_transaction_id' => $gatewayData['transaction_id'],
-            'amount_paid' => $order->total_payable,
-        ]);
-
-        // Coupon usage
-        if ($order->coupon_code) {
-            $coupon = Coupon::where('code', $order->coupon_code)->first();
-            if ($coupon) {
-                $existingUsage = CouponUsage::where('order_id', $order->id)->first();
-                if (!$existingUsage) {
-                    CouponUsage::create([
-                        'coupon_id' => $coupon->id,
-                        'user_id' => $order->user_id,
-                        'order_id' => $order->id,
-                        'discount_amount' => $order->coupon_discount,
-                    ]);
-                    $coupon->increment('used_count');
-                }
-            }
-        }
-
-        $lowStockAlerts = [];
-
-        foreach ($order->lines as $line) {
-            $shippingChargePerUnit = $line->shipping_charge ?? 0;
-            $lineShippingCharge = $shippingChargePerUnit * $line->quantity;
-
-            if ($line->variant_id) {
-                $variant = $line->variant;
-                if ($variant) {
-                    // $variant->decrement('stock_quantity', $line->quantity);
-
-                    $product = $line->product;
-                    if ($product) {
-                        // $product->decrement('stock_quantity', $line->quantity);
-                    }
-
-                    StockMovement::create([
-                        'product_id' => $line->product_id,
-                        'variant_id' => $line->variant_id,
-                        'quantity' => -$line->quantity,
-                        'available_quantity_after' => $variant->stock_quantity,
-                        'reason' => 'Order confirmed (variant): ' . $order->order_reference,
-                        'order_id' => $order->id,
-                    ]);
-
-                    $variant->refresh();
-                    if ($variant->stock_quantity <= $variant->low_stock_threshold) {
-                        $this->sendLowStockNotification($order, $line, 'variant');
-                        $lowStockAlerts[] = [
-                            'product_id' => $line->product_id,
-                            'variant_id' => $line->variant_id,
-                            'product_name' => $line->product?->name ?? 'Unknown',
-                            'stock' => $variant->stock_quantity,
-                            'threshold' => $variant->low_stock_threshold,
-                            'alert_type' => 'variant_low_stock',
-                            'shipping_charge_per_unit' => round($shippingChargePerUnit, 2),
-                            'total_shipping_charge' => round($lineShippingCharge, 2),
-                        ];
-                    }
-                }
-            } else {
-                $product = $line->product;
-                if ($product) {
-                    // $product->decrement('stock_quantity', $line->quantity);
-
-                    StockMovement::create([
-                        'product_id' => $line->product_id,
-                        'variant_id' => null,
-                        'quantity' => -$line->quantity,
-                        'available_quantity_after' => $product->stock_quantity,
-                        'reason' => 'Order confirmed: ' . $order->order_reference,
-                        'order_id' => $order->id,
-                    ]);
-
-                    $product->refresh();
-                    if ($product->stock_quantity <= $product->low_stock_threshold) {
-                        $this->sendLowStockNotification($order, $line, 'product');
-                        $lowStockAlerts[] = [
-                            'product_id' => $line->product_id,
-                            'product_name' => $product->name,
-                            'stock' => $product->stock_quantity,
-                            'threshold' => $product->low_stock_threshold,
-                            'alert_type' => 'product_low_stock',
-                            'shipping_charge_per_unit' => round($shippingChargePerUnit, 2),
-                            'total_shipping_charge' => round($lineShippingCharge, 2),
-                        ];
-                    }
-                }
-            }
-
-            $line->update(['delivery_status' => 'confirmed']);
-        }
-
-        $this->logAudit(
-            'order_confirm',
-            'orders',
-            [
-                'order_reference' => $order->order_reference,
-                'status' => $oldStatus,
-                'total_amount' => $order->total_payable,
-                'user_id' => $order->user_id ?? Auth::user()->id,
-            ],
-            [
-                'order_reference' => $order->order_reference,
-                'status' => 'confirmed',
-                'confirmed_at' => now()->toDateTimeString(),
-                'payment_gateway' => $gatewayData['gateway'],
-                'transaction_id' => $gatewayData['transaction_id'],
-                'amount_paid' => $order->total_payable,
-                'shipping_charge' => round($order->shipping_charge, 2),
-                'low_stock_alerts' => $lowStockAlerts,
-                'confirmed_by' => $this->getAdminId(),
-            ]
-        );
-
-        foreach ($lowStockAlerts as $alert) {
-            $this->logAudit('low_stock_alert', 'inventory', null, $alert, null, $this->getClientIp());
-        }
-
-        // Delete cart only once per group — check if it's the FIRST order in the group
-        if ($order->checkout_type !== 'buy_now') {
-            $cart = Cart::where('user_id', $order->user_id)->first();
-            if ($cart) {
-                $cart->items()->delete();
-                $cart->delete();
-            }
-        }
-
-        $payload = $this->buildCommissionPayload($order);
-
-        CommissionApiEvent::create([
-            'event_type' => 'order_post',
-            'order_id' => $order->id,
-            'payload' => $payload,
-            'status' => 'pending',
-            'retry_count' => 0,
-            'max_retries' => 5,
-            'last_attempt' => null,
-            'error_message' => null,
-            'response_data' => null,
-        ]);
-
-        $this->sendOrderConfirmationNotification($order, $gatewayData);
-
-        if ($order->user->account_type == 'distributor') {
-            $this->proformaInvoiceService->generateForOrder($order);
-        }
-
-        return [
-            'success' => true,
-            'order_id' => $order->id,
-            'order_reference' => $order->order_reference,
-            'status' => 'confirmed',
-            'invoice_number' => $invoice->invoice_number ?? null,
-        ];
     }
 
     /**
