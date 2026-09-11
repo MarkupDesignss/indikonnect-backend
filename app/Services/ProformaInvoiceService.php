@@ -10,8 +10,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
-use App\Mail\ProformaInvoiceMail;
 
 class ProformaInvoiceService
 {
@@ -38,7 +36,6 @@ class ProformaInvoiceService
             $pdf = $this->generatePdf($invoice);
 
             $invoice->update(['pdf_path' => $pdf['path']]);
-
             $this->sendProformaInvoiceEmail($invoice->fresh(), $user, $pdf['content']);
 
             return $invoice;
@@ -126,20 +123,20 @@ class ProformaInvoiceService
             $variant = $line->variant;
 
             $items[] = [
-                'product_id'   => $line->product_id,
-                'variant_id'   => $line->variant_id,
-                'product_code' => $product?->product_code,
-                'hsn_code'     => $product?->hsn_code,
-                'uom'          => $product?->uom,
-                'name'         => $product?->name . ($variant ? ' - ' . $variant->name : ''),
-                'description'  => $product?->description,
-                'quantity'     => $line->quantity,
-                'unit_price'   => (float) $line->unit_price,
-                'line_total'   => (float) $line->line_total,
+                'product_id'      => $line->product_id,
+                'variant_id'      => $line->variant_id,
+                'product_code'    => $product?->product_code,
+                'hsn_code'        => $product?->hsn_code,
+                'uom'             => $product?->uom,
+                'name'            => $product?->name . ($variant ? ' - ' . $variant->name : ''),
+                'description'     => $product?->description,
+                'quantity'        => $line->quantity,
+                'unit_price'      => (float) $line->unit_price,
+                'line_total'      => (float) $line->line_total,
                 'shipping_charge' => (float) ($line->shipping_charge ?? 0),
-                'gst_rate'     => (float) $line->gst_rate,
-                'gst_amount'   => (float) $line->gst_amount,
-                'tax_data'     => $line->tax_data,
+                'gst_rate'        => (float) $line->gst_rate,
+                'gst_amount'      => (float) $line->gst_amount,
+                'tax_data'        => $line->tax_data,
             ];
         }
 
@@ -182,9 +179,9 @@ class ProformaInvoiceService
     }
 
     /**
-     * Convert number to words (Indian format)
+     * Convert number to words (Indian format) — PUBLIC so blade/model can use it
      */
-    private function numberToWords(float $number): string
+    public function numberToWords(float $number): string
     {
         $number = round($number, 2);
         $rupees = (int) floor($number);
@@ -274,17 +271,39 @@ class ProformaInvoiceService
 
     /**
      * Generate PDF — saves into proper year-wise folder structure
-     * e.g. storage/app/public/proforma_invoices/2025/PI-2025-26-0001.pdf
      */
     public function generatePdf(ProformaInvoice $invoice): array
     {
+        // Eager load relationships so blade never hits null
+        $invoice->loadMissing('order.user.addresses');
+
         $amountInWords = $this->numberToWords((float) $invoice->total_payable);
 
-        $pdf = Pdf::loadView('invoices.proforma', [
-            'invoice'       => $invoice,
-            'amountInWords' => $amountInWords,
-        ]);
+        // ---- Render blade to HTML first (so we can debug & validate) ----
+        try {
+            $html = view('invoices.proforma', [
+                'invoice'       => $invoice,
+                'amountInWords' => $amountInWords,
+            ])->render();
+        } catch (\Throwable $e) {
+            Log::error('Proforma blade render failed', [
+                'invoice_id' => $invoice->id,
+                'error'      => $e->getMessage(),
+                'file'       => $e->getFile(),
+                'line'       => $e->getLine(),
+            ]);
+            throw $e;
+        }
 
+        // Optional debug — check HTML actually contains amount words
+        if (!str_contains($html, 'Amount in Words')) {
+            Log::warning('Amount in Words block missing from rendered HTML', [
+                'invoice_id' => $invoice->id,
+                'html_tail'  => substr($html, -500),
+            ]);
+        }
+
+        $pdf = Pdf::loadHTML($html);
         $pdf->setPaper('A4', 'portrait');
         $pdf->setOption('isRemoteEnabled', true);
         $pdf->setOption('isHtml5ParserEnabled', true);
