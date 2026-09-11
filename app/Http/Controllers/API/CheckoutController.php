@@ -144,7 +144,7 @@ class CheckoutController extends Controller
                 auth()->id(),
                 $addressId,
                 $validated['coupon_code'] ?? null,
-                null, 
+                null,
                 $validated['coins'] ?? null,
                 $validated['product_id'] ?? null,
                 $validated['variant_id'] ?? null,
@@ -308,6 +308,7 @@ class CheckoutController extends Controller
     /**
      * FR-CO-005: Place order and initiate Razorpay payment
      */
+
     // public function placeOrder(Request $request): JsonResponse
     // {
     //     $validated = $request->validate([
@@ -334,10 +335,14 @@ class CheckoutController extends Controller
     //         'summary_data.tax_breakdown.*.product_name' => 'required_with:summary_data.tax_breakdown|string|max:255',
     //         'summary_data.tax_breakdown.*.tax_category' => 'required_with:summary_data.tax_breakdown|string|max:100',
     //         'summary_data.tax_breakdown.*.rate' => 'required_with:summary_data.tax_breakdown|min:0',
+
+    //         // Buy Now validation
+    //         'checkout_type' => 'nullable|in:cart,buy_now',
     //     ]);
+
     //     try {
     //         $result = $this->checkoutService->placeOrder(
-    //             auth()->id(),
+    //             Auth::user()->id,
     //             $validated
     //         );
 
@@ -352,7 +357,6 @@ class CheckoutController extends Controller
     //         ], 400);
     //     }
     // }
-
     public function placeOrder(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -362,7 +366,6 @@ class CheckoutController extends Controller
 
             'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
 
-            // Change from summary_data to summary
             'summary_data' => 'required|array',
             'summary_data.subtotal' => 'sometimes|numeric|min:0',
             'summary_data.total_tax' => 'sometimes|numeric|min:0',
@@ -374,13 +377,11 @@ class CheckoutController extends Controller
             'summary_data.amount_redeemed' => 'nullable|numeric|min:0',
             'summary_data.net_subtotal' => 'nullable|numeric|min:0',
 
-            // Tax breakdown validation
             'summary_data.tax_breakdown' => 'sometimes|array',
             'summary_data.tax_breakdown.*.product_name' => 'required_with:summary_data.tax_breakdown|string|max:255',
             'summary_data.tax_breakdown.*.tax_category' => 'required_with:summary_data.tax_breakdown|string|max:100',
             'summary_data.tax_breakdown.*.rate' => 'required_with:summary_data.tax_breakdown|min:0',
 
-            // Buy Now validation
             'checkout_type' => 'nullable|in:cart,buy_now',
         ]);
 
