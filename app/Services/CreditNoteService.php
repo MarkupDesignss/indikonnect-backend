@@ -147,7 +147,8 @@ class CreditNoteService
                 'buyer_address'           => $buyerAddress,
                 'buyer_state'             => $buyerState,
                 'buyer_gstin'             => $buyerGstin,
-                'buyer_type'              => $order->order_type ?? 'customer',
+                //'buyer_type'              => $order->order_type ?? 'customer',
+                'buyer_type' => $this->resolveBuyerType($order),
                 'items'                   => $formattedItems,
                 'taxable_value'           => round($taxableValue, 2),
                 'cgst_amount'             => round($cgstTotal, 2),
@@ -171,5 +172,16 @@ class CreditNoteService
 
             return $creditNote;
         });
+    }
+
+    protected function resolveBuyerType(Order $order): string
+    {
+        $orderType = strtolower((string) ($order->order_type ?? ''));
+
+        if (in_array($orderType, ['wholesale', 'distributor', 'b2b'], true)) {
+            return 'distributor';
+        }
+
+        return 'customer';
     }
 }
