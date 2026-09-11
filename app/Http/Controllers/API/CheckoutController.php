@@ -144,9 +144,8 @@ class CheckoutController extends Controller
                 auth()->id(),
                 $addressId,
                 $validated['coupon_code'] ?? null,
+                null, 
                 $validated['coins'] ?? null,
-
-                // Buy Now parameters
                 $validated['product_id'] ?? null,
                 $validated['variant_id'] ?? null,
                 $validated['quantity'] ?? null
