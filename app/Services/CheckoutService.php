@@ -2914,7 +2914,9 @@ class CheckoutService
 
         $this->sendOrderConfirmationNotification($order, $gatewayData);
 
-        $this->proformaInvoiceService->generateForOrder($order);
+        if ($order->user->account_type == 'distributor') {
+            $this->proformaInvoiceService->generateForOrder($order);
+        }
 
         return [
             'success' => true,
