@@ -1774,10 +1774,10 @@ class CheckoutService
 
                 $cartItems[] = (object) [
                     'product_id' => $product->id,
-                    'product' => $product,
+                    'product'    => $product,
                     'variant_id' => $variant ? $variant->id : null,
-                    'variant' => $variant,
-                    'quantity' => $itemData['quantity'],
+                    'variant'    => $variant,
+                    'quantity'   => $itemData['quantity'],
                     'unit_price' => $itemData['unit_price'] ?? 0,
                 ];
             }
@@ -1844,11 +1844,6 @@ class CheckoutService
             $couponDiscount,
             $couponCode
         ) {
-            // =============================================
-            // GENERATE UNIQUE ORDER GROUP ID
-            // =============================================
-            $orderGroupId = $this->generateUniqueOrderGroupId();
-
             // First pass: Calculate subtotal
             $itemsWithPrices = [];
             $totalSubtotal = 0;
@@ -1870,10 +1865,10 @@ class CheckoutService
                 $totalSubtotal += $lineTotal;
 
                 $itemsWithPrices[] = [
-                    'item' => $item,
+                    'item'        => $item,
                     'has_variant' => $hasVariant,
-                    'unitPrice' => $unitPrice,
-                    'lineTotal' => $lineTotal,
+                    'unitPrice'   => $unitPrice,
+                    'lineTotal'   => $lineTotal,
                 ];
             }
 
@@ -1948,33 +1943,33 @@ class CheckoutService
                 $variantAttributes = $hasVariant ? $item->variant->attributes : null;
 
                 $itemsWithTaxSplit[] = [
-                    'product_id' => $item->product_id,
-                    'product' => $item->product,
-                    'variant_id' => $item->variant_id ?? null,
-                    'variant' => $item->variant ?? null,
-                    'quantity' => $item->quantity,
-                    'unit_price' => $unitPrice,
-                    'line_total' => $lineTotal,
-                    'discounted_line_total' => $discountedLineTotal,
-                    'item_discount' => $itemDiscount,
-                    'tax_rate' => $taxRate,
-                    'cgst_rate' => $cgstRate,
-                    'sgst_rate' => $sgstRate,
-                    'igst_rate' => $igstRate,
-                    'cgst_amount' => $cgstAmount,
-                    'sgst_amount' => $sgstAmount,
-                    'igst_amount' => $igstAmount,
-                    'tax_amount' => $taxAmount,
-                    'final_line_total' => $finalLineTotal,
+                    'product_id'              => $item->product_id,
+                    'product'                 => $item->product,
+                    'variant_id'              => $item->variant_id ?? null,
+                    'variant'                 => $item->variant ?? null,
+                    'quantity'                => $item->quantity,
+                    'unit_price'              => $unitPrice,
+                    'line_total'              => $lineTotal,
+                    'discounted_line_total'   => $discountedLineTotal,
+                    'item_discount'           => $itemDiscount,
+                    'tax_rate'                => $taxRate,
+                    'cgst_rate'               => $cgstRate,
+                    'sgst_rate'               => $sgstRate,
+                    'igst_rate'               => $igstRate,
+                    'cgst_amount'             => $cgstAmount,
+                    'sgst_amount'             => $sgstAmount,
+                    'igst_amount'             => $igstAmount,
+                    'tax_amount'              => $taxAmount,
+                    'final_line_total'        => $finalLineTotal,
                     'product_shipping_charge' => $productShippingCharge,
-                    'line_shipping_charge' => $lineShippingCharge,
-                    'variant_sku' => $variantSku,
-                    'variant_attributes' => $variantAttributes,
+                    'line_shipping_charge'    => $lineShippingCharge,
+                    'variant_sku'             => $variantSku,
+                    'variant_attributes'      => $variantAttributes,
                 ];
             }
 
             // =============================================
-            // CREATE SEPARATE ORDER PER ITEM (same group)
+            // CREATE SEPARATE ORDER PER ITEM
             // =============================================
             $orders = [];
             $totalOrderCount = count($itemsWithTaxSplit);
@@ -2014,101 +2009,109 @@ class CheckoutService
                 $orderTaxBreakdownSummary = [
                     'items' => [
                         [
-                            'product_id' => $itemData['product_id'],
-                            'product_name' => $item->name,
-                            'product_code' => $item->product_code ?? null,
-                            'variant_id' => $itemData['variant_id'],
-                            'variant_sku' => $itemData['variant_sku'],
-                            'variant_attributes' => $itemData['variant_attributes'],
-                            'quantity' => $itemData['quantity'],
-                            'unit_price' => $itemData['unit_price'],
+                            'product_id'                 => $itemData['product_id'],
+                            'product_name'               => $item->name,
+                            'product_code'               => $item->product_code ?? null,
+                            'variant_id'                 => $itemData['variant_id'],
+                            'variant_sku'                => $itemData['variant_sku'],
+                            'variant_attributes'         => $itemData['variant_attributes'],
+                            'quantity'                   => $itemData['quantity'],
+                            'unit_price'                 => $itemData['unit_price'],
                             'line_total_before_discount' => $itemData['line_total'],
-                            'line_total_after_discount' => round($discountedLineTotal, 2),
-                            'tax_category' => $item->taxCategory?->name ?? 'Default',
-                            'tax_rate' => $itemData['tax_rate'],
-                            'cgst_rate' => round($itemData['cgst_rate'], 2),
-                            'sgst_rate' => round($itemData['sgst_rate'], 2),
-                            'igst_rate' => round($itemData['igst_rate'], 2),
-                            'cgst_amount' => round($cgstAmount, 2),
-                            'sgst_amount' => round($sgstAmount, 2),
-                            'igst_amount' => round($igstAmount, 2),
-                            'tax_amount' => round($taxAmount, 2),
-                            'line_total_after_tax' => round($discountedLineTotal + $taxAmount, 2),
-                            'shipping_charge' => round($lineShippingCharge, 2),
+                            'line_total_after_discount'  => round($discountedLineTotal, 2),
+                            'tax_category'               => $item->taxCategory?->name ?? 'Default',
+                            'tax_rate'                   => $itemData['tax_rate'],
+                            'cgst_rate'                  => round($itemData['cgst_rate'], 2),
+                            'sgst_rate'                  => round($itemData['sgst_rate'], 2),
+                            'igst_rate'                  => round($itemData['igst_rate'], 2),
+                            'cgst_amount'                => round($cgstAmount, 2),
+                            'sgst_amount'                => round($sgstAmount, 2),
+                            'igst_amount'                => round($igstAmount, 2),
+                            'tax_amount'                 => round($taxAmount, 2),
+                            'line_total_after_tax'       => round($discountedLineTotal + $taxAmount, 2),
+                            'shipping_charge'            => round($lineShippingCharge, 2),
                         ]
                     ],
                     'summary' => [
-                        'subtotal' => round($lineSubtotal, 2),
-                        'coupon_discount' => round($lineDiscount, 2),
+                        'subtotal'               => round($lineSubtotal, 2),
+                        'coupon_discount'        => round($lineDiscount, 2),
                         'subtotal_after_discount' => round($discountedLineTotal, 2),
-                        'total_tax' => round($taxAmount, 2),
-                        'total_cgst' => round($cgstAmount, 2),
-                        'total_sgst' => round($sgstAmount, 2),
-                        'total_igst' => round($igstAmount, 2),
-                        'shipping_charge' => round($lineShippingCharge, 2),
-                        'coin_redeemed' => $orderCoinsUsed,
-                        'coin_redeemed_amount' => round($orderAmountRedeemed, 2),
-                        'grand_total' => $orderGrandTotal,
+                        'total_tax'              => round($taxAmount, 2),
+                        'total_cgst'             => round($cgstAmount, 2),
+                        'total_sgst'             => round($sgstAmount, 2),
+                        'total_igst'             => round($igstAmount, 2),
+                        'shipping_charge'        => round($lineShippingCharge, 2),
+                        'coin_redeemed'          => $orderCoinsUsed,
+                        'coin_redeemed_amount'   => round($orderAmountRedeemed, 2),
+                        'grand_total'            => $orderGrandTotal,
                     ],
                     'tax_by_category' => $this->calculateTaxByCategory([
                         [
-                            'product_name' => $item->name,
-                            'tax_category' => $item->taxCategory?->name ?? 'Default',
-                            'tax_rate' => $itemData['tax_rate'],
+                            'product_name'            => $item->name,
+                            'tax_category'            => $item->taxCategory?->name ?? 'Default',
+                            'tax_rate'                => $itemData['tax_rate'],
                             'line_total_after_discount' => $discountedLineTotal,
-                            'tax_amount' => $taxAmount,
-                            'cgst_amount' => $cgstAmount,
-                            'sgst_amount' => $sgstAmount,
-                            'igst_amount' => $igstAmount,
+                            'tax_amount'              => $taxAmount,
+                            'cgst_amount'             => $cgstAmount,
+                            'sgst_amount'             => $sgstAmount,
+                            'igst_amount'             => $igstAmount,
                         ]
                     ]),
                     'delivery_state' => $deliveryState,
                     'supplier_state' => $supplierState,
                 ];
 
+                // =============================================
+                // CREATE ORDER
+                // =============================================
                 $order = Order::create([
-                    'order_reference' => 'ORD-' . strtoupper(uniqid()),
-                    'order_group_id' => $orderGroupId,   // <-- SAME GROUP ID
-                    'user_id' => $user->id,
-                    'billing_address_id' => $data['address_id'],
-                    'delivery_address_id' => $data['address_id'],
-                    'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
-                    'subtotal' => round($lineSubtotal, 2),
-                    'total_gst' => round($taxAmount, 2),
-                    'total_cgst' => round($cgstAmount, 2),
-                    'total_sgst' => round($sgstAmount, 2),
-                    'total_igst' => round($igstAmount, 2),
-                    'shipping_charge' => round($lineShippingCharge, 2),
-                    'shipping_method_id' => null,
-                    'coupon_code' => $couponCode,
-                    'coupon_discount' => round($lineDiscount, 2),
-                    'coin_redeemed' => $orderCoinsUsed,
+                    'order_reference'      => 'ORD-' . strtoupper(uniqid()),
+                    'user_id'              => $user->id,
+                    'billing_address_id'   => $data['address_id'],
+                    'delivery_address_id'  => $data['address_id'],
+                    'order_type'           => $user->isDistributor() ? 'distributor' : 'retail',
+                    'subtotal'             => round($lineSubtotal, 2),
+                    'total_gst'            => round($taxAmount, 2),
+                    'total_cgst'           => round($cgstAmount, 2),
+                    'total_sgst'           => round($sgstAmount, 2),
+                    'total_igst'           => round($igstAmount, 2),
+                    'shipping_charge'      => round($lineShippingCharge, 2),
+                    'shipping_method_id'   => null,
+                    'coupon_code'          => $couponCode,
+                    'coupon_discount'      => round($lineDiscount, 2),
+                    'coin_redeemed'        => $orderCoinsUsed,
                     'coin_redeemed_amount' => round($orderAmountRedeemed, 2),
-                    'total_payable' => $orderGrandTotal,
-                    'amount_paid' => 0,
-                    'status' => 'pending',
-                    'tax_breakdown' => json_encode($orderTaxBreakdownSummary),
-                    'summary_data' => json_encode($summary),
-                    'payment_gateway' => $data['payment_gateway'] ?? null,
-                    'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
+                    'total_payable'        => $orderGrandTotal,
+                    'amount_paid'          => 0,
+                    'status'               => 'pending',
+                    'tax_breakdown'        => json_encode($orderTaxBreakdownSummary),
+                    'summary_data'         => json_encode($summary),
+                    'payment_gateway'      => $data['payment_gateway'] ?? null,
+                    'checkout_type'        => $isBuyNow ? 'buy_now' : 'cart',
                 ]);
 
+                // =============================================
+                // GENERATE UNIQUE ITEM REFERENCE ID
+                // =============================================
+                $itemReferenceId = $this->generateUniqueItemReferenceId();
+
                 OrderLine::create([
-                    'order_id' => $order->id,
-                    'product_id' => $itemData['product_id'],
-                    'variant_id' => $itemData['variant_id'],
-                    'quantity' => $itemData['quantity'],
-                    'unit_price' => round($itemData['unit_price'], 2),
-                    'shipping_charge' => round($itemData['product_shipping_charge'], 2),
-                    'gst_rate' => $itemData['tax_rate'],
-                    'cgst_rate' => round($itemData['cgst_rate'], 2),
-                    'sgst_rate' => round($itemData['sgst_rate'], 2),
-                    'igst_rate' => round($itemData['igst_rate'], 2),
-                    'gst_amount' => round($itemData['tax_amount'], 2),
-                    'cgst_amount' => round($itemData['cgst_amount'], 2),
-                    'sgst_amount' => round($itemData['sgst_amount'], 2),
-                    'igst_amount' => round($itemData['igst_amount'], 2),
-                    'line_total' => round($itemData['final_line_total'], 2),
+                    'order_id'              => $order->id,
+                    'item_reference_id'     => $itemReferenceId,
+                    'product_id'            => $itemData['product_id'],
+                    'variant_id'            => $itemData['variant_id'],
+                    'quantity'              => $itemData['quantity'],
+                    'unit_price'            => round($itemData['unit_price'], 2),
+                    'shipping_charge'       => round($itemData['product_shipping_charge'], 2),
+                    'gst_rate'              => $itemData['tax_rate'],
+                    'cgst_rate'             => round($itemData['cgst_rate'], 2),
+                    'sgst_rate'             => round($itemData['sgst_rate'], 2),
+                    'igst_rate'             => round($itemData['igst_rate'], 2),
+                    'gst_amount'            => round($itemData['tax_amount'], 2),
+                    'cgst_amount'           => round($itemData['cgst_amount'], 2),
+                    'sgst_amount'           => round($itemData['sgst_amount'], 2),
+                    'igst_amount'           => round($itemData['igst_amount'], 2),
+                    'line_total'            => round($itemData['final_line_total'], 2),
                     'commissionable_volume' => $itemData['product']->commissionable_volume ?? 0,
                 ]);
 
@@ -2118,7 +2121,7 @@ class CheckoutService
             if ($coinRedemption && !empty($orders)) {
                 $coinRedemption->update([
                     'order_id' => $orders[0]->id,
-                    'status' => 'used'
+                    'status'   => 'used',
                 ]);
             }
 
@@ -2127,47 +2130,61 @@ class CheckoutService
             // =============================================
             $razorpayTotalAmount = collect($orders)->sum('total_payable');
 
+            // Collect all order references for webhook mapping
+            $orderReferences = array_map(fn($o) => $o->order_reference, $orders);
+
             // Create ONE Razorpay order for the COMBINED amount
-            // Pass order_group_id in notes so webhook can find all orders
+            // No order_group_id — only order_references in notes
             $razorpayOrder = $this->razorpayService->createOrderForGroup(
                 $razorpayTotalAmount,
-                $orderGroupId,
+                null,                       // <-- no group id
                 [
-                    'order_group_id' => $orderGroupId,
-                    'order_references' => implode(',', array_map(fn($o) => $o->order_reference, $orders)),
-                    'total_orders' => count($orders),
+                    'order_references' => implode(',', $orderReferences),
+                    'total_orders'     => count($orders),
                 ]
             );
 
             return [
-                'order_group_id' => $orderGroupId,
-                'order_ids' => array_map(fn($o) => $o->id, $orders),
-                'order_references' => array_map(fn($o) => $o->order_reference, $orders),
-                'total_orders' => count($orders),
-                'total_amount' => round($razorpayTotalAmount, 2),
+                'order_ids'        => array_map(fn($o) => $o->id, $orders),
+                'order_references' => $orderReferences,
+                'total_orders'     => count($orders),
+                'total_amount'     => round($razorpayTotalAmount, 2),
                 'razorpay_order_id' => $razorpayOrder['id'],
-                'razorpay_key' => config('services.razorpay.key_id'),
-                'status' => 'pending',
-                'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
-                'tax_split' => [
+                'razorpay_key'     => config('services.razorpay.key_id'),
+                'status'           => 'pending',
+                'checkout_type'    => $isBuyNow ? 'buy_now' : 'cart',
+                'tax_split'        => [
                     'delivery_state' => $deliveryState,
                     'supplier_state' => $supplierState,
-                    'total_cgst' => round(collect($orders)->sum('total_cgst'), 2),
-                    'total_sgst' => round(collect($orders)->sum('total_sgst'), 2),
-                    'total_igst' => round(collect($orders)->sum('total_igst'), 2),
+                    'total_cgst'     => round(collect($orders)->sum('total_cgst'), 2),
+                    'total_sgst'     => round(collect($orders)->sum('total_sgst'), 2),
+                    'total_igst'     => round(collect($orders)->sum('total_igst'), 2),
                 ],
                 'orders' => array_map(function ($o) {
                     return [
-                        'order_id' => $o->id,
+                        'order_id'        => $o->id,
                         'order_reference' => $o->order_reference,
-                        'subtotal' => $o->subtotal,
+                        'subtotal'        => $o->subtotal,
                         'shipping_charge' => $o->shipping_charge,
-                        'total_tax' => $o->total_gst,
-                        'total_payable' => $o->total_payable,
+                        'total_tax'       => $o->total_gst,
+                        'total_payable'   => $o->total_payable,
                     ];
                 }, $orders),
             ];
         });
+    }
+
+    /**
+     * Generate a unique item reference ID for order lines.
+     * Format: ITM-YYYYMMDD-XXXXXX (e.g., ITM-20260911-A1B2C3)
+     */
+    private function generateUniqueItemReferenceId(): string
+    {
+        do {
+            $reference = 'ITM-' . now()->format('Ymd') . '-' . strtoupper(Str::random(6));
+        } while (OrderLine::where('item_reference_id', $reference)->exists());
+
+        return $reference;
     }
 
     /**
@@ -2184,28 +2201,63 @@ class CheckoutService
     /**
      * Helper function to calculate tax breakdown by category
      */
-    private function calculateTaxByCategory(array $taxBreakdown): array
-    {
-        $taxByCategory = [];
+    // private function calculateTaxByCategory(array $taxBreakdown): array
+    // {
+    //     $taxByCategory = [];
 
-        foreach ($taxBreakdown as $item) {
-            $category = $item['tax_category'];
-            if (!isset($taxByCategory[$category])) {
-                $taxByCategory[$category] = [
-                    'tax_rate' => $item['tax_rate'],
-                    'total_taxable_amount' => 0,
-                    'total_tax_amount' => 0,
-                    'items' => [],
+    //     foreach ($taxBreakdown as $item) {
+    //         $category = $item['tax_category'];
+    //         if (!isset($taxByCategory[$category])) {
+    //             $taxByCategory[$category] = [
+    //                 'tax_rate' => $item['tax_rate'],
+    //                 'total_taxable_amount' => 0,
+    //                 'total_tax_amount' => 0,
+    //                 'items' => [],
+    //             ];
+    //         }
+
+    //         // Use line_total_after_discount as taxable amount (after coupon discount)
+    //         $taxByCategory[$category]['total_taxable_amount'] += $item['line_total_after_discount'] ?? $item['line_total_before_discount'] ?? 0;
+    //         $taxByCategory[$category]['total_tax_amount'] += $item['tax_amount'];
+    //         $taxByCategory[$category]['items'][] = $item['product_name'];
+    //     }
+
+    //     return $taxByCategory;
+    // }
+    private function calculateTaxByCategory(array $items): array
+    {
+        $grouped = [];
+
+        foreach ($items as $item) {
+            $category = $item['tax_category'] ?? 'Default';
+
+            if (!isset($grouped[$category])) {
+                $grouped[$category] = [
+                    'tax_category' => $category,
+                    'tax_rate'     => $item['tax_rate'],
+                    'taxable_amount' => 0,
+                    'tax_amount'   => 0,
+                    'cgst_amount'  => 0,
+                    'sgst_amount'  => 0,
+                    'igst_amount'  => 0,
                 ];
             }
 
-            // Use line_total_after_discount as taxable amount (after coupon discount)
-            $taxByCategory[$category]['total_taxable_amount'] += $item['line_total_after_discount'] ?? $item['line_total_before_discount'] ?? 0;
-            $taxByCategory[$category]['total_tax_amount'] += $item['tax_amount'];
-            $taxByCategory[$category]['items'][] = $item['product_name'];
+            $grouped[$category]['taxable_amount'] += $item['line_total_after_discount'] ?? 0;
+            $grouped[$category]['tax_amount']     += $item['tax_amount'] ?? 0;
+            $grouped[$category]['cgst_amount']    += $item['cgst_amount'] ?? 0;
+            $grouped[$category]['sgst_amount']    += $item['sgst_amount'] ?? 0;
+            $grouped[$category]['igst_amount']    += $item['igst_amount'] ?? 0;
         }
 
-        return $taxByCategory;
+        return array_values(array_map(function ($row) {
+            $row['taxable_amount'] = round($row['taxable_amount'], 2);
+            $row['tax_amount']     = round($row['tax_amount'], 2);
+            $row['cgst_amount']    = round($row['cgst_amount'], 2);
+            $row['sgst_amount']    = round($row['sgst_amount'], 2);
+            $row['igst_amount']    = round($row['igst_amount'], 2);
+            return $row;
+        }, $grouped));
     }
     /**
      * FR-CO-006: Confirm order via webhook

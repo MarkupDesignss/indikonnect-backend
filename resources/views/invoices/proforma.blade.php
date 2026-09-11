@@ -319,7 +319,7 @@
                 <tr>
                     <th>#</th>
                     <th>Description</th>
-                    <th>HSN</th>
+                    <th>Code</th>
                     <th class="num">Qty</th>
                     <th class="num">Rate</th>
                     <th class="num">Taxable</th>
@@ -341,8 +341,8 @@
                     @endphp
                     <tr>
                         <td>{{ $index + 1 }}</td>
-                        <td>{{ $item['name'] ?? '-' }}</td>
-                        <td>{{ $item['hsn_code'] ?? '-' }}</td>
+                        <td>{{ $item['name'] ?? 'N/A' }}</td>
+                        <td>{{ $item['product_code'] ?? 'N/A' }}</td>
                         <td class="num">{{ $qty }}</td>
                         <td class="num">&#8377; {{ number_format($item['unit_price'] ?? 0, 2) }}</td>
                         <td class="num">&#8377; {{ number_format($lineTotal, 2) }}</td>
@@ -350,14 +350,14 @@
                             @if ($shipPerUnit > 0)
                                 &#8377; {{ number_format($shipPerUnit, 2) }}
                             @else
-                                -
+                                0.00
                             @endif
                         </td>
                         <td class="num">
                             @if ($shipTotal > 0)
                                 &#8377; {{ number_format($shipTotal, 2) }}
                             @else
-                                -
+                                0.00
                             @endif
                         </td>
                         <td class="num">{{ $item['gst_rate'] ?? 0 }}%</td>
