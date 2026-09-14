@@ -42,27 +42,24 @@ class RazorpayWebhookController extends Controller
             $event = $payload['event'] ?? null;
 
             $paymentEntity = $payload['payload']['payment']['entity'] ?? null;
-            $orderEntity = $payload['payload']['order']['entity'] ?? null;
+            $orderEntity   = $payload['payload']['order']['entity'] ?? null;
 
-            // Try to get order_group_id from notes (preferred), fallback to order_reference
+            // Pull notes from payment first, fallback to order entity
             $notes = $paymentEntity['notes'] ?? $orderEntity['notes'] ?? [];
 
-            $orderGroupId = $notes['order_group_id'] ?? null;
+            // ✅ Only order_reference now (no group id)
             $orderReference = $notes['order_reference']
                 ?? $orderEntity['receipt']
                 ?? $payload['reference_id']
                 ?? null;
 
-            $reference = $orderGroupId ?? $orderReference;
-
-            if (!$reference) {
-                Log::error('Order reference/group missing in webhook', ['payload' => $payload]);
+            if (!$orderReference) {
+                Log::error('Order reference missing in webhook', ['payload' => $payload]);
                 return response()->json(['error' => 'Order reference missing'], 400);
             }
 
             Log::info('Webhook event received', [
-                'event' => $event,
-                'order_group_id' => $orderGroupId,
+                'event'           => $event,
                 'order_reference' => $orderReference,
             ]);
 
@@ -73,38 +70,35 @@ class RazorpayWebhookController extends Controller
                         return response()->json(['error' => 'Invalid payment entity'], 400);
                     }
 
-                    $result = $this->confirmFromWebhook($orderGroupId, $orderReference, [
-                        'gateway' => 'razorpay',
+                    $result = $this->confirmFromWebhook($orderReference, [
+                        'gateway'        => 'razorpay',
                         'transaction_id' => $paymentEntity['id'] ?? null,
-                        'amount' => isset($paymentEntity['amount']) ? $paymentEntity['amount'] / 100 : 0,
-                        'method' => $paymentEntity['method'] ?? 'unknown',
-                        'status' => 'captured',
+                        'amount'         => isset($paymentEntity['amount']) ? $paymentEntity['amount'] / 100 : 0,
+                        'method'         => $paymentEntity['method'] ?? 'unknown',
+                        'status'         => 'captured',
                     ]);
 
-                    Log::info('Order(s) confirmed via webhook', [
-                        'group' => $orderGroupId,
+                    Log::info('Order confirmed via webhook', [
                         'reference' => $orderReference,
                     ]);
                     return response()->json(['status' => 'success', 'data' => $result]);
 
                 case 'payment.failed':
                     Log::warning('Payment failed', [
-                        'group' => $orderGroupId,
                         'reference' => $orderReference,
                     ]);
                     return response()->json(['status' => 'failed', 'message' => 'Payment failed']);
 
                 case 'order.paid':
-                    $result = $this->confirmFromWebhook($orderGroupId, $orderReference, [
-                        'gateway' => 'razorpay',
+                    $result = $this->confirmFromWebhook($orderReference, [
+                        'gateway'        => 'razorpay',
                         'transaction_id' => $orderEntity['id'] ?? null,
-                        'amount' => isset($orderEntity['amount']) ? $orderEntity['amount'] / 100 : 0,
-                        'method' => 'razorpay',
-                        'status' => 'paid',
+                        'amount'         => isset($orderEntity['amount']) ? $orderEntity['amount'] / 100 : 0,
+                        'method'         => 'razorpay',
+                        'status'         => 'paid',
                     ]);
 
-                    Log::info('Order(s) confirmed via order.paid event', [
-                        'group' => $orderGroupId,
+                    Log::info('Order confirmed via order.paid event', [
                         'reference' => $orderReference,
                     ]);
                     return response()->json(['status' => 'success', 'data' => $result]);
@@ -114,7 +108,7 @@ class RazorpayWebhookController extends Controller
                     $refundEntity = $payload['payload']['refund']['entity'] ?? null;
 
                     if ($refundEntity) {
-                        $refundId = $refundEntity['id'] ?? null;
+                        $refundId     = $refundEntity['id'] ?? null;
                         $refundStatus = $refundEntity['status'] ?? 'processing';
 
                         if ($refundId) {
@@ -125,7 +119,7 @@ class RazorpayWebhookController extends Controller
                                 Log::info('Refund status updated via webhook', [
                                     'return_id' => $returnOrder->id,
                                     'refund_id' => $refundId,
-                                    'status' => $refundStatus,
+                                    'status'    => $refundStatus,
                                 ]);
                             }
                         }
@@ -146,23 +140,10 @@ class RazorpayWebhookController extends Controller
     }
 
     /**
-     * Confirm orders via webhook — supports both group and single reference
+     * Confirm order via webhook — reference-based only
      */
-    private function confirmFromWebhook(?string $orderGroupId, ?string $orderReference, array $gatewayData): array
+    private function confirmFromWebhook(string $orderReference, array $gatewayData): array
     {
-        // Prefer group ID (confirms all orders in group)
-        if ($orderGroupId) {
-            $order = Order::where('order_group_id', $orderGroupId)->first();
-            if ($order) {
-                return $this->checkoutService->confirmOrder($order->order_reference, $gatewayData);
-            }
-        }
-
-        // Fallback to single reference
-        if ($orderReference) {
-            return $this->checkoutService->confirmOrder($orderReference, $gatewayData);
-        }
-
-        throw new \Exception('No order reference or group ID provided');
+        return $this->checkoutService->confirmOrder($orderReference, $gatewayData);
     }
 }
