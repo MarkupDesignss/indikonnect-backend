@@ -1180,6 +1180,10 @@ class CheckoutService
 
     private function validateCouponForUser($coupon, $userId): string|bool
     {
+        if (!$coupon) {
+            return 'Coupon does not exists.';
+        }
+
         if (!$coupon->is_active) {
             return 'This coupon is currently inactive.';
         }
@@ -3445,7 +3449,7 @@ class CheckoutService
 
     private function processPartialRefund(
         Order $order,
-        int $orderLine,
+        OrderLine $orderLine,
         string $reason,
         ?float $refundAmount = null,
         ?string $adminNotes = null,
