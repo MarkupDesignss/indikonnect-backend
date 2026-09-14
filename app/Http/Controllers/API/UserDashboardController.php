@@ -65,7 +65,9 @@ class UserDashboardController extends Controller
 
     private function getUserStats($userId)
     {
-        $totalOrders = Order::where('user_id', $userId)->count();
+        $$totalOrders = OrderLine::whereHas('order', function ($query) use ($userId) {
+            $query->where('user_id', $userId);
+        })->count();
         $wishlistCount = Wishlist::where('user_id', $userId)->count();
         $totalPoints = Order::where('user_id', $userId)->sum('coin_redeemed') ?? 0;
         $reviewsCount = ProductReview::where('user_id', $userId)->count();
