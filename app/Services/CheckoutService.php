@@ -3070,11 +3070,147 @@ class CheckoutService
     //     ];
     // }
 
+    // public function cancelOrder(
+    //     int $userId,
+    //     string $orderReference,
+    //     int $orderLineId,
+    //     string $reason
+    // ): array {
+    //     // Find the specific order line
+    //     $orderLine = OrderLine::where('id', $orderLineId)
+    //         ->whereHas('order', function ($query) use ($userId, $orderReference) {
+    //             $query->where('order_reference', $orderReference)
+    //                 ->where('user_id', $userId);
+    //         })
+    //         ->with(['order', 'product', 'variant'])
+    //         ->firstOrFail();
+
+    //     $order = $orderLine->order;
+
+    //     // Check if line is already cancelled
+    //     if ($orderLine->delivery_status === 'cancelled') {
+    //         throw new \Exception('This item is already cancelled');
+    //     }
+
+    //     DB::transaction(function () use ($orderLine, $order, $reason) {
+
+    //         // Update order line status
+    //         $orderLine->update([
+    //             'delivery_status' => 'cancelled',
+    //             'cancelled_at' => now(),
+    //             'cancellation_reason' => $reason,
+    //         ]);
+
+    //         // Restore stock for this specific line
+    //         // if ($orderLine->variant_id && $orderLine->variant) {
+    //         //     $orderLine->variant->increment(
+    //         //         'stock_quantity',
+    //         //         $orderLine->quantity
+    //         //     );
+
+    //         //     // Also restore product-level stock if maintained
+    //         //     $orderLine->product->increment(
+    //         //         'stock_quantity',
+    //         //         $orderLine->quantity
+    //         //     );
+    //         // } else {
+    //         //     $orderLine->product->increment(
+    //         //         'stock_quantity',
+    //         //         $orderLine->quantity
+    //         //     );
+    //         // }
+
+    //         // Create stock movement
+    //         StockMovement::create([
+    //             'product_id' => $orderLine->product_id,
+    //             'quantity' => $orderLine->quantity,
+    //             'available_quantity_after' => $orderLine->product->stock_quantity,
+    //             'reason' => $reason,
+    //             'order_id' => $order->id,
+    //             'order_line_id' => $orderLine->id,
+    //         ]);
+
+    //         // Check if ALL order lines are cancelled
+    //         $allCancelled = $order->lines()
+    //             ->where('delivery_status', '!=', 'cancelled')
+    //             ->doesntExist();
+
+    //         // Update order status if all items are cancelled
+    //         if ($allCancelled) {
+    //             $order->update([
+    //                 'status' => 'cancelled',
+    //                 'cancelled_at' => now(),
+    //             ]);
+
+    //             // Process full refund if order was paid
+    //             if ($order->amount_paid > 0) {
+    //                 $this->returnService->processRefundForOrder($order, $reason);
+    //             }
+
+    //             // Create reversal event for full order
+    //             $payload = $this->buildReversalPayload($order, $reason);
+    //             CommissionApiEvent::create([
+    //                 'event_type' => 'reversal',
+    //                 'order_id' => $order->id,
+    //                 'payload' => $payload,
+    //                 'status' => 'pending',
+    //                 'retry_count' => 0,
+    //                 'max_retries' => 5,
+    //                 'last_attempt' => null,
+    //                 'error_message' => null,
+    //                 'response_data' => null,
+    //             ]);
+
+    //             Log::info('Order fully cancelled as all items were cancelled', [
+    //                 'order' => $order->order_reference,
+    //                 'reason' => $reason,
+    //             ]);
+    //         } else {
+    //             // Process partial refund for this specific line
+    //             if ($orderLine->line_total > 0) {
+    //                 $this->processPartialRefund($order, $orderLine, $reason);
+    //             }
+
+    //             Log::info('Order line cancelled', [
+    //                 'order' => $order->order_reference,
+    //                 'order_line_id' => $orderLine->id,
+    //                 'reason' => $reason,
+    //                 'remaining_items' => $order->lines()
+    //                     ->where('delivery_status', '!=', 'cancelled')
+    //                     ->count(),
+    //             ]);
+    //         }
+    //     });
+
+    //     // Reload order to get updated status
+    //     $order->refresh();
+
+    //     return [
+    //         'order_reference' => $order->order_reference,
+    //         'order_line_id' => $orderLine->id,
+    //         'line_status' => $orderLine->delivery_status,
+    //         'order_status' => $order->status,
+    //         'reason' => $reason,
+    //         'all_items_cancelled' => $order->status === 'cancelled',
+    //     ];
+    // }
+
+    protected function getRefundableAmount(Order $order): float
+    {
+        $alreadyRefunded = Refund::where('order_id', $order->id)
+            ->whereIn('status', ['initiated', 'completed'])
+            ->sum('amount');
+
+        return max(0, (float) $order->amount_paid - (float) $alreadyRefunded);
+    }
     public function cancelOrder(
         int $userId,
         string $orderReference,
         int $orderLineId,
-        string $reason
+        string $reason,
+        ?float $refundAmount = null,
+        ?string $adminNotes = null,
+        ?int $approvedBy = null
     ): array {
         // Find the specific order line
         $orderLine = OrderLine::where('id', $orderLineId)
@@ -3092,42 +3228,52 @@ class CheckoutService
             throw new \Exception('This item is already cancelled');
         }
 
-        DB::transaction(function () use ($orderLine, $order, $reason) {
+        // Validate refund amount BEFORE entering transaction
+        if ($refundAmount !== null) {
+            $refundable = $this->getRefundableAmount($order);
 
+            if ($refundAmount < 0) {
+                throw new \Exception('Refund amount cannot be negative');
+            }
+
+            if ($refundAmount > $refundable) {
+                throw new \Exception(
+                    "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}) for order {$order->order_reference}"
+                );
+            }
+        }
+
+        DB::transaction(function () use (
+            $orderLine,
+            $order,
+            $reason,
+            $refundAmount,
+            $adminNotes,
+            $approvedBy
+        ) {
             // Update order line status
             $orderLine->update([
-                'delivery_status' => 'cancelled',
-                'cancelled_at' => now(),
+                'delivery_status'     => 'cancelled',
+                'cancelled_at'        => now(),
                 'cancellation_reason' => $reason,
             ]);
 
             // Restore stock for this specific line
             // if ($orderLine->variant_id && $orderLine->variant) {
-            //     $orderLine->variant->increment(
-            //         'stock_quantity',
-            //         $orderLine->quantity
-            //     );
-
-            //     // Also restore product-level stock if maintained
-            //     $orderLine->product->increment(
-            //         'stock_quantity',
-            //         $orderLine->quantity
-            //     );
+            //     $orderLine->variant->increment('stock_quantity', $orderLine->quantity);
+            //     $orderLine->product->increment('stock_quantity', $orderLine->quantity);
             // } else {
-            //     $orderLine->product->increment(
-            //         'stock_quantity',
-            //         $orderLine->quantity
-            //     );
+            //     $orderLine->product->increment('stock_quantity', $orderLine->quantity);
             // }
 
             // Create stock movement
             StockMovement::create([
-                'product_id' => $orderLine->product_id,
-                'quantity' => $orderLine->quantity,
+                'product_id'               => $orderLine->product_id,
+                'quantity'                 => $orderLine->quantity,
                 'available_quantity_after' => $orderLine->product->stock_quantity,
-                'reason' => $reason,
-                'order_id' => $order->id,
-                'order_line_id' => $orderLine->id,
+                'reason'                   => $reason,
+                'order_id'                 => $order->id,
+                'order_line_id'            => $orderLine->id,
             ]);
 
             // Check if ALL order lines are cancelled
@@ -3138,43 +3284,58 @@ class CheckoutService
             // Update order status if all items are cancelled
             if ($allCancelled) {
                 $order->update([
-                    'status' => 'cancelled',
+                    'status'       => 'cancelled',
                     'cancelled_at' => now(),
                 ]);
 
-                // Process full refund if order was paid
+                // Process refund if order was paid
                 if ($order->amount_paid > 0) {
-                    $this->returnService->processRefundForOrder($order, $reason);
+                    $this->returnService->processRefundForOrder(
+                        $order,
+                        $reason,
+                        $refundAmount,
+                        $adminNotes,
+                        $approvedBy
+                    );
                 }
 
                 // Create reversal event for full order
                 $payload = $this->buildReversalPayload($order, $reason);
                 CommissionApiEvent::create([
-                    'event_type' => 'reversal',
-                    'order_id' => $order->id,
-                    'payload' => $payload,
-                    'status' => 'pending',
-                    'retry_count' => 0,
-                    'max_retries' => 5,
-                    'last_attempt' => null,
+                    'event_type'    => 'reversal',
+                    'order_id'      => $order->id,
+                    'payload'       => $payload,
+                    'status'        => 'pending',
+                    'retry_count'   => 0,
+                    'max_retries'   => 5,
+                    'last_attempt'  => null,
                     'error_message' => null,
                     'response_data' => null,
                 ]);
 
                 Log::info('Order fully cancelled as all items were cancelled', [
-                    'order' => $order->order_reference,
-                    'reason' => $reason,
+                    'order'         => $order->order_reference,
+                    'reason'        => $reason,
+                    'refund_amount' => $refundAmount,
                 ]);
             } else {
                 // Process partial refund for this specific line
-                if ($orderLine->line_total > 0) {
-                    $this->processPartialRefund($order, $orderLine, $reason);
+                if ($orderLine->line_total > 0 || $refundAmount > 0) {
+                    $this->processPartialRefund(
+                        $order,
+                        $orderLine,
+                        $reason,
+                        $refundAmount,
+                        $adminNotes,
+                        $approvedBy
+                    );
                 }
 
                 Log::info('Order line cancelled', [
-                    'order' => $order->order_reference,
-                    'order_line_id' => $orderLine->id,
-                    'reason' => $reason,
+                    'order'           => $order->order_reference,
+                    'order_line_id'   => $orderLine->id,
+                    'reason'          => $reason,
+                    'refund_amount'   => $refundAmount,
                     'remaining_items' => $order->lines()
                         ->where('delivery_status', '!=', 'cancelled')
                         ->count(),
@@ -3184,99 +3345,198 @@ class CheckoutService
 
         // Reload order to get updated status
         $order->refresh();
+        $orderLine->refresh();
 
         return [
-            'order_reference' => $order->order_reference,
-            'order_line_id' => $orderLine->id,
-            'line_status' => $orderLine->delivery_status,
-            'order_status' => $order->status,
-            'reason' => $reason,
+            'order_reference'     => $order->order_reference,
+            'order_line_id'       => $orderLine->id,
+            'line_status'         => $orderLine->delivery_status,
+            'order_status'        => $order->status,
+            'reason'              => $reason,
+            'refund_amount'       => $refundAmount,
             'all_items_cancelled' => $order->status === 'cancelled',
         ];
     }
 
-    protected function processPartialRefund(Order $order, OrderLine $orderLine, string $reason): void
-    {
-        // Total already refunded for this order (cash refunds only)
-        $alreadyRefunded = Refund::where('order_id', $order->id)
-            ->where('status', 'completed')
-            ->sum('amount');
+    // protected function processPartialRefund(Order $order, OrderLine $orderLine, string $reason): void
+    // {
+    //     // Total already refunded for this order (cash refunds only)
+    //     $alreadyRefunded = Refund::where('order_id', $order->id)
+    //         ->where('status', 'completed')
+    //         ->sum('amount');
 
-        $remainingBalance = max(0, (float) $order->amount_paid - $alreadyRefunded);
+    //     $remainingBalance = max(0, (float) $order->amount_paid - $alreadyRefunded);
 
-        // Refund amount = line_total (already includes tax and discounts)
-        // No need to add tax separately because line_total already has it.
-        $refundAmount = (float) $orderLine->line_total;
+    //     // Refund amount = line_total (already includes tax and discounts)
+    //     // No need to add tax separately because line_total already has it.
+    //     $refundAmount = (float) $orderLine->line_total;
 
-        // Proportional shipping refund (if shipping was charged)
-        if ($order->shipping_charge > 0 && $order->subtotal > 0) {
-            $proportion = $orderLine->line_total / $order->subtotal;
-            $shippingRefund = $order->shipping_charge * $proportion;
-            $refundAmount += $shippingRefund;
+    //     // Proportional shipping refund (if shipping was charged)
+    //     if ($order->shipping_charge > 0 && $order->subtotal > 0) {
+    //         $proportion = $orderLine->line_total / $order->subtotal;
+    //         $shippingRefund = $order->shipping_charge * $proportion;
+    //         $refundAmount += $shippingRefund;
+    //     }
+
+    //     $refundAmount = round($refundAmount, 2);
+
+    //     // Cap by remaining balance
+    //     $refundAmount = min($refundAmount, $remainingBalance);
+
+    //     if ($refundAmount <= 0) {
+    //         Log::warning('Partial refund skipped: amount is zero or exceeds remaining balance', [
+    //             'order_id' => $order->id,
+    //             'order_line_id' => $orderLine->id,
+    //             'remaining_balance' => $remainingBalance,
+    //             'requested' => $refundAmount,
+    //         ]);
+    //         return;
+    //     }
+
+    //     // Razorpay partial refund
+    //     $gateway = $order->payment_gateway ?? 'razorpay';
+    //     if ($gateway === 'razorpay') {
+    //         if (!$order->gateway_transaction_id) {
+    //             throw new \Exception("Payment transaction ID not found for order {$order->order_reference}.");
+    //         }
+    //         $refundResponse = $this->razorpayService->processPartialRefund(
+    //             $order->gateway_transaction_id,
+    //             $refundAmount
+    //         );
+    //         Log::info('Razorpay partial refund completed', [
+    //             'order_id' => $order->id,
+    //             'order_line_id' => $orderLine->id,
+    //             'payment_id' => $order->gateway_transaction_id,
+    //             'refund_id' => $refundResponse['refund_id'] ?? null,
+    //             'amount' => $refundAmount,
+    //         ]);
+    //     }
+
+    //     // Create refund record
+    //     $refund = Refund::create([
+    //         'order_id' => $order->id,
+    //         'order_line_id' => $orderLine->id,
+    //         'amount' => $refundAmount,
+    //         'reason' => $reason,
+    //         'status' => 'completed',
+    //         'completed_at' => now(),
+    //         'gateway_reference' => $refundResponse['refund_id'] ?? null,
+    //     ]);
+
+    //     // Generate credit note for this line
+    //     $this->generateCreditNoteForLine($order, $orderLine, $refund->id, $reason);
+
+    //     // Update order paid amount
+    //     $newAmountPaid = max(0, (float) $order->amount_paid - $refundAmount);
+    //     $order->update([
+    //         'amount_paid' => $newAmountPaid,
+    //         'refund_status' => 'partial',
+    //         'refunded_at' => now(),
+    //     ]);
+
+    //     Log::info('Partial refund processed', [
+    //         'order' => $order->order_reference,
+    //         'order_line_id' => $orderLine->id,
+    //         'amount' => $refundAmount,
+    //         'remaining_balance_after' => $newAmountPaid,
+    //     ]);
+    // }
+
+    private function processPartialRefund(
+        Order $order,
+        OrderLine $orderLine,
+        string $reason,
+        ?float $refundAmount = null,
+        ?string $adminNotes = null,
+        ?int $approvedBy = null
+    ): void {
+        // If admin specified an amount, use it; otherwise default to line_total
+        $refundAmount = $refundAmount ?? (float) $orderLine->line_total;
+
+        $refundable = $this->getRefundableAmount($order);
+
+        if ($refundAmount > $refundable) {
+            throw new Exception(
+                "Refund amount ({$refundAmount}) exceeds refundable amount ({$refundable}) for order {$order->order_reference}"
+            );
         }
 
-        $refundAmount = round($refundAmount, 2);
-
-        // Cap by remaining balance
-        $refundAmount = min($refundAmount, $remainingBalance);
-
         if ($refundAmount <= 0) {
-            Log::warning('Partial refund skipped: amount is zero or exceeds remaining balance', [
-                'order_id' => $order->id,
+            Log::warning('Partial refund skipped: refund amount is zero', [
+                'order_id'      => $order->id,
                 'order_line_id' => $orderLine->id,
-                'remaining_balance' => $remainingBalance,
-                'requested' => $refundAmount,
             ]);
             return;
         }
 
-        // Razorpay partial refund
-        $gateway = $order->payment_gateway ?? 'razorpay';
-        if ($gateway === 'razorpay') {
-            if (!$order->gateway_transaction_id) {
-                throw new \Exception("Payment transaction ID not found for order {$order->order_reference}.");
-            }
-            $refundResponse = $this->razorpayService->processPartialRefund(
-                $order->gateway_transaction_id,
-                $refundAmount
-            );
-            Log::info('Razorpay partial refund completed', [
-                'order_id' => $order->id,
-                'order_line_id' => $orderLine->id,
-                'payment_id' => $order->gateway_transaction_id,
-                'refund_id' => $refundResponse['refund_id'] ?? null,
-                'amount' => $refundAmount,
-            ]);
+        $gateway   = $order->payment_gateway ?? 'razorpay';
+        $paymentId = $order->gateway_transaction_id;
+
+        if ($gateway !== 'razorpay') {
+            throw new Exception('Refund not supported for gateway: ' . $gateway);
         }
 
-        // Create refund record
-        $refund = Refund::create([
-            'order_id' => $order->id,
-            'order_line_id' => $orderLine->id,
-            'amount' => $refundAmount,
-            'reason' => $reason,
-            'status' => 'completed',
-            'completed_at' => now(),
-            'gateway_reference' => $refundResponse['refund_id'] ?? null,
-        ]);
+        if (empty($paymentId)) {
+            throw new Exception('Payment ID missing for order: ' . $order->order_reference);
+        }
 
-        // Generate credit note for this line
-        $this->generateCreditNoteForLine($order, $orderLine, $refund->id, $reason);
+        try {
+            $refundResponse = $this->razorpayService->refundPayment($paymentId, $refundAmount);
 
-        // Update order paid amount
-        $newAmountPaid = max(0, (float) $order->amount_paid - $refundAmount);
-        $order->update([
-            'amount_paid' => $newAmountPaid,
-            'refund_status' => 'partial',
-            'refunded_at' => now(),
-        ]);
+            if (empty($refundResponse['refund_id'])) {
+                throw new Exception('Razorpay refund failed: no refund ID');
+            }
 
-        Log::info('Partial refund processed', [
-            'order' => $order->order_reference,
-            'order_line_id' => $orderLine->id,
-            'amount' => $refundAmount,
-            'remaining_balance_after' => $newAmountPaid,
-        ]);
+            $statusMap = [
+                'processing' => 'initiated',
+                'processed'  => 'completed',
+                'failed'     => 'failed',
+            ];
+            $refundStatus = $statusMap[$refundResponse['status']] ?? 'completed';
+
+            $refund = Refund::create([
+                'order_id'          => $order->id,
+                'return_id'         => null,
+                'amount'            => $refundAmount,
+                'gateway_reference' => $refundResponse['refund_id'],
+                'status'            => $refundStatus,
+                'completed_at'      => ($refundStatus === 'completed') ? now() : null,
+                'failure_reason'    => null,
+                'notes'             => $adminNotes,
+                'approved_by'       => $approvedBy,
+                'refund_method'     => $gateway,
+            ]);
+
+            // Check cumulative refunds
+            $totalRefunded = Refund::where('order_id', $order->id)
+                ->whereIn('status', ['initiated', 'completed'])
+                ->sum('amount');
+
+            $fullyRefunded = $totalRefunded >= (float) $order->amount_paid;
+
+            $order->update([
+                'refund_status' => $fullyRefunded ? 'completed' : 'partial',
+                'refunded_at'   => $fullyRefunded ? now() : $order->refunded_at,
+            ]);
+
+            $this->generateCreditNoteForLine($order, $orderLine, $refund->id, $reason);
+
+            Log::info('Partial refund processed via line cancellation', [
+                'order_id'       => $order->id,
+                'order_line_id'  => $orderLine->id,
+                'refund_id'      => $refund->id,
+                'amount'         => $refundAmount,
+                'total_refunded' => $totalRefunded,
+                'fully_refunded' => $fullyRefunded,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Partial refund failed for order line cancellation', [
+                'order_id'      => $order->id,
+                'order_line_id' => $orderLine->id,
+                'error'         => $e->getMessage(),
+            ]);
+            throw $e;
+        }
     }
 
     /**

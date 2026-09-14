@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\OrderLine;
 use App\Models\Notification;
 use App\Models\AdminNotification;
+use App\Models\Order;
+use App\Models\Refund;
 use App\Models\User;
 use App\Services\CheckoutService;
 use App\Services\ReturnService;
@@ -32,10 +34,10 @@ class CancellationApprovalController extends Controller
     public function getPendingRequests(Request $request): JsonResponse
     {
         $pendingRequests = OrderLine::whereIn('delivery_status', [
-                'cancel_pending',
-                'cancelled',
-                'cancelled_rejected'
-            ])
+            'cancel_pending',
+            'cancelled',
+            'cancelled_rejected'
+        ])
             ->with(['order', 'order.user', 'product', 'variant'])
             ->orderBy('cancellation_requested_at', 'asc')
             ->paginate($request->get('per_page', 20));
@@ -73,7 +75,8 @@ class CancellationApprovalController extends Controller
     {
         try {
             $request->validate([
-                'admin_notes' => 'nullable|string|max:500',
+                'admin_notes'   => 'nullable|string|max:500',
+                'refund_amount' => 'nullable|numeric|min:0',
             ]);
 
             $orderLine = OrderLine::where('id', $orderLineId)
@@ -81,15 +84,35 @@ class CancellationApprovalController extends Controller
                 ->with(['order', 'product', 'variant'])
                 ->firstOrFail();
 
-            $order = $orderLine->order;
+            $order  = $orderLine->order;
             $reason = $orderLine->cancellation_reason;
 
-            // CALL YOUR EXISTING cancelOrder FUNCTION HERE
+            // Determine refund amount (null = refund full refundable balance)
+            $refundAmount = $request->filled('refund_amount')
+                ? (float) $request->refund_amount
+                : null;
+
+            // Validate refund amount against refundable balance
+            if ($refundAmount !== null) {
+                $refundable = $this->getRefundableAmount($order);
+
+                if ($refundAmount > $refundable) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}).",
+                    ], 422);
+                }
+            }
+
+            // CALL cancelOrder WITH NEW PARAMS
             $result = $this->checkoutService->cancelOrder(
                 $order->user_id,
                 $order->order_reference,
                 $orderLineId,
-                $reason
+                $reason,
+                $refundAmount,
+                $request->admin_notes,
+                Auth::guard('admin')->id()
             );
 
             // Mark admin notification as read
@@ -105,30 +128,32 @@ class CancellationApprovalController extends Controller
                 "Your cancellation request for order #{$order->order_reference} has been approved and processed.",
                 'order_cancellation_approved',
                 [
-                    'order_reference' => $order->order_reference,
-                    'order_line_id' => $orderLineId,
-                    'admin_notes' => $request->admin_notes,
-                    'refund_processed' => $order->amount_paid > 0
+                    'order_reference'  => $order->order_reference,
+                    'order_line_id'    => $orderLineId,
+                    'admin_notes'      => $request->admin_notes,
+                    'refund_amount'    => $refundAmount,
+                    'refund_processed' => ($refundAmount ?? 0) > 0 || $order->amount_paid > 0,
                 ]
             );
 
             // Log approval
             Log::info('Cancellation request approved', [
-                'order_line_id' => $orderLineId,
+                'order_line_id'   => $orderLineId,
                 'order_reference' => $order->order_reference,
-                'admin_id' => Auth::guard('admin')->id(),
-                'result' => $result
+                'admin_id'        => Auth::guard('admin')->id(),
+                'refund_amount'   => $refundAmount,
+                'result'          => $result,
             ]);
 
             return response()->json([
                 'success' => true,
-                'data' => $result,
+                'data'    => $result,
                 'message' => 'Cancellation request approved and processed successfully',
             ]);
         } catch (\Exception $e) {
             Log::error('Cancellation approval failed: ' . $e->getMessage(), [
                 'order_line_id' => $orderLineId,
-                'admin_id' => Auth::guard('admin')->id()
+                'admin_id'      => Auth::guard('admin')->id(),
             ]);
 
             return response()->json([
@@ -137,7 +162,18 @@ class CancellationApprovalController extends Controller
             ], 400);
         }
     }
+    /**
+     * Calculate how much can still be refunded on this order.
+     * = amount_paid - sum(existing non-failed refunds)
+     */
+    protected function getRefundableAmount(Order $order): float
+    {
+        $alreadyRefunded = Refund::where('order_id', $order->id)
+            ->whereIn('status', ['initiated', 'completed'])
+            ->sum('amount');
 
+        return max(0, (float) $order->amount_paid - (float) $alreadyRefunded);
+    }
     /**
      * NEW: Reject cancellation request
      */
