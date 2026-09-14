@@ -389,7 +389,7 @@ class CoolingOffController extends Controller
 
             // Admin notification
             AdminNotification::create([
-                'admin_id'       => null,
+                'admin_id'       => '1',
                 'type'           => 'cooling_off_pending',
                 'title'          => 'Distributor Distributorship Withdrawal',
                 'message'        => "Distributor {$user->name} withdrew under cooling-off.",
@@ -491,7 +491,7 @@ class CoolingOffController extends Controller
     protected function createCoolingOffNotification(OrderReturn $returnOrder): void
     {
         AdminNotification::create([
-            'admin_id'       => null,
+            'admin_id'       => '1',
             'type'           => 'cooling_off_pending',
             'title'          => 'New Cooling-Off Withdrawal Request',
             'message'        => "Cooling-off withdrawal for Order #{$returnOrder->order->order_reference} has been initiated. Total refund: ₹{$returnOrder->total_refund_amount}",
