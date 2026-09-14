@@ -6,16 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Refund extends Model
 {
-    protected $fillable = [
-        'order_id',
-        'order_line_id',
-        'return_id',
-        'amount',
-        'gateway_reference',
-        'status',
-        'completed_at',
-        'failure_reason',
-    ];
+    protected $guarded = [];
 
     protected $casts = [
         'amount' => 'decimal:2',
@@ -31,7 +22,7 @@ class Refund extends Model
     {
         return $this->belongsTo(OrderReturn::class);
     }
-    
+
     public function creditNote(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
         return $this->hasOne(CreditNote::class);

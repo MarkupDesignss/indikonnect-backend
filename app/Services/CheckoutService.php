@@ -3292,6 +3292,7 @@ class CheckoutService
                 if ($order->amount_paid > 0) {
                     $this->returnService->processRefundForOrder(
                         $order,
+                        $orderLine->id ?? null,
                         $reason,
                         $refundAmount,
                         $adminNotes,

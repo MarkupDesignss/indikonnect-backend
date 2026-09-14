@@ -196,7 +196,7 @@ class CancellationApprovalController extends Controller
                 $orderLine->update([
                     'delivery_status' => 'cancel_rejected',
                     'cancellation_rejection_reason' => $request->rejection_reason,
-                    'updated_at' => now(),
+                    'cancellation_rejected_at' => now(),
                 ]);
 
                 // Mark admin notification as read

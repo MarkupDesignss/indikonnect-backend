@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Models\Order;
 use App\Models\OrderReturn;
+use App\Models\Refund;
 use App\Services\ReturnService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -11,6 +13,7 @@ use Illuminate\Validation\ValidationException;
 use Exception;
 use Illuminate\Support\Facades\Log;
 use App\Traits\AuditLogTrait;
+use Illuminate\Support\Facades\Auth;
 
 class ReturnController extends Controller
 {
@@ -21,6 +24,15 @@ class ReturnController extends Controller
     public function __construct(ReturnService $returnService)
     {
         $this->returnService = $returnService;
+    }
+
+    public function getRefundableAmount(Order $order): float
+    {
+        $alreadyRefunded = Refund::where('order_id', $order->id)
+            ->whereIn('status', ['initiated', 'completed'])
+            ->sum('amount');
+
+        return max(0, (float) $order->amount_paid - (float) $alreadyRefunded);
     }
 
     /**
@@ -565,31 +577,67 @@ class ReturnController extends Controller
      * Admin: Mark return as received
      * POST /api/admin/returns/{id}/received
      */
+
     // public function adminMarkReceived(int $returnId): JsonResponse
     // {
     //     try {
     //         $result = $this->returnService->markReturnReceived($returnId);
 
-    //         return response()->json($result);
-    //     } catch (Exception $e) {
+    //         return response()->json($result, 200);
+    //     } catch (\Throwable $e) {
+
+    //         Log::error('Admin mark return received failed', [
+    //             'return_id' => $returnId,
+    //             'error' => $e->getMessage(),
+    //         ]);
+
     //         return response()->json([
     //             'success' => false,
     //             'message' => $e->getMessage(),
     //         ], 400);
     //     }
     // }
-
-    public function adminMarkReceived(int $returnId): JsonResponse
+    public function adminMarkReceived(Request $request, int $returnId): JsonResponse
     {
         try {
-            $result = $this->returnService->markReturnReceived($returnId);
+            $request->validate([
+                'admin_notes'   => 'nullable|string|max:500',
+                'refund_amount' => 'nullable|numeric|min:0',
+            ]);
+
+            $refundAmount = $request->filled('refund_amount')
+                ? (float) $request->refund_amount
+                : null;
+
+            // Pre-validate against refundable balance (fail fast before touching DB)
+            if ($refundAmount !== null) {
+                $returnOrder = OrderReturn::with('order')->findOrFail($returnId);
+                $order = $returnOrder->order;
+
+                if ($order) {
+                    $refundable = $this->returnService->getRefundableAmount($order);
+
+                    if ($refundAmount > $refundable) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}).",
+                        ], 422);
+                    }
+                }
+            }
+
+            $result = $this->returnService->markReturnReceived(
+                $returnId,
+                $refundAmount,
+                $request->admin_notes,
+                Auth::guard('admin')->id()
+            );
 
             return response()->json($result, 200);
         } catch (\Throwable $e) {
-
             Log::error('Admin mark return received failed', [
                 'return_id' => $returnId,
-                'error' => $e->getMessage(),
+                'error'     => $e->getMessage(),
             ]);
 
             return response()->json([
