@@ -43,6 +43,7 @@ class DistributorProfile extends Model
         'submitted_at',
         'terms_accepted_at',
         'application_status',
+        'withdrawn_at',
         'reviewed_at',
         'reviewed_by',
         'rejection_reason',
