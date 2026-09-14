@@ -177,7 +177,7 @@ class ReturnController extends Controller
 
                 'return_images.*' => [
                     'image',
-                    'mimes:jpeg,png,jpg,gif,avif',
+                    'mimes:jpeg,png,jpg,gif,avif,webp',
                     'max:5120',
                 ],
             ]);
