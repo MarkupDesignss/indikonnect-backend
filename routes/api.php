@@ -546,7 +546,7 @@ Route::prefix('external')->middleware(['outbound.api'])->group(function () {
 
 
 // ========== DISTRIBUTOR COOLING-OFF ==========
-Route::middleware('auth:sanctum')->prefix('distributor')->group(function () {
+Route::middleware('auth:sanctum')->group(function () {
 
     // Purchase cooling-off (distributor)
     Route::get('/orders/{orderReference}/cooling-off-eligibility',
