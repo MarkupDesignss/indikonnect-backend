@@ -3585,7 +3585,7 @@ class ReturnService
             ];
         });
     }
-    protected function getRefundableAmount(Order $order): float
+    public function getRefundableAmount(Order $order): float
     {
         $alreadyRefunded = Refund::where('order_id', $order->id)
             ->whereIn('status', ['initiated', 'completed'])
@@ -3666,7 +3666,7 @@ class ReturnService
     // }
     public function processRefundForOrder(
         Order $order,
-        OrderLine $orderLineId,
+        int $orderLineId,
         string $reason,
         ?float $refundAmount = null,
         ?string $adminNotes = null,
@@ -3716,7 +3716,7 @@ class ReturnService
 
             $refund = Refund::create([
                 'order_id'          => $order->id,
-                'order_line_id '    => $orderLineId,
+                'order_line_id'    => $orderLineId,
                 'return_id'         => null,
                 'amount'            => $refundAmount,
                 'gateway_reference' => $refundResponse['refund_id'],

@@ -3445,7 +3445,7 @@ class CheckoutService
 
     private function processPartialRefund(
         Order $order,
-        OrderLine $orderLine,
+        int $orderLine,
         string $reason,
         ?float $refundAmount = null,
         ?string $adminNotes = null,

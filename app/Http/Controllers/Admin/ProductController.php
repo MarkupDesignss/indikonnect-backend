@@ -64,6 +64,7 @@ class ProductController extends Controller
             'product_code' => $product->product_code,
             'name' => $product->name,
             'slug' => $product->slug,
+            'commission_value' => $product->commission_value,
             'description' => $product->description,
             'specification' => $product->specification,
             'hsn_code' => $product->hsn_code,
@@ -657,6 +658,7 @@ class ProductController extends Controller
                 'product_code' => $product->product_code,
                 'name' => $product->name,
                 'brand_id' => $product->brand_id ?? null,
+                'commission_value' => $product->commission_value ?? null,
                 'brand_name' => $product->brand->title,
                 'brand_logo' => $product->brand?->logo
                     ? asset('storage/' . $product->brand->logo)
@@ -860,6 +862,7 @@ class ProductController extends Controller
             'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
             'stock_quantity' => ['required_if:variants,null', 'nullable', 'integer', 'min:0'],
             'shipping_charge' => ['required|', 'integer', 'min:0'],
+            'commission_value' => ['required|', 'integer', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'is_published' => ['nullable', 'boolean'],
             'is_trending' => ['nullable', 'boolean'],
@@ -933,6 +936,7 @@ class ProductController extends Controller
             $productData['is_published'] = $productData['is_published'] ?? false;
             $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
             $productData['shipping_charge'] = $productData['shipping_charge'] ?? 0;
+            $productData['commission_value'] = $productData['commission_value'] ?? 0;
 
             // Check if variants exist
             $hasVariants = !empty($validated['variants']);
@@ -1888,6 +1892,7 @@ class ProductController extends Controller
             'stock_quantity' => ['nullable', 'integer', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'shipping_charge' => ['nullable', 'integer', 'min:0'],
+            'commission_value' => ['nullable', 'integer', 'min:0'],
 
             // Status - FIXED: Use 'sometimes' instead of 'nullable' for better boolean handling
             'is_published' => ['sometimes', 'boolean'],
@@ -2030,6 +2035,7 @@ class ProductController extends Controller
                 'stock_quantity' => $product->stock_quantity,
                 'low_stock_threshold' => $product->low_stock_threshold,
                 'shipping_charge' => $product->shipping_charge,
+                'commission_value' => $product->commission_value,
 
                 'is_published' => $product->is_published,
                 'is_trending' => $product->is_trending,
@@ -2371,6 +2377,7 @@ class ProductController extends Controller
                 'stock_quantity' => $product->stock_quantity,
                 'low_stock_threshold' => $product->low_stock_threshold,
                 'shipping_charge' => $product->shipping_charge,
+                'commission_value' => $product->commission_value,
 
                 'is_published' => $product->is_published,
                 'is_trending' => $product->is_trending,
@@ -4054,6 +4061,7 @@ class ProductController extends Controller
                 'id' => $product->id,
 
                 'product_code' => $product->product_code,
+                'commission_value' => $product->commission_value,
 
                 'name' => $product->name,
 
