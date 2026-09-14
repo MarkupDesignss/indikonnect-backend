@@ -149,17 +149,33 @@ class Order extends Model
             && $this->delivered_at->diffInDays(now()) <= $returnWindow;
     }
 
+    // public function hasPendingReturn(): bool
+    // {
+    //     return $this->returns()
+    //         ->where('status', 'pending')
+    //         ->exists();
+    // }
+
+    // public function hasApprovedReturn(): bool
+    // {
+    //     return $this->returns()
+    //         ->whereIn('status', ['approved', 'received', 'completed'])
+    //         ->exists();
+    // }
+
     public function hasPendingReturn(): bool
     {
         return $this->returns()
-            ->where('status', 'pending')
+            ->whereIn('type', ['return', 'cooling_off'])
+            ->whereIn('status', ['pending', 'partially_approved'])
             ->exists();
     }
 
     public function hasApprovedReturn(): bool
     {
         return $this->returns()
-            ->whereIn('status', ['approved', 'received', 'completed'])
+            ->whereIn('type', ['return', 'cooling_off'])
+            ->whereIn('status', ['approved', 'received', 'completed', 'fully_approved'])
             ->exists();
     }
 
