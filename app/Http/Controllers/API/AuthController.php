@@ -917,12 +917,13 @@ class AuthController extends Controller
             }
 
             // Check if user is registered with customer role
-            if ($user->account_tyoe !== 'customer') {
+            if ($user->account_type !== 'customer' && $user->is_registered == 1) {
                 $roleName = ucfirst($user->account_type ?? 'Unknown');
+
                 return response()->json([
                     'status' => false,
                     'exists' => true,
-                    'message' => " This email address is already registered with a {$roleName} account. Please use a different email address to register.",
+                    'message' => "This email address is already registered with a {$roleName} account. Please use a different email address to register.",
                     'role' => $user->role
                 ], 403);
             }
@@ -2025,8 +2026,7 @@ class AuthController extends Controller
                 'full_name' => $request->full_name,
                 'email' => $request->email,
                 'country' => $request->country,
-                'gst_in' => $request->gst_in ?? 'URP',
-                'company_name' => $request->company_name,
+
                 'account_type' => 'distributor',
                 'terms_condition' => $request->terms_condition,
                 'date_of_birth' => $request->date_of_birth,
@@ -2034,7 +2034,7 @@ class AuthController extends Controller
                     ? Hash::make($request->password)
                     : $user->password,
                 'is_registered' => 0,
-                'registration_step' => 1,
+                'registration_step' => max($user->registration_step ?? 0, 1),
             ]);
 
             // Create distributor profile if not exists
@@ -2043,6 +2043,8 @@ class AuthController extends Controller
                 $businessProfile = BusinessProfile::create([
                     'user_id' => $user->id,
                     'kyc_status' => 'pending',
+                    'gst_in' => $request->gst_in ?? 'URP',
+                    'company_name' => $request->company_name,
                 ]);
             }
 
@@ -2104,7 +2106,7 @@ class AuthController extends Controller
             $user->update([
                 'sponsor_id' => $request->sponsor_id,
                 'placement_leg' => $request->placement_leg,
-                'registration_step' => 2
+                'registration_step' => max($user->registration_step ?? 0, 2),
             ]);
 
             return response()->json([
@@ -2179,7 +2181,7 @@ class AuthController extends Controller
             );
 
             $user->update([
-                'registration_step' => 3,
+                'registration_step' => max($user->registration_step ?? 0, 3),
                 'aadhaar_last4' => substr($request->encrypted_aadhaar, -4)
             ]);
 
@@ -2261,7 +2263,7 @@ class AuthController extends Controller
             ]);
 
             $user->update([
-                'registration_step' => 4,
+                'registration_step' => max($user->registration_step ?? 0, 4),
                 'pan_last4' => substr($request->encrypted_pan, -4)
             ]);
 
@@ -2366,7 +2368,7 @@ class AuthController extends Controller
             ]);
 
             $user->update([
-                'registration_step' => 5,
+                'registration_step' => max($user->registration_step ?? 0, 5),
                 'account_last4' => substr($request->encrypted_bank_account, -4)
             ]);
 
@@ -2441,7 +2443,7 @@ class AuthController extends Controller
             }
 
             $user->update([
-                'registration_step' => 6,
+                'registration_step' => max($user->registration_step ?? 0, 6),
                 'location_consent_given' => $request->location_consent
             ]);
 
@@ -2548,7 +2550,7 @@ class AuthController extends Controller
             $user->update([
                 'is_registered' => 1,
                 'distributor_status' => 'pending',
-                'registration_step' => 7,
+                'registration_step' => max($user->registration_step ?? 0, 7),
                 'registration_completed_at' => now(),
                 'otp' => null,
                 'otp_expires_at' => null,
