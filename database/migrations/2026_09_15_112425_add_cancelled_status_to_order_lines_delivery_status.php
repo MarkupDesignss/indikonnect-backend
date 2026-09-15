@@ -14,7 +14,7 @@ return new class extends Migration
     {
         DB::statement("
             ALTER TABLE order_lines
-            MODIFY COLUMN delivery_status ENUM(
+            MODIFY COLUMN return_status ENUM(
                 'none',
                 'pending',
                 'approved',
