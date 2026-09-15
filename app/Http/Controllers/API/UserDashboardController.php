@@ -65,7 +65,7 @@ class UserDashboardController extends Controller
 
     private function getUserStats($userId)
     {
-        $$totalOrders = OrderLine::whereHas('order', function ($query) use ($userId) {
+        $totalOrders = OrderLine::whereHas('order', function ($query) use ($userId) {
             $query->where('user_id', $userId);
         })->count();
         $wishlistCount = Wishlist::where('user_id', $userId)->count();
