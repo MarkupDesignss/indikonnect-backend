@@ -437,6 +437,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/returns/initiate', [ReturnController::class, 'initiate']);
     Route::get('/returns/my-returns', [ReturnController::class, 'myReturns']);
     Route::get('/returns/{id}', [ReturnController::class, 'show']);
+    Route::post('/returns/{returnId}/cancel', [ReturnController::class, 'cancel']);
 
     // Admin routes
     Route::middleware('admin')->prefix('admin')->group(function () {
@@ -549,20 +550,30 @@ Route::prefix('external')->middleware(['outbound.api'])->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
 
     // Purchase cooling-off (distributor)
-    Route::get('/orders/{orderReference}/cooling-off-eligibility',
-        [CoolingOffController::class, 'eligibility']);
-    Route::post('/orders/{orderReference}/cooling-off-withdraw',
-        [CoolingOffController::class, 'withdraw']);
+    Route::get(
+        '/orders/{orderReference}/cooling-off-eligibility',
+        [CoolingOffController::class, 'eligibility']
+    );
+    Route::post(
+        '/orders/{orderReference}/cooling-off-withdraw',
+        [CoolingOffController::class, 'withdraw']
+    );
 
     // Distributorship withdrawal (account-level)
-    Route::get('/cooling-off/eligibility',
-        [CoolingOffController::class, 'distributorshipEligibility']);
-    Route::post('/cooling-off/withdraw-distributorship',
-        [CoolingOffController::class, 'withdrawDistributorship']);
+    Route::get(
+        '/cooling-off/eligibility',
+        [CoolingOffController::class, 'distributorshipEligibility']
+    );
+    Route::post(
+        '/cooling-off/withdraw-distributorship',
+        [CoolingOffController::class, 'withdrawDistributorship']
+    );
 
     // History
-    Route::get('/cooling-off/history',
-        [CoolingOffController::class, 'history']);
+    Route::get(
+        '/cooling-off/history',
+        [CoolingOffController::class, 'history']
+    );
 });
 
 // Buyback
