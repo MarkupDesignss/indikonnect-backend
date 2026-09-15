@@ -58,6 +58,7 @@ class OrderReturn extends Model
     ];
 
     public const STATUS_PENDING = 'pending';
+    public const STATUS_CANCELLED = 'cancelled';
     public const STATUS_APPROVED = 'approved';
     public const STATUS_PARTIALLY_APPROVED = 'partially_approved';
     public const STATUS_REJECTED = 'rejected';

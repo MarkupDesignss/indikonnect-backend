@@ -213,6 +213,23 @@ class ReturnController extends Controller
         }
     }
 
+    public function cancel(int $returnId)
+    {
+        try {
+            $result = $this->returnService->cancelReturn(
+                auth()->id(),
+                $returnId
+            );
+
+            return response()->json($result);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
     /**
      * Process and store return images.
      */
