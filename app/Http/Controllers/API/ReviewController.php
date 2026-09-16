@@ -515,7 +515,7 @@ class ReviewController extends Controller
         try {
             $reviews = ProductReview::with([
                 'images:id,product_review_id,image_path',
-                'user:id,full_name,email',
+                'user:id,full_name,email,account_type',
                 'product:id,name,product_code,slug',
                 'product.images:id,product_id,image,sort_order,is_primary'
             ])
@@ -546,6 +546,7 @@ class ReviewController extends Controller
                         'id' => $review->user->id,
                         'name' => $review->user->full_name,
                         'email' => $review->user->email,
+                        'account_type' => $review->user->account_type,
                     ] : null,
 
                     'product' => $review->product ? [

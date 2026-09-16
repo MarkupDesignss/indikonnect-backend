@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminBuybackController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\CategoryController;
@@ -583,6 +584,20 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/initiate', [BuybackController::class, 'initiate']);
         Route::get('/history', [BuybackController::class, 'history']);
         Route::get('/summary', [BuybackController::class, 'summary']);
+    });
+});
+
+Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
+
+    // Buyback Management
+    Route::prefix('buyback')->group(function () {
+        Route::get('/requests', [AdminBuybackController::class, 'index']);
+        Route::get('/requests/{id}', [AdminBuybackController::class, 'show']);
+        Route::post('/requests/{id}/approve', [AdminBuybackController::class, 'approve']);
+        Route::post('/requests/{id}/reject', [AdminBuybackController::class, 'reject']);
+        Route::post('/requests/{id}/mark-received', [AdminBuybackController::class, 'markReceived']);
+        Route::post('/requests/{id}/complete', [AdminBuybackController::class, 'complete']);
+        Route::get('/summary', [AdminBuybackController::class, 'summary']);
     });
 });
 
