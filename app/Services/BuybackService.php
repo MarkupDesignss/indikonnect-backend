@@ -363,8 +363,58 @@ class BuybackService
     /**
      * Mark buyback items as received
      */
-    public function markBuybackReceived(int $returnId): array
-    {
+    // public function markBuybackReceived(int $returnId): array
+    // {
+    //     $returnOrder = OrderReturn::with(['order', 'user', 'order.lines'])
+    //         ->where('type', 'buyback')
+    //         ->findOrFail($returnId);
+
+    //     if (!$returnOrder->canMarkReceived()) {
+    //         throw new Exception('Only approved buybacks can be marked as received.');
+    //     }
+
+    //     return DB::transaction(function () use ($returnOrder) {
+    //         // 1. Mark return as received
+    //         $returnOrder->update([
+    //             'status' => 'received',
+    //             'received_at' => now(),
+    //         ]);
+
+    //         // 2. Update order lines
+    //         foreach ($returnOrder->items ?? [] as $item) {
+    //             $orderLine = OrderLine::find($item['order_line_id'] ?? null);
+    //             if ($orderLine && $orderLine->return_status === 'approved') {
+    //                 $orderLine->update([
+    //                     'delivery_status' => 'received',
+    //                 ]);
+    //             }
+    //         }
+
+    //         // 3. Admin notification
+    //         $this->createBuybackNotification($returnOrder, 'received');
+
+    //         // 4. Logging
+    //         Log::info('Buyback items marked as received', [
+    //             'return_id' => $returnOrder->id,
+    //             'order_id' => $returnOrder->order_id,
+    //         ]);
+
+    //         return [
+    //             'success' => true,
+    //             'message' => 'Buyback items marked as received.',
+    //             'return_id' => $returnOrder->id,
+    //             'status' => 'received',
+    //             'refund_amount' => (float) $returnOrder->total_refund_amount,
+    //         ];
+    //     });
+    // }
+
+    public function markBuybackReceived(
+        int $returnId,
+        float $refundAmount,
+        ?string $adminNotes = null,
+        ?int $adminId = null
+    ): array {
         $returnOrder = OrderReturn::with(['order', 'user', 'order.lines'])
             ->where('type', 'buyback')
             ->findOrFail($returnId);
@@ -373,11 +423,25 @@ class BuybackService
             throw new Exception('Only approved buybacks can be marked as received.');
         }
 
-        return DB::transaction(function () use ($returnOrder) {
-            // 1. Mark return as received
+        if ($refundAmount <= 0) {
+            throw new Exception('Refund amount must be greater than zero.');
+        }
+
+        // Optional guard: don't allow refund greater than the approved refund
+        $maxAllowed = (float) $returnOrder->total_refund_amount + (float) $returnOrder->refund_shipping;
+        if ($refundAmount > $maxAllowed) {
+            throw new Exception("Refund amount cannot exceed the approved amount of ₹{$maxAllowed}.");
+        }
+
+        return DB::transaction(function () use ($returnOrder, $refundAmount, $adminNotes, $adminId) {
+
+            // 1. Override refund amount & mark as received
             $returnOrder->update([
-                'status' => 'received',
-                'received_at' => now(),
+                'status'              => 'received',
+                'received_at'         => now(),
+                'total_refund_amount' => round($refundAmount, 2),
+                'admin_notes'         => $adminNotes ?? $returnOrder->admin_notes,
+                'admin_id'            => $adminId ?? $returnOrder->admin_id,
             ]);
 
             // 2. Update order lines
@@ -390,24 +454,114 @@ class BuybackService
                 }
             }
 
-            // 3. Admin notification
-            $this->createBuybackNotification($returnOrder, 'received');
+            // 3. Process refund immediately (via Razorpay)
+            $refundResponse = null;
+            try {
+                $refundResponse = $this->processRefundWithAmount($returnOrder, $refundAmount);
 
-            // 4. Logging
-            Log::info('Buyback items marked as received', [
-                'return_id' => $returnOrder->id,
-                'order_id' => $returnOrder->order_id,
+                Log::info('Refund processed on receive', [
+                    'return_id' => $returnOrder->id,
+                    'refund_id' => $refundResponse['refund_id'] ?? null,
+                    'amount'    => $refundAmount,
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Refund processing failed on receive', [
+                    'return_id' => $returnOrder->id,
+                    'error'     => $e->getMessage(),
+                ]);
+                // Re-throw so transaction rolls back — admin should retry
+                throw new Exception('Refund failed: ' . $e->getMessage(), 0, $e);
+            }
+
+            // 4. Mark as completed (since refund is done, no separate complete step)
+            $returnOrder->update([
+                'status'       => 'completed',
+                'completed_at' => now(),
+            ]);
+
+            // 5. Mark order lines fully returned
+            foreach ($returnOrder->items ?? [] as $item) {
+                $orderLine = OrderLine::find($item['order_line_id'] ?? null);
+                if ($orderLine && $orderLine->return_status === 'approved') {
+                    $orderLine->update([
+                        'return_status'      => 'returned',
+                        'delivery_status'    => 'returned',
+                        'return_completed_at' => now(),
+                    ]);
+                }
+            }
+
+            // 6. Update order-level statuses
+            $this->updateOrderReturnStatus($returnOrder->order);
+            $this->updateOrderMainStatus($returnOrder->order);
+
+            // 7. Admin notification
+            $this->createBuybackNotification($returnOrder, 'completed');
+
+            // 8. User notification
+            $this->sendUserNotification($returnOrder, 'completed');
+
+            Log::info('Buyback received + refund completed', [
+                'return_id'             => $returnOrder->id,
+                'refund_amount'         => $refundAmount,
+                'refund_transaction_id' => $returnOrder->refund_transaction_id,
+                'admin_id'              => $adminId,
             ]);
 
             return [
-                'success' => true,
-                'message' => 'Buyback items marked as received.',
-                'return_id' => $returnOrder->id,
-                'status' => 'received',
-                'refund_amount' => (float) $returnOrder->total_refund_amount,
+                'success'               => true,
+                'message'               => 'Buyback items received and refund processed successfully.',
+                'return_id'             => $returnOrder->id,
+                'status'                => 'completed',
+                'refund_amount'         => (float) $returnOrder->fresh()->total_refund_amount,
+                'refund_transaction_id' => $returnOrder->fresh()->refund_transaction_id,
+                'refund_status'         => $returnOrder->fresh()->refund_status,
+                'admin_notes'           => $returnOrder->fresh()->admin_notes,
             ];
         });
     }
+
+    protected function processRefundWithAmount(OrderReturn $returnOrder, float $amount): array
+    {
+        $order = $returnOrder->order;
+        if (!$order) {
+            throw new Exception('Order not found for this buyback.');
+        }
+
+        $gateway   = $order->payment_gateway ?? 'razorpay';
+        $paymentId = $order->gateway_transaction_id;
+
+        if ($gateway !== 'razorpay') {
+            throw new Exception('Refund is not supported for payment gateway: ' . $gateway);
+        }
+
+        if (empty($paymentId)) {
+            throw new Exception('Razorpay payment ID is missing for this order.');
+        }
+
+        Log::info('Starting Razorpay refund (admin-specified amount)', [
+            'return_id'       => $returnOrder->id,
+            'order_id'        => $order->id,
+            'payment_id'      => $paymentId,
+            'refund_amount'   => $amount,
+            'amount_in_paise' => (int) round($amount * 100),
+        ]);
+
+        $refundResponse = $this->razorpayService->refundPayment($paymentId, $amount);
+
+        if (!is_array($refundResponse) || empty($refundResponse['refund_id'])) {
+            throw new Exception('Razorpay refund failed. No refund ID was returned.');
+        }
+
+        $returnOrder->update([
+            'refund_transaction_id' => $refundResponse['refund_id'],
+            'refund_status'         => $refundResponse['status'] ?? 'processing',
+            'refund_processed_at'   => now(),
+        ]);
+
+        return $refundResponse;
+    }
+
 
     /**
      * Complete buyback request
@@ -488,7 +642,7 @@ class BuybackService
             'received' => $returns->where('status', 'received')->count(),
             'completed' => $returns->where('status', 'completed')->count(),
             'total_refund_amount' => (float) $returns->whereIn('status', ['approved', 'received', 'completed'])->sum('total_refund_amount'),
-            'total_deduction_amount' => (float) $returns->sum(function($return) {
+            'total_deduction_amount' => (float) $returns->sum(function ($return) {
                 return $return->extra_data['deduction_amount'] ?? 0;
             }),
             'total_cv_reversed' => (float) $returns->whereIn('status', ['approved', 'received', 'completed'])->sum('total_cv_reversed'),

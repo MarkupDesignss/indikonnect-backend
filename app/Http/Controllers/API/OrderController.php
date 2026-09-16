@@ -2103,8 +2103,8 @@ class OrderController extends Controller
                 'lines',
                 'lines.product',
                 'lines.product.images',
-                'lines.product.category',   // ← eager load category
-                'lines.product.brand',      // ← eager load brand
+                'lines.product.category',
+                'lines.product.brand',
                 'lines.shippingDetails',
             ])
                 ->where('status', '!=', 'pending')

@@ -596,7 +596,6 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
         Route::post('/requests/{id}/approve', [AdminBuybackController::class, 'approve']);
         Route::post('/requests/{id}/reject', [AdminBuybackController::class, 'reject']);
         Route::post('/requests/{id}/mark-received', [AdminBuybackController::class, 'markReceived']);
-        Route::post('/requests/{id}/complete', [AdminBuybackController::class, 'complete']);
         Route::get('/summary', [AdminBuybackController::class, 'summary']);
     });
 });

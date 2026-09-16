@@ -209,23 +209,47 @@ class AdminBuybackController extends Controller
     }
 
     /**
-     * Mark buyback items as received
+     * Mark buyback items as received + process refund (combined)
      * POST /admin/buyback/requests/{id}/mark-received
+     *
+     * Body:
+     * - refund_amount: required|numeric|min:0.01  (Admin can override the refund amount)
+     * - admin_notes: nullable|string|max:2000
      */
-    public function markReceived(int $id)
+    public function markReceived(Request $request, int $id)
     {
+        $validator = Validator::make($request->all(), [
+            'refund_amount' => 'required|numeric|min:0.01',
+            'admin_notes'   => 'nullable|string|max:2000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
         $admin = Auth::user();
 
         try {
-            $result = $this->buybackService->markBuybackReceived($id);
+            $result = $this->buybackService->markBuybackReceived(
+                $id,
+                (float) $request->input('refund_amount'),
+                $request->input('admin_notes'),
+                $admin->id
+            );
 
             return response()->json([
                 'success' => true,
                 'message' => $result['message'],
                 'data' => [
-                    'return_id' => $result['return_id'],
-                    'status' => $result['status'],
-                    'refund_amount' => $result['refund_amount'],
+                    'return_id'               => $result['return_id'],
+                    'status'                  => $result['status'],
+                    'refund_amount'           => $result['refund_amount'],
+                    'refund_transaction_id'   => $result['refund_transaction_id'] ?? null,
+                    'refund_status'           => $result['refund_status'] ?? null,
+                    'admin_notes'             => $result['admin_notes'] ?? null,
                 ],
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
@@ -236,48 +260,8 @@ class AdminBuybackController extends Controller
         } catch (\Exception $e) {
             Log::error('Failed to mark buyback as received', [
                 'return_id' => $id,
-                'admin_id' => $admin->id,
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ], 422);
-        }
-    }
-
-    /**
-     * Complete buyback request (process refund)
-     * POST /admin/buyback/requests/{id}/complete
-     */
-    public function complete(int $id)
-    {
-        $admin = Auth::user();
-
-        try {
-            $result = $this->buybackService->completeBuyback($id);
-
-            return response()->json([
-                'success' => true,
-                'message' => $result['message'],
-                'data' => [
-                    'return_id' => $result['return_id'],
-                    'status' => $result['status'],
-                    'refund_amount' => $result['refund_amount'],
-                    'refund_transaction_id' => $result['refund_transaction_id'],
-                ],
-            ]);
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Buyback request not found.',
-            ], 404);
-        } catch (\Exception $e) {
-            Log::error('Failed to complete buyback', [
-                'return_id' => $id,
-                'admin_id' => $admin->id,
-                'error' => $e->getMessage(),
+                'admin_id'  => $admin->id,
+                'error'     => $e->getMessage(),
             ]);
 
             return response()->json([
