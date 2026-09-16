@@ -449,7 +449,8 @@ class BuybackService
                 $orderLine = OrderLine::find($item['order_line_id'] ?? null);
                 if ($orderLine && $orderLine->return_status === 'approved') {
                     $orderLine->update([
-                        'delivery_status' => 'received',
+                        'delivery_status' => 'refunded',
+                        'return_completed_at' => now()
                     ]);
                 }
             }
@@ -485,7 +486,7 @@ class BuybackService
                 if ($orderLine && $orderLine->return_status === 'approved') {
                     $orderLine->update([
                         'return_status'      => 'returned',
-                        'delivery_status'    => 'returned',
+                        'delivery_status'    => 'refunded',
                         'return_completed_at' => now(),
                     ]);
                 }

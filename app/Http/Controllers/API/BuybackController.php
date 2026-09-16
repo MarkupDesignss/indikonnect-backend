@@ -726,10 +726,10 @@ class BuybackController extends Controller
             throw new \Exception("Item '{$productName}' does not belong to you.");
         }
 
-        // Validate order status
-        if (!in_array($orderLine->order->status, ['confirmed', 'processing', 'shipped', 'delivered', 'partial_delivered'])) {
-            throw new \Exception("Order is not in a valid status for buyback.");
-        }
+        // // Validate order status
+        // if (!in_array($orderLine->order->status, ['confirmed', 'processing', 'shipped', 'delivered', 'partial_delivered'])) {
+        //     throw new \Exception("Order is not in a valid status for buyback.");
+        // }
 
         // Check delivery status
         if ($orderLine->delivery_status !== 'delivered') {
