@@ -1516,6 +1516,7 @@ class ReturnService
             'data' => $returns->map(function ($return) {
                 return [
                     'id' => $return->id,
+                    'type' => $return->type,
                     'order_reference' => $return->order->order_reference ?? null,
                     'user' => $return->user ? [
                         'id' => $return->user->id,

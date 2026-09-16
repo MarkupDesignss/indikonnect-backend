@@ -588,7 +588,6 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
-
     // Buyback Management
     Route::prefix('buyback')->group(function () {
         Route::get('/requests', [AdminBuybackController::class, 'index']);

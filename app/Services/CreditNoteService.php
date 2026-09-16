@@ -132,7 +132,7 @@ class CreditNoteService
 
             // Buyer details
             $deliveryAddress = $order->deliveryAddress;
-            $buyerName = $order->buyer_name ?? $deliveryAddress?->name ?? $order->user?->name ?? 'Unknown';
+            $buyerName = $order->buyer_name ?? $deliveryAddress?->name ?? $order->user?->full_name ?? 'Unknown';
             $buyerEmail = $order->buyer_email ?? $order->user?->email ?? null;
             $buyerAddress = $deliveryAddress?->address ?? $order->shipping_address ?? null;
             $buyerGstin = $order->buyer_gstin ?? $deliveryAddress?->gstin ?? null;
