@@ -1967,7 +1967,7 @@ class AuthController extends Controller
                 ],
                 'full_name' => 'required|string|max:255',
                 'gst_in' => 'nullable|string|max:15',
-                'company_name' => 'nullable|string',
+                'company_name' => 'nullable|string|required_with:gst_in',
                 'account_type' => 'nullable',
                 'country' => 'nullable|string|max:255',
                 'password' => 'nullable|string|min:8',

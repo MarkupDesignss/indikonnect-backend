@@ -1519,8 +1519,9 @@ class ReturnService
                     'order_reference' => $return->order->order_reference ?? null,
                     'user' => $return->user ? [
                         'id' => $return->user->id,
-                        'name' => $return->user->name,
+                        'name' => $return->user->full_name,
                         'email' => $return->user->email,
+                        'account_type' => $return->user->account_type,
                     ] : null,
                     'status' => $return->status,
                     'items_count' => count($return->items),
@@ -1613,8 +1614,9 @@ class ReturnService
             ] : null,
             'user' => $return->user ? [
                 'id' => $return->user->id,
-                'name' => $return->user->name,
+                'name' => $return->user->full_name,
                 'email' => $return->user->email,
+                'account_type' => $return->user->account_type,
                 'phone' => $return->user->phone ?? null,
             ] : null,
             'status' => $return->status,
