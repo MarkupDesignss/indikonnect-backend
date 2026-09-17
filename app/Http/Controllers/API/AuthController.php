@@ -1966,8 +1966,7 @@ class AuthController extends Controller
                     })
                 ],
                 'full_name' => 'required|string|max:255',
-                'gst_in' => 'nullable|string|max:15',
-                'company_name' => 'nullable|string|required_with:gst_in',
+
                 'account_type' => 'nullable',
                 'country' => 'nullable|string|max:255',
                 'password' => 'nullable|string|min:8',
@@ -2043,8 +2042,7 @@ class AuthController extends Controller
                 $businessProfile = BusinessProfile::create([
                     'user_id' => $user->id,
                     'kyc_status' => 'pending',
-                    'gst_in' => $request->gst_in ?? 'URP',
-                    'company_name' => $request->company_name,
+
                 ]);
             }
 
@@ -2066,16 +2064,104 @@ class AuthController extends Controller
         }
     }
 
+    public function checkDistributorAndGenerateSponsor(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'distributor_id'    => 'required|exists:users,distributor_id',
+                'custom_sponsor_id' => 'nullable|max:20|unique:users,sponsor_id',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Find distributor by distributor_id
+            $distributor = User::where('distributor_id', $request->distributor_id)->first();
+
+            if (!$distributor) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Distributor not found.'
+                ], 422);
+            }
+
+            // If user provided a custom sponsor id
+            if ($request->filled('custom_sponsor_id')) {
+                $exists = User::where('sponsor_id', $request->custom_sponsor_id)->exists();
+
+                if ($exists) {
+                    return response()->json([
+                        'status'               => false,
+                        'message'              => 'This Sponsor ID is already taken. Please choose another one.',
+                        'suggested_sponsor_id' => $this->generateUniqueSponsorId(),
+                    ], 422);
+                }
+
+                return response()->json([
+                    'status'      => true,
+                    'message'     => 'Distributor verified and custom Sponsor ID is available.',
+                    'distributor' => [
+                        'id'             => $distributor->id,
+                        'distributor_id' => $distributor->distributor_id,
+                        'full_name'      => $distributor->full_name,
+                    ],
+                    'sponsor_id'  => $request->custom_sponsor_id,
+                    'is_custom'   => true,
+                ]);
+            }
+
+            // Auto-generate unique sponsor_id
+            $sponsorId = $this->generateUniqueSponsorId();
+
+            return response()->json([
+                'status'      => true,
+                'message'     => 'Distributor verified and Sponsor ID generated.',
+                'distributor' => [
+                    'id'             => $distributor->id,
+                    'distributor_id' => $distributor->distributor_id,
+                    'full_name'      => $distributor->full_name,
+                ],
+                'sponsor_id'  => $sponsorId,
+                'is_custom'   => false,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Check distributor error: ' . $e->getMessage());
+            return response()->json([
+                'status'  => false,
+                'message' => 'Something went wrong. Please try again.'
+            ], 500);
+        }
+    }
+
+    /**
+     * Generate a unique sponsor_id.
+     * Format: SP + 8 uppercase alphanumeric chars
+     */
+    private function generateUniqueSponsorId()
+    {
+        do {
+            $sponsorId = 'SP' . strtoupper(Str::random(8));
+        } while (User::where('sponsor_id', $sponsorId)->exists());
+
+        return $sponsorId;
+    }
+
     /**
      * DISTRIBUTOR: Step 2 - Sponsor & Placement
      */
+
     public function distributorStep2Sponsor(Request $request)
     {
         try {
             $validator = Validator::make($request->all(), [
-                'phone' => 'required|min:10|max:15',
-                'sponsor_id' => 'nullable|max:20',
-                'placement_leg' => 'nullable|in:left,right',
+                'phone'                 => 'required|min:10|max:15',
+                'sponsor_id'            => 'nullable|max:20|unique:users,sponsor_id',
+                'placement_leg'         => 'nullable|in:left,right',
+                'is_custom_sponsor_id'  => 'nullable|boolean',
             ]);
 
             if ($validator->fails()) {
@@ -2089,41 +2175,118 @@ class AuthController extends Controller
 
             if (!$user) {
                 return response()->json([
-                    'status' => false,
+                    'status'  => false,
                     'message' => 'User not found.'
                 ], 422);
             }
 
-            // Check if step 1 is completed
+            // Step 1 check
             if (!$user->phone_verified || !$user->email_verified_at) {
                 return response()->json([
-                    'status' => false,
+                    'status'  => false,
                     'message' => 'Please complete step 1 (Personal Info & Verification) first.'
                 ], 422);
             }
 
-            // Update sponsor information
+            // Determine sponsor_id (custom or auto)
+            $sponsorId = $request->sponsor_id;
+
+            if (empty($sponsorId)) {
+                $sponsorId = $this->generateUniqueSponsorId();
+            } else {
+                // Uniqueness excluding current user
+                $taken = User::where('sponsor_id', $sponsorId)
+                    ->where('id', '!=', $user->id)
+                    ->exists();
+
+                if ($taken) {
+                    return response()->json([
+                        'status'               => false,
+                        'message'              => 'This Sponsor ID is already taken. Please choose another one.',
+                        'suggested_sponsor_id' => $this->generateUniqueSponsorId(),
+                    ], 422);
+                }
+            }
+
+            // Update user's sponsor info (only existing columns)
             $user->update([
-                'sponsor_id' => $request->sponsor_id,
-                'placement_leg' => $request->placement_leg,
+                'sponsor_id'        => $sponsorId,
+                'placement_leg'     => $request->placement_leg,
                 'registration_step' => max($user->registration_step ?? 0, 2),
             ]);
 
             return response()->json([
-                'status' => true,
-                'message' => 'Sponsor information saved successfully',
-                'step' => 2,
-                'next_step' => 3,
-                'user' => $user
+                'status'               => true,
+                'message'              => 'Sponsor information saved successfully',
+                'step'                 => 2,
+                'next_step'            => 3,
+                'sponsor_id'           => $sponsorId,
+                'is_custom_sponsor_id' => $request->boolean('is_custom_sponsor_id'),
+                'user'                 => $user->fresh(),
             ]);
         } catch (\Exception $e) {
             Log::error('Distributor step 2 error: ' . $e->getMessage());
             return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
+                'status'  => false,
+                'message' => 'Something went wrong. Please try again.'
             ], 500);
         }
     }
+    // public function distributorStep2Sponsor(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone' => 'required|min:10|max:15',
+    //             'sponsor_id' => 'nullable|max:20',
+    //             'placement_leg' => 'nullable|in:left,right',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $user = User::where('phone', $request->phone)->first();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'User not found.'
+    //             ], 422);
+    //         }
+
+    //         // Check if step 1 is completed
+    //         if (!$user->phone_verified || !$user->email_verified_at) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please complete step 1 (Personal Info & Verification) first.'
+    //             ], 422);
+    //         }
+
+    //         // Update sponsor information
+    //         $user->update([
+    //             'sponsor_id' => $request->sponsor_id,
+    //             'placement_leg' => $request->placement_leg,
+    //             'registration_step' => max($user->registration_step ?? 0, 2),
+    //         ]);
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Sponsor information saved successfully',
+    //             'step' => 2,
+    //             'next_step' => 3,
+    //             'user' => $user
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Distributor step 2 error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
 
     /**
      * DISTRIBUTOR: Step 3 - Aadhaar Verification
@@ -2307,6 +2470,8 @@ class AuthController extends Controller
                 'title' => 'required|string|max:255',
                 'type_of_entity' => 'required|string|max:255',
                 'branch_name' => 'required|string|max:255',
+                'gst_in' => 'nullable|string|max:15',
+                'company_name' => 'nullable|string|required_with:gst_in',
                 'encrypted_bank_account' => 'required|string|max:50',
                 'confirm_account_number' => 'required|string|max:50',
                 'bank_ifsc' => 'required|string|max:20',
@@ -2361,6 +2526,8 @@ class AuthController extends Controller
                 'title' => $request->title,
                 'type_of_entity' => $request->type_of_entity,
                 'bank_holder_name' => $request->bank_holder_name,
+                'gst_in' => $request->gst_in ?? 'URP',
+                'company_name' => $request->company_name,
                 'bank_name' => $request->bank_name,
                 'branch_name' => $request->branch_name,
                 'account_type' => $request->account_type,
