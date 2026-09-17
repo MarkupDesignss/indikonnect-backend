@@ -454,25 +454,130 @@ class OrderController extends Controller
     }
 
 
-    public function withdrawCancel(Request $request, string $orderReference): JsonResponse
+    // public function withdrawCancel(Request $request, string $orderReference): JsonResponse
+    // {
+    //     $validator = Validator::make(
+    //         ['order_reference' => $orderReference],
+    //         [
+    //             'order_reference' => 'required|string|exists:orders,order_reference',
+    //         ]
+    //     );
+
+    //     if ($validator->fails()) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Invalid order reference.',
+    //             'errors'  => $validator->errors(),
+    //         ], 422);
+    //     }
+
+    //     try {
+    //         $result = DB::transaction(function () use ($orderReference, $request) {
+
+    //             // Find and lock order
+    //             $order = Order::where('order_reference', $orderReference)
+    //                 ->lockForUpdate()
+    //                 ->first();
+
+    //             if (!$order) {
+    //                 throw new \Exception('Order not found.');
+    //             }
+
+    //             // Only order owner can withdraw cancellation
+    //             if ($request->user() && $order->user_id !== $request->user()->id) {
+    //                 throw new \Exception(
+    //                     'You are not authorized to withdraw the cancellation.'
+    //                 );
+    //             }
+
+    //             // Get only cancel_pending order lines
+    //             $orderLines = $order->lines()
+    //                 ->where('delivery_status', 'cancel_pending')
+    //                 ->lockForUpdate()
+    //                 ->get();
+
+    //             if ($orderLines->isEmpty()) {
+    //                 throw new \Exception(
+    //                     'No order lines are pending cancellation for this order.'
+    //                 );
+    //             }
+
+    //             // Withdraw cancellation
+    //             $orderLines->each(function ($line) {
+    //                 $line->update([
+    //                     'delivery_status'           => 'confirmed',
+    //                     'cancellation_requested_at' => null,
+    //                     'cancelled_at'              => null,
+    //                     'cancellation_reason'       => null,
+    //                     'updated_at'                => now(),
+    //                 ]);
+    //             });
+
+    //             return [
+    //                 'order' => $order,
+    //                 'lines' => $orderLines->fresh(),
+    //             ];
+    //         });
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Order cancellation withdrawn successfully.',
+    //             'data' => [
+    //                 'order_id'        => $result['order']->id,
+    //                 'order_reference' => $result['order']->order_reference,
+
+    //                 'order_lines' => $result['lines']->map(function ($line) {
+    //                     return [
+    //                         'id'                          => $line->id,
+    //                         'order_id'                    => $line->order_id,
+    //                         'product_id'                  => $line->product_id,
+    //                         'variant_id'                  => $line->variant_id,
+    //                         'quantity'                    => $line->quantity,
+    //                         'shipping_charge'             => $line->shipping_charge,
+    //                         'delivery_status'             => $line->delivery_status,
+    //                         'cancelled_at'                => $line->cancelled_at,
+    //                         'cancellation_requested_at'   => $line->cancellation_requested_at,
+    //                         'cancellation_reason'         => $line->cancellation_reason,
+    //                     ];
+    //                 }),
+    //             ],
+    //         ], 200);
+    //     } catch (\Exception $e) {
+
+    //         Log::error('Withdraw cancellation failed', [
+    //             'order_reference' => $orderReference,
+    //             'error'           => $e->getMessage(),
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
+    public function withdrawCancel(Request $request, string $orderReference, int $orderLineId): JsonResponse
     {
         $validator = Validator::make(
-            ['order_reference' => $orderReference],
+            [
+                'order_reference' => $orderReference,
+                'order_line_id'   => $orderLineId,
+            ],
             [
                 'order_reference' => 'required|string|exists:orders,order_reference',
+                'order_line_id'   => 'required|integer|exists:order_lines,id',
             ]
         );
 
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid order reference.',
+                'message' => 'Invalid order reference or order line.',
                 'errors'  => $validator->errors(),
             ], 422);
         }
 
         try {
-            $result = DB::transaction(function () use ($orderReference, $request) {
+            $result = DB::transaction(function () use ($orderReference, $orderLineId, $request) {
 
                 // Find and lock order
                 $order = Order::where('order_reference', $orderReference)
@@ -490,62 +595,59 @@ class OrderController extends Controller
                     );
                 }
 
-                // Get only cancel_pending order lines
-                $orderLines = $order->lines()
+                // Get only the specific order line that is cancel_pending
+                $orderLine = $order->lines()
+                    ->where('id', $orderLineId)
                     ->where('delivery_status', 'cancel_pending')
                     ->lockForUpdate()
-                    ->get();
+                    ->first();
 
-                if ($orderLines->isEmpty()) {
+                if (!$orderLine) {
                     throw new \Exception(
-                        'No order lines are pending cancellation for this order.'
+                        'This order line is not pending cancellation.'
                     );
                 }
 
-                // Withdraw cancellation
-                $orderLines->each(function ($line) {
-                    $line->update([
-                        'delivery_status'           => 'confirmed',
-                        'cancellation_requested_at' => null,
-                        'cancelled_at'              => null,
-                        'cancellation_reason'       => null,
-                        'updated_at'                => now(),
-                    ]);
-                });
+                // Withdraw cancellation for this line only
+                $orderLine->update([
+                    'delivery_status'           => 'confirmed',
+                    'cancellation_requested_at' => null,
+                    'cancelled_at'              => null,
+                    'cancellation_reason'       => null,
+                    'updated_at'                => now(),
+                ]);
 
                 return [
                     'order' => $order,
-                    'lines' => $orderLines->fresh(),
+                    'line'  => $orderLine->fresh(),
                 ];
             });
 
             return response()->json([
                 'success' => true,
-                'message' => 'Order cancellation withdrawn successfully.',
+                'message' => 'Cancellation withdrawn successfully for this item.',
                 'data' => [
                     'order_id'        => $result['order']->id,
                     'order_reference' => $result['order']->order_reference,
-
-                    'order_lines' => $result['lines']->map(function ($line) {
-                        return [
-                            'id'                          => $line->id,
-                            'order_id'                    => $line->order_id,
-                            'product_id'                  => $line->product_id,
-                            'variant_id'                  => $line->variant_id,
-                            'quantity'                    => $line->quantity,
-                            'shipping_charge'             => $line->shipping_charge,
-                            'delivery_status'             => $line->delivery_status,
-                            'cancelled_at'                => $line->cancelled_at,
-                            'cancellation_requested_at'   => $line->cancellation_requested_at,
-                            'cancellation_reason'         => $line->cancellation_reason,
-                        ];
-                    }),
+                    'order_line'      => [
+                        'id'                        => $result['line']->id,
+                        'order_id'                  => $result['line']->order_id,
+                        'product_id'                => $result['line']->product_id,
+                        'variant_id'                => $result['line']->variant_id,
+                        'quantity'                  => $result['line']->quantity,
+                        'shipping_charge'           => $result['line']->shipping_charge,
+                        'delivery_status'           => $result['line']->delivery_status,
+                        'cancelled_at'              => $result['line']->cancelled_at,
+                        'cancellation_requested_at' => $result['line']->cancellation_requested_at,
+                        'cancellation_reason'       => $result['line']->cancellation_reason,
+                    ],
                 ],
             ], 200);
         } catch (\Exception $e) {
 
             Log::error('Withdraw cancellation failed', [
                 'order_reference' => $orderReference,
+                'order_line_id'   => $orderLineId,
                 'error'           => $e->getMessage(),
             ]);
 
@@ -555,6 +657,7 @@ class OrderController extends Controller
             ], 400);
         }
     }
+
 
     /**
      * Format order details — pulls shipping charge from order_lines
@@ -1599,6 +1702,7 @@ class OrderController extends Controller
                         'id' => $return->id,
                         'order_id' => $return->order_id,
                         'user_id' => $return->user_id,
+                        'type' => $return->type,
                         'items' => $returnItems,
                         'status' => $return->status,
                         'refund_subtotal' => (float) $return->refund_subtotal,

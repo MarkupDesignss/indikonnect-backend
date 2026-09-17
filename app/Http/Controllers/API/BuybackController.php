@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\BuybackService;
 use App\Models\OrderLine;
 use App\Models\OrderReturn;
 use Illuminate\Http\Request;
@@ -16,6 +17,13 @@ use App\Traits\AuditLogTrait;
 class BuybackController extends Controller
 {
     use AuditLogTrait;
+
+    protected BuybackService $buybackService;
+
+    public function __construct(BuybackService $buybackService)
+    {
+        $this->buybackService = $buybackService;
+    }
     /**
      * List eligible stock for buy-back.
      * 30 days from date of PURCHASE (not delivery).
@@ -736,6 +744,16 @@ class BuybackController extends Controller
             throw new \Exception("Item '{$productName}' has not been delivered.");
         }
 
+        if (empty($orderLine->dispatched_at)) {
+            throw new \Exception("Item '{$productName}' has no dispatch date recorded, so buy-back eligibility cannot be determined.");
+        }
+
+        $daysSinceDispatch = $orderLine->dispatched_at->diffInDays(now());
+
+        if ($daysSinceDispatch > $buybackWindow) {
+            throw new \Exception("Item '{$productName}' is outside the buy-back window ({$buybackWindow} days from dispatch). Dispatched {$daysSinceDispatch} days ago.");
+        }
+
         // Check buy-back window
         if ($orderLine->order->created_at->diffInDays(now()) > $buybackWindow) {
             throw new \Exception("Item '{$productName}' is outside the buy-back window ({$buybackWindow} days from purchase).");
@@ -837,5 +855,43 @@ class BuybackController extends Controller
                 'type' => 'buyback',
             ]),
         ]);
+    }
+
+    public function withdraw(Request $request, int $id)
+    {
+        $user = Auth::user();
+
+        try {
+            $result = $this->buybackService->withdrawBuyback($id, $user->id);
+
+            return response()->json([
+                'success' => true,
+                'message' => $result['message'],
+                'data' => [
+                    'return_id'      => $result['return_id'],
+                    'status'         => $result['status'],
+                    'order_id'       => $result['order_id'],
+                    'order_reference' => $result['order_reference'],
+                    'items'          => $result['items'],
+                    'withdrawn_at'   => $result['withdrawn_at'],
+                ],
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Buyback request not found.',
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Failed to withdraw buyback', [
+                'return_id' => $id,
+                'user_id'   => $user->id,
+                'error'     => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
     }
 }

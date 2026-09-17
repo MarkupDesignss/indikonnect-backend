@@ -1126,4 +1126,89 @@ class BuybackService
             'status' => $status,
         ]);
     }
+
+    public function withdrawBuyback(int $returnId, int $userId): array
+    {
+        $returnOrder = OrderReturn::with(['order', 'items'])
+            ->where('type', 'buyback')
+            ->findOrFail($returnId);
+
+        // Ownership check
+        if ((int) $returnOrder->user_id !== (int) $userId) {
+            throw new Exception('You are not authorized to withdraw this buyback request.');
+        }
+
+        // Only pending buybacks can be withdrawn
+        if ($returnOrder->status !== 'pending') {
+            throw new Exception("Only pending buyback requests can be withdrawn. Current status: {$returnOrder->status}.");
+        }
+
+        return DB::transaction(function () use ($returnOrder, $userId) {
+
+            $revertedItems = [];
+
+            // 1. Revert each order line back to delivered
+            foreach ($returnOrder->items ?? [] as $item) {
+                $orderLine = OrderLine::find($item['order_line_id'] ?? null);
+                if (!$orderLine) {
+                    continue;
+                }
+
+                // Only revert lines that this buyback put into a return state
+                if (!in_array($orderLine->delivery_status, ['return_initiated', 'return_pending'])) {
+                    continue;
+                }
+
+                $quantity = (int) ($item['quantity'] ?? 0);
+                $currentReturned = (int) ($orderLine->returned_quantity ?? 0);
+
+                $orderLine->update([
+                    'returned_quantity'   => max(0, $currentReturned - $quantity),
+                    'return_status'       => 'none',
+                    'delivery_status'     => 'delivered',
+                    'return_requested_at' => null,
+                    'return_approved_at'  => null,
+                ]);
+
+                $revertedItems[] = [
+                    'order_line_id'   => $orderLine->id,
+                    'product_id'      => $orderLine->product_id,
+                    'product_name'    => $item['product_name'] ?? 'Unknown',
+                    'quantity'        => $quantity,
+                    'delivery_status' => 'delivered',
+                    'return_status'   => 'none',
+                ];
+            }
+
+            // 2. Mark the return record as withdrawn
+            $returnOrder->update([
+                'status'        => 'withdrawn',
+                'admin_notes'   => trim(($returnOrder->admin_notes ?? '') . "\n[Withdrawn by distributor at " . now()->toDateTimeString() . "]"),
+            ]);
+
+            // 3. Update order-level return status
+            if ($returnOrder->order) {
+                $this->updateOrderReturnStatus($returnOrder->order);
+                $this->updateOrderMainStatus($returnOrder->order);
+            }
+
+            // 4. Log
+            Log::info('Buyback withdrawn by distributor', [
+                'return_id' => $returnOrder->id,
+                'user_id'   => $userId,
+                'items'     => $revertedItems,
+            ]);
+
+            return [
+                'success'         => true,
+                'message'         => 'Buyback request withdrawn successfully. Items are back to delivered status.',
+                'return_id'       => $returnOrder->id,
+                'status'          => 'withdrawn',
+                'order_id'        => $returnOrder->order_id,
+                'order_reference' => $returnOrder->order->order_reference ?? null,
+                'items'           => $revertedItems,
+                'withdrawn_at'    => now()->toDateTimeString(),
+            ];
+        });
+    }
 }
