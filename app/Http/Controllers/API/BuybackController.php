@@ -471,8 +471,8 @@ class BuybackController extends Controller
                 $orderLine->update([
                     'returned_quantity' => $returnedQty + $itemData['quantity'],
                     'return_status' => 'pending',
-                    'return_requested_at' => now(),
-                    'delivery_status' => 'return_pending',
+                    'buyback_requested_at' => now(),
+                    'delivery_status' => 'buyback_pending',
                 ]);
             }
 

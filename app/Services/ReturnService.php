@@ -1668,6 +1668,32 @@ class ReturnService
 
         return $map[$type][$stage];
     }
+
+    protected function resolveTimestampColumn(string $type, string $stage): string
+    {
+        $type = strtolower(trim($type));
+
+        $map = [
+            'return' => [
+                'initiate' => 'return_requested_at',
+                'approve'  => 'return_approved_at',
+                'reject'   => 'return_rejected_at',
+                'receive'  => 'return_completed_at',
+            ],
+            'buyback' => [
+                'initiate' => 'buyback_requested_at',
+                'approve'  => 'buyback_approved_at',
+                'reject'   => 'buyback_rejected_at',
+                'receive'  => 'buyback_refunded_at',
+            ],
+        ];
+
+        if (!isset($map[$type][$stage])) {
+            throw new Exception("Unknown return type/stage: {$type}/{$stage}");
+        }
+
+        return $map[$type][$stage];
+    }
     /**
      * Admin: Approve return request
      */
@@ -1824,11 +1850,13 @@ class ReturnService
             foreach ($returnOrder->items as $item) {
                 $orderLine = OrderLine::find($item['order_line_id']);
 
+
                 if ($orderLine && $orderLine->return_status === 'pending') {
+                    $timestampColumn = $this->resolveTimestampColumn($returnOrder->type, 'approve');
                     $orderLine->update([
                         'return_status'      => 'approved',
                         'delivery_status'    => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
-                        'return_approved_at' => now(),
+                        $timestampColumn      => now(),
                     ]);
                 }
             }
@@ -2039,12 +2067,14 @@ class ReturnService
                     $returnQuantity          = (int) ($item['quantity'] ?? 0);
                     $newReturnedQuantity     = max(0, $currentReturnedQuantity - $returnQuantity);
 
+                    $rejectTimestamp   = $this->resolveTimestampColumn($returnOrder->type, 'reject');
+                    $requestTimestamp  = $this->resolveTimestampColumn($returnOrder->type, 'initiate');
+
                     $orderLine->update([
                         'return_status'           => 'rejected',
                         'delivery_status'         => $this->resolveDeliveryStatus($returnOrder->type, 'reject'),
-                        'return_rejected_at'      => now(),
+                        $rejectTimestamp          => now(),
                         'return_rejection_reason' => $rejectionReason,
-                        'return_requested_at'     => null,
                         'returned_quantity'       => $newReturnedQuantity,
                     ]);
                 }
@@ -2344,10 +2374,12 @@ class ReturnService
                         );
                     }
 
+                    $receiveTimestamp = $this->resolveTimestampColumn($returnOrder->type, 'receive');
+
                     $orderLine->update([
-                        'return_status'       => 'returned',
-                        'delivery_status'     => $this->resolveDeliveryStatus($returnOrder->type, 'receive'),
-                        'return_completed_at' => now(),
+                        'return_status'    => 'returned',
+                        'delivery_status'  => $this->resolveDeliveryStatus($returnOrder->type, 'receive'),
+                        $receiveTimestamp  => now(),
                     ]);
 
                     if ($orderLine->product) {
