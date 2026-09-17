@@ -2304,6 +2304,7 @@ class OrderController extends Controller
                             'id'                  => $return->id,
                             'order_id'            => $return->order_id,
                             'user_id'             => $return->user_id,
+                            'type'             => $return->type,
                             'items'               => $returnItems,
                             'status'              => $return->status,
                             'refund_subtotal'     => (float) $return->refund_subtotal,
