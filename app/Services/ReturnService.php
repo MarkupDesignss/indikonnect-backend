@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Schema;
 use Exception;
 use Carbon\Carbon;
+use Illuminate\Support\Str;
 use App\Services\Commission\CommissionServiceInterface;
 
 class ReturnService
@@ -2400,6 +2401,7 @@ class ReturnService
 
             // 8. Completed notification
             $this->createReturnNotification($returnOrder, 'completed');
+            $this->sendUserNotification($returnOrder, 'rejected');
 
             // 9. Response
             return [
@@ -3419,15 +3421,69 @@ class ReturnService
     /**
      * Send notification to user
      */
+    // protected function sendUserNotification(OrderReturn $returnOrder, string $status): void
+    // {
+    //     // TODO: Implement email/SMS notification
+    //     // This could use Laravel's notification system
+    //     Log::info('User notification sent', [
+    //         'return_id' => $returnOrder->id,
+    //         'user_id' => $returnOrder->user_id,
+    //         'status' => $status,
+    //     ]);
+    // }
+
     protected function sendUserNotification(OrderReturn $returnOrder, string $status): void
     {
-        // TODO: Implement email/SMS notification
-        // This could use Laravel's notification system
-        Log::info('User notification sent', [
-            'return_id' => $returnOrder->id,
-            'user_id' => $returnOrder->user_id,
-            'status' => $status,
-        ]);
+        try {
+            $returnOrder->loadMissing(['order.user', 'user']);
+            $user = $returnOrder->user ?? $returnOrder->order->user ?? null;
+
+            if (!$user) {
+                Log::warning('sendUserNotification: no user found', [
+                    'return_id' => $returnOrder->id,
+                    'status'    => $status,
+                ]);
+                return;
+            }
+
+            [$title, $message] = match ($status) {
+                'received'  => ['Return received', 'We have received your returned item.'],
+                'completed' => ['Return completed', 'Your refund has been processed successfully.'],
+                'approved'  => ['Return approved', 'Your return request has been approved.'],
+                'rejected'  => ['Return rejected', 'Unfortunately, your return request was rejected.'],
+                default     => ['Return update', 'There is an update on your return request.'],
+            };
+
+            DB::table('notifications')->insert([
+                'id'              => (string) Str::uuid(),
+                'type'            => 'App\\Notifications\\ReturnStatusNotification',
+                'notifiable_type' => get_class($user),
+                'notifiable_id'   => $user->id,
+                'data'            => json_encode([
+                    'return_id' => $returnOrder->id,
+                    'order_id'  => $returnOrder->order_id,
+                    'status'    => $status,
+                    'title'     => $title,
+                    'message'   => $message,
+                    'url'       => url('/returns/' . $returnOrder->id),
+                ]),
+                'read_at'    => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            Log::info('User notification stored', [
+                'return_id' => $returnOrder->id,
+                'user_id'   => $user->id,
+                'status'    => $status,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Failed to store user notification', [
+                'return_id' => $returnOrder->id,
+                'status'    => $status,
+                'error'     => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

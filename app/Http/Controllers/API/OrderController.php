@@ -2935,6 +2935,7 @@ class OrderController extends Controller
             // }
 
             DB::commit();
+            $this->sendOrderDispatchedNotification($order, $processedItems, $request);
 
             $message = count($processedItems) === $order->lines->count()
                 ? 'Entire order dispatched successfully'
@@ -3213,7 +3214,7 @@ class OrderController extends Controller
             $order->updateOrderStatus();
 
             DB::commit();
-
+            $this->sendOrderShippedNotification($order, $processedItems, $request);
             $message = count($processedItems) === $order->lines->count()
                 ? 'Entire order shipped successfully'
                 : count($processedItems) . ' item(s) shipped successfully';
@@ -3389,7 +3390,7 @@ class OrderController extends Controller
             $order = $order->fresh(['lines']);
 
             DB::commit();
-
+            $this->sendOrderDeliveredNotification($order, $processedItems, $request);
             $message = count($processedItems) === $order->lines->count()
                 ? 'Entire order delivered successfully'
                 : count($processedItems) . ' item(s) delivered successfully';
