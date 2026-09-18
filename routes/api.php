@@ -50,6 +50,7 @@ use App\Http\Controllers\Admin\FAQController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\CancellationApprovalController;
+use App\Http\Controllers\Admin\LandingPageController;
 use App\Http\Controllers\API\BrandController;
 use App\Http\Controllers\API\SubcategoryController;
 use App\Http\Controllers\API\TestimonialController;
