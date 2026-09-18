@@ -167,13 +167,15 @@ Route::prefix('categories')->group(function () {
 // Contact us
 Route::prefix('contact')->group(function () {
     // Public route
-    Route::post('/send-request', [ContactController::class, 'store']);
-    Route::post('/mark-read/{id}', [ContactController::class, 'markAsRead']);
-    // Protected routes for admin
+    Route::middleware('optional.auth:sanctum')->group(function () {
+        Route::post('/send-request', [ContactController::class, 'store']);
+        // Protected routes for admin
+    });
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/', [ContactController::class, 'index']);
         Route::get('/{id}', [ContactController::class, 'show']);
         Route::delete('/{id}', [ContactController::class, 'destroy']);
+        Route::post('/mark-read/{id}', [ContactController::class, 'markAsRead']);
         Route::post('/bulk-delete', [ContactController::class, 'bulkDelete']);
     });
 });
