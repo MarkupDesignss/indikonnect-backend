@@ -59,6 +59,7 @@ class ProductController extends Controller
         $primaryImage = $product->images->where('is_primary', true)->first()
             ?? $product->images->first();
 
+
         return [
             'id' => $product->id,
             'product_code' => $product->product_code,
@@ -75,6 +76,12 @@ class ProductController extends Controller
                 'name' => $product->category->title,
                 'slug' => $product->category->slug,
                 'description' => $product->category->description,
+            ] : null,
+            'brand_id' => $product->brand_id,
+            'brand' => $product->brand ? [
+                'id' => $product->brand->id,
+                'name' => $product->brand->title,
+                'slug' => $product->brand->discount_percentage,
             ] : null,
             'tax_category_id' => $product->tax_category_id,
             'tax_category' => $product->taxCategory ? [
@@ -237,7 +244,7 @@ class ProductController extends Controller
 
     /**
      * Get all products with filtering and pagination
-    */
+     */
     public function index(Request $request)
     {
         // Detect if logged-in user is a distributor
@@ -410,7 +417,7 @@ class ProductController extends Controller
 
     /**
      * Format product collection
-    */
+     */
     protected function formatProductCollection($products, $wishlistIds = [], $isDistributor = false)
     {
         return $products->map(function ($product) use ($wishlistIds, $isDistributor) {
@@ -996,7 +1003,7 @@ class ProductController extends Controller
 
     /**
      * Create a product variant
-    */
+     */
 
     protected function createVariant($product, $variantData)
     {
@@ -1036,10 +1043,10 @@ class ProductController extends Controller
         // Create variant
         return ProductVariant::create($variantData);
     }
-    
+
     /**
      * Update a product with variants
-    */
+     */
     public function update(Request $request, $id)
     {
 
@@ -2253,7 +2260,7 @@ class ProductController extends Controller
 
     /**
      * Show product by slug with reviews and variants
-    */
+     */
     public function showBySlug($slug)
     {
         $product = Product::with([
@@ -3329,7 +3336,7 @@ class ProductController extends Controller
 
     /**
      * Get trending products
-    */
+     */
     public function trending()
     {
         $products = Product::with(['brand', 'subCategory', 'images', 'variants.images'])
@@ -4441,7 +4448,7 @@ class ProductController extends Controller
         return 0;
     }
 
-   
+
 
     private function sendBackInStockNotifications($productId = null, $variantId = null)
     {
