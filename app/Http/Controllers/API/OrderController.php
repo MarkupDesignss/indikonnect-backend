@@ -1873,6 +1873,7 @@ class OrderController extends Controller
                         'address_line_1' => $billingAddress->address_line_1,
                         'address_line_2' => $billingAddress->address_line_2 ?? null,
                         'city' => $billingAddress->city,
+                        'type' => $billingAddress->type ?? null,
                         'state' => $billingAddress->state,
                         'postal_code' => $billingAddress->postal_code,
                         'country' => $billingAddress->country ?? 'India',
@@ -1886,6 +1887,7 @@ class OrderController extends Controller
                         'address_line_1' => $deliveryAddress->address_line_1,
                         'address_line_2' => $deliveryAddress->address_line_2 ?? null,
                         'city' => $deliveryAddress->city,
+                        'type' => $deliveryAddress->type ?? null,
                         'state' => $deliveryAddress->state,
                         'postal_code' => $deliveryAddress->postal_code,
                         'country' => $deliveryAddress->country ?? 'India',
@@ -2948,6 +2950,213 @@ class OrderController extends Controller
         } catch (Exception $e) {
             DB::rollBack();
             return response()->json(['error' => $e->getMessage()], 400);
+        }
+    }
+
+    protected function sendOrderDispatchedNotification($order, $processedItems, $request)
+    {
+        try {
+            $message = sprintf(
+                "Order #%s has been dispatched. Items: %d. Customer: %s",
+                $order->order_reference,
+                count($processedItems),
+                $order->user->name ?? 'Guest'
+            );
+
+            \App\Models\AdminNotification::create([
+                'admin_id' => 1,
+                'type' => 'order_dispatched',
+                'title' => 'Order Dispatched',
+                'message' => $message,
+                'reference_type' => 'order',
+                'reference_id' => $order->id,
+                'priority' => 'medium',
+                'extra_data' => json_encode([
+                    'order_reference' => $order->order_reference,
+                    'total_payable' => $order->total_payable,
+                    'customer_name' => $order->user->full_name ?? 'Guest',
+                    'dispatched_at' => now()->toDateTimeString(),
+                    'items_count' => count($processedItems),
+                    'courier_tracking_number' => $request->courier_tracking_number,
+                    'courier_company' => $request->courier_company,
+                    'courier_delivery_date' => $request->courier_delivery_date,
+                    'delivery_notes' => $request->delivery_notes,
+                ]),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $user = $order->user;
+            if ($user) {
+                $templateData = [
+                    'order_reference' => $order->order_reference,
+                    'total_payable' => number_format($order->total_payable, 2),
+                    'order_date' => $order->created_at->format('d M Y, h:i A'),
+                    'customer_name' => $user->full_name ?? $user->name ?? 'Customer',
+                    'order_id' => $order->id,
+                    'dispatched_at' => now()->format('d M Y, h:i A'),
+                    'courier_tracking_number' => $request->courier_tracking_number ?? 'N/A',
+                    'courier_company' => $request->courier_company ?? 'N/A',
+                    'courier_delivery_date' => $request->courier_delivery_date ?? 'N/A',
+                    'delivery_notes' => $request->delivery_notes ?? '',
+                ];
+
+                $extraNotificationData = [
+                    'order_id' => $order->id,
+                    'order_reference' => $order->order_reference,
+                    'total_payable' => $order->total_payable,
+                    'dispatched_at' => now()->toDateTimeString(),
+                    'items' => $processedItems,
+                ];
+
+                // $this->notificationService->sendUserNotification(
+                //     $user,
+                //     'order_dispatched',
+                //     $templateData,
+                //     ['database', 'mail'],
+                //     $extraNotificationData
+                // );
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to send order dispatched notification: ' . $e->getMessage(), [
+                'order_id' => $order->id
+            ]);
+        }
+    }
+
+    protected function sendOrderShippedNotification($order, $processedItems, $request)
+    {
+        try {
+            $message = sprintf(
+                "Order #%s has been shipped. Items: %d. Customer: %s",
+                $order->order_reference,
+                count($processedItems),
+                $order->user->name ?? 'Guest'
+            );
+
+            \App\Models\AdminNotification::create([
+                'admin_id' => 1,
+                'type' => 'order_shipped',
+                'title' => 'Order Shipped',
+                'message' => $message,
+                'reference_type' => 'order',
+                'reference_id' => $order->id,
+                'priority' => 'medium',
+                'extra_data' => json_encode([
+                    'order_reference' => $order->order_reference,
+                    'total_payable' => $order->total_payable,
+                    'customer_name' => $order->user->full_name ?? 'Guest',
+                    'shipped_at' => now()->toDateTimeString(),
+                    'items_count' => count($processedItems),
+                    'courier_tracking_number' => $request->courier_tracking_number,
+                    'courier_company' => $request->courier_company,
+                    'courier_delivery_date' => $request->courier_delivery_date,
+                    'delivery_notes' => $request->delivery_notes,
+                ]),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $user = $order->user;
+            if ($user) {
+                $templateData = [
+                    'order_reference' => $order->order_reference,
+                    'total_payable' => number_format($order->total_payable, 2),
+                    'order_date' => $order->created_at->format('d M Y, h:i A'),
+                    'customer_name' => $user->full_name ?? $user->name ?? 'Customer',
+                    'order_id' => $order->id,
+                    'shipped_at' => now()->format('d M Y, h:i A'),
+                    'courier_tracking_number' => $request->courier_tracking_number ?? 'N/A',
+                    'courier_company' => $request->courier_company ?? 'N/A',
+                    'courier_delivery_date' => $request->courier_delivery_date ?? 'N/A',
+                    'delivery_notes' => $request->delivery_notes ?? '',
+                ];
+
+                $extraNotificationData = [
+                    'order_id' => $order->id,
+                    'order_reference' => $order->order_reference,
+                    'total_payable' => $order->total_payable,
+                    'shipped_at' => now()->toDateTimeString(),
+                    'items' => $processedItems,
+                ];
+
+                // $this->notificationService->sendUserNotification(
+                //     $user,
+                //     'order_shipped',
+                //     $templateData,
+                //     ['database', 'mail'],
+                //     $extraNotificationData
+                // );
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to send order shipped notification: ' . $e->getMessage(), [
+                'order_id' => $order->id
+            ]);
+        }
+    }
+
+    protected function sendOrderDeliveredNotification($order, $processedItems, $request)
+    {
+        try {
+            $message = sprintf(
+                "Order #%s has been delivered. Items: %d. Customer: %s",
+                $order->order_reference,
+                count($processedItems),
+                $order->user->name ?? 'Guest'
+            );
+
+            \App\Models\AdminNotification::create([
+                'admin_id' => 1,
+                'type' => 'order_delivered',
+                'title' => 'Order Delivered',
+                'message' => $message,
+                'reference_type' => 'order',
+                'reference_id' => $order->id,
+                'priority' => 'high',
+                'extra_data' => json_encode([
+                    'order_reference' => $order->order_reference,
+                    'total_payable' => $order->total_payable,
+                    'customer_name' => $order->user->full_name ?? 'Guest',
+                    'delivered_at' => now()->toDateTimeString(),
+                    'items_count' => count($processedItems),
+                    'delivery_notes' => $request->delivery_notes,
+                ]),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $user = $order->user;
+            if ($user) {
+                $templateData = [
+                    'order_reference' => $order->order_reference,
+                    'total_payable' => number_format($order->total_payable, 2),
+                    'order_date' => $order->created_at->format('d M Y, h:i A'),
+                    'customer_name' => $user->full_name ?? $user->name ?? 'Customer',
+                    'order_id' => $order->id,
+                    'delivered_at' => now()->format('d M Y, h:i A'),
+                    'delivery_notes' => $request->delivery_notes ?? '',
+                ];
+
+                $extraNotificationData = [
+                    'order_id' => $order->id,
+                    'order_reference' => $order->order_reference,
+                    'total_payable' => $order->total_payable,
+                    'delivered_at' => now()->toDateTimeString(),
+                    'items' => $processedItems,
+                ];
+
+                // $this->notificationService->sendUserNotification(
+                //     $user,
+                //     'order_delivered',
+                //     $templateData,
+                //     ['database', 'mail'],
+                //     $extraNotificationData
+                // );
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to send order delivered notification: ' . $e->getMessage(), [
+                'order_id' => $order->id
+            ]);
         }
     }
 

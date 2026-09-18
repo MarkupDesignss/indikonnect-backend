@@ -3150,6 +3150,7 @@ class AuthController extends Controller
         $data = [
             'user' => [
                 'id' => $user->id,
+                'distributor_id' => $user->distributor_id,
                 'full_name' => $user->full_name,
                 'email' => $user->email,
                 'phone' => $user->phone,
