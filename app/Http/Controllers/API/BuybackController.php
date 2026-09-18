@@ -502,7 +502,7 @@ class BuybackController extends Controller
                 'refund_subtotal' => $totalRefund,
                 'refund_tax' => $totalTax,
                 'refund_shipping' => $refundShipping,
-                'total_refund_amount' => $totalRefund + $refundShipping,
+                'total_refund_amount' => $totalRefund,
                 'total_cv_reversed' => $totalCvReversed,
                 'extra_data' => [
                     'declares_marketable' => (bool) $data['declares_marketable'],
