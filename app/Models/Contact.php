@@ -9,6 +9,7 @@ class Contact extends Model
     protected $fillable = [
         'name',
         'email',
+        'user_id',
         'phone',
         'message',
         'is_read',
@@ -33,5 +34,10 @@ class Contact extends Model
     public function scopeUnread($query)
     {
         return $query->where('is_read', false);
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
     }
 }
