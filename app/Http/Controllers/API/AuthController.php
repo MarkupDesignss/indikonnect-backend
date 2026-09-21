@@ -293,7 +293,7 @@ class AuthController extends Controller
                 // Existing user (customer or unregistered distributor)
                 $user->update([
                     'otp' => $otp,
-                    'otp_expires_at' => now()->addMinutes(10),
+                    'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
                 ]);
 
                 $message = $user->account_type == 'distributor'
@@ -304,9 +304,9 @@ class AuthController extends Controller
                 $user = User::create([
                     'phone' => $request->phone,
                     'otp' => $otp,
-                    'otp_expires_at' => now()->addMinutes(10),
+                    'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
                     'is_registered' => 0,
-                    'account_type' => 'customer', // Default to customer
+                    'account_type' => 'customer',
                 ]);
 
                 $message = 'OTP sent successfully. Please verify to complete registration.';
@@ -1574,7 +1574,7 @@ class AuthController extends Controller
                 if ($user) {
                     $user->update([
                         'otp' => $otp,
-                        'otp_expires_at' => now()->addMinutes(10),
+                        'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
                         'phone_verified' => 0,
                     ]);
                     $foundUser = $user;
@@ -1584,7 +1584,7 @@ class AuthController extends Controller
                     $userByToken->update([
                         'phone' => $request->phone,
                         'otp' => $otp,
-                        'otp_expires_at' => now()->addMinutes(10),
+                        'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
                         'phone_verified' => 0,
                     ]);
                     $foundUser = $userByToken;
@@ -1600,7 +1600,7 @@ class AuthController extends Controller
                         $existingUser->update([
                             'phone' => $request->phone,
                             'otp' => $otp,
-                            'otp_expires_at' => now()->addMinutes(10),
+                            'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
                             'phone_verified' => 0,
                         ]);
                         $foundUser = $existingUser;
@@ -1610,7 +1610,7 @@ class AuthController extends Controller
                         $foundUser = User::create([
                             'phone' => $request->phone,
                             'otp' => $otp,
-                            'otp_expires_at' => now()->addMinutes(10),
+                            'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
                             'is_registered' => 0,
                             'registration_step' => 0,
                             'account_type' => 'customer',
@@ -1676,7 +1676,7 @@ class AuthController extends Controller
                 if ($user) {
                     $user->update([
                         'email_otp' => $emailOtp,
-                        'email_otp_expires_at' => now()->addMinutes(10),
+                        'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
                     ]);
                     $foundUser = $user;
                 }
@@ -1685,7 +1685,7 @@ class AuthController extends Controller
                     $userByToken->update([
                         'email' => $request->email,
                         'email_otp' => $emailOtp,
-                        'email_otp_expires_at' => now()->addMinutes(10),
+                        'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
                     ]);
                     $foundUser = $userByToken;
                 }
@@ -1700,7 +1700,7 @@ class AuthController extends Controller
                         $existingUser->update([
                             'email' => $request->email,
                             'email_otp' => $emailOtp,
-                            'email_otp_expires_at' => now()->addMinutes(10),
+                            'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
                         ]);
                         $foundUser = $existingUser;
                     }
@@ -1709,7 +1709,7 @@ class AuthController extends Controller
                         $foundUser = User::create([
                             'email' => $request->email,
                             'email_otp' => $emailOtp,
-                            'email_otp_expires_at' => now()->addMinutes(10),
+                            'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
                             'is_registered' => 0,
                             'registration_step' => 0,
                             'account_type' => 'customer',

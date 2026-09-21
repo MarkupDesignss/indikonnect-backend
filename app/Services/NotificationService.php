@@ -21,6 +21,51 @@ class NotificationService
     /**
      * Send notification to user based on template
      */
+    // public function sendUserNotification(
+    //     User $user,
+    //     string $eventType,
+    //     array $data = [],
+    //     array $channels = ['database', 'mail']
+    // ): bool {
+    //     try {
+    //         // Get active template for the event
+    //         $template = $this->templateService->getTemplate($eventType, 'database');
+
+    //         if (!$template) {
+    //             Log::warning('No active template found for event', [
+    //                 'event_type' => $eventType,
+    //                 'user_id' => $user->id
+    //             ]);
+    //             return false;
+    //         }
+
+    //         // Render the template with data
+    //         $rendered = $this->renderTemplate($template, $data);
+
+    //         // Send to database
+    //         if (in_array('database', $channels)) {
+    //             $this->sendDatabaseNotification($user, $template, $rendered, $data);
+    //         }
+
+    //         // Send to mail
+    //         if (in_array('mail', $channels) && $template->channel === 'email') {
+    //             $this->sendMailNotification($user, $template, $rendered);
+    //         }
+
+    //         Log::info('Dynamic order confirmation notification sent to customer', [
+    //             'event_type' => 'order_confirmed'
+    //         ]);
+
+    //         return true;
+    //     } catch (\Exception $e) {
+    //         Log::error('Failed to send notification: ' . $e->getMessage(), [
+    //             'event_type' => $eventType,
+    //             'user_id' => $user->id
+    //         ]);
+    //         return false;
+    //     }
+    // }
+
     public function sendUserNotification(
         User $user,
         string $eventType,
@@ -28,7 +73,6 @@ class NotificationService
         array $channels = ['database', 'mail']
     ): bool {
         try {
-            // Get active template for the event
             $template = $this->templateService->getTemplate($eventType, 'database');
 
             if (!$template) {
@@ -36,34 +80,200 @@ class NotificationService
                     'event_type' => $eventType,
                     'user_id' => $user->id
                 ]);
+
                 return false;
             }
 
-            // Render the template with data
             $rendered = $this->renderTemplate($template, $data);
 
-            // Send to database
+            $notificationSettings = $user->notificationSettings;
+
+            // Default enabled if settings record does not exist
+            $emailNotifications = $notificationSettings
+                ? $notificationSettings->email_notifications
+                : true;
+
+            $promotionalEmails = $notificationSettings
+                ? $notificationSettings->promotional_emails
+                : true;
+
+            $orderUpdates = $notificationSettings
+                ? $notificationSettings->order_updates
+                : true;
+
+            $paymentAlerts = $notificationSettings
+                ? $notificationSettings->payment_alerts
+                : true;
+
+            /*
+        |--------------------------------------------------------------------------
+        | Database / App Notification
+        |--------------------------------------------------------------------------
+        */
+
             if (in_array('database', $channels)) {
-                $this->sendDatabaseNotification($user, $template, $rendered, $data);
+
+                if (
+                    $this->isOrderUpdateEvent($eventType)
+                    && !$orderUpdates
+                ) {
+                    Log::info('Order notification skipped', [
+                        'user_id' => $user->id,
+                        'event_type' => $eventType,
+                        'reason' => 'order_updates disabled',
+                    ]);
+                } elseif (
+                    $this->isPaymentAlertEvent($eventType)
+                    && !$paymentAlerts
+                ) {
+                    Log::info('Payment notification skipped', [
+                        'user_id' => $user->id,
+                        'event_type' => $eventType,
+                        'reason' => 'payment_alerts disabled',
+                    ]);
+                } else {
+                    $this->sendDatabaseNotification(
+                        $user,
+                        $template,
+                        $rendered,
+                        $data
+                    );
+                }
             }
 
-            // Send to mail
-            if (in_array('mail', $channels) && $template->channel === 'email') {
-                $this->sendMailNotification($user, $template, $rendered);
-            }
+            /*
+        |--------------------------------------------------------------------------
+        | Email Notification
+        |--------------------------------------------------------------------------
+        */
 
-            Log::info('Dynamic order confirmation notification sent to customer', [
-                'event_type' => 'order_confirmed'
-            ]);
+            if (
+                in_array('mail', $channels)
+                && $template->channel === 'email'
+            ) {
+
+                /*
+            |--------------------------------------------------------------------------
+            | Promotional Emails
+            |--------------------------------------------------------------------------
+            | Example: product_added
+            | Controlled ONLY by promotional_emails
+            |--------------------------------------------------------------------------
+            */
+
+                if ($this->isPromotionalEvent($eventType)) {
+
+                    if ($promotionalEmails) {
+                        $this->sendMailNotification(
+                            $user,
+                            $template,
+                            $rendered
+                        );
+
+                        Log::info('Promotional email notification sent', [
+                            'user_id' => $user->id,
+                            'event_type' => $eventType,
+                        ]);
+                    } else {
+                        Log::info('Promotional email notification skipped', [
+                            'user_id' => $user->id,
+                            'event_type' => $eventType,
+                            'reason' => 'promotional_emails disabled',
+                        ]);
+                    }
+
+                    /*
+            |--------------------------------------------------------------------------
+            | Payment Emails
+            |--------------------------------------------------------------------------
+            | Controlled by payment_alerts + email_notifications
+            |--------------------------------------------------------------------------
+            */
+                } elseif ($this->isPaymentAlertEvent($eventType)) {
+
+                    if ($paymentAlerts && $emailNotifications) {
+                        $this->sendMailNotification(
+                            $user,
+                            $template,
+                            $rendered
+                        );
+                    } else {
+                        Log::info('Payment email notification skipped', [
+                            'user_id' => $user->id,
+                            'event_type' => $eventType,
+                            'payment_alerts' => $paymentAlerts,
+                            'email_notifications' => $emailNotifications,
+                        ]);
+                    }
+
+                    /*
+            |--------------------------------------------------------------------------
+            | Other Emails
+            |--------------------------------------------------------------------------
+            | Controlled by email_notifications
+            |--------------------------------------------------------------------------
+            */
+                } elseif ($emailNotifications) {
+
+                    $this->sendMailNotification(
+                        $user,
+                        $template,
+                        $rendered
+                    );
+                } else {
+                    Log::info('Email notification skipped', [
+                        'user_id' => $user->id,
+                        'event_type' => $eventType,
+                        'reason' => 'email_notifications disabled',
+                    ]);
+                }
+            }
 
             return true;
         } catch (\Exception $e) {
+
             Log::error('Failed to send notification: ' . $e->getMessage(), [
                 'event_type' => $eventType,
                 'user_id' => $user->id
             ]);
+
             return false;
         }
+    }
+
+    protected function isPromotionalEvent(string $eventType): bool
+    {
+        return in_array($eventType, [
+            'product_added',
+            'new_product',
+        ]);
+    }
+
+    protected function isPaymentAlertEvent(string $eventType): bool
+    {
+        return in_array($eventType, [
+            'refund_processed',
+            'refund_completed',
+            'refund_failed',
+            'payment_received',
+            'payment_failed',
+            'payment_refunded',
+        ]);
+    }
+
+    protected function isOrderUpdateEvent(string $eventType): bool
+    {
+        return in_array($eventType, [
+            'order_confirmed',
+            'order_processing',
+            'order_dispatched',
+            'order_shipped',
+            'order_delivered',
+            'order_cancelled',
+            'order_returned',
+            'order_refunded',
+            'order_status_updated',
+        ]);
     }
 
     /**

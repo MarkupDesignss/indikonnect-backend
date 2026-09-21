@@ -2904,8 +2904,7 @@ class CheckoutService
                     $user,
                     'order_confirmed',
                     $templateData,
-                    ['database', 'mail'],
-                    $extraNotificationData
+                    ['database', 'mail']
                 );
             }
         } catch (\Exception $e) {

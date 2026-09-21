@@ -22,15 +22,17 @@ class ReturnService
 {
     protected RazorpayService $razorpayService;
     protected CommissionServiceInterface $commissionService;
+    protected NotificationService $notificationService;
 
     public function __construct(
         RazorpayService $razorpayService,
-        CommissionServiceInterface $commissionService
+        CommissionServiceInterface $commissionService,
+        NotificationService $notificationService
     ) {
         $this->razorpayService = $razorpayService;
         $this->commissionService = $commissionService;
+        $this->notificationService = $notificationService;
     }
-
     /**
      * Get order return eligibility
      */
@@ -1628,6 +1630,7 @@ class ReturnService
                 'tax' => (float) $return->refund_tax,
                 'shipping' => (float) $return->refund_shipping,
                 'total' => (float) $return->refund_subtotal,
+                'total' => (float) $return->refund_subtotal + (float) $return->refund_tax,
                 // 'total' => (float) $return->total_refund_amount,
             ],
             'reason' => $return->reason,
@@ -3165,6 +3168,30 @@ class ReturnService
             }
 
             $returnOrder->update($updateData);
+
+            $user = $order->user;
+
+            if ($user) {
+                $templateData = [
+                    'order_reference'       => $order->order_reference,
+                    'refund_amount'         => number_format($refundAmount, 2),
+                    'refund_transaction_id' => $refundResponse['refund_id'],
+                    'refund_status'         => $refundStatus,
+                    'refund_date'           => now()->format('d M Y, h:i A'),
+                    'customer_name'         => $user->full_name
+                        ?? $user->name
+                        ?? 'Customer',
+                    'order_id'              => $order->id,
+                    'return_id'             => $returnOrder->id,
+                ];
+
+                $this->notificationService->sendUserNotification(
+                    $user,
+                    'refund_processed',
+                    $templateData,
+                    ['database', 'mail']
+                );
+            }
 
             Log::info('Refund record created', [
                 'refund_id'             => $refund->id,

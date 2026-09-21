@@ -51,7 +51,11 @@ return [
     */
 
     // 'expiration' => null,
-    'expiration' => env('SANCTUM_EXPIRATION', 60),
+    // 'expiration' => env('SANCTUM_EXPIRATION', 60),
+    'expiration' => (int) setting(
+        'customer_session_timeout_minutes',
+        env('SANCTUM_EXPIRATION', 1000)
+    ),
     /*
     |--------------------------------------------------------------------------
     | Token Prefix
