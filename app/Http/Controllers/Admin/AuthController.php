@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Mail;
 use App\Mail\DistributorStatusMail;
 use Carbon\Carbon;
 use App\Models\User;
-use App\Models\BusinessProfile;
+use App\Models\DistributorProfile;
 use Illuminate\Validation\Rule;
 use App\Traits\AuditLogTrait;
 use App\Models\RejectedUser;
@@ -844,7 +844,7 @@ class AuthController extends Controller
     public function getRegisteredUsers()
     {
         try {
-            $users = User::with('role', 'businessProfile')
+            $users = User::with('role', 'distributorProfile')
                 ->where('is_registered', true)
                 ->orderBy('id', 'desc')
                 ->get()
@@ -873,7 +873,7 @@ class AuthController extends Controller
     public function getUserDetails($id)
     {
         try {
-            $user = User::with('role', 'businessProfile')->where('is_registered', true)
+            $user = User::with('role', 'distributorProfile')->where('is_registered', true)
                 ->where('id', $id)
                 ->get();
 
@@ -1112,7 +1112,7 @@ class AuthController extends Controller
             }
 
             // Find business profile
-            $businessProfile = BusinessProfile::where('user_id', $distributor->id)
+            $businessProfile = DistributorProfile::where('user_id', $distributor->id)
                 ->first();
 
             if (!$businessProfile) {

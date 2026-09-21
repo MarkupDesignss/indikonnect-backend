@@ -75,11 +75,6 @@ class User extends Authenticatable
     /**
      * @deprecated Use distributorProfile() instead
      */
-    public function businessProfile()
-    {
-        return $this->hasOne(BusinessProfile::class);
-    }
-
     public function refreshTokens()
     {
         return $this->hasMany(RefreshToken::class);

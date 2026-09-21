@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Admin;
-use App\Models\BusinessProfile;
 use App\Models\Contact;
+use App\Models\DistributorProfile;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
@@ -380,7 +380,7 @@ class AdminController extends Controller
 
     private function getPendingKycReviews()
     {
-        return BusinessProfile::where('kyc_status', 'pending')
+        return DistributorProfile::where('kyc_status', 'pending')
             ->whereHas('user', function ($query) {
                 $query->where('is_registered', true);
             })
