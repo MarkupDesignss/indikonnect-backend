@@ -20,6 +20,33 @@ class ContentController extends Controller
     {
         try {
             $query = Content::with(['blocks.media'])
+                ->where('type', 'home')
+                ->where('status', 'published');
+
+            // Filter by status
+            if ($request->has('status')) {
+                $query->where('status', $request->status);
+            }
+
+            $contents = $query->orderBy('created_at', 'desc')->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $this->formatContents($contents)
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch contents',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    public function landingindex(Request $request)
+    {
+        try {
+            $query = Content::with(['blocks.media'])
+                ->where('type', 'landing_page')
                 ->where('status', 'published');
 
             // Filter by status
@@ -104,6 +131,7 @@ class ContentController extends Controller
             $validator = Validator::make($request->all(), [
                 'title' => 'required|string|max:255',
                 'status' => 'nullable|in:draft,published',
+                'type' => 'nullable|in:home,landing_page',
                 'blocks' => 'required|array|min:1',
                 'blocks.*.heading' => 'nullable|string|max:255',
                 'blocks.*.short_description' => 'nullable|string',
@@ -128,6 +156,7 @@ class ContentController extends Controller
             $content = Content::create([
                 'title' => $request->title,
                 'slug' => $request->slug ?? null,
+                'type' => $request->type ?? 'home',
                 'status' => $request->status ?? 'draft',
                 'current_version' => 1,
             ]);
@@ -200,6 +229,7 @@ class ContentController extends Controller
             $validator = Validator::make($request->all(), [
                 'title' => 'nullable|string|max:255',
                 'status' => 'nullable|in:draft,published',
+                'type' => 'nullable|in:home,landing_page',
                 'blocks' => 'nullable|array|min:1',
                 'blocks.*.heading' => 'nullable|string|max:255',
                 'blocks.*.short_description' => 'nullable|string',
@@ -255,8 +285,9 @@ class ContentController extends Controller
 
             // Set new version details
             $newContent->current_version = $newVersion;
-            $newContent->status = 'published'; // New version is always published
+            $newContent->status = 'published';
             $newContent->title = $request->input('title', $originalContent->title);
+            $newContent->type = $request->input('type', $originalContent->type);
             $newContent->slug = $originalContent->slug; // Keep the same slug
             $newContent->created_at = now();
             $newContent->updated_at = now();

@@ -124,6 +124,7 @@ Route::prefix('header')->group(function () {
 Route::prefix('contents')->group(function () {
     // Public routes (No middleware)
     Route::get('/', [ContentController::class, 'index']);
+    Route::get('/landing-page', [ContentController::class, 'landingindex']);
     Route::get('/{slug}', [ContentController::class, 'show']);
     // Protected routes for admin
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
