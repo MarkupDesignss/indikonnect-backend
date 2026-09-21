@@ -242,37 +242,110 @@ class FAQController extends Controller
     /**
      * Update FAQ
      */
-    public function update(Request $request, $id): JsonResponse
+    public function update(Request $request): JsonResponse
     {
         try {
-            $faq = FAQ::findOrFail($id);
-
             $validated = $request->validate([
-                'section'   => 'sometimes|required|string|max:255',
-                'question'  => [
-                    'sometimes',
-                    'required',
-                    'string',
-                    'max:255',
-                    Rule::unique('faqs', 'question')->ignore($id),
-                ],
-                'answer'    => 'sometimes|required|string',
-                'order'     => 'nullable|integer|min:0',
-                'is_active' => 'nullable|boolean',
+                'section'             => 'required|string|max:255',
+                'is_active'           => 'nullable|boolean',
+                'keep_missing'        => 'nullable|boolean',
+                'faqs'                => 'required|array|min:1',
+                'faqs.*.question'     => 'required|string|max:255|distinct',
+                'faqs.*.answer'       => 'required|string',
+                'faqs.*.order'        => 'nullable|integer|min:0',
+                'faqs.*.is_active'    => 'nullable|boolean',
             ]);
 
-            $faq->update($validated);
+            $sectionName   = $validated['section'];
+            $sectionActive = $validated['is_active'] ?? true;
+            $keepMissing   = $validated['keep_missing'] ?? false;
+
+            // ---- Check if the section exists at all ----
+            $sectionExists = FAQ::where('section', $sectionName)->exists();
+
+            if (!$sectionExists) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Section '{$sectionName}' not found",
+                ], 404);
+            }
+
+            // ---- Duplicate check inside payload ----
+            $payloadQuestions = collect($validated['faqs'])->pluck('question')->all();
+
+            if (count($payloadQuestions) !== count(array_unique($payloadQuestions))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Duplicate questions found in the payload',
+                ], 422);
+            }
+
+            // ---- Run inside a transaction ----
+            $result = DB::transaction(function () use ($validated, $sectionName, $sectionActive, $keepMissing) {
+
+                $updated = [];
+                $created = [];
+                $keptIds = [];
+
+                foreach ($validated['faqs'] as $index => $faqData) {
+                    // Match by (section + question) — question is the unique key within a section
+                    $faq = FAQ::where('section', $sectionName)
+                        ->where('question', $faqData['question'])
+                        ->first();
+
+                    if ($faq) {
+                        // ---------- UPDATE ----------
+                        $faq->update([
+                            'answer'    => $faqData['answer'],
+                            'order'     => $faqData['order'] ?? ($index + 1),
+                            'is_active' => $faqData['is_active'] ?? $sectionActive,
+                        ]);
+
+                        $updated[] = $faq->fresh();
+                        $keptIds[] = $faq->id;
+                    } else {
+                        // ---------- CREATE ----------
+                        $new = FAQ::create([
+                            'section'   => $sectionName,
+                            'question'  => $faqData['question'],
+                            'answer'    => $faqData['answer'],
+                            'order'     => $faqData['order'] ?? ($index + 1),
+                            'is_active' => $faqData['is_active'] ?? $sectionActive,
+                        ]);
+
+                        $created[] = $new;
+                        $keptIds[] = $new->id;
+                    }
+                }
+
+                // ---------- DELETE FAQs not present in payload ----------
+                $deleted = 0;
+                if (!$keepMissing) {
+                    $deleted = FAQ::where('section', $sectionName)
+                        ->whereNotIn('id', $keptIds)
+                        ->delete();
+                }
+
+                return compact('updated', 'created', 'deleted');
+            });
 
             return response()->json([
                 'success' => true,
-                'message' => 'FAQ updated successfully',
-                'data'    => $faq->fresh(),
+                'message' => sprintf(
+                    "Section '%s' updated. Updated: %d, Created: %d, Deleted: %d",
+                    $sectionName,
+                    count($result['updated']),
+                    count($result['created']),
+                    $result['deleted']
+                ),
+                'data' => [
+                    'section' => $sectionName,
+                    'updated' => $result['updated'],
+                    'created' => $result['created'],
+                    'deleted' => $result['deleted'],
+                    'total'   => count($result['updated']) + count($result['created']),
+                ],
             ], 200);
-        } catch (ModelNotFoundException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'FAQ not found',
-            ], 404);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'success' => false,
@@ -282,12 +355,11 @@ class FAQController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to update FAQ',
+                'message' => 'Failed to update section',
                 'error'   => $e->getMessage(),
             ], 500);
         }
     }
-
     /**
      * Delete a single FAQ
      */
