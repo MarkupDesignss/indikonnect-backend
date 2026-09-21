@@ -25,6 +25,12 @@ use Illuminate\Validation\ValidationException;
 use App\Traits\AuditLogTrait;
 use Illuminate\Support\Facades\Mail;
 use App\Services\NotificationService;
+// ============================================================
+// IMPORTS FOR IMAGE OPTIMIZATION
+// ============================================================
+use Intervention\Image\ImageManager;
+use Illuminate\Support\Facades\File;
+// ============================================================
 
 class ProductController extends Controller
 {
@@ -1448,21 +1454,95 @@ class ProductController extends Controller
     /**
      * Handle variant images with proper file uploads
      */
+    // protected function handleVariantImages($request, $variant, $variantImages)
+    // {
+    //     $imageCount = 0;
+    //     $hasPrimary = false;
+
+    //     foreach ($variantImages as $index => $imageData) {
+    //         // Get the file from the request - use the correct path
+    //         $imageFile = $request->file("variants.{$index}.images.{$imageCount}.image");
+
+    //         // Or if you have a different structure, you might need to access it differently
+    //         // For nested array structure, you might need to use a different approach
+
+    //         if ($imageFile && $imageFile->isValid()) {
+    //             $path = $imageFile->store('variants', 'public');
+
+    //             $isPrimary = $imageData['is_primary'] ?? false;
+    //             if (!$hasPrimary && $imageCount === 0) {
+    //                 $isPrimary = true;
+    //             }
+
+    //             VariantImage::create([
+    //                 'variant_id' => $variant->id,
+    //                 'image' => $path,
+    //                 'is_primary' => $isPrimary,
+    //                 'sort_order' => $imageData['sort_order'] ?? $imageCount,
+    //             ]);
+
+    //             if ($isPrimary) {
+    //                 $hasPrimary = true;
+    //             }
+    //         } elseif (isset($imageData['image_url'])) {
+    //             // Handle URL-based images
+    //             $isPrimary = $imageData['is_primary'] ?? false;
+    //             if (!$hasPrimary && $imageCount === 0) {
+    //                 $isPrimary = true;
+    //             }
+
+    //             VariantImage::create([
+    //                 'variant_id' => $variant->id,
+    //                 'image' => $imageData['image_url'],
+    //                 'is_primary' => $isPrimary,
+    //                 'sort_order' => $imageData['sort_order'] ?? $imageCount,
+    //             ]);
+
+    //             if ($isPrimary) {
+    //                 $hasPrimary = true;
+    //             }
+    //         }
+    //         $imageCount++;
+    //     }
+
+    //     // If no primary was set but we have images, set the first one as primary
+    //     if (!$hasPrimary && $imageCount > 0) {
+    //         $firstImage = VariantImage::where('variant_id', $variant->id)
+    //             ->orderBy('sort_order')
+    //             ->first();
+    //         if ($firstImage) {
+    //             $firstImage->update(['is_primary' => true]);
+    //         }
+    //     }
+    // }
     protected function handleVariantImages($request, $variant, $variantImages)
     {
         $imageCount = 0;
         $hasPrimary = false;
 
+        if (empty($variantImages)) {
+            return;
+        }
+
+        // --- Use Imagick if available, otherwise GD ---
+        $useImagick = extension_loaded('imagick');
+        $driver = $useImagick
+            ? new \Intervention\Image\Drivers\Imagick\Driver()
+            : new \Intervention\Image\Drivers\Gd\Driver();
+
+        $manager = new ImageManager($driver);
+        $uploadDir = public_path('storage/variant-images/');
+        if (!File::exists($uploadDir)) {
+            File::makeDirectory($uploadDir, 0755, true);
+        }
+
         foreach ($variantImages as $index => $imageData) {
-            // Get the file from the request - use the correct path
+
+            // Try to get the uploaded file
             $imageFile = $request->file("variants.{$index}.images.{$imageCount}.image");
 
-            // Or if you have a different structure, you might need to access it differently
-            // For nested array structure, you might need to use a different approach
-
-            if ($imageFile && $imageFile->isValid()) {
-                $path = $imageFile->store('variants', 'public');
-
+            // -------- URL-based image (keep old behavior) --------
+            if (!$imageFile && isset($imageData['image_url'])) {
                 $isPrimary = $imageData['is_primary'] ?? false;
                 if (!$hasPrimary && $imageCount === 0) {
                     $isPrimary = true;
@@ -1470,7 +1550,7 @@ class ProductController extends Controller
 
                 VariantImage::create([
                     'variant_id' => $variant->id,
-                    'image' => $path,
+                    'image'      => $imageData['image_url'],
                     'is_primary' => $isPrimary,
                     'sort_order' => $imageData['sort_order'] ?? $imageCount,
                 ]);
@@ -1478,8 +1558,47 @@ class ProductController extends Controller
                 if ($isPrimary) {
                     $hasPrimary = true;
                 }
-            } elseif (isset($imageData['image_url'])) {
-                // Handle URL-based images
+                $imageCount++;
+                continue;
+            }
+
+            if (!$imageFile || !$imageFile->isValid()) {
+                $imageCount++;
+                continue;
+            }
+
+            // -------- File upload: OPTIMIZE --------
+            try {
+                $image = $manager->read($imageFile->getRealPath());
+
+                // --- PRESERVE COLOR PROFILE & LIGHTING (only with Imagick) ---
+                if ($useImagick) {
+                    try {
+                        $imagick = $image->core()->native();
+                        $imagick->setImageColorSpace(\Imagick::COLORSPACE_SRGB);
+
+                        if (method_exists(\Imagick::class, 'sRGBColorProfile')) {
+                            $srgbProfile = \Imagick::sRGBColorProfile();
+                            if ($srgbProfile) {
+                                $imagick->setImageProfile('icc', $srgbProfile);
+                            }
+                        }
+                        $image = $manager->read($imagick->getImageBlob());
+                    } catch (\Exception $e) {
+                        \Log::warning('Variant color profile failed: ' . $e->getMessage());
+                    }
+                }
+
+                // --- DO NOT RESIZE – KEEP ORIGINAL RESOLUTION ---
+                // --- ENCODE AS WEBP WITH 95% QUALITY ---
+                $encoded  = $image->toWebp(95);
+                $fileName = time() . '_' . uniqid() . '.webp';
+                $fullPath = $uploadDir . $fileName;
+                $encoded->save($fullPath);
+
+                $relativePath = 'variant-images/' . $fileName;
+
+                // Primary flag
                 $isPrimary = $imageData['is_primary'] ?? false;
                 if (!$hasPrimary && $imageCount === 0) {
                     $isPrimary = true;
@@ -1487,7 +1606,32 @@ class ProductController extends Controller
 
                 VariantImage::create([
                     'variant_id' => $variant->id,
-                    'image' => $imageData['image_url'],
+                    'image'      => $relativePath,
+                    'is_primary' => $isPrimary,
+                    'sort_order' => $imageData['sort_order'] ?? $imageCount,
+                ]);
+
+                if ($isPrimary) {
+                    $hasPrimary = true;
+                }
+
+            } catch (\Exception $e) {
+                // Fallback: store original
+                Log::error('Variant image optimization failed (store)', [
+                    'variant_id' => $variant->id,
+                    'error'      => $e->getMessage(),
+                ]);
+
+                $path = $imageFile->store('variant-images', 'public');
+
+                $isPrimary = $imageData['is_primary'] ?? false;
+                if (!$hasPrimary && $imageCount === 0) {
+                    $isPrimary = true;
+                }
+
+                VariantImage::create([
+                    'variant_id' => $variant->id,
+                    'image'      => $path,
                     'is_primary' => $isPrimary,
                     'sort_order' => $imageData['sort_order'] ?? $imageCount,
                 ]);
@@ -1496,6 +1640,7 @@ class ProductController extends Controller
                     $hasPrimary = true;
                 }
             }
+
             $imageCount++;
         }
 
