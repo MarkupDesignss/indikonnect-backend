@@ -43,15 +43,11 @@ class NotificationService
             $isOrder       = $this->isOrderUpdateEvent($eventType);
 
             foreach ($channels as $channel) {
-                // 'mail' channel maps to 'email' template channel in DB
-                $templateChannel = $channel === 'mail' ? 'email' : $channel;
-
-                $template = $this->templateService->getTemplate($eventType, $templateChannel);
-
+                $template = $this->templateService->getTemplate($eventType, $channel);
                 if (!$template) {
                     Log::warning('No active template found for event', [
                         'event_type' => $eventType,
-                        'channel'    => $templateChannel,
+                        'channel'    => $channel,
                         'user_id'    => $user->id,
                     ]);
                     continue;
@@ -111,6 +107,20 @@ class NotificationService
                         continue;
                     }
 
+                    // Account events -> controlled by email_notifications
+                    if ($this->isAccountEvent($eventType)) {
+                        if ($emailNotifications) {
+                            $this->sendMailNotification($user, $template, $rendered);
+                        } else {
+                            Log::info('Account email notification skipped', [
+                                'user_id'    => $user->id,
+                                'event_type' => $eventType,
+                                'reason'     => 'email_notifications disabled',
+                            ]);
+                        }
+                        continue;
+                    }
+
                     // Payment events -> controlled by payment_alerts + email_notifications
                     if ($isPayment) {
                         if ($paymentAlerts && $emailNotifications) {
@@ -158,6 +168,15 @@ class NotificationService
         ], true);
     }
 
+    protected function isAccountEvent(string $eventType): bool
+    {
+        return in_array($eventType, [
+            'distributor_registration_completed',
+            'distributor_kyc_approved',
+            'distributor_kyc_rejected',
+        ], true);
+    }
+
     protected function isPaymentAlertEvent(string $eventType): bool
     {
         return in_array($eventType, [
@@ -173,6 +192,7 @@ class NotificationService
     protected function isOrderUpdateEvent(string $eventType): bool
     {
         return in_array($eventType, [
+            // ... existing order events
             'order_confirmed',
             'order_processing',
             'order_dispatched',
@@ -182,6 +202,20 @@ class NotificationService
             'order_returned',
             'order_refunded',
             'order_status_updated',
+            'order_cancellation_approved',
+            'order_cancellation_rejected',
+
+            // Return events
+            'return_approved',
+            'return_rejected',
+            'return_received',
+            'return_completed',
+
+            // Buyback events
+            'buyback_approved',
+            'buyback_rejected',
+            'buyback_received',
+            'buyback_completed',
         ], true);
     }
 

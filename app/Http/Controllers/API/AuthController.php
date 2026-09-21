@@ -26,16 +26,20 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Password;
 use App\Services\TwilioService;
+use App\Services\NotificationService;
 
 class AuthController extends Controller
 {
     protected $twilioService;
+    protected NotificationService $notificationService;
 
-    public function __construct(TwilioService $twilioService)
-    {
+    public function __construct(
+        TwilioService $twilioService,
+        NotificationService $notificationService
+    ) {
         $this->twilioService = $twilioService;
+        $this->notificationService = $notificationService;
     }
-
     /**
      * Get role ID by account type from database
      */
@@ -2774,13 +2778,35 @@ class AuthController extends Controller
                 ]
             );
 
-            if ($user->email) {
-                try {
-                    Mail::to($user->email)
-                        ->send(new DistributorRegistrationCompletedMail($user));
-                } catch (\Exception $mailException) {
-                    Log::error('Registration completion mail failed: ' . $mailException->getMessage());
-                }
+            // if ($user->email) {
+            //     try {
+            //         Mail::to($user->email)
+            //             ->send(new DistributorRegistrationCompletedMail($user));
+            //     } catch (\Exception $mailException) {
+            //         Log::error('Registration completion mail failed: ' . $mailException->getMessage());
+            //     }
+            // }
+
+            try {
+                $this->notificationService->sendUserNotification(
+                    $user,
+                    'distributor_registration_completed',
+                    [
+                        'title'         => 'Registration Submitted Successfully',
+                        'message'       => 'Your distributor registration has been submitted successfully. We will notify you once the KYC review is complete.',
+                        'customer_name' => $user->full_name ?? $user->name ?? 'Distributor',
+                        'phone'         => $user->phone,
+                        'email'         => $user->email,
+                        'submitted_at'  => now()->format('d M Y, h:i A'),
+                        'url'           => rtrim(config('app.frontend_url', config('app.url')), '/') . '/dashboard',
+                    ],
+                    ['database', 'mail']
+                );
+            } catch (\Throwable $e) {
+                Log::error('Distributor registration notification failed', [
+                    'user_id' => $user->id,
+                    'error'   => $e->getMessage(),
+                ]);
             }
 
             // Clear cache

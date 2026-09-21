@@ -23,6 +23,7 @@ return [
     'bank_account_no' => env('BANK_ACCOUNT_NO', '1234567890123'),
     'bank_ifsc'       => env('BANK_IFSC', 'HDFC0001234'),
     'bank_name'       => env('BANK_NAME', 'HDFC Ludhiana'),
+    'frontend_url' => env('FRONTEND_URL', 'https://www.markupdesigns.net/indiekonnect-web/'),
 
     /*
     |--------------------------------------------------------------------------

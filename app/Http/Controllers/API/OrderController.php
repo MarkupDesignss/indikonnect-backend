@@ -18,6 +18,7 @@ use App\Services\CancellationService;
 use Exception;
 use App\Traits\AuditLogTrait;
 use Illuminate\Support\Facades\Log;
+use App\Services\NotificationService;
 use Illuminate\Support\Facades\Validator;
 
 class OrderController extends Controller
@@ -26,15 +27,18 @@ class OrderController extends Controller
 
     protected $checkoutService;
     protected $invoiceService;
+    protected NotificationService $notificationService;
 
     protected $cancellationService;
 
     public function __construct(
         CheckoutService $checkoutService,
+        NotificationService $notificationService,
         InvoiceService $invoiceService,
         CancellationService $cancellationService
     ) {
         $this->checkoutService = $checkoutService;
+        $this->notificationService = $notificationService;
         $this->cancellationService = $cancellationService;
         $this->invoiceService = $invoiceService;
     }
@@ -3025,17 +3029,19 @@ class OrderController extends Controller
         ]);
     }
 
-    protected function sendOrderDispatchedNotification($order, $processedItems, $request)
+    protected function sendOrderDispatchedNotification($order, $processedItems, $request): void
     {
         try {
+            $user = $order->user;
+
             $message = sprintf(
                 "Order #%s has been dispatched. Items: %d. Customer: %s",
                 $order->order_reference,
                 count($processedItems),
-                $order->user->name ?? 'Guest'
+                $user->name ?? 'Guest'
             );
 
-            // Admin notification
+            // ---------- Admin notification (keep as-is) ----------
             \App\Models\AdminNotification::create([
                 'admin_id'       => 1,
                 'type'           => 'order_dispatched',
@@ -3047,7 +3053,7 @@ class OrderController extends Controller
                 'extra_data'     => json_encode([
                     'order_reference'         => $order->order_reference,
                     'total_payable'           => $order->total_payable,
-                    'customer_name'           => $order->user->full_name ?? 'Guest',
+                    'customer_name'           => $user->full_name ?? 'Guest',
                     'dispatched_at'           => now()->toDateTimeString(),
                     'items_count'             => count($processedItems),
                     'courier_tracking_number' => $request->courier_tracking_number,
@@ -3059,10 +3065,9 @@ class OrderController extends Controller
                 'updated_at'     => now(),
             ]);
 
-            // User notification — direct insert
-            $user = $order->user;
+            // ---------- User notification via NotificationService ----------
             if ($user) {
-                $this->insertNotification($user, 'order_dispatched', [
+                $templateData = [
                     'title'                   => 'Order Dispatched',
                     'message'                 => $message,
                     'order_id'                => $order->id,
@@ -3076,23 +3081,32 @@ class OrderController extends Controller
                     'courier_delivery_date'   => $request->courier_delivery_date ?? 'N/A',
                     'delivery_notes'          => $request->delivery_notes ?? '',
                     'items'                   => $processedItems,
-                ]);
+                ];
+
+                $this->notificationService->sendUserNotification(
+                    $user,
+                    'order_dispatched',
+                    $templateData,
+                    ['database', 'mail']
+                );
             }
         } catch (\Exception $e) {
             Log::error('Failed to send order dispatched notification: ' . $e->getMessage(), [
-                'order_id' => $order->id
+                'order_id' => $order->id,
             ]);
         }
     }
 
-    protected function sendOrderShippedNotification($order, $processedItems, $request)
+    protected function sendOrderShippedNotification($order, $processedItems, $request): void
     {
         try {
+            $user = $order->user;
+
             $message = sprintf(
                 "Order #%s has been shipped. Items: %d. Customer: %s",
                 $order->order_reference,
                 count($processedItems),
-                $order->user->name ?? 'Guest'
+                $user->name ?? 'Guest'
             );
 
             \App\Models\AdminNotification::create([
@@ -3106,7 +3120,7 @@ class OrderController extends Controller
                 'extra_data'     => json_encode([
                     'order_reference'         => $order->order_reference,
                     'total_payable'           => $order->total_payable,
-                    'customer_name'           => $order->user->full_name ?? 'Guest',
+                    'customer_name'           => $user->full_name ?? 'Guest',
                     'shipped_at'              => now()->toDateTimeString(),
                     'items_count'             => count($processedItems),
                     'courier_tracking_number' => $request->courier_tracking_number,
@@ -3118,9 +3132,8 @@ class OrderController extends Controller
                 'updated_at'     => now(),
             ]);
 
-            $user = $order->user;
             if ($user) {
-                $this->insertNotification($user, 'order_shipped', [
+                $templateData = [
                     'title'                   => 'Order Shipped',
                     'message'                 => $message,
                     'order_id'                => $order->id,
@@ -3134,23 +3147,32 @@ class OrderController extends Controller
                     'courier_delivery_date'   => $request->courier_delivery_date ?? 'N/A',
                     'delivery_notes'          => $request->delivery_notes ?? '',
                     'items'                   => $processedItems,
-                ]);
+                ];
+
+                $this->notificationService->sendUserNotification(
+                    $user,
+                    'order_shipped',
+                    $templateData,
+                    ['database', 'mail']
+                );
             }
         } catch (\Exception $e) {
             Log::error('Failed to send order shipped notification: ' . $e->getMessage(), [
-                'order_id' => $order->id
+                'order_id' => $order->id,
             ]);
         }
     }
 
-    protected function sendOrderDeliveredNotification($order, $processedItems, $request)
+    protected function sendOrderDeliveredNotification($order, $processedItems, $request): void
     {
         try {
+            $user = $order->user;
+
             $message = sprintf(
                 "Order #%s has been delivered. Items: %d. Customer: %s",
                 $order->order_reference,
                 count($processedItems),
-                $order->user->name ?? 'Guest'
+                $user->name ?? 'Guest'
             );
 
             \App\Models\AdminNotification::create([
@@ -3164,7 +3186,7 @@ class OrderController extends Controller
                 'extra_data'     => json_encode([
                     'order_reference' => $order->order_reference,
                     'total_payable'   => $order->total_payable,
-                    'customer_name'   => $order->user->full_name ?? 'Guest',
+                    'customer_name'   => $user->full_name ?? 'Guest',
                     'delivered_at'    => now()->toDateTimeString(),
                     'items_count'     => count($processedItems),
                     'delivery_notes'  => $request->delivery_notes,
@@ -3173,9 +3195,8 @@ class OrderController extends Controller
                 'updated_at'     => now(),
             ]);
 
-            $user = $order->user;
             if ($user) {
-                $this->insertNotification($user, 'order_delivered', [
+                $templateData = [
                     'title'           => 'Order Delivered',
                     'message'         => $message,
                     'order_id'        => $order->id,
@@ -3186,11 +3207,18 @@ class OrderController extends Controller
                     'delivered_at'    => now()->format('d M Y, h:i A'),
                     'delivery_notes'  => $request->delivery_notes ?? '',
                     'items'           => $processedItems,
-                ]);
+                ];
+
+                $this->notificationService->sendUserNotification(
+                    $user,
+                    'order_delivered',
+                    $templateData,
+                    ['database', 'mail']
+                );
             }
         } catch (\Exception $e) {
             Log::error('Failed to send order delivered notification: ' . $e->getMessage(), [
-                'order_id' => $order->id
+                'order_id' => $order->id,
             ]);
         }
     }
