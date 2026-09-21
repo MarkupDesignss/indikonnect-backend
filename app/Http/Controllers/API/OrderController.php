@@ -2838,30 +2838,80 @@ class OrderController extends Controller
         ]);
     }
 
+    // public function orderstatuses(): JsonResponse
+    // {
+    //     try {
+    //         $result = DB::select("
+    //         SHOW COLUMNS FROM orders WHERE Field = 'status'
+    //     ");
+
+    //         if (empty($result)) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Delivery status column not found.',
+    //             ], 404);
+    //         }
+
+    //         $type = $result[0]->Type;
+
+    //         // Extract enum values
+    //         preg_match('/^enum\((.*)\)$/', $type, $matches);
+
+    //         $statuses = [];
+
+    //         if (isset($matches[1])) {
+    //             $statuses = str_getcsv($matches[1], ',', "'");
+    //         }
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $statuses,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 500);
+    //     }
+    // }
+
     public function orderstatuses(): JsonResponse
     {
         try {
-            $result = DB::select("
-            SHOW COLUMNS FROM orders WHERE Field = 'status'
-        ");
+            $orderResult = DB::select("
+                SHOW COLUMNS FROM orders WHERE Field = 'status'
+            ");
 
-            if (empty($result)) {
+            $orderLineResult = DB::select("
+                SHOW COLUMNS FROM order_lines WHERE Field = 'delivery_status'
+            ");
+
+            if (empty($orderResult) || empty($orderLineResult)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Delivery status column not found.',
+                    'message' => 'Status column not found.',
                 ], 404);
             }
 
-            $type = $result[0]->Type;
+            // Order statuses
+            preg_match('/^enum\((.*)\)$/', $orderResult[0]->Type, $orderMatches);
 
-            // Extract enum values
-            preg_match('/^enum\((.*)\)$/', $type, $matches);
+            $orderStatuses = isset($orderMatches[1])
+                ? str_getcsv($orderMatches[1], ',', "'")
+                : [];
 
-            $statuses = [];
+            // Order line delivery statuses
+            preg_match('/^enum\((.*)\)$/', $orderLineResult[0]->Type, $orderLineMatches);
 
-            if (isset($matches[1])) {
-                $statuses = str_getcsv($matches[1], ',', "'");
-            }
+            $orderLineStatuses = isset($orderLineMatches[1])
+                ? str_getcsv($orderLineMatches[1], ',', "'")
+                : [];
+
+            // Merge both into the same key and remove duplicates
+            $statuses = array_values(array_unique([
+                ...$orderStatuses,
+                ...$orderLineStatuses,
+            ]));
 
             return response()->json([
                 'success' => true,

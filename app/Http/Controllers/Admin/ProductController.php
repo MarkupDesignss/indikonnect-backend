@@ -245,172 +245,733 @@ class ProductController extends Controller
     /**
      * Get all products with filtering and pagination
      */
+    // public function index(Request $request)
+    // {
+    //     // Detect if logged-in user is a distributor
+    //     $user = $request->user(); // optional.auth:sanctum se automatically resolve hota hai
+    //     $isDistributor = $user && $user->account_type === 'distributor';
+
+    //     $query = Product::with(['category', 'subcategory', 'taxCategory', 'images', 'variants.images', 'brand'])
+    //         ->whereHas('brand', function ($q) {
+    //             $q->where('status', true);
+    //         });
+
+    //     $query->orderBy('stock_quantity', 'desc');
+
+    //     // Filter by multiple categories
+    //     if ($request->has('category_ids') && $request->category_ids) {
+    //         $categoryIds = is_array($request->category_ids)
+    //             ? $request->category_ids
+    //             : explode(',', $request->category_ids);
+    //         $query->whereIn('category_id', $categoryIds);
+    //     }
+
+    //     if ($request->has('subcategory_ids') && $request->subcategory_ids) {
+    //         $subcategoryIds = is_array($request->subcategory_ids)
+    //             ? $request->subcategory_ids
+    //             : explode(',', $request->subcategory_ids);
+    //         $query->whereIn('subcategory_id', $subcategoryIds);
+    //     }
+
+    //     // Single category (backward compatibility)
+    //     if ($request->has('category_id') && $request->category_id && !$request->has('category_ids')) {
+    //         $query->where('category_id', $request->category_id);
+    //     }
+
+    //     // Filter by multiple brands
+    //     if ($request->has('brand_ids') && $request->brand_ids) {
+    //         $brandIds = is_array($request->brand_ids)
+    //             ? $request->brand_ids
+    //             : explode(',', $request->brand_ids);
+    //         $query->whereIn('brand_id', $brandIds);
+    //     }
+
+    //     // ============================================================
+    //     // PRICE FILTER — account_type ke hisaab se column choose karo
+    //     // ============================================================
+    //     $priceColumn = $isDistributor ? 'distributor_price' : 'retail_price';
+
+    //     if ($request->has('min_price') && is_numeric($request->min_price)) {
+    //         $query->where($priceColumn, '>=', $request->min_price);
+    //     }
+
+    //     if ($request->has('max_price') && is_numeric($request->max_price)) {
+    //         $query->where($priceColumn, '<=', $request->max_price);
+    //     }
+
+    //     // Filter by published status
+    //     if ($request->has('is_published')) {
+    //         $query->where('is_published', $request->boolean('is_published'));
+    //     }
+
+    //     // Filter by stock status
+    //     if ($request->has('stock_status')) {
+    //         $stockStatus = $request->stock_status;
+
+    //         if (is_array($stockStatus)) {
+    //             $query->where(function ($q) use ($stockStatus) {
+    //                 $q->where(function ($sub) use ($stockStatus) {
+    //                     if (in_array('in_stock', $stockStatus)) {
+    //                         $sub->orWhereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //                     }
+    //                     if (in_array('low_stock', $stockStatus)) {
+    //                         $sub->orWhere(function ($q) {
+    //                             $q->where('stock_quantity', '>', 0)
+    //                                 ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //                         });
+    //                     }
+    //                     if (in_array('out_of_stock', $stockStatus)) {
+    //                         $sub->orWhere('stock_quantity', '=', 0);
+    //                     }
+    //                 });
+    //             });
+    //         } else {
+    //             switch ($stockStatus) {
+    //                 case 'in_stock':
+    //                     $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //                     break;
+    //                 case 'low_stock':
+    //                     $query->where('stock_quantity', '>', 0)
+    //                         ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //                     break;
+    //                 case 'out_of_stock':
+    //                     $query->where('stock_quantity', '=', 0);
+    //                     break;
+    //             }
+    //         }
+    //     }
+
+    //     // Legacy filters
+    //     if ($request->has('in_stock') && $request->boolean('in_stock')) {
+    //         $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //     }
+
+    //     if ($request->has('low_stock') && $request->boolean('low_stock')) {
+    //         $query->where('stock_quantity', '>', 0)
+    //             ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //     }
+
+    //     // New arrivals
+    //     if ($request->has('new-arrivals')) {
+    //         $query->where('created_at', '>=', now()->subDays(30));
+    //     }
+
+    //     if ($request->has('new_arrival_days') && is_numeric($request->new_arrival_days)) {
+    //         $days = (int) $request->new_arrival_days;
+    //         $query->where('created_at', '>=', now()->subDays($days));
+    //     }
+
+    //     // Search
+    //     if ($request->has('search') && $request->search) {
+    //         $search = $request->search;
+    //         $query->where(function ($q) use ($search) {
+    //             $q->where('name', 'LIKE', "%{$search}%")
+    //                 ->orWhere('product_code', 'LIKE', "%{$search}%")
+    //                 ->orWhere('slug', 'LIKE', "%{$search}%")
+    //                 ->orWhereHas('variants', function ($variantQuery) use ($search) {
+    //                     $variantQuery->where('sku', 'LIKE', "%{$search}%");
+    //                 });
+    //         });
+    //     }
+
+    //     // Sort
+    //     $sortField = $request->get('sort_by', 'created_at');
+    //     $sortDirection = $request->get('sort_direction', 'desc');
+
+    //     $allowedSortFields = ['id', 'name', 'product_code', 'retail_price', 'distributor_price', 'stock_quantity', 'created_at', 'updated_at'];
+    //     if (!in_array($sortField, $allowedSortFields)) {
+    //         $sortField = 'created_at';
+    //     }
+
+    //     $query->orderBy($sortField, $sortDirection);
+
+    //     // Pagination
+    //     $perPage = $request->get('per_page', 25);
+    //     $products = $query->paginate($perPage);
+
+    //     // Price range bhi account_type ke hisaab se
+    //     $priceRange = $this->getPriceRange($priceColumn);
+
+    //     // Wishlist
+    //     $wishlistIds = $this->getUserWishlistIds();
+
+    //     return response()->json([
+    //         'data' => $this->formatProductCollection($products, $wishlistIds, $isDistributor),
+    //         'pagination' => [
+    //             'total' => $products->total(),
+    //             'per_page' => $products->perPage(),
+    //             'current_page' => $products->currentPage(),
+    //             'last_page' => $products->lastPage(),
+    //             'from' => $products->firstItem(),
+    //             'to' => $products->lastItem(),
+    //         ],
+    //         'filters' => [
+    //             'price_range' => $priceRange,
+    //         ],
+    //         'meta' => [
+    //             'account_type' => $isDistributor ? 'distributor' : 'retail',
+    //             'price_column' => $priceColumn,
+    //         ],
+    //     ]);
+    // }
+
     public function index(Request $request)
     {
-        // Detect if logged-in user is a distributor
-        $user = $request->user(); // optional.auth:sanctum se automatically resolve hota hai
+        // ============================================================
+        // DETECT LOGGED-IN USER / ACCOUNT TYPE
+        // ============================================================
+
+        $user = $request->user();
+
         $isDistributor = $user && $user->account_type === 'distributor';
 
-        $query = Product::with(['category', 'subcategory', 'taxCategory', 'images', 'variants.images', 'brand'])
+        // Price column according to account type
+        $priceColumn = $isDistributor
+            ? 'distributor_price'
+            : 'retail_price';
+
+
+        // ============================================================
+        // BASE QUERY
+        // ============================================================
+
+        $query = Product::with([
+            'category',
+            'subcategory',
+            'taxCategory',
+            'images',
+            'variants.images',
+            'brand'
+        ])
             ->whereHas('brand', function ($q) {
                 $q->where('status', true);
             });
 
-        $query->orderBy('stock_quantity', 'desc');
 
-        // Filter by multiple categories
+        // ============================================================
+        // CATEGORY FILTER
+        // ============================================================
+
         if ($request->has('category_ids') && $request->category_ids) {
+
             $categoryIds = is_array($request->category_ids)
                 ? $request->category_ids
                 : explode(',', $request->category_ids);
-            $query->whereIn('category_id', $categoryIds);
+
+            $categoryIds = array_filter($categoryIds);
+
+            if (!empty($categoryIds)) {
+                $query->whereIn('category_id', $categoryIds);
+            }
         }
 
+
+        // ============================================================
+        // SUBCATEGORY FILTER
+        // ============================================================
+
         if ($request->has('subcategory_ids') && $request->subcategory_ids) {
+
             $subcategoryIds = is_array($request->subcategory_ids)
                 ? $request->subcategory_ids
                 : explode(',', $request->subcategory_ids);
-            $query->whereIn('subcategory_id', $subcategoryIds);
+
+            $subcategoryIds = array_filter($subcategoryIds);
+
+            if (!empty($subcategoryIds)) {
+                $query->whereIn('subcategory_id', $subcategoryIds);
+            }
         }
 
-        // Single category (backward compatibility)
-        if ($request->has('category_id') && $request->category_id && !$request->has('category_ids')) {
-            $query->where('category_id', $request->category_id);
+
+        // ============================================================
+        // SINGLE CATEGORY FILTER
+        // Backward compatibility
+        // ============================================================
+
+        if (
+            $request->has('category_id') &&
+            $request->category_id &&
+            !$request->has('category_ids')
+        ) {
+            $query->where(
+                'category_id',
+                $request->category_id
+            );
         }
 
-        // Filter by multiple brands
+
+        // ============================================================
+        // BRAND FILTER
+        // ============================================================
+
         if ($request->has('brand_ids') && $request->brand_ids) {
+
             $brandIds = is_array($request->brand_ids)
                 ? $request->brand_ids
                 : explode(',', $request->brand_ids);
-            $query->whereIn('brand_id', $brandIds);
+
+            $brandIds = array_filter($brandIds);
+
+            if (!empty($brandIds)) {
+                $query->whereIn('brand_id', $brandIds);
+            }
         }
+
 
         // ============================================================
-        // PRICE FILTER — account_type ke hisaab se column choose karo
+        // PRICE FILTER
         // ============================================================
-        $priceColumn = $isDistributor ? 'distributor_price' : 'retail_price';
 
-        if ($request->has('min_price') && is_numeric($request->min_price)) {
-            $query->where($priceColumn, '>=', $request->min_price);
+        if (
+            $request->has('min_price') &&
+            $request->min_price !== null &&
+            $request->min_price !== '' &&
+            is_numeric($request->min_price)
+        ) {
+            $query->where(
+                $priceColumn,
+                '>=',
+                $request->min_price
+            );
         }
 
-        if ($request->has('max_price') && is_numeric($request->max_price)) {
-            $query->where($priceColumn, '<=', $request->max_price);
+
+        if (
+            $request->has('max_price') &&
+            $request->max_price !== null &&
+            $request->max_price !== '' &&
+            is_numeric($request->max_price)
+        ) {
+            $query->where(
+                $priceColumn,
+                '<=',
+                $request->max_price
+            );
         }
 
-        // Filter by published status
+
+        // ============================================================
+        // PUBLISHED STATUS FILTER
+        // ============================================================
+
         if ($request->has('is_published')) {
-            $query->where('is_published', $request->boolean('is_published'));
+
+            $query->where(
+                'is_published',
+                $request->boolean('is_published')
+            );
         }
 
-        // Filter by stock status
-        if ($request->has('stock_status')) {
+
+        // ============================================================
+        // STOCK STATUS FILTER
+        // ============================================================
+
+        if (
+            $request->has('stock_status') &&
+            $request->stock_status
+        ) {
+
             $stockStatus = $request->stock_status;
 
+            // MULTIPLE STOCK STATUS
             if (is_array($stockStatus)) {
+
                 $query->where(function ($q) use ($stockStatus) {
-                    $q->where(function ($sub) use ($stockStatus) {
-                        if (in_array('in_stock', $stockStatus)) {
-                            $sub->orWhereColumn('stock_quantity', '>', 'low_stock_threshold');
-                        }
-                        if (in_array('low_stock', $stockStatus)) {
-                            $sub->orWhere(function ($q) {
-                                $q->where('stock_quantity', '>', 0)
-                                    ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
-                            });
-                        }
-                        if (in_array('out_of_stock', $stockStatus)) {
-                            $sub->orWhere('stock_quantity', '=', 0);
-                        }
-                    });
+
+                    // In stock
+                    if (in_array('in_stock', $stockStatus)) {
+
+                        $q->orWhereColumn(
+                            'stock_quantity',
+                            '>',
+                            'low_stock_threshold'
+                        );
+                    }
+
+                    // Low stock
+                    if (in_array('low_stock', $stockStatus)) {
+
+                        $q->orWhere(function ($subQuery) {
+
+                            $subQuery
+                                ->where(
+                                    'stock_quantity',
+                                    '>',
+                                    0
+                                )
+                                ->whereColumn(
+                                    'stock_quantity',
+                                    '<=',
+                                    'low_stock_threshold'
+                                );
+                        });
+                    }
+
+                    // Out of stock
+                    if (in_array('out_of_stock', $stockStatus)) {
+
+                        $q->orWhere(
+                            'stock_quantity',
+                            '=',
+                            0
+                        );
+                    }
                 });
             } else {
+
+                // SINGLE STOCK STATUS
                 switch ($stockStatus) {
+
                     case 'in_stock':
-                        $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+
+                        $query->whereColumn(
+                            'stock_quantity',
+                            '>',
+                            'low_stock_threshold'
+                        );
+
                         break;
+
                     case 'low_stock':
-                        $query->where('stock_quantity', '>', 0)
-                            ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+
+                        $query
+                            ->where(
+                                'stock_quantity',
+                                '>',
+                                0
+                            )
+                            ->whereColumn(
+                                'stock_quantity',
+                                '<=',
+                                'low_stock_threshold'
+                            );
+
                         break;
+
                     case 'out_of_stock':
-                        $query->where('stock_quantity', '=', 0);
+
+                        $query->where(
+                            'stock_quantity',
+                            '=',
+                            0
+                        );
+
                         break;
                 }
             }
         }
 
-        // Legacy filters
-        if ($request->has('in_stock') && $request->boolean('in_stock')) {
-            $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+
+        // ============================================================
+        // LEGACY STOCK FILTERS
+        // ============================================================
+
+        if (
+            $request->has('in_stock') &&
+            $request->boolean('in_stock')
+        ) {
+
+            $query->whereColumn(
+                'stock_quantity',
+                '>',
+                'low_stock_threshold'
+            );
         }
 
-        if ($request->has('low_stock') && $request->boolean('low_stock')) {
-            $query->where('stock_quantity', '>', 0)
-                ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+
+        if (
+            $request->has('low_stock') &&
+            $request->boolean('low_stock')
+        ) {
+
+            $query
+                ->where(
+                    'stock_quantity',
+                    '>',
+                    0
+                )
+                ->whereColumn(
+                    'stock_quantity',
+                    '<=',
+                    'low_stock_threshold'
+                );
         }
 
-        // New arrivals
+
+        // ============================================================
+        // NEW ARRIVALS
+        // ============================================================
+
         if ($request->has('new-arrivals')) {
-            $query->where('created_at', '>=', now()->subDays(30));
+
+            $query->where(
+                'created_at',
+                '>=',
+                now()->subDays(30)
+            );
         }
 
-        if ($request->has('new_arrival_days') && is_numeric($request->new_arrival_days)) {
+
+        if (
+            $request->has('new_arrival_days') &&
+            is_numeric($request->new_arrival_days)
+        ) {
+
             $days = (int) $request->new_arrival_days;
-            $query->where('created_at', '>=', now()->subDays($days));
+
+            if ($days > 0) {
+
+                $query->where(
+                    'created_at',
+                    '>=',
+                    now()->subDays($days)
+                );
+            }
         }
 
-        // Search
-        if ($request->has('search') && $request->search) {
-            $search = $request->search;
+
+        // ============================================================
+        // SEARCH
+        // ============================================================
+
+        if (
+            $request->has('search') &&
+            $request->search
+        ) {
+
+            $search = trim($request->search);
+
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'LIKE', "%{$search}%")
-                    ->orWhere('product_code', 'LIKE', "%{$search}%")
-                    ->orWhere('slug', 'LIKE', "%{$search}%")
+
+                $q->where(
+                    'name',
+                    'LIKE',
+                    "%{$search}%"
+                )
+
+                    ->orWhere(
+                        'product_code',
+                        'LIKE',
+                        "%{$search}%"
+                    )
+
+                    ->orWhere(
+                        'slug',
+                        'LIKE',
+                        "%{$search}%"
+                    )
+
                     ->orWhereHas('variants', function ($variantQuery) use ($search) {
-                        $variantQuery->where('sku', 'LIKE', "%{$search}%");
+
+                        $variantQuery->where(
+                            'sku',
+                            'LIKE',
+                            "%{$search}%"
+                        );
                     });
             });
         }
 
-        // Sort
-        $sortField = $request->get('sort_by', 'created_at');
-        $sortDirection = $request->get('sort_direction', 'desc');
 
-        $allowedSortFields = ['id', 'name', 'product_code', 'retail_price', 'distributor_price', 'stock_quantity', 'created_at', 'updated_at'];
-        if (!in_array($sortField, $allowedSortFields)) {
-            $sortField = 'created_at';
+        // ============================================================
+        // SORT
+        // ============================================================
+        //
+        // IMPORTANT:
+        //
+        // stock_quantity = 0
+        // -----------------
+        // Always goes LAST.
+        //
+        // Then requested sorting is applied.
+        //
+        // ?sort=price-low
+        //      Price Low -> High
+        //
+        // ?sort=price-high
+        //      Price High -> Low
+        //
+        // Distributor:
+        //      distributor_price
+        //
+        // Retail:
+        //      retail_price
+        //
+        // ============================================================
+
+        // ------------------------------------------------------------
+        // FIRST PRIORITY (ALWAYS):
+        // In-stock products first
+        // Out-of-stock products last
+        //
+        // This is applied BEFORE any other sort so that it works
+        // with EVERY filter and EVERY sort option.
+        // ------------------------------------------------------------
+        $query->orderByRaw(
+            'CASE WHEN stock_quantity = 0 THEN 1 ELSE 0 END ASC'
+        );
+
+
+        // ------------------------------------------------------------
+        // SECOND PRIORITY: Requested custom price sorting
+        // ------------------------------------------------------------
+        $sortParam = $request->get('sort');
+
+
+        if ($sortParam === 'price-low') {
+
+            // Low to High
+            $query->orderBy(
+                $priceColumn,
+                'asc'
+            );
+        } elseif ($sortParam === 'price-high') {
+
+            // High to Low
+            $query->orderBy(
+                $priceColumn,
+                'desc'
+            );
+        } else {
+
+            // --------------------------------------------------------
+            // EXISTING sort_by / sort_direction
+            // --------------------------------------------------------
+
+            $sortField = $request->get(
+                'sort_by',
+                'created_at'
+            );
+
+            $sortDirection = strtolower(
+                $request->get(
+                    'sort_direction',
+                    'desc'
+                )
+            );
+
+
+            // Allowed fields
+            $allowedSortFields = [
+                'id',
+                'name',
+                'product_code',
+                'retail_price',
+                'distributor_price',
+                'stock_quantity',
+                'created_at',
+                'updated_at',
+            ];
+
+
+            // Validate sort field
+            if (!in_array(
+                $sortField,
+                $allowedSortFields
+            )) {
+                $sortField = 'created_at';
+            }
+
+
+            // Validate sort direction
+            if (!in_array(
+                $sortDirection,
+                ['asc', 'desc']
+            )) {
+                $sortDirection = 'desc';
+            }
+
+
+            $query->orderBy(
+                $sortField,
+                $sortDirection
+            );
         }
 
-        $query->orderBy($sortField, $sortDirection);
 
-        // Pagination
-        $perPage = $request->get('per_page', 25);
-        $products = $query->paginate($perPage);
+        // ============================================================
+        // PAGINATION
+        // ============================================================
 
-        // Price range bhi account_type ke hisaab se
-        $priceRange = $this->getPriceRange($priceColumn);
+        $perPage = (int) $request->get(
+            'per_page',
+            25
+        );
 
-        // Wishlist
+        // Minimum 1, Maximum 100
+        if ($perPage < 1) {
+            $perPage = 25;
+        }
+
+        if ($perPage > 100) {
+            $perPage = 100;
+        }
+
+
+        $products = $query->paginate(
+            $perPage
+        );
+
+
+        // ============================================================
+        // PRICE RANGE
+        // ============================================================
+
+        $priceRange = $this->getPriceRange(
+            $priceColumn
+        );
+
+
+        // ============================================================
+        // WISHLIST
+        // ============================================================
+
         $wishlistIds = $this->getUserWishlistIds();
 
+
+        // ============================================================
+        // RESPONSE
+        // ============================================================
+
         return response()->json([
-            'data' => $this->formatProductCollection($products, $wishlistIds, $isDistributor),
+
+            'data' => $this->formatProductCollection(
+                $products,
+                $wishlistIds,
+                $isDistributor
+            ),
+
             'pagination' => [
+
                 'total' => $products->total(),
+
                 'per_page' => $products->perPage(),
+
                 'current_page' => $products->currentPage(),
+
                 'last_page' => $products->lastPage(),
+
                 'from' => $products->firstItem(),
+
                 'to' => $products->lastItem(),
             ],
+
             'filters' => [
+
                 'price_range' => $priceRange,
             ],
+
             'meta' => [
-                'account_type' => $isDistributor ? 'distributor' : 'retail',
+
+                'account_type' => $isDistributor
+                    ? 'distributor'
+                    : 'retail',
+
                 'price_column' => $priceColumn,
+
+                'sort' => $sortParam,
             ],
         ]);
     }
