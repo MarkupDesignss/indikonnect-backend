@@ -1513,49 +1513,161 @@ class ProductController extends Controller
     /**
      * Handle product images
      */
+    // protected function handleProductImages($request, $product)
+    // {
+    //     $productImages = $request->input('product_images', []);
+    //     $imageCount = 0;
+    //     $hasPrimary = false;
+
+    //     if (!empty($productImages)) {
+    //         foreach ($productImages as $index => $imageData) {
+    //             $imageFile = $request->file("product_images.{$index}.image");
+
+    //             if ($imageFile && $imageFile->isValid()) {
+    //                 $path = $imageFile->store('products', 'public');
+    //                 $sortOrder = isset($imageData['sort_order']) ? (int) $imageData['sort_order'] : $imageCount;
+
+    //                 $isPrimary = false;
+    //                 if (isset($imageData['is_primary'])) {
+    //                     $isPrimary = (bool) $imageData['is_primary'];
+    //                 } elseif (!$hasPrimary && $imageCount === 0) {
+    //                     $isPrimary = true;
+    //                 }
+
+    //                 ProductImage::create([
+    //                     'product_id' => $product->id,
+    //                     'image' => $path,
+    //                     'is_primary' => $isPrimary,
+    //                     'sort_order' => $sortOrder,
+    //                 ]);
+
+    //                 if ($isPrimary) {
+    //                     $hasPrimary = true;
+    //                 }
+
+    //                 $imageCount++;
+    //             }
+    //         }
+
+    //         if (!$hasPrimary && $imageCount > 0) {
+    //             $firstImage = ProductImage::where('product_id', $product->id)
+    //                 ->orderBy('sort_order')
+    //                 ->first();
+    //             if ($firstImage) {
+    //                 $firstImage->update(['is_primary' => true]);
+    //             }
+    //         }
+    //     }
+    // }
+
     protected function handleProductImages($request, $product)
     {
         $productImages = $request->input('product_images', []);
         $imageCount = 0;
         $hasPrimary = false;
 
-        if (!empty($productImages)) {
-            foreach ($productImages as $index => $imageData) {
-                $imageFile = $request->file("product_images.{$index}.image");
+        if (empty($productImages)) {
+            return;
+        }
 
-                if ($imageFile && $imageFile->isValid()) {
-                    $path = $imageFile->store('products', 'public');
-                    $sortOrder = isset($imageData['sort_order']) ? (int) $imageData['sort_order'] : $imageCount;
+        // --- Use Imagick if available, otherwise GD ---
+        $useImagick = extension_loaded('imagick');
+        $driver = $useImagick
+            ? new \Intervention\Image\Drivers\Imagick\Driver()
+            : new \Intervention\Image\Drivers\Gd\Driver();
 
-                    $isPrimary = false;
-                    if (isset($imageData['is_primary'])) {
-                        $isPrimary = (bool) $imageData['is_primary'];
-                    } elseif (!$hasPrimary && $imageCount === 0) {
-                        $isPrimary = true;
-                    }
+        $manager = new ImageManager($driver);
+        $uploadDir = public_path('storage/products/');
+        if (!File::exists($uploadDir)) {
+            File::makeDirectory($uploadDir, 0755, true);
+        }
 
-                    ProductImage::create([
-                        'product_id' => $product->id,
-                        'image' => $path,
-                        'is_primary' => $isPrimary,
-                        'sort_order' => $sortOrder,
-                    ]);
+        foreach ($productImages as $index => $imageData) {
+            $imageFile = $request->file("product_images.{$index}.image");
 
-                    if ($isPrimary) {
-                        $hasPrimary = true;
-                    }
-
-                    $imageCount++;
-                }
+            if (!$imageFile || !$imageFile->isValid()) {
+                continue;
             }
 
-            if (!$hasPrimary && $imageCount > 0) {
-                $firstImage = ProductImage::where('product_id', $product->id)
-                    ->orderBy('sort_order')
-                    ->first();
-                if ($firstImage) {
-                    $firstImage->update(['is_primary' => true]);
+            try {
+                $image = $manager->read($imageFile->getRealPath());
+
+                // --- PRESERVE COLOR PROFILE & LIGHTING (only with Imagick) ---
+                if ($useImagick) {
+                    try {
+                        $imagick = $image->core()->native();
+                        $imagick->setImageColorSpace(\Imagick::COLORSPACE_SRGB);
+
+                        if (method_exists(\Imagick::class, 'sRGBColorProfile')) {
+                            $srgbProfile = \Imagick::sRGBColorProfile();
+                            if ($srgbProfile) {
+                                $imagick->setImageProfile('icc', $srgbProfile);
+                            }
+                        }
+                        $image = $manager->read($imagick->getImageBlob());
+                    } catch (\Exception $e) {
+                        \Log::warning('Color profile handling failed: ' . $e->getMessage());
+                    }
                 }
+
+                // --- DO NOT RESIZE – KEEP ORIGINAL RESOLUTION ---
+                // --- ENCODE AS WEBP WITH 95% QUALITY ---
+                $encoded = $image->toWebp(95);
+                $fileName = time() . '_' . uniqid() . '.webp';
+                $fullPath = $uploadDir . $fileName;
+                $encoded->save($fullPath);
+
+                $relativePath = 'products/' . $fileName;
+
+                // Sort order
+                $sortOrder = isset($imageData['sort_order'])
+                    ? (int) $imageData['sort_order']
+                    : $imageCount;
+
+                // Primary flag
+                $isPrimary = false;
+                if (isset($imageData['is_primary'])) {
+                    $isPrimary = (bool) $imageData['is_primary'];
+                } elseif (!$hasPrimary && $imageCount === 0) {
+                    $isPrimary = true;
+                }
+
+                ProductImage::create([
+                    'product_id' => $product->id,
+                    'image'      => $relativePath,
+                    'is_primary' => $isPrimary,
+                    'sort_order' => $sortOrder,
+                ]);
+
+                if ($isPrimary) {
+                    $hasPrimary = true;
+                }
+                $imageCount++;
+
+            } catch (\Exception $e) {
+                Log::error('Product image optimization failed', [
+                    'product_id' => $product->id,
+                    'error' => $e->getMessage(),
+                ]);
+                // Fallback: store original
+                $path = $imageFile->store('products', 'public');
+                ProductImage::create([
+                    'product_id' => $product->id,
+                    'image'      => $path,
+                    'is_primary' => !$hasPrimary && $imageCount === 0,
+                    'sort_order' => $imageCount,
+                ]);
+                $imageCount++;
+            }
+        }
+
+        // Ensure a primary image exists
+        if (!$hasPrimary && $imageCount > 0) {
+            $firstImage = ProductImage::where('product_id', $product->id)
+                ->orderBy('sort_order')
+                ->first();
+            if ($firstImage) {
+                $firstImage->update(['is_primary' => true]);
             }
         }
     }
@@ -2532,72 +2644,157 @@ class ProductController extends Controller
         return $variantImages;
     }
 
+    // private function handleVariantImageUpdates(ProductVariant $variant, array $images): void
+    // {
+    //     foreach ($images as $imageData) {
+    //         // Skip if no image or not an UploadedFile
+    //         if (!isset($imageData['image'])) {
+    //             continue;
+    //         }
+
+    //         $uploadedFile = $imageData['image'];
+
+    //         // Check if it's an UploadedFile instance
+    //         if (!$uploadedFile instanceof \Illuminate\Http\UploadedFile) {
+    //             // If it's a string (existing image path or URL), skip or handle accordingly
+    //             if (is_string($uploadedFile) && !empty($uploadedFile)) {
+    //                 // This might be an existing image path - skip uploading
+    //                 // Or if you want to copy from existing, handle here
+    //                 continue;
+    //             }
+    //             continue;
+    //         }
+
+    //         try {
+    //             // Generate a unique filename
+    //             $filename = time() . '_' . uniqid() . '.' . $uploadedFile->getClientOriginalExtension();
+
+    //             // Store the image
+    //             $path = $uploadedFile->storeAs('variant-images', $filename, 'public');
+
+    //             if (!$path) {
+    //                 Log::error('Failed to store variant image', [
+    //                     'variant_id' => $variant->id,
+    //                     'original_name' => $uploadedFile->getClientOriginalName()
+    //                 ]);
+    //                 continue;
+    //             }
+
+    //             // Create variant image record
+    //             $variantImage = new VariantImage([
+    //                 'variant_id' => $variant->id,
+    //                 'image' => $path,
+    //                 'sort_order' => $imageData['sort_order'] ?? 0,
+    //                 'is_primary' => $imageData['is_primary'] ?? false,
+    //             ]);
+
+    //             $variantImage->save();
+
+    //             // Log successful upload
+    //             Log::info('Variant image uploaded', [
+    //                 'variant_id' => $variant->id,
+    //                 'image_id' => $variantImage->id,
+    //                 'path' => $path
+    //             ]);
+
+    //             // If this image is primary, unset other primary images for this variant
+    //             if ($variantImage->is_primary) {
+    //                 VariantImage::where('variant_id', $variant->id)
+    //                     ->where('id', '!=', $variantImage->id)
+    //                     ->update(['is_primary' => false]);
+    //             }
+    //         } catch (\Exception $e) {
+    //             Log::error('Failed to save variant image:', [
+    //                 'variant_id' => $variant->id,
+    //                 'error' => $e->getMessage(),
+    //                 'trace' => $e->getTraceAsString()
+    //             ]);
+    //             // Optionally re-throw or continue
+    //         }
+    //     }
+    // }
+
     private function handleVariantImageUpdates(ProductVariant $variant, array $images): void
     {
+        // --- Use Imagick if available, otherwise GD ---
+        $useImagick = extension_loaded('imagick');
+        $driver = $useImagick
+            ? new \Intervention\Image\Drivers\Imagick\Driver()
+            : new \Intervention\Image\Drivers\Gd\Driver();
+
+        $manager = new ImageManager($driver);
+        $uploadDir = public_path('storage/variant-images/');
+        if (!File::exists($uploadDir)) {
+            File::makeDirectory($uploadDir, 0755, true);
+        }
+
         foreach ($images as $imageData) {
-            // Skip if no image or not an UploadedFile
             if (!isset($imageData['image'])) {
                 continue;
             }
 
             $uploadedFile = $imageData['image'];
 
-            // Check if it's an UploadedFile instance
             if (!$uploadedFile instanceof \Illuminate\Http\UploadedFile) {
-                // If it's a string (existing image path or URL), skip or handle accordingly
-                if (is_string($uploadedFile) && !empty($uploadedFile)) {
-                    // This might be an existing image path - skip uploading
-                    // Or if you want to copy from existing, handle here
-                    continue;
-                }
                 continue;
             }
 
             try {
-                // Generate a unique filename
-                $filename = time() . '_' . uniqid() . '.' . $uploadedFile->getClientOriginalExtension();
+                $image = $manager->read($uploadedFile->getRealPath());
 
-                // Store the image
-                $path = $uploadedFile->storeAs('variant-images', $filename, 'public');
+                // --- PRESERVE COLOR PROFILE & LIGHTING (only with Imagick) ---
+                if ($useImagick) {
+                    try {
+                        $imagick = $image->core()->native();
+                        $imagick->setImageColorSpace(\Imagick::COLORSPACE_SRGB);
 
-                if (!$path) {
-                    Log::error('Failed to store variant image', [
-                        'variant_id' => $variant->id,
-                        'original_name' => $uploadedFile->getClientOriginalName()
-                    ]);
-                    continue;
+                        if (method_exists(\Imagick::class, 'sRGBColorProfile')) {
+                            $srgbProfile = \Imagick::sRGBColorProfile();
+                            if ($srgbProfile) {
+                                $imagick->setImageProfile('icc', $srgbProfile);
+                            }
+                        }
+                        $image = $manager->read($imagick->getImageBlob());
+                    } catch (\Exception $e) {
+                        \Log::warning('Variant color profile failed: ' . $e->getMessage());
+                    }
                 }
 
-                // Create variant image record
-                $variantImage = new VariantImage([
+                // --- DO NOT RESIZE – KEEP ORIGINAL RESOLUTION ---
+                // --- ENCODE AS WEBP WITH 95% QUALITY ---
+                $encoded = $image->toWebp(95);
+                $fileName = time() . '_' . uniqid() . '.webp';
+                $fullPath = $uploadDir . $fileName;
+                $encoded->save($fullPath);
+
+                $relativePath = 'variant-images/' . $fileName;
+
+                $variantImage = VariantImage::create([
                     'variant_id' => $variant->id,
-                    'image' => $path,
+                    'image'      => $relativePath,
                     'sort_order' => $imageData['sort_order'] ?? 0,
                     'is_primary' => $imageData['is_primary'] ?? false,
                 ]);
 
-                $variantImage->save();
-
-                // Log successful upload
-                Log::info('Variant image uploaded', [
-                    'variant_id' => $variant->id,
-                    'image_id' => $variantImage->id,
-                    'path' => $path
-                ]);
-
-                // If this image is primary, unset other primary images for this variant
                 if ($variantImage->is_primary) {
                     VariantImage::where('variant_id', $variant->id)
                         ->where('id', '!=', $variantImage->id)
                         ->update(['is_primary' => false]);
                 }
+
             } catch (\Exception $e) {
-                Log::error('Failed to save variant image:', [
+                Log::error('Variant image optimization failed', [
                     'variant_id' => $variant->id,
                     'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString()
                 ]);
-                // Optionally re-throw or continue
+                // Fallback: store original
+                $path = $uploadedFile->store('variant-images', 'public');
+                VariantImage::create([
+                    'variant_id' => $variant->id,
+                    'image'      => $path,
+                    'sort_order' => $imageData['sort_order'] ?? 0,
+                    'is_primary' => $imageData['is_primary'] ?? false,
+                ]);
             }
         }
     }
@@ -2605,9 +2802,78 @@ class ProductController extends Controller
     /**
      * Handle product image updates
      */
+    // protected function handleProductImageUpdates($request, $product)
+    // {
+    //     // Remove specified images
+    //     $removeImages = $request->input('remove_images', []);
+    //     if (!empty($removeImages)) {
+    //         $imagesToRemove = ProductImage::whereIn('id', $removeImages)
+    //             ->where('product_id', $product->id)
+    //             ->get();
+
+    //         foreach ($imagesToRemove as $image) {
+    //             if (Storage::disk('public')->exists($image->image)) {
+    //                 Storage::disk('public')->delete($image->image);
+    //             }
+    //             $image->delete();
+    //         }
+    //     }
+
+    //     // Add new images
+    //     $productImages = $request->input('product_images', []);
+    //     if (!empty($productImages)) {
+    //         $existingCount = $product->images()->count();
+    //         $hasPrimary = $product->images()->where('is_primary', true)->exists();
+    //         $imageCount = 0;
+
+    //         foreach ($productImages as $index => $imageData) {
+    //             $imageFile = $request->file("product_images.{$index}.image");
+
+    //             if ($imageFile && $imageFile->isValid()) {
+    //                 $path = $imageFile->store('products', 'public');
+
+    //                 $sortOrder = isset($imageData['sort_order'])
+    //                     ? (int) $imageData['sort_order']
+    //                     : $existingCount + $imageCount;
+
+    //                 $isPrimary = false;
+    //                 if (isset($imageData['is_primary'])) {
+    //                     $isPrimary = (bool) $imageData['is_primary'];
+    //                 } elseif (!$hasPrimary && $imageCount === 0) {
+    //                     $isPrimary = true;
+    //                 }
+
+    //                 ProductImage::create([
+    //                     'product_id' => $product->id,
+    //                     'image' => $path,
+    //                     'is_primary' => $isPrimary,
+    //                     'sort_order' => $sortOrder,
+    //                 ]);
+
+    //                 if ($isPrimary) {
+    //                     $hasPrimary = true;
+    //                 }
+
+    //                 $imageCount++;
+    //             }
+    //         }
+
+    //         if (!$hasPrimary && $imageCount > 0) {
+    //             $firstImage = ProductImage::where('product_id', $product->id)
+    //                 ->orderBy('sort_order')
+    //                 ->first();
+    //             if ($firstImage) {
+    //                 $firstImage->update(['is_primary' => true]);
+    //             }
+    //         }
+    //     }
+    // }
+
     protected function handleProductImageUpdates($request, $product)
     {
-        // Remove specified images
+        // ================================================================
+        //   REMOVE SPECIFIED IMAGES (same as before)
+        // ================================================================
         $removeImages = $request->input('remove_images', []);
         if (!empty($removeImages)) {
             $imagesToRemove = ProductImage::whereIn('id', $removeImages)
@@ -2622,23 +2888,83 @@ class ProductController extends Controller
             }
         }
 
-        // Add new images
+        // ================================================================
+        //   ADD NEW IMAGES – SAME OPTIMIZATION AS ItemController
+        // ================================================================
         $productImages = $request->input('product_images', []);
         if (!empty($productImages)) {
+
+            // --- Use Imagick if available, otherwise GD ---
+            $useImagick = extension_loaded('imagick');
+            $driver = $useImagick
+                ? new \Intervention\Image\Drivers\Imagick\Driver()
+                : new \Intervention\Image\Drivers\Gd\Driver();
+
+            $manager = new ImageManager($driver);
+
+            $uploadDir = public_path('storage/products/');
+            if (!File::exists($uploadDir)) {
+                File::makeDirectory($uploadDir, 0755, true);
+            }
+
             $existingCount = $product->images()->count();
-            $hasPrimary = $product->images()->where('is_primary', true)->exists();
-            $imageCount = 0;
+            $hasPrimary    = $product->images()->where('is_primary', true)->exists();
+            $imageCount    = 0;
 
             foreach ($productImages as $index => $imageData) {
                 $imageFile = $request->file("product_images.{$index}.image");
 
-                if ($imageFile && $imageFile->isValid()) {
-                    $path = $imageFile->store('products', 'public');
+                if (!$imageFile || !$imageFile->isValid()) {
+                    continue;
+                }
 
+                try {
+                    $image = $manager->read($imageFile->getRealPath());
+
+                    // --- PRESERVE COLOR PROFILE & LIGHTING (only with Imagick) ---
+                    if ($useImagick) {
+                        try {
+                            // Get the native Imagick object
+                            $imagick = $image->core()->native();
+
+                            // Set sRGB color space – preserves brightness/contrast
+                            $imagick->setImageColorSpace(\Imagick::COLORSPACE_SRGB);
+
+                            // Embed sRGB ICC profile if the method exists
+                            if (method_exists(\Imagick::class, 'sRGBColorProfile')) {
+                                $srgbProfile = \Imagick::sRGBColorProfile();
+                                if ($srgbProfile) {
+                                    $imagick->setImageProfile('icc', $srgbProfile);
+                                }
+                            }
+
+                            // Re-read from the modified Imagick object
+                            $image = $manager->read($imagick->getImageBlob());
+                        } catch (\Exception $e) {
+                            // Log error but continue – image will still be saved (without profile)
+                            \Log::warning('Color profile handling failed: ' . $e->getMessage());
+                        }
+                    } else {
+                        \Log::info('Imagick not available – colors may appear dull. Please install php-imagick.');
+                    }
+
+                    // --- DO NOT RESIZE – KEEP ORIGINAL RESOLUTION ---
+                    // $image->scale(...);  // <-- NEVER UNCOMMENT
+
+                    // --- ENCODE AS WEBP WITH 95% QUALITY ---
+                    $encoded  = $image->toWebp(95);
+                    $fileName = time() . '_' . uniqid() . '.webp';
+                    $fullPath = $uploadDir . $fileName;
+                    $encoded->save($fullPath);
+
+                    $relativePath = 'products/' . $fileName;
+
+                    // --- Sort order ---
                     $sortOrder = isset($imageData['sort_order'])
                         ? (int) $imageData['sort_order']
                         : $existingCount + $imageCount;
 
+                    // --- Primary flag ---
                     $isPrimary = false;
                     if (isset($imageData['is_primary'])) {
                         $isPrimary = (bool) $imageData['is_primary'];
@@ -2648,7 +2974,7 @@ class ProductController extends Controller
 
                     ProductImage::create([
                         'product_id' => $product->id,
-                        'image' => $path,
+                        'image'      => $relativePath,
                         'is_primary' => $isPrimary,
                         'sort_order' => $sortOrder,
                     ]);
@@ -2658,9 +2984,55 @@ class ProductController extends Controller
                     }
 
                     $imageCount++;
+
+                } catch (\Exception $e) {
+                    // ============================================================
+                    //   FALLBACK: If optimization fails, save original
+                    // ============================================================
+                    try {
+                        $extension = strtolower($imageFile->getClientOriginalExtension() ?: 'jpg');
+                        $fileName  = time() . '_' . uniqid() . '.' . $extension;
+                        $imageFile->move($uploadDir, $fileName);
+                        $relativePath = 'products/' . $fileName;
+
+                        $sortOrder = isset($imageData['sort_order'])
+                            ? (int) $imageData['sort_order']
+                            : $existingCount + $imageCount;
+
+                        $isPrimary = false;
+                        if (isset($imageData['is_primary'])) {
+                            $isPrimary = (bool) $imageData['is_primary'];
+                        } elseif (!$hasPrimary && $imageCount === 0) {
+                            $isPrimary = true;
+                        }
+
+                        ProductImage::create([
+                            'product_id' => $product->id,
+                            'image'      => $relativePath,
+                            'is_primary' => $isPrimary,
+                            'sort_order' => $sortOrder,
+                        ]);
+
+                        if ($isPrimary) {
+                            $hasPrimary = true;
+                        }
+
+                        $imageCount++;
+
+                        Log::error('Product image optimization failed, saved original', [
+                            'product_id' => $product->id,
+                            'error'      => $e->getMessage(),
+                        ]);
+                    } catch (\Exception $e2) {
+                        Log::error('Product image save completely failed', [
+                            'product_id' => $product->id,
+                            'error'      => $e2->getMessage(),
+                        ]);
+                    }
                 }
             }
 
+            // --- Ensure a primary image exists ---
             if (!$hasPrimary && $imageCount > 0) {
                 $firstImage = ProductImage::where('product_id', $product->id)
                     ->orderBy('sort_order')
