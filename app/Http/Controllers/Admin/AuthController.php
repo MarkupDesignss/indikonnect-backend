@@ -13,18 +13,25 @@ use Illuminate\Support\Facades\Mail;
 use App\Mail\DistributorStatusMail;
 use Carbon\Carbon;
 use App\Models\User;
-use App\Models\BusinessProfile;
+use App\Models\DistributorProfile;
 use Illuminate\Validation\Rule;
 use App\Traits\AuditLogTrait;
 use App\Models\RejectedUser;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use App\Services\NotificationService;
 
 class AuthController extends Controller
 {
 
     use AuditLogTrait;
+    protected NotificationService $notificationService;
+    public function __construct(
+        NotificationService $notificationService
+    ) {
+        $this->notificationService = $notificationService;
+    }
     // public function login(Request $request)
     // {
     //     // Validate input
@@ -837,7 +844,7 @@ class AuthController extends Controller
     public function getRegisteredUsers()
     {
         try {
-            $users = User::with('role', 'businessProfile')
+            $users = User::with('role', 'distributorProfile')
                 ->where('is_registered', true)
                 ->orderBy('id', 'desc')
                 ->get()
@@ -866,7 +873,7 @@ class AuthController extends Controller
     public function getUserDetails($id)
     {
         try {
-            $user = User::with('role', 'businessProfile')->where('is_registered', true)
+            $user = User::with('role', 'distributorProfile')->where('is_registered', true)
                 ->where('id', $id)
                 ->get();
 
@@ -1105,7 +1112,7 @@ class AuthController extends Controller
             }
 
             // Find business profile
-            $businessProfile = BusinessProfile::where('user_id', $distributor->id)
+            $businessProfile = DistributorProfile::where('user_id', $distributor->id)
                 ->first();
 
             if (!$businessProfile) {
@@ -1158,8 +1165,41 @@ class AuthController extends Controller
             $distributor->distributor_status = $newDistributorStatus;
             $distributor->save();
 
+            $eventType = $newKycStatus === 'verified'
+                ? 'distributor_kyc_approved'
+                : 'distributor_kyc_rejected';
+
+            $templateData = [
+                'title'         => $newKycStatus === 'verified' ? 'KYC Verified' : 'KYC Rejected',
+                'message'       => $newKycStatus === 'verified'
+                    ? 'Your KYC has been verified and your distributor account is now active.'
+                    : "Your KYC was rejected. Reason: {$rejectionReason}",
+                'customer_name' => $distributor->full_name ?? $distributor->name ?? 'Distributor',
+                'phone'         => $distributor->phone,
+                'email'         => $distributor->email,
+                'approved_at'   => $newKycStatus === 'verified' ? now()->format('d M Y, h:i A') : '',
+                'rejected_at'   => $newKycStatus === 'rejected' ? now()->format('d M Y, h:i A') : '',
+                'rejection_reason' => $rejectionReason ?? '',
+                'url'           => rtrim(config('app.frontend_url', config('app.url')), '/') . '/dashboard',
+            ];
+
+            try {
+                $this->notificationService->sendUserNotification(
+                    $distributor,
+                    $eventType,
+                    $templateData,
+                    ['database', 'mail']
+                );
+            } catch (\Throwable $e) {
+                Log::error('KYC status notification failed', [
+                    'user_id'    => $distributor->id,
+                    'event_type' => $eventType,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+
             // Send email notification to user with rejection reason if applicable
-            $this->sendKycStatusEmail($distributor, $newKycStatus, $rejectionReason);
+            // $this->sendKycStatusEmail($distributor, $newKycStatus, $rejectionReason);
 
             return response()->json([
                 'success' => true,

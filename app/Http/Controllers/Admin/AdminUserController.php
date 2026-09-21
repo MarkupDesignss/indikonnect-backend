@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Models\BusinessProfile;
+use App\Models\DistributorProfile;
 use App\Models\UserNotificationSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -367,7 +367,7 @@ class AdminUserController extends Controller
                 $profileData['encrypted_bank_account'] = encrypt($request->encrypted_bank_account);
             }
 
-            $businessProfile = BusinessProfile::updateOrCreate(
+            $businessProfile = DistributorProfile::updateOrCreate(
                 ['user_id' => $user->id],
                 $profileData
             );
@@ -392,7 +392,7 @@ class AdminUserController extends Controller
             return response()->json([
                 'status'  => true,
                 'message' => 'Distributor account created successfully.',
-                'user'    => $user->load('businessProfile'),
+                'user'    => $user->load('distributorProfile'),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();

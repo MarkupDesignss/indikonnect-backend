@@ -2405,7 +2405,7 @@ class ReturnService
 
             // 8. Completed notification
             $this->createReturnNotification($returnOrder, 'completed');
-            $this->sendUserNotification($returnOrder, 'rejected');
+            $this->sendUserNotification($returnOrder, 'completed');
 
             // 9. Response
             return [
@@ -3451,15 +3451,57 @@ class ReturnService
      */
     // protected function sendUserNotification(OrderReturn $returnOrder, string $status): void
     // {
-    //     // TODO: Implement email/SMS notification
-    //     // This could use Laravel's notification system
-    //     Log::info('User notification sent', [
-    //         'return_id' => $returnOrder->id,
-    //         'user_id' => $returnOrder->user_id,
-    //         'status' => $status,
-    //     ]);
-    // }
+    //     try {
+    //         $returnOrder->loadMissing(['order.user', 'user']);
+    //         $user = $returnOrder->user ?? $returnOrder->order->user ?? null;
 
+    //         if (!$user) {
+    //             Log::warning('sendUserNotification: no user found', [
+    //                 'return_id' => $returnOrder->id,
+    //                 'status'    => $status,
+    //             ]);
+    //             return;
+    //         }
+
+    //         [$title, $message] = match ($status) {
+    //             'received'  => ['Return received', 'We have received your returned item.'],
+    //             'completed' => ['Return completed', 'Your refund has been processed successfully.'],
+    //             'approved'  => ['Return approved', 'Your return request has been approved.'],
+    //             'rejected'  => ['Return rejected', 'Unfortunately, your return request was rejected.'],
+    //             default     => ['Return update', 'There is an update on your return request.'],
+    //         };
+
+    //         DB::table('notifications')->insert([
+    //             'id'              => (string) Str::uuid(),
+    //             'type'            => 'App\\Notifications\\ReturnStatusNotification',
+    //             'notifiable_type' => get_class($user),
+    //             'notifiable_id'   => $user->id,
+    //             'data'            => json_encode([
+    //                 'return_id' => $returnOrder->id,
+    //                 'order_id'  => $returnOrder->order_id,
+    //                 'status'    => $status,
+    //                 'title'     => $title,
+    //                 'message'   => $message,
+    //                 'url'       => url('/returns/' . $returnOrder->id),
+    //             ]),
+    //             'read_at'    => null,
+    //             'created_at' => now(),
+    //             'updated_at' => now(),
+    //         ]);
+
+    //         Log::info('User notification stored', [
+    //             'return_id' => $returnOrder->id,
+    //             'user_id'   => $user->id,
+    //             'status'    => $status,
+    //         ]);
+    //     } catch (\Throwable $e) {
+    //         Log::error('Failed to store user notification', [
+    //             'return_id' => $returnOrder->id,
+    //             'status'    => $status,
+    //             'error'     => $e->getMessage(),
+    //         ]);
+    //     }
+    // }
     protected function sendUserNotification(OrderReturn $returnOrder, string $status): void
     {
         try {
@@ -3474,39 +3516,60 @@ class ReturnService
                 return;
             }
 
+            // ---- Dynamic event name: return vs buyback ----
+            $type       = strtolower($returnOrder->type ?? 'return'); // 'return' | 'buyback'
+            $eventType  = "{$type}_{$status}";                        // e.g. 'return_approved', 'buyback_rejected'
+
+            // ---- Title / message map (works for both types) ----
+            $label = $type === 'buyback' ? 'Buyback' : 'Return';
+
             [$title, $message] = match ($status) {
-                'received'  => ['Return received', 'We have received your returned item.'],
-                'completed' => ['Return completed', 'Your refund has been processed successfully.'],
-                'approved'  => ['Return approved', 'Your return request has been approved.'],
-                'rejected'  => ['Return rejected', 'Unfortunately, your return request was rejected.'],
-                default     => ['Return update', 'There is an update on your return request.'],
+                'received'  => ["{$label} received",  "We have received your {$type} item."],
+                'completed' => ["{$label} completed", "Your refund has been processed successfully."],
+                'approved'  => ["{$label} approved",  "Your {$type} request has been approved."],
+                'rejected'  => ["{$label} rejected",  "Unfortunately, your {$type} request was rejected."],
+                default     => ["{$label} update",    "There is an update on your {$type} request."],
             };
 
-            DB::table('notifications')->insert([
-                'id'              => (string) Str::uuid(),
-                'type'            => 'App\\Notifications\\ReturnStatusNotification',
-                'notifiable_type' => get_class($user),
-                'notifiable_id'   => $user->id,
-                'data'            => json_encode([
-                    'return_id' => $returnOrder->id,
-                    'order_id'  => $returnOrder->order_id,
-                    'status'    => $status,
-                    'title'     => $title,
-                    'message'   => $message,
-                    'url'       => url('/returns/' . $returnOrder->id),
-                ]),
-                'read_at'    => null,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            // ---- Build template data for NotificationService ----
+            $templateData = [
+                'title'           => $title,
+                'message'         => $message,
+                'return_id'       => $returnOrder->id,
+                'order_id'        => $returnOrder->order_id,
+                'order_reference' => $returnOrder->order->order_reference ?? '',
+                'status'          => $status,
+                'type'            => $type,
+                'customer_name'   => $user->full_name ?? $user->name ?? 'Customer',
+                'total_refund_amount' => number_format((float) ($returnOrder->total_refund_amount ?? 0), 2),
+                'reason'          => $returnOrder->reason ?? '',
+                'rejection_reason' => $returnOrder->rejection_reason ?? '',
+                'admin_notes'     => $returnOrder->admin_notes ?? '',
+                'approved_at'     => $returnOrder->approved_at?->format('d M Y, h:i A') ?? '',
+                'rejected_at'     => $returnOrder->rejected_at?->format('d M Y, h:i A') ?? '',
+                'received_at'     => $returnOrder->received_at?->format('d M Y, h:i A') ?? '',
+                'completed_at'    => $returnOrder->completed_at?->format('d M Y, h:i A') ?? '',
+                'url'             => rtrim(config('app.frontend_url', config('app.url')), '/')
+                    . "/returns/{$returnOrder->id}",
+            ];
 
-            Log::info('User notification stored', [
-                'return_id' => $returnOrder->id,
-                'user_id'   => $user->id,
-                'status'    => $status,
+            // ---- Send via NotificationService (DB + mail) ----
+            $this->notificationService->sendUserNotification(
+                $user,
+                $eventType,
+                $templateData,
+                ['database', 'mail']
+            );
+
+            Log::info('User return/buyback notification dispatched', [
+                'return_id'  => $returnOrder->id,
+                'user_id'    => $user->id,
+                'event_type' => $eventType,
+                'status'     => $status,
+                'type'       => $type,
             ]);
         } catch (\Throwable $e) {
-            Log::error('Failed to store user notification', [
+            Log::error('Failed to send user return/buyback notification', [
                 'return_id' => $returnOrder->id,
                 'status'    => $status,
                 'error'     => $e->getMessage(),

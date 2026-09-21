@@ -8,10 +8,10 @@ use App\Models\Admin;
 use App\Models\User;
 use App\Models\Role;
 use App\Models\RoleUser;
-use App\Models\BusinessProfile;
 use App\Models\RefreshToken;
 use App\Models\RejectedUser;
 use App\Models\AdminNotification;
+use App\Models\DistributorProfile;
 use App\Models\UserNotificationSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -26,16 +26,20 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Password;
 use App\Services\TwilioService;
+use App\Services\NotificationService;
 
 class AuthController extends Controller
 {
     protected $twilioService;
+    protected NotificationService $notificationService;
 
-    public function __construct(TwilioService $twilioService)
-    {
+    public function __construct(
+        TwilioService $twilioService,
+        NotificationService $notificationService
+    ) {
         $this->twilioService = $twilioService;
+        $this->notificationService = $notificationService;
     }
-
     /**
      * Get role ID by account type from database
      */
@@ -168,7 +172,7 @@ class AuthController extends Controller
         $role = $this->getUserRole($user);
         $distributorProfile = null;
         if ($user->account_type === 'distributor') {
-            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
         }
 
         return response()->json([
@@ -929,7 +933,7 @@ class AuthController extends Controller
             }
 
             // Get distributor profile
-            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
 
             // Check if user is already fully registered
             if ($user->is_registered == 1) {
@@ -1054,7 +1058,7 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
 
             // ============ NEW LOGIC ============
             // Check if all 7 steps are completed
@@ -2037,9 +2041,9 @@ class AuthController extends Controller
             ]);
 
             // Create distributor profile if not exists
-            $businessProfile = BusinessProfile::where('user_id', $user->id)->first();
+            $businessProfile = DistributorProfile::where('user_id', $user->id)->first();
             if (!$businessProfile) {
-                $businessProfile = BusinessProfile::create([
+                $businessProfile = DistributorProfile::create([
                     'user_id' => $user->id,
                     'kyc_status' => 'pending',
 
@@ -2333,7 +2337,7 @@ class AuthController extends Controller
             }
 
             // Store Aadhaar (encrypted)
-            $distributorProfile = BusinessProfile::updateOrCreate(
+            $distributorProfile = DistributorProfile::updateOrCreate(
                 ['user_id' => $user->id],
                 [
                     'encrypted_aadhaar' => encrypt($request->encrypted_aadhaar),
@@ -2411,7 +2415,7 @@ class AuthController extends Controller
             }
 
             // Check if Aadhaar is verified
-            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
             if (!$distributorProfile || !$distributorProfile->aadhaar_verified) {
                 return response()->json([
                     'status' => false,
@@ -2511,7 +2515,7 @@ class AuthController extends Controller
             }
 
             // Check if PAN is verified
-            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
             if (!$distributorProfile || !$distributorProfile->pan_verified) {
                 return response()->json([
                     'status' => false,
@@ -2599,7 +2603,7 @@ class AuthController extends Controller
             }
 
             // Store location consent
-            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
             if ($distributorProfile) {
                 $distributorProfile->update([
                     'location_consent' => $request->location_consent,
@@ -2676,7 +2680,7 @@ class AuthController extends Controller
             }
 
             // Check all previous steps completed
-            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
             if (!$distributorProfile) {
                 return response()->json([
                     'status' => false,
@@ -2774,13 +2778,35 @@ class AuthController extends Controller
                 ]
             );
 
-            if ($user->email) {
-                try {
-                    Mail::to($user->email)
-                        ->send(new DistributorRegistrationCompletedMail($user));
-                } catch (\Exception $mailException) {
-                    Log::error('Registration completion mail failed: ' . $mailException->getMessage());
-                }
+            // if ($user->email) {
+            //     try {
+            //         Mail::to($user->email)
+            //             ->send(new DistributorRegistrationCompletedMail($user));
+            //     } catch (\Exception $mailException) {
+            //         Log::error('Registration completion mail failed: ' . $mailException->getMessage());
+            //     }
+            // }
+
+            try {
+                $this->notificationService->sendUserNotification(
+                    $user,
+                    'distributor_registration_completed',
+                    [
+                        'title'         => 'Registration Submitted Successfully',
+                        'message'       => 'Your distributor registration has been submitted successfully. We will notify you once the KYC review is complete.',
+                        'customer_name' => $user->full_name ?? $user->name ?? 'Distributor',
+                        'phone'         => $user->phone,
+                        'email'         => $user->email,
+                        'submitted_at'  => now()->format('d M Y, h:i A'),
+                        'url'           => rtrim(config('app.frontend_url', config('app.url')), '/') . '/dashboard',
+                    ],
+                    ['database', 'mail']
+                );
+            } catch (\Throwable $e) {
+                Log::error('Distributor registration notification failed', [
+                    'user_id' => $user->id,
+                    'error'   => $e->getMessage(),
+                ]);
             }
 
             // Clear cache
@@ -3036,7 +3062,7 @@ class AuthController extends Controller
             $role = $this->getUserRole($user);
 
             // Get distributor profile
-            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
 
             // Log which credential was used (helpful for audits)
             Log::info('Distributor login', [
@@ -3114,7 +3140,7 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
 
             return response()->json([
                 'status' => true,
@@ -3233,7 +3259,7 @@ class AuthController extends Controller
 
             $distributorProfile = null;
             if ($user->account_type === 'distributor') {
-                $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+                $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
             }
 
             return response()->json([
@@ -3422,7 +3448,7 @@ class AuthController extends Controller
 
             // Load business profile if distributor
             if ($user->account_type === 'distributor') {
-                $user->load('businessProfile');
+                $user->load('distributorProfile');
             }
 
             // Profile picture full URL
@@ -3787,7 +3813,7 @@ class AuthController extends Controller
             $businessProfile = null;
             $statusChanged = false;
             $oldDistributorStatus = $user->distributor_status;
-            $oldKycStatus = $user->businessProfile?->kyc_status;
+            $oldKycStatus = $user->distributorProfile?->kyc_status;
 
             /*
         --------------------------------
@@ -3865,7 +3891,7 @@ class AuthController extends Controller
                     $businessData['bank_holder_name'] = $request->bank_holder_name;
                 }
 
-                $businessProfile = BusinessProfile::updateOrCreate(
+                $businessProfile = DistributorProfile::updateOrCreate(
                     ['user_id' => $user->id],
                     $businessData
                 );
@@ -4188,7 +4214,7 @@ class AuthController extends Controller
             ]);
         }
 
-        $profile = BusinessProfile::where('user_id', $user->id)->first();
+        $profile = DistributorProfile::where('user_id', $user->id)->first();
 
         if (!$profile) {
             return response()->json([
