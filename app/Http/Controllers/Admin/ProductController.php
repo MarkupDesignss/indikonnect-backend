@@ -24,10 +24,17 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use App\Traits\AuditLogTrait;
 use Illuminate\Support\Facades\Mail;
+use App\Services\NotificationService;
 
 class ProductController extends Controller
 {
     use AuditLogTrait;
+    protected NotificationService $notificationService;
+    public function __construct(
+        NotificationService $notificationService
+    ) {
+        $this->notificationService = $notificationService;
+    }
     /**
      * Get user's wishlist product IDs
      */
@@ -1202,6 +1209,14 @@ class ProductController extends Controller
     /**
      * Store a new product with variants
      */
+
+    protected function isPromotionalEvent(string $eventType): bool
+    {
+        return in_array($eventType, [
+            'product_added',
+            'new_product',
+        ]);
+    }
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -1357,6 +1372,35 @@ class ProductController extends Controller
 
             DB::commit();
             $product->load(['category', 'taxCategory', 'images', 'variants.images']);
+            try {
+                $users = User::whereHas('notificationSettings', function ($query) {
+                    $query->where('promotional_emails', true);
+                })->get();
+
+                foreach ($users as $user) {
+                    $templateData = [
+                        'product_name' => $product->name,
+                        'product_code' => $product->product_code,
+                        'product_slug' => $product->slug,
+                        'retail_price' => number_format($product->retail_price, 2),
+                        'product_id' => $product->id,
+                        'category_name' => $product->category?->name ?? '',
+                        'customer_name' => $user->full_name ?? $user->name ?? 'Customer',
+                    ];
+
+                    $this->notificationService->sendUserNotification(
+                        $user,
+                        'product_added',
+                        $templateData,
+                        ['mail']
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::error('Failed to send new product promotional notifications', [
+                    'product_id' => $product->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
             $this->logAudit(
                 'product_create',
                 'catalogue',

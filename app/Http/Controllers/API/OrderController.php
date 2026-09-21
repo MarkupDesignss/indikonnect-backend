@@ -1811,8 +1811,14 @@ class OrderController extends Controller
                         'shipped_at' => $formatDate($line->shipped_at),
                         'cancelled_at' => $formatDate($line->cancelled_at),
                         'dispatched_at' => $formatDate($line->dispatched_at),
+                        // 'return_applicable_till' => $line->dispatched_at
+                        //     ? $formatDate(\Carbon\Carbon::parse($line->dispatched_at)->addDays(30))
+                        //     : null,
                         'return_applicable_till' => $line->dispatched_at
-                            ? $formatDate(\Carbon\Carbon::parse($line->dispatched_at)->addDays(30))
+                            ? $formatDate(
+                                \Carbon\Carbon::parse($line->dispatched_at)
+                                    ->addDays((int) setting('return_window_days', 30))
+                            )
                             : null,
                         'delivered_at' => $formatDate($line->delivered_at),
                         'return_requested_at' => $formatDate($line->return_requested_at),
