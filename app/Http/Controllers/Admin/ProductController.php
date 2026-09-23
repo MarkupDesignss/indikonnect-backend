@@ -1614,7 +1614,6 @@ class ProductController extends Controller
                 if ($isPrimary) {
                     $hasPrimary = true;
                 }
-
             } catch (\Exception $e) {
                 // Fallback: store original
                 Log::error('Variant image optimization failed (store)', [
@@ -1788,7 +1787,6 @@ class ProductController extends Controller
                     $hasPrimary = true;
                 }
                 $imageCount++;
-
             } catch (\Exception $e) {
                 Log::error('Product image optimization failed', [
                     'product_id' => $product->id,
@@ -2926,7 +2924,6 @@ class ProductController extends Controller
                         ->where('id', '!=', $variantImage->id)
                         ->update(['is_primary' => false]);
                 }
-
             } catch (\Exception $e) {
                 Log::error('Variant image optimization failed', [
                     'variant_id' => $variant->id,
@@ -3129,7 +3126,6 @@ class ProductController extends Controller
                     }
 
                     $imageCount++;
-
                 } catch (\Exception $e) {
                     // ============================================================
                     //   FALLBACK: If optimization fails, save original
@@ -4566,10 +4562,218 @@ class ProductController extends Controller
     /**
      * Get product sections (new arrivals, best sellers, best offers) with variants
      */
-    public function  getProductSections(Request $request)
+    // public function  getProductSections(Request $request)
+    // {
+    //     // 1. NEW ARRIVALS - Products created within last 30 days
+    //     $newArrivals = Product::with(['category',  'subcategory', 'taxCategory', 'images', 'variants.images'])
+    //         ->where('is_published', true)
+    //         ->where('created_at', '>=', now()->subDays(30))
+    //         ->orderBy('created_at', 'desc')
+    //         ->limit(10)
+    //         ->get();
+
+    //     // 2. BEST SELLERS - Top 8 products from order_lines
+    //     $bestSellerIds = DB::table('order_lines')
+    //         ->select('product_id', DB::raw('COUNT(*) as order_count'))
+    //         ->whereNotNull('product_id')
+    //         ->groupBy('product_id')
+    //         ->orderBy('order_count', 'DESC')
+    //         ->limit(8)
+    //         ->pluck('product_id')
+    //         ->toArray();
+
+    //     $bestSellers = Product::with(['category', 'subcategory', 'taxCategory', 'images', 'variants.images'])
+    //         ->whereIn('id', $bestSellerIds)
+    //         ->where('is_published', true)
+    //         ->get();
+
+    //     // If no best sellers found, get default products
+    //     if ($bestSellers->isEmpty()) {
+    //         $bestSellers = Product::with(['category', 'subcategory', 'taxCategory', 'images', 'variants.images'])
+    //             ->where('is_published', true)
+    //             ->limit(8)
+    //             ->get();
+    //     }
+
+    //     // 3. BEST OFFERS - Products with discounts based on user type
+    //     $userType = $request->query('user_type', 'customer'); // 'customer' or 'distributor'
+
+    //     $bestOffers = Product::with(['category',  'subcategory', 'taxCategory', 'images', 'variants.images'])
+    //         ->where('is_published', true)
+    //         ->where(function ($query) use ($userType) {
+    //             if ($userType === 'distributor') {
+    //                 // Distributor discounts
+    //                 $query->whereNotNull('distributor_discount_value')
+    //                     ->where('distributor_discount_value', '>', 0);
+    //             } else {
+    //                 // Customer discounts (retail)
+    //                 $query->whereNotNull('retail_discount_value')
+    //                     ->where('retail_discount_value', '>', 0);
+    //             }
+    //         })
+    //         ->orderBy('created_at', 'desc')
+    //         ->limit(10)
+    //         ->get();
+
+    //     // Get wishlist IDs for authenticated user
+    //     $userId = $request->query('user_id');
+    //     $wishlistIds = [];
+    //     if ($userId) {
+    //         $wishlistIds = DB::table('wishlists')
+    //             ->where('user_id', $userId)
+    //             ->pluck('product_id')
+    //             ->toArray();
+    //     }
+
+    //     // Format function for products
+    //     $formatProducts = function ($products, $wishlistIds, $sectionType) use ($userType) {
+    //         return $products->map(function ($product) use ($wishlistIds, $sectionType, $userType) {
+    //             $isWishlisted = in_array($product->id, $wishlistIds);
+    //             $isActiveDeal = $product->isActiveDealOfTheDay();
+
+    //             // Calculate discount based on user type
+    //             $discountValue = 0;
+    //             $discountType = null;
+    //             $discountedPrice = null;
+    //             $originalPrice = null;
+
+    //             if ($userType === 'distributor') {
+    //                 $originalPrice = $product->distributor_mrp ?? $product->retail_mrp;
+    //                 $discountValue = $product->distributor_discount_value ?? 0;
+    //                 $discountType = $product->distributor_discount_type ?? null;
+    //                 $currentPrice = $product->distributor_price ?? $product->retail_price;
+    //             } else {
+    //                 $originalPrice = $product->retail_mrp;
+    //                 $discountValue = $product->retail_discount_value ?? 0;
+    //                 $discountType = $product->retail_discount_type ?? null;
+    //                 $currentPrice = $product->retail_price;
+    //             }
+
+    //             // Calculate discounted price if discount exists
+    //             if ($discountValue > 0) {
+    //                 if ($discountType === 'percentage') {
+    //                     $discountedPrice = $originalPrice - ($originalPrice * $discountValue / 100);
+    //                 } else if ($discountType === 'fixed') {
+    //                     $discountedPrice = $originalPrice - $discountValue;
+    //                 } else {
+    //                     $discountedPrice = $currentPrice;
+    //                 }
+    //                 $discountedPrice = max(0, $discountedPrice);
+    //             }
+
+    //             // Get product reviews
+    //             $averageRating = ProductReview::where('product_id', $product->id)
+    //                 ->where('status', 'approved')
+    //                 ->avg('rating');
+
+    //             $totalReviews = ProductReview::where('product_id', $product->id)
+    //                 ->where('status', 'approved')
+    //                 ->count();
+
+    //             // Get order count for best sellers
+    //             $orderCount = DB::table('order_lines')
+    //                 ->where('product_id', $product->id)
+    //                 ->count();
+
+    //             // Variants summary
+    //             $variantsSummary = $this->getVariantsSummary($product->variants);
+
+    //             // Primary image
+    //             $primaryImage = $product->images->where('is_primary', true)->first()
+    //                 ?? $product->images->first();
+
+    //             return [
+    //                 'id' => $product->id,
+    //                 'name' => $product->name,
+    //                 'slug' => $product->slug,
+    //                 'description' => $product->description,
+    //                 'product_code' => $product->product_code,
+    //                 'category' => $product->category ? [
+    //                     'id' => $product->category->id,
+    //                     'name' => $product->category->title,
+    //                     'slug' => $product->category->slug,
+    //                 ] : null,
+    //                 'subcategory_id ' => $product->subcategory_id,
+    //                 'subcategory' => $product->subcategory ? [
+    //                     'id' => $product->subcategory->id,
+    //                     'category_id' => $product->subcategory->category_id,
+    //                     'name' => $product->subcategory->name,
+    //                     'slug' => $product->subcategory->slug,
+    //                 ] : null,
+
+    //                 // Price information based on user type
+    //                 'original_price' => $originalPrice,
+    //                 'current_price' => $currentPrice,
+    //                 'discounted_price' => $discountedPrice,
+    //                 'discount_percentage' => $discountValue > 0 && $discountType === 'percentage' ? $discountValue : ($discountValue > 0 && $originalPrice > 0 ? round(($discountValue / $originalPrice) * 100) : 0),
+    //                 'has_discount' => $discountValue > 0,
+
+    //                 'stock_quantity' => (int) $product->stock_quantity,
+    //                 'stock_status' => $this->getProductStatus($product),
+    //                 'is_published' => (bool) $product->is_published,
+    //                 'is_trending' => (bool) $product->is_trending,
+    //                 'is_wishlisted' => $isWishlisted,
+
+    //                 // Section specific flags
+    //                 'is_new_arrival' => $sectionType === 'new_arrivals',
+    //                 'is_best_seller' => $sectionType === 'best_sellers',
+    //                 'is_best_offer' => $sectionType === 'best_offers',
+
+    //                 // For best sellers
+    //                 'order_count' => $orderCount,
+
+    //                 // Variants summary
+    //                 'variants_summary' => $variantsSummary,
+
+    //                 'reviews_summary' => [
+    //                     'average_rating' => round($averageRating, 1),
+    //                     'total_reviews' => $totalReviews,
+    //                 ],
+
+    //                 'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+    //             ];
+    //         })->values()->toArray();
+    //     };
+
+    //     // Format each section
+    //     $newArrivalsFormatted = $formatProducts($newArrivals, $wishlistIds, 'new_arrivals');
+    //     $bestSellersFormatted = $formatProducts($bestSellers, $wishlistIds, 'best_sellers');
+    //     $bestOffersFormatted = $formatProducts($bestOffers, $wishlistIds, 'best_offers');
+
+    //     return response()->json([
+    //         'status' => 'success',
+    //         'message' => 'Products sections retrieved successfully',
+    //         'user_type' => $userType,
+    //         'data' => [
+    //             'new_arrivals' => [
+    //                 'title' => 'New Arrivals',
+    //                 'count' => count($newArrivalsFormatted),
+    //                 'products' => $newArrivalsFormatted,
+    //             ],
+    //             'best_sellers' => [
+    //                 'title' => 'Best Sellers',
+    //                 'count' => count($bestSellersFormatted),
+    //                 'products' => $bestSellersFormatted,
+    //             ],
+    //             'best_offers' => [
+    //                 'title' => 'Best Offers',
+    //                 'count' => count($bestOffersFormatted),
+    //                 'products' => $bestOffersFormatted,
+    //             ],
+    //         ],
+    //     ]);
+    // }
+    public function getProductSections(Request $request)
     {
         // 1. NEW ARRIVALS - Products created within last 30 days
-        $newArrivals = Product::with(['category',  'subcategory', 'taxCategory', 'images', 'variants.images'])
+        $newArrivals = Product::with([
+            'category',
+            'subcategory',
+            'brand',
+            'taxCategory',
+            'images',
+            'variants.images'
+        ])
             ->where('is_published', true)
             ->where('created_at', '>=', now()->subDays(30))
             ->orderBy('created_at', 'desc')
@@ -4586,31 +4790,50 @@ class ProductController extends Controller
             ->pluck('product_id')
             ->toArray();
 
-        $bestSellers = Product::with(['category', 'subcategory', 'taxCategory', 'images', 'variants.images'])
+        $bestSellers = Product::with([
+            'category',
+            'subcategory',
+            'brand',
+            'taxCategory',
+            'images',
+            'variants.images'
+        ])
             ->whereIn('id', $bestSellerIds)
             ->where('is_published', true)
             ->get();
 
         // If no best sellers found, get default products
         if ($bestSellers->isEmpty()) {
-            $bestSellers = Product::with(['category', 'subcategory', 'taxCategory', 'images', 'variants.images'])
+            $bestSellers = Product::with([
+                'category',
+                'subcategory',
+                'brand',
+                'taxCategory',
+                'images',
+                'variants.images'
+            ])
                 ->where('is_published', true)
                 ->limit(8)
                 ->get();
         }
 
         // 3. BEST OFFERS - Products with discounts based on user type
-        $userType = $request->query('user_type', 'customer'); // 'customer' or 'distributor'
+        $userType = $request->query('user_type', 'customer');
 
-        $bestOffers = Product::with(['category',  'subcategory', 'taxCategory', 'images', 'variants.images'])
+        $bestOffers = Product::with([
+            'category',
+            'subcategory',
+            'brand',
+            'taxCategory',
+            'images',
+            'variants.images'
+        ])
             ->where('is_published', true)
             ->where(function ($query) use ($userType) {
                 if ($userType === 'distributor') {
-                    // Distributor discounts
                     $query->whereNotNull('distributor_discount_value')
                         ->where('distributor_discount_value', '>', 0);
                 } else {
-                    // Customer discounts (retail)
                     $query->whereNotNull('retail_discount_value')
                         ->where('retail_discount_value', '>', 0);
                 }
@@ -4632,10 +4855,10 @@ class ProductController extends Controller
         // Format function for products
         $formatProducts = function ($products, $wishlistIds, $sectionType) use ($userType) {
             return $products->map(function ($product) use ($wishlistIds, $sectionType, $userType) {
-                $isWishlisted = in_array($product->id, $wishlistIds);
-                $isActiveDeal = $product->isActiveDealOfTheDay();
 
-                // Calculate discount based on user type
+                $isWishlisted = in_array($product->id, $wishlistIds);
+
+                // Discount calculation
                 $discountValue = 0;
                 $discountType = null;
                 $discountedPrice = null;
@@ -4653,11 +4876,10 @@ class ProductController extends Controller
                     $currentPrice = $product->retail_price;
                 }
 
-                // Calculate discounted price if discount exists
                 if ($discountValue > 0) {
                     if ($discountType === 'percentage') {
                         $discountedPrice = $originalPrice - ($originalPrice * $discountValue / 100);
-                    } else if ($discountType === 'fixed') {
+                    } elseif ($discountType === 'fixed') {
                         $discountedPrice = $originalPrice - $discountValue;
                     } else {
                         $discountedPrice = $currentPrice;
@@ -4665,7 +4887,7 @@ class ProductController extends Controller
                     $discountedPrice = max(0, $discountedPrice);
                 }
 
-                // Get product reviews
+                // Reviews
                 $averageRating = ProductReview::where('product_id', $product->id)
                     ->where('status', 'approved')
                     ->avg('rating');
@@ -4674,15 +4896,13 @@ class ProductController extends Controller
                     ->where('status', 'approved')
                     ->count();
 
-                // Get order count for best sellers
+                // Order count
                 $orderCount = DB::table('order_lines')
                     ->where('product_id', $product->id)
                     ->count();
 
-                // Variants summary
                 $variantsSummary = $this->getVariantsSummary($product->variants);
 
-                // Primary image
                 $primaryImage = $product->images->where('is_primary', true)->first()
                     ?? $product->images->first();
 
@@ -4692,12 +4912,22 @@ class ProductController extends Controller
                     'slug' => $product->slug,
                     'description' => $product->description,
                     'product_code' => $product->product_code,
+
+                    // ✅ BRAND ADDED
+                    'brand_id' => $product->brand_id,
+                    'brand' => $product->brand ? [
+                        'id' => $product->brand->id,
+                        'name' => $product->brand->title,
+                        'slug' => $product->brand->slug,
+                    ] : null,
+
                     'category' => $product->category ? [
                         'id' => $product->category->id,
                         'name' => $product->category->title,
                         'slug' => $product->category->slug,
                     ] : null,
-                    'subcategory_id ' => $product->subcategory_id,
+
+                    'subcategory_id' => $product->subcategory_id,
                     'subcategory' => $product->subcategory ? [
                         'id' => $product->subcategory->id,
                         'category_id' => $product->subcategory->category_id,
@@ -4705,11 +4935,14 @@ class ProductController extends Controller
                         'slug' => $product->subcategory->slug,
                     ] : null,
 
-                    // Price information based on user type
                     'original_price' => $originalPrice,
                     'current_price' => $currentPrice,
                     'discounted_price' => $discountedPrice,
-                    'discount_percentage' => $discountValue > 0 && $discountType === 'percentage' ? $discountValue : ($discountValue > 0 && $originalPrice > 0 ? round(($discountValue / $originalPrice) * 100) : 0),
+                    'discount_percentage' => $discountValue > 0 && $discountType === 'percentage'
+                        ? $discountValue
+                        : ($discountValue > 0 && $originalPrice > 0
+                            ? round(($discountValue / $originalPrice) * 100)
+                            : 0),
                     'has_discount' => $discountValue > 0,
 
                     'stock_quantity' => (int) $product->stock_quantity,
@@ -4718,15 +4951,11 @@ class ProductController extends Controller
                     'is_trending' => (bool) $product->is_trending,
                     'is_wishlisted' => $isWishlisted,
 
-                    // Section specific flags
                     'is_new_arrival' => $sectionType === 'new_arrivals',
                     'is_best_seller' => $sectionType === 'best_sellers',
                     'is_best_offer' => $sectionType === 'best_offers',
 
-                    // For best sellers
                     'order_count' => $orderCount,
-
-                    // Variants summary
                     'variants_summary' => $variantsSummary,
 
                     'reviews_summary' => [
@@ -4734,12 +4963,13 @@ class ProductController extends Controller
                         'total_reviews' => $totalReviews,
                     ],
 
-                    'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+                    'primary_image_url' => $primaryImage
+                        ? asset('storage/' . $primaryImage->image)
+                        : null,
                 ];
             })->values()->toArray();
         };
 
-        // Format each section
         $newArrivalsFormatted = $formatProducts($newArrivals, $wishlistIds, 'new_arrivals');
         $bestSellersFormatted = $formatProducts($bestSellers, $wishlistIds, 'best_sellers');
         $bestOffersFormatted = $formatProducts($bestOffers, $wishlistIds, 'best_offers');
