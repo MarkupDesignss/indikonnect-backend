@@ -3,13 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class FAQ extends Model
 {
     protected $table = 'faqs';
 
     protected $fillable = [
-        'section',
+        'section_id',
         'question',
         'answer',
         'order',
@@ -21,37 +22,33 @@ class FAQ extends Model
         'order'     => 'integer',
     ];
 
-    /**
-     * Scope: filter by one or more sections.
-     *
-     * Usage:
-     *   FAQ::section('Company Legality & Incorporation')->get();
-     *   FAQ::section(['Section A', 'Section B'])->get();
-     */
-    public function scopeSection($query, $section)
+    // ---------- Relationships ----------
+
+    public function section(): BelongsTo
     {
-        if (empty($section)) {
+        return $this->belongsTo(FaqSection::class, 'section_id');
+    }
+
+    // ---------- Scopes ----------
+
+    public function scopeSection($query, $sectionId)
+    {
+        if (empty($sectionId)) {
             return $query;
         }
 
-        return is_array($section)
-            ? $query->whereIn('section', $section)
-            : $query->where('section', $section);
+        return is_array($sectionId)
+            ? $query->whereIn('section_id', $sectionId)
+            : $query->where('section_id', $sectionId);
     }
 
-    /**
-     * Scope: only active FAQs.
-     */
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
     }
 
-    /**
-     * Scope: default ordering — section ASC, then order ASC.
-     */
     public function scopeOrdered($query)
     {
-        return $query->orderBy('section', 'asc')->orderBy('order', 'asc');
+        return $query->orderBy('order', 'asc');
     }
 }
