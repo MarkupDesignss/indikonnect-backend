@@ -1528,7 +1528,9 @@ class ReturnService
                         'account_type' => $return->user->account_type,
                     ] : null,
                     'status' => $return->status,
-                    'items_count' => count($return->items),
+                    'items_count' => $return->order
+                        ? $return->order->lines->sum('returned_quantity')
+                        : 0,
                     'refund_amount' => (float) $return->total_refund_amount,
                     'reason' => $return->reason,
                     'created_at' => $return->created_at->toDateTimeString(),
@@ -1630,7 +1632,6 @@ class ReturnService
                 'tax' => (float) $return->refund_tax,
                 'shipping' => (float) $return->refund_shipping,
                 'total' => (float) $return->refund_subtotal,
-                'total' => (float) $return->refund_subtotal + (float) $return->refund_tax,
                 // 'total' => (float) $return->total_refund_amount,
             ],
             'reason' => $return->reason,

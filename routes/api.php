@@ -50,6 +50,7 @@ use App\Http\Controllers\Admin\FAQController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\CancellationApprovalController;
+use App\Http\Controllers\Admin\FaqSectionController;
 use App\Http\Controllers\API\BrandController;
 use App\Http\Controllers\API\SubcategoryController;
 use App\Http\Controllers\API\TestimonialController;
@@ -717,6 +718,13 @@ Route::prefix('faqs')->group(function () {
     // Additional useful endpoints
     Route::post('/bulk-delete', [FAQController::class, 'bulkDestroy']);
 });
+
+Route::get('faq-sections/dropdown', [FaqSectionController::class, 'dropdown']);
+Route::get('faq-sections',          [FaqSectionController::class, 'index']);
+Route::post('faq-sections',          [FaqSectionController::class, 'store']);
+Route::get('faq-sections/{id}',     [FaqSectionController::class, 'show']);
+Route::post('faq-sections/{id}',     [FaqSectionController::class, 'update']);
+Route::delete('faq-sections/{id}',     [FaqSectionController::class, 'destroy']);
 
 
 Route::middleware('auth:sanctum')->group(function () {
