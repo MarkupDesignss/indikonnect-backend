@@ -314,7 +314,7 @@ class Order extends Model
 
         // Check for partial confirmed
         if ($counts['confirmed'] > 0 && $counts['confirmed'] < $total) {
-            return 'partial_confirmed';
+            return 'confirmed';
         }
 
         // Default to pending
@@ -378,7 +378,7 @@ class Order extends Model
         } elseif ($deliveryCounts['confirmed'] === $activeCount) {
             $deliveryStatus = 'confirmed';
         } elseif ($deliveryCounts['confirmed'] > 0) {
-            $deliveryStatus = 'partial_confirmed';
+            $deliveryStatus = 'confirmed';
         }
 
         $this->update(['delivery_status' => $deliveryStatus]);

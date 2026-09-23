@@ -43,7 +43,7 @@ return [
             'provider' => 'users',
         ],
         'admin' => [
-            'driver' => 'session',  // Changed from 'jwt' to 'session'
+            'driver' => 'session',
             'provider' => 'admins',
         ],
     ],
