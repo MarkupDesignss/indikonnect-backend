@@ -1852,16 +1852,42 @@ class ReturnService
             ]);
 
             // 2. Update individual order lines
+            // foreach ($returnOrder->items as $item) {
+            //     $orderLine = OrderLine::find($item['order_line_id']);
+
+
+            //     if ($orderLine && $orderLine->return_status === 'pending') {
+            //         $timestampColumn = $this->resolveTimestampColumn($returnOrder->type, 'approve');
+            //         $orderLine->update([
+            //             'return_status'      => 'approved',
+            //             'delivery_status'    => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
+            //             $timestampColumn      => now(),
+            //         ]);
+            //     }
+            // }
+
             foreach ($returnOrder->items as $item) {
                 $orderLine = OrderLine::find($item['order_line_id']);
+                if (! $orderLine) continue;
 
+                $requestedQty = (int) ($item['quantity'] ?? $orderLine->quantity);
+                $lineQty      = (int) $orderLine->quantity;
+                $isPartial    = $requestedQty < $lineQty;
 
-                if ($orderLine && $orderLine->return_status === 'pending') {
-                    $timestampColumn = $this->resolveTimestampColumn($returnOrder->type, 'approve');
+                $timestampColumn = $this->resolveTimestampColumn($returnOrder->type, 'approve');
+
+                if ($isPartial) {
                     $orderLine->update([
-                        'return_status'      => 'approved',
-                        'delivery_status'    => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
-                        $timestampColumn      => now(),
+                        'return_status'    => 'approved',
+                        'return_quantity'  => $requestedQty,
+                        $timestampColumn    => now(),
+                    ]);
+                } else {
+                    $orderLine->update([
+                        'return_status'   => 'approved',
+                        'return_quantity' => $lineQty,
+                        'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
+                        $timestampColumn  => now(),
                     ]);
                 }
             }
@@ -2583,124 +2609,56 @@ class ReturnService
     //         return;
     //     }
 
-    //     // Check for RETURN statuses (priority)
-    //     $returnPendingCount = $activeLines
-    //         ->whereIn('delivery_status', ['return_pending'])
-    //         ->count();
+    //     // ---- Count delivery statuses (single pass) ----
+    //     $counts = $activeLines->countBy('delivery_status');
 
-    //     $returnApprovedCount = $activeLines
-    //         ->whereIn('delivery_status', ['return_approved'])
-    //         ->count();
+    //     $returnPendingCount   = $counts->get('return_pending', 0);
+    //     $returnApprovedCount  = $counts->get('return_approved', 0);
+    //     $returnRejectedCount  = $counts->get('return_rejected', 0);
+    //     $refundedCount        = $counts->get('refunded', 0);
+    //     $returnedCount        = $refundedCount + $counts->get('returned', 0);
+    //     $deliveredCount       = $counts->get('delivered', 0);
+    //     $shippedCount         = $counts->get('shipped', 0);
+    //     $dispatchedCount      = $counts->get('dispatched', 0);
+    //     $confirmedCount       = $counts->get('confirmed', 0);
 
-    //     $returnRejectedCount = $activeLines
-    //         ->whereIn('delivery_status', ['return_rejected'])
-    //         ->count();
+    //     // ---- Derived flags ----
+    //     // Items the customer keeps (delivered or return was rejected/cancelled)
+    //     $deliveredOrRejectedCount = $deliveredCount + $returnRejectedCount;
 
-    //     // Check for REFUNDED status (completed returns)
-    //     $refundedCount = $activeLines
-    //         ->where('delivery_status', 'refunded')
-    //         ->count();
+    //     // Items whose return was accepted / completed
+    //     $approvedReturnCount = $returnApprovedCount + $returnedCount;
 
-    //     $returnedCount = $activeLines
-    //         ->whereIn('delivery_status', ['refunded', 'returned'])
-    //         ->count();
+    //     // Any item currently in a return process
+    //     $anyReturnStatusCount = $returnPendingCount + $returnApprovedCount + $returnedCount;
 
-    //     // Check normal delivery statuses
-    //     $deliveredCount = $activeLines
-    //         ->where('delivery_status', 'delivered')
-    //         ->count();
-
-    //     $shippedCount = $activeLines
-    //         ->where('delivery_status', 'shipped')
-    //         ->count();
-
-    //     $dispatchedCount = $activeLines
-    //         ->where('delivery_status', 'dispatched')
-    //         ->count();
-
-    //     $confirmedCount = $activeLines
-    //         ->where('delivery_status', 'confirmed')
-    //         ->count();
-
-    //     /*
-    //      * CRITICAL: RETURN STATUS LOGIC
-    //      *
-    //      * 1. If ALL items are return_pending → Order = 'return_pending'
-    //      * 2. If ANY item is return_pending → Order = 'partial_return_pending'
-    //      * 3. If ALL items are return_approved → Order = 'returned' (or 'return_approved' if you want to show this state)
-    //      * 4. If ANY item is return_approved → Order = 'partial_returned'
-    //      * 5. If ALL items are rejected or delivered → Order = 'delivered'
-    //      * 6. If ALL items are refunded (completed) → Order = 'refunded' ⭐ NEW
-    //      * 7. If ALL items are returned (refunded) → Order = 'returned'
-    //      * 8. If SOME items are returned → Order = 'partial_returned'
-    //      */
-
-    //     // Count items that are either delivered or rejected (customer keeps them)
-    //     $deliveredOrRejectedCount = $activeLines
-    //         ->whereIn('delivery_status', ['delivered', 'return_rejected'])
-    //         ->count();
-
-    //     // Count items that are approved for return (including 'return_approved' status)
-    //     $approvedReturnCount = $activeLines
-    //         ->whereIn('delivery_status', ['return_approved', 'refunded', 'returned'])
-    //         ->count();
-
-    //     // Count items that are in any return-related status
-    //     $anyReturnStatusCount = $activeLines
-    //         ->whereIn('delivery_status', ['return_pending', 'return_approved', 'refunded', 'returned'])
-    //         ->count();
-
-    //     // Determine if all items are delivered or rejected
     //     $allDeliveredOrRejected = ($deliveredOrRejectedCount === $activeCount);
+    //     $allRefunded            = ($refundedCount === $activeCount);
+    //     $allReturnPending       = ($returnPendingCount === $activeCount);
+    //     $allReturnApproved      = ($returnApprovedCount === $activeCount);
 
-    //     // Determine if all items are refunded (completed)
-    //     $allRefunded = ($refundedCount === $activeCount);
-
-    //     // Determine if all items are returned (completed)
-    //     $allReturned = ($returnedCount === $activeCount);
-
-    //     // Determine if all items are pending return
-    //     $allReturnPending = ($returnPendingCount === $activeCount);
-
-    //     // Determine if all items are approved for return (but not yet refunded)
-    //     $allReturnApproved = ($returnApprovedCount === $activeCount);
-
-    //     // Determine if any items are pending return
-    //     $hasReturnPending = ($returnPendingCount > 0);
-
-    //     // Determine if any items are approved for return
+    //     $hasReturnPending  = ($returnPendingCount > 0);
     //     $hasApprovedReturn = ($approvedReturnCount > 0);
 
-    //     // Determine if any items are in return process (pending or approved)
-    //     $hasAnyReturnStatus = ($anyReturnStatusCount > 0);
-
-    //     // Determine final status
-    //     if ($allReturnPending) {
-    //         // ALL items are pending return → ORDER IS RETURN PENDING
+    //     // ---- Decide final status (order matters!) ----
+    //     if ($allRefunded) {
+    //         $finalStatus = 'refunded';
+    //     } elseif ($allReturnPending) {
     //         $finalStatus = 'return_pending';
     //     } elseif ($allReturnApproved) {
-    //         // ALL items are approved for return → ORDER IS RETURNED
     //         $finalStatus = 'returned';
-    //     } elseif ($allRefunded) {
-    //         // ALL items are refunded (completed) → ORDER IS REFUNDED ⭐ NEW
-    //         $finalStatus = 'refunded';
     //     } elseif ($hasReturnPending && !$hasApprovedReturn) {
-    //         // SOME items pending return, none approved yet → ORDER IS PARTIAL RETURN PENDING
     //         $finalStatus = 'partial_return_pending';
     //     } elseif ($allDeliveredOrRejected) {
-    //         // ALL items are either delivered or rejected → ORDER IS DELIVERED
+    //         // Covers: all delivered, all rejected, or mix of delivered + rejected.
+    //         // Also the case after a customer cancels a pending return → back to delivered.
     //         $finalStatus = 'delivered';
-    //     } elseif ($allReturned) {
-    //         // ALL items are returned/refunded → ORDER IS RETURNED
-    //         $finalStatus = 'returned';
     //     } elseif ($hasApprovedReturn && $returnedCount > 0) {
-    //         // SOME items are returned/refunded → ORDER IS PARTIAL RETURNED
     //         $finalStatus = 'partial_returned';
     //     } elseif ($hasApprovedReturn) {
-    //         // SOME items are approved for return (but not yet refunded) → ORDER IS PARTIAL RETURNED
     //         $finalStatus = 'partial_returned';
     //     }
-    //     // Normal delivery flow (no returns involved)
+    //     // ---- Normal delivery flow ----
     //     elseif ($deliveredCount === $activeCount) {
     //         $finalStatus = 'delivered';
     //     } elseif ($deliveredCount > 0) {
@@ -2721,10 +2679,9 @@ class ReturnService
     //         $finalStatus = 'pending';
     //     }
 
-    //     $order->update([
-    //         'status' => $finalStatus,
-    //     ]);
+    //     $order->update(['status' => $finalStatus]);
     // }
+
     private function updateOrderMainStatus(Order $order): void
     {
         $lines = $order->lines()->get();
@@ -2734,84 +2691,106 @@ class ReturnService
             return;
         }
 
-        // Exclude cancelled lines from main status calculation
-        $activeLines = $lines->filter(function ($line) {
-            return $line->delivery_status !== 'cancelled';
-        });
+        $activeLines = $lines->filter(fn($line) => $line->delivery_status !== 'cancelled');
 
-        $activeCount = $activeLines->count();
-
-        if ($activeCount === 0) {
+        if ($activeLines->isEmpty()) {
             $order->update(['status' => 'cancelled']);
             return;
         }
 
-        // ---- Count delivery statuses (single pass) ----
-        $counts = $activeLines->countBy('delivery_status');
+        // Quantity-weighted buckets
+        $totalQty = 0;
+        $buckets  = [
+            'pending'         => 0,
+            'confirmed'       => 0,
+            'dispatched'      => 0,
+            'shipped'         => 0,
+            'delivered'       => 0,
+            'return_pending'  => 0,
+            'buyback_pending' => 0,
+            'return_approved' => 0,
+            'buyback_approved' => 0,
+            'return_rejected' => 0,
+            'buyback_rejected' => 0,
+            'refunded'        => 0,
+            'buyback_refunded' => 0,
+            'returned'        => 0,
+            'buyback_returned' => 0,
+        ];
 
-        $returnPendingCount   = $counts->get('return_pending', 0);
-        $returnApprovedCount  = $counts->get('return_approved', 0);
-        $returnRejectedCount  = $counts->get('return_rejected', 0);
-        $refundedCount        = $counts->get('refunded', 0);
-        $returnedCount        = $refundedCount + $counts->get('returned', 0);
-        $deliveredCount       = $counts->get('delivered', 0);
-        $shippedCount         = $counts->get('shipped', 0);
-        $dispatchedCount      = $counts->get('dispatched', 0);
-        $confirmedCount       = $counts->get('confirmed', 0);
+        foreach ($activeLines as $line) {
+            $qty = max(1, (int) ($line->quantity ?? 1));
+            $totalQty += $qty;
 
-        // ---- Derived flags ----
-        // Items the customer keeps (delivered or return was rejected/cancelled)
-        $deliveredOrRejectedCount = $deliveredCount + $returnRejectedCount;
+            // Buyback/return quantity is stored separately on the line.
+            // Adjust these column names to whatever you use.
+            $buybackQty = (int) ($line->buyback_quantity ?? 0);
+            $returnQty  = (int) ($line->return_quantity  ?? 0);
 
-        // Items whose return was accepted / completed
-        $approvedReturnCount = $returnApprovedCount + $returnedCount;
+            $status = $line->delivery_status;
 
-        // Any item currently in a return process
-        $anyReturnStatusCount = $returnPendingCount + $returnApprovedCount + $returnedCount;
-
-        $allDeliveredOrRejected = ($deliveredOrRejectedCount === $activeCount);
-        $allRefunded            = ($refundedCount === $activeCount);
-        $allReturnPending       = ($returnPendingCount === $activeCount);
-        $allReturnApproved      = ($returnApprovedCount === $activeCount);
-
-        $hasReturnPending  = ($returnPendingCount > 0);
-        $hasApprovedReturn = ($approvedReturnCount > 0);
-
-        // ---- Decide final status (order matters!) ----
-        if ($allRefunded) {
-            $finalStatus = 'refunded';
-        } elseif ($allReturnPending) {
-            $finalStatus = 'return_pending';
-        } elseif ($allReturnApproved) {
-            $finalStatus = 'returned';
-        } elseif ($hasReturnPending && !$hasApprovedReturn) {
-            $finalStatus = 'partial_return_pending';
-        } elseif ($allDeliveredOrRejected) {
-            // Covers: all delivered, all rejected, or mix of delivered + rejected.
-            // Also the case after a customer cancels a pending return → back to delivered.
-            $finalStatus = 'delivered';
-        } elseif ($hasApprovedReturn && $returnedCount > 0) {
-            $finalStatus = 'partial_returned';
-        } elseif ($hasApprovedReturn) {
-            $finalStatus = 'partial_returned';
+            if (isset($buckets[$status])) {
+                // If a line is partially in buyback/return, split its qty.
+                if (in_array($status, ['buyback_pending', 'buyback_approved', 'buyback_rejected', 'buyback_refunded', 'buyback_returned'], true) && $buybackQty > 0 && $buybackQty < $qty) {
+                    $buckets[$status]            += $buybackQty;
+                    $buckets['delivered']        += ($qty - $buybackQty);
+                } elseif (in_array($status, ['return_pending', 'return_approved', 'return_rejected', 'refunded', 'returned'], true) && $returnQty > 0 && $returnQty < $qty) {
+                    $buckets[$status]            += $returnQty;
+                    $buckets['delivered']        += ($qty - $returnQty);
+                } else {
+                    $buckets[$status] += $qty;
+                }
+            } else {
+                $buckets['pending'] += $qty;
+            }
         }
-        // ---- Normal delivery flow ----
-        elseif ($deliveredCount === $activeCount) {
+
+        // Aggregate buckets
+        $returnPending    = $buckets['return_pending']   + $buckets['buyback_pending'];
+        $returnApproved   = $buckets['return_approved']  + $buckets['buyback_approved'];
+        $returnRejected   = $buckets['return_rejected']  + $buckets['buyback_rejected'];
+        $refunded         = $buckets['refunded']         + $buckets['buyback_refunded'];
+        $returned         = $refunded + $buckets['returned'] + $buckets['buyback_returned'];
+
+        $delivered  = $buckets['delivered'];
+        $shipped    = $buckets['shipped'];
+        $dispatched = $buckets['dispatched'];
+        $confirmed  = $buckets['confirmed'];
+
+        $deliveredOrRejected = $delivered + $returnRejected;
+        $approvedReturn      = $returnApproved + $returned;
+
+        // All quantity in one state → use that state's order status
+        if ($refunded === $totalQty) {
+            $finalStatus = 'refunded';
+        } elseif ($returnPending === $totalQty) {
+            $finalStatus = 'return_pending';
+        } elseif ($returnApproved === $totalQty) {
+            $finalStatus = 'return_approved';
+        } elseif ($deliveredOrRejected === $totalQty) {
             $finalStatus = 'delivered';
-        } elseif ($deliveredCount > 0) {
-            $finalStatus = 'partial_delivered';
-        } elseif ($shippedCount === $activeCount) {
+        }
+        // Mixed → prefer buyback/return status (NO partial_confirmed)
+        elseif ($returnPending > 0 && $approvedReturn === 0) {
+            $finalStatus = 'return_pending';
+        } elseif ($approvedReturn > 0) {
+            $finalStatus = 'return_approved';
+        }
+        // Normal delivery flow
+        elseif ($delivered > 0) {
+            $finalStatus = 'delivered';
+        } elseif ($shipped === $totalQty) {
             $finalStatus = 'shipped';
-        } elseif ($shippedCount > 0) {
-            $finalStatus = 'partial_shipped';
-        } elseif ($dispatchedCount === $activeCount) {
+        } elseif ($shipped > 0) {
+            $finalStatus = 'shipped';
+        } elseif ($dispatched === $totalQty) {
             $finalStatus = 'dispatched';
-        } elseif ($dispatchedCount > 0) {
-            $finalStatus = 'partial_dispatched';
-        } elseif ($confirmedCount === $activeCount) {
+        } elseif ($dispatched > 0) {
+            $finalStatus = 'dispatched';
+        } elseif ($confirmed === $totalQty) {
             $finalStatus = 'confirmed';
-        } elseif ($confirmedCount > 0) {
-            $finalStatus = 'partial_confirmed';
+        } elseif ($confirmed > 0) {
+            $finalStatus = 'confirmed';
         } else {
             $finalStatus = 'pending';
         }
