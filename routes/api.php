@@ -50,7 +50,6 @@ use App\Http\Controllers\Admin\FAQController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\CancellationApprovalController;
-use App\Http\Controllers\Admin\LandingPageController;
 use App\Http\Controllers\API\BrandController;
 use App\Http\Controllers\API\SubcategoryController;
 use App\Http\Controllers\API\TestimonialController;
@@ -263,7 +262,7 @@ Route::prefix('distributor')->group(function () {
     // Route::post('step-data', [APIAuthController::class, 'getStepData']);
     Route::get('/step-data/{step}/{identifier}', [APIAuthController::class, 'getStepData']);
     Route::post('progress', [APIAuthController::class, 'getDistributorProgress']);
-    Route::post('login', [APIAuthController::class, 'distributorLogin']);
+    Route::post('login', [APIAuthController::class, 'distributorLogin'])->middleware('throttle:distributor-login');
     Route::get('location-by-pincode', [APIAuthController::class, 'getLocationByPincode']);
 });
 
