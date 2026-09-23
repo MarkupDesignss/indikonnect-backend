@@ -502,7 +502,7 @@ class ReturnService
     //                     'return_status' => 'pending',
     //                     'delivery_status' => 'return_pending',
     //                     'return_requested_at' => now(),
-    //                     // 'return_quantity' => (int) $item['quantity'],
+    //                     // 'returned_quantity' => (int) $item['quantity'],
     //                     'return_reason' => $item['reason'] ?? null,
     //                 ]);
     //             }
@@ -1879,13 +1879,13 @@ class ReturnService
                 if ($isPartial) {
                     $orderLine->update([
                         'return_status'    => 'approved',
-                        'return_quantity'  => $requestedQty,
+                        'returned_quantity'  => $requestedQty,
                         $timestampColumn    => now(),
                     ]);
                 } else {
                     $orderLine->update([
                         'return_status'   => 'approved',
-                        'return_quantity' => $lineQty,
+                        'returned_quantity' => $lineQty,
                         'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
                         $timestampColumn  => now(),
                     ]);
@@ -2022,7 +2022,7 @@ class ReturnService
     //                     'return_rejected_at' => now(),
     //                     'return_rejection_reason' => $rejectionReason,
     //                     'return_requested_at' => null,
-    //                     // 'return_quantity' => 0,
+    //                     // 'returned_quantity' => 0,
     //                     'returned_quantity' => $newReturnedQuantity,
     //                 ]);
     //             }
@@ -2725,7 +2725,7 @@ class ReturnService
             // Buyback/return quantity is stored separately on the line.
             // Adjust these column names to whatever you use.
             $buybackQty = (int) ($line->buyback_quantity ?? 0);
-            $returnQty  = (int) ($line->return_quantity  ?? 0);
+            $returnQty  = (int) ($line->returned_quantity  ?? 0);
 
             $status = $line->delivery_status;
 
