@@ -228,6 +228,7 @@ class AdminUserController extends Controller
 
             // ===== Step 2: Sponsor =====
             'sponsor_id'        => 'nullable|string|max:20',
+            'distributor_id'    => 'nullable|string|max:20',
             'placement_leg'     => 'nullable|in:left,right',
 
             // ===== Step 3: Aadhaar =====
@@ -291,6 +292,7 @@ class AdminUserController extends Controller
                 'full_name'          => $request->full_name,
                 'email'              => $request->email,
                 'phone'              => $request->phone,
+                'distributor_id'              => $request->distributor_id,
                 'country'            => $request->country,
                 'password'           => Hash::make($request->password),
                 'date_of_birth'      => $request->date_of_birth,

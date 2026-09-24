@@ -1718,7 +1718,7 @@ class ReturnService
         $return = OrderReturn::with(['order', 'user', 'order.lines.product', 'refund'])
             ->findOrFail($returnId);
 
-        $refund = $return->refund; // hasOne relation
+        $refund = $return->refund;
 
         return [
             'id' => $return->id,
@@ -1990,7 +1990,7 @@ class ReturnService
     {
         $returnOrder = OrderReturn::with(['order', 'user'])
             ->findOrFail($returnId);
-
+        
         if (!$returnOrder->canApprove()) {
             throw new Exception('This return request cannot be approved (already processed).');
         }
