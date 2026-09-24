@@ -1536,7 +1536,7 @@ class ReturnService
                     'items_count' => $return->order
                         ? $return->order->lines->sum('returned_quantity')
                         : 0,
-                    'refund_amount' => (float) $return->total_refund_amount,
+                    'refund_amount' => (float) $return->total_refund_amount - $return->refund_shipping,
                     'reason' => $return->reason,
                     'created_at' => $return->created_at->toDateTimeString(),
                     'can_approve' => $return->canApprove(),
@@ -1595,7 +1595,7 @@ class ReturnService
                 'subtotal' => (float) $return->refund_subtotal,
                 'tax' => (float) $return->refund_tax,
                 'shipping' => (float) $return->refund_shipping,
-                'total' => (float) $return->total_refund_amount,
+                'total' => (float) $return->total_refund_amount - $return->refund_shipping,
             ],
             'reason' => $return->reason,
             'admin_notes' => $return->admin_notes,
@@ -1636,7 +1636,7 @@ class ReturnService
                 'subtotal' => (float) $return->refund_subtotal,
                 'tax' => (float) $return->refund_tax,
                 'shipping' => (float) $return->refund_shipping,
-                'total' => (float) $return->refund_subtotal,
+                'total' => (float) $return->refund_subtotal - $return->refund_tax,
                 // 'total' => (float) $return->total_refund_amount,
             ],
             'reason' => $return->reason,
@@ -1709,7 +1709,7 @@ class ReturnService
      * Admin: Approve return request
      */
 
-    // public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
+    //  public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
     // {
     //     $returnOrder = OrderReturn::with(['order', 'user'])
     //         ->findOrFail($returnId);
@@ -1719,27 +1719,57 @@ class ReturnService
     //     }
 
     //     return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
+
     //         // 1. Update return status
     //         $returnOrder->update([
-    //             'status' => 'approved',
-    //             'admin_id' => $adminId,
+    //             'status'      => 'approved',
+    //             'admin_id'    => $adminId,
     //             'admin_notes' => $adminNotes,
     //             'approved_at' => now(),
     //         ]);
 
     //         // 2. Update individual order lines
+    //         // foreach ($returnOrder->items as $item) {
+    //         //     $orderLine = OrderLine::find($item['order_line_id']);
+
+
+    //         //     if ($orderLine && $orderLine->return_status === 'pending') {
+    //         //         $timestampColumn = $this->resolveTimestampColumn($returnOrder->type, 'approve');
+    //         //         $orderLine->update([
+    //         //             'return_status'      => 'approved',
+    //         //             'delivery_status'    => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
+    //         //             $timestampColumn      => now(),
+    //         //         ]);
+    //         //     }
+    //         // }
+
     //         foreach ($returnOrder->items as $item) {
     //             $orderLine = OrderLine::find($item['order_line_id']);
-    //             if ($orderLine && $orderLine->return_status === 'pending') {
+    //             if (! $orderLine) continue;
+
+    //             $requestedQty = (int) ($item['quantity'] ?? $orderLine->quantity);
+    //             $lineQty      = (int) $orderLine->quantity;
+    //             $isPartial    = $requestedQty < $lineQty;
+
+    //             $timestampColumn = $this->resolveTimestampColumn($returnOrder->type, 'approve');
+
+    //             if ($isPartial) {
     //                 $orderLine->update([
-    //                     'return_status' => 'approved',
-    //                     'delivery_status' => 'return_approved',
-    //                     'return_approved_at' => now(),
+    //                     'return_status'    => 'approved',
+    //                     'returned_quantity'  => $requestedQty,
+    //                     $timestampColumn    => now(),
+    //                 ]);
+    //             } else {
+    //                 $orderLine->update([
+    //                     'return_status'   => 'approved',
+    //                     'returned_quantity' => $lineQty,
+    //                     'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
+    //                     $timestampColumn  => now(),
     //                 ]);
     //             }
     //         }
 
-    //         // 3. Update order-level return status
+    //         // 3. Update order-level statuses
     //         $this->updateOrderReturnStatus($returnOrder->order);
     //         $this->updateOrderMainStatus($returnOrder->order);
 
@@ -1747,36 +1777,34 @@ class ReturnService
     //         try {
     //             $order = $returnOrder->order;
 
-    //             // Build payload
     //             $payload = [
-    //                 'eventId' => 'evt_' . \Illuminate\Support\Str::random(24),
-    //                 'action' => 'REVERSAL',
-    //                 'orderReference' => $order->order_reference,
-    //                 'reason' => $returnOrder->reason ?? 'Return approved by admin',
-    //                 'lines' => $this->buildReversalLines($returnOrder),
-    //                 'reversedValue' => (float) $returnOrder->total_refund_amount,
-    //                 'originalCv' => (float) ($order->commissionable_volume ?? 0),
-    //                 'purchaserIdentifier' => (string) $returnOrder->user_id,
-    //                 'accountType' => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
-    //                 'eventTimestamp' => now()->toIso8601String(),
+    //                 'eventId'              => 'evt_' . \Illuminate\Support\Str::random(24),
+    //                 'action'               => 'REVERSAL',
+    //                 'orderReference'       => $order->order_reference,
+    //                 'reason'               => $returnOrder->reason ?? 'Return approved by admin',
+    //                 'lines'                => $this->buildReversalLines($returnOrder),
+    //                 'reversedValue'        => (float) $returnOrder->total_refund_amount,
+    //                 'originalCv'           => (float) ($order->commissionable_volume ?? 0),
+    //                 'purchaserIdentifier'  => (string) $returnOrder->user_id,
+    //                 'accountType'          => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
+    //                 'eventTimestamp'       => now()->toIso8601String(),
     //             ];
 
     //             $event = CommissionApiEvent::create([
-    //                 'event_type' => 'reversal',
-    //                 'order_id' => $order->id,
-    //                 'payload' => json_encode($payload),
-    //                 'status' => 'pending',
+    //                 'event_type'  => 'reversal',
+    //                 'order_id'    => $order->id,
+    //                 'payload'     => json_encode($payload),
+    //                 'status'      => 'pending',
     //                 'retry_count' => 0,
     //                 'max_retries' => 5,
     //             ]);
 
     //             Log::info('Reversal event SAVED in database', [
-    //                 'event_id' => $event->id,
-    //                 'return_id' => $returnOrder->id,
+    //                 'event_id'        => $event->id,
+    //                 'return_id'       => $returnOrder->id,
     //                 'order_reference' => $order->order_reference,
     //             ]);
 
-    //             // Send to Commission API
     //             try {
     //                 $reversalPayload = new \App\Services\Commission\ReversalPayload(
     //                     eventId: $payload['eventId'],
@@ -1793,48 +1821,46 @@ class ReturnService
 
     //                 $this->commissionService->postReversalEvent($reversalPayload);
 
-    //                 // Update event status after successful API call
     //                 $event->update(['status' => 'sent']);
 
     //                 Log::info('Reversal event posted successfully', [
     //                     'return_id' => $returnOrder->id,
-    //                     'event_id' => $event->id,
+    //                     'event_id'  => $event->id,
     //                 ]);
     //             } catch (\Exception $e) {
-    //                 // Update event with failure
     //                 $event->update([
-    //                     'status' => 'failed',
+    //                     'status'        => 'failed',
     //                     'error_message' => $e->getMessage(),
-    //                     'last_attempt' => now(),
+    //                     'last_attempt'  => now(),
     //                 ]);
 
     //                 Log::error('Failed to send reversal to Commission API', [
     //                     'return_id' => $returnOrder->id,
-    //                     'error' => $e->getMessage(),
+    //                     'error'     => $e->getMessage(),
     //                 ]);
     //             }
     //         } catch (\Exception $e) {
     //             Log::error('Failed to create reversal event', [
     //                 'return_id' => $returnOrder->id,
-    //                 'error' => $e->getMessage(),
+    //                 'error'     => $e->getMessage(),
     //             ]);
     //         }
     //         // ========== END REVERSAL TRIGGER ==========
 
-    //         // 4. Create notifications
+    //         // 4. Notifications
     //         $this->createReturnNotification($returnOrder, 'approved');
     //         $this->sendUserNotification($returnOrder, 'approved');
 
-    //         // 5. Return response
+    //         // 5. Response
     //         return [
-    //             'success' => true,
-    //             'message' => 'Return request approved successfully.',
-    //             'return_id' => $returnOrder->id,
-    //             'order_status' => $returnOrder->order->status,
+    //             'success'             => true,
+    //             'message'             => 'Return request approved successfully.',
+    //             'return_id'           => $returnOrder->id,
+    //             'order_status'        => $returnOrder->order->status,
     //             'order_return_status' => $returnOrder->order->return_status,
-    //             'status' => 'approved',
-    //             'refund_amount' => (float) $returnOrder->total_refund_amount,
-    //             'admin_notes' => $adminNotes,
+    //             'status'              => 'approved',
+    //             'refund_amount'       => (float) $returnOrder->total_refund_amount,
+    //             'admin_notes'         => $adminNotes,
     //         ];
     //     });
     // }
@@ -1849,29 +1875,27 @@ class ReturnService
 
         return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
 
+            // ========== CALCULATE GATEWAY CHARGES ==========
+            $gatewayChargesPercent = (float) setting('gateway_charges', 0);
+            $gatewayCharges = round(
+                (float) $returnOrder->total_refund_amount * ($gatewayChargesPercent / 100),
+                2
+            );
+            $netRefundAmount = round(
+                (float) $returnOrder->total_refund_amount - $gatewayCharges,
+                2
+            );
+
             // 1. Update return status
             $returnOrder->update([
-                'status'      => 'approved',
-                'admin_id'    => $adminId,
-                'admin_notes' => $adminNotes,
-                'approved_at' => now(),
+                'status'                 => 'approved',
+                'admin_id'               => $adminId,
+                'admin_notes'            => $adminNotes,
+                'approved_at'            => now(),
+                'refund_gateway_charges' => $gatewayCharges,
             ]);
 
             // 2. Update individual order lines
-            // foreach ($returnOrder->items as $item) {
-            //     $orderLine = OrderLine::find($item['order_line_id']);
-
-
-            //     if ($orderLine && $orderLine->return_status === 'pending') {
-            //         $timestampColumn = $this->resolveTimestampColumn($returnOrder->type, 'approve');
-            //         $orderLine->update([
-            //             'return_status'      => 'approved',
-            //             'delivery_status'    => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
-            //             $timestampColumn      => now(),
-            //         ]);
-            //     }
-            // }
-
             foreach ($returnOrder->items as $item) {
                 $orderLine = OrderLine::find($item['order_line_id']);
                 if (! $orderLine) continue;
@@ -1982,14 +2006,15 @@ class ReturnService
 
             // 5. Response
             return [
-                'success'             => true,
-                'message'             => 'Return request approved successfully.',
-                'return_id'           => $returnOrder->id,
-                'order_status'        => $returnOrder->order->status,
-                'order_return_status' => $returnOrder->order->return_status,
-                'status'              => 'approved',
-                'refund_amount'       => (float) $returnOrder->total_refund_amount,
-                'admin_notes'         => $adminNotes,
+                'success'                 => true,
+                'message'                 => 'Return request approved successfully.',
+                'return_id'               => $returnOrder->id,
+                'order_status'            => $returnOrder->order->status,
+                'order_return_status'     => $returnOrder->order->return_status,
+                'status'                  => 'approved',
+                'refund_amount'           => (float) $returnOrder->total_refund_amount,
+                'refund_gateway_charges'  => $gatewayCharges,
+                'admin_notes'             => $adminNotes,
             ];
         });
     }
@@ -2236,7 +2261,7 @@ class ReturnService
             // 4. Mark return as completed
             $returnOrder->update([
                 'status'       => OrderReturn::STATUS_COMPLETED,
-                'refund_extra_deductions' => $returnOrder->refund_subtotal +  $returnOrder->refund_subtotal -  $returnOrder->refund_subtotal,
+                'refund_extra_deductions' => $returnOrder->total_refund_amount -  $returnOrder->refund_shipping - $returnOrder->refund_tax -  $refundAmount,
                 'completed_at' => now(),
             ]);
 
