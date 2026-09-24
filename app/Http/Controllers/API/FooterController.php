@@ -101,6 +101,7 @@ class FooterController extends Controller
                 'instagram' => 'nullable|url',
                 'facebook' => 'nullable|url',
                 'linkedin' => 'nullable|url',
+                'pinterest' => 'nullable|url',
                 'twitter' => 'nullable|url',
                 'youtube' => 'nullable|url',
                 'email' => 'nullable|email',
@@ -125,7 +126,7 @@ class FooterController extends Controller
             if ($existing) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Footer data already exists. Use PUT to update.'
+                    'message' => 'Footer data already exists. Please update.'
                 ], 409);
             }
 
@@ -179,6 +180,7 @@ class FooterController extends Controller
                 'instagram' => 'sometimes|url',
                 'facebook' => 'sometimes|url',
                 'linkedin' => 'sometimes|url',
+                'pinterest' => 'sometimes|url',
                 'twitter' => 'sometimes|url',
                 'youtube' => 'sometimes|url',
                 'email' => 'sometimes|email',
