@@ -494,6 +494,7 @@ class BuybackController extends Controller
             // Create return record with type 'buyback'
             $return = OrderReturn::create([
                 'order_id' => $orderId,
+                'order_line_id' => $returnItems[0]['order_line_id'],
                 'user_id' => $user->id,
                 'type' => 'buyback',
                 'items' => $returnItems,
