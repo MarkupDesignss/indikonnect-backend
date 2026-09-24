@@ -41,6 +41,7 @@ class SettingSeeder extends Seeder
             ['group' => 'checkout', 'key' => 'invoice_prefix', 'value' => 'INV-', 'data_type' => 'string', 'description' => 'Invoice number prefix'],
             ['group' => 'checkout', 'key' => 'max_cart_items', 'value' => '50', 'data_type' => 'integer', 'description' => 'Maximum items per cart'],
             ['group' => 'checkout', 'key' => 'free_shipping_min_amount', 'value' => '500', 'data_type' => 'integer', 'description' => 'Minimum order amount for free shipping'],
+            ['group' => 'checkout', 'key' => 'gateway_charges', 'value' => '2.36', 'data_type' => 'integer', 'description' => 'Payment gateway'],
 
             // --- Integration & API ---
             ['group' => 'integration', 'key' => 'commission_api_timeout_seconds', 'value' => '30', 'data_type' => 'integer', 'description' => 'Commission API timeout'],
