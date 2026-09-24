@@ -112,7 +112,7 @@ class CancellationApprovalController extends Controller
                 $reason,
                 $refundAmount,
                 $request->admin_notes,
-                Auth::guard('admin')->id()
+                auth()->id(),
             );
 
             // Mark admin notification as read

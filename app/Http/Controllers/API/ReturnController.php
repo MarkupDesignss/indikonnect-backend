@@ -647,7 +647,7 @@ class ReturnController extends Controller
                 $returnId,
                 $refundAmount,
                 $request->admin_notes,
-                Auth::guard('admin')->id()
+                auth()->id(),
             );
 
             return response()->json($result, 200);
