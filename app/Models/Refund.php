@@ -11,6 +11,7 @@ class Refund extends Model
     protected $casts = [
         'amount' => 'decimal:2',
         'completed_at' => 'datetime',
+        'deduction_breakdown' => 'array',
     ];
 
     public function order()

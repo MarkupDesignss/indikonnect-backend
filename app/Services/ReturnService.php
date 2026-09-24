@@ -1504,9 +1504,52 @@ class ReturnService
     /**
      * Admin: Get all return requests
      */
+    // public function getReturnsForAdmin(?string $status = null): array
+    // {
+    //     $query = OrderReturn::with(['order', 'user'])
+    //         ->orderBy('created_at', 'desc');
+
+    //     if ($status && in_array($status, ['pending', 'approved', 'rejected', 'received', 'completed'])) {
+    //         $query->where('status', $status);
+    //     }
+
+    //     $returns = $query->get();
+
+    //     return [
+    //         'total' => $returns->count(),
+    //         'pending' => $returns->where('status', 'pending')->count(),
+    //         'approved' => $returns->where('status', 'approved')->count(),
+    //         'rejected' => $returns->where('status', 'rejected')->count(),
+    //         'completed' => $returns->where('status', 'completed')->count(),
+    //         'data' => $returns->map(function ($return) {
+    //             return [
+    //                 'id' => $return->id,
+    //                 'type' => $return->type,
+    //                 'order_reference' => $return->order->order_reference ?? null,
+    //                 'user' => $return->user ? [
+    //                     'id' => $return->user->id,
+    //                     'name' => $return->user->full_name,
+    //                     'email' => $return->user->email,
+    //                     'account_type' => $return->user->account_type,
+    //                 ] : null,
+    //                 'status' => $return->status,
+    //                 'items_count' => $return->order
+    //                     ? $return->order->lines->sum('returned_quantity')
+    //                     : 0,
+    //                 'refund_amount' => (float) $return->total_refund_amount - $return->refund_shipping,
+    //                 'reason' => $return->reason,
+    //                 'refund_gateway_charges' => $return->refund_gateway_charges,
+    //                 'created_at' => $return->created_at->toDateTimeString(),
+    //                 'can_approve' => $return->canApprove(),
+    //                 'can_reject' => $return->canReject(),
+    //             ];
+    //         }),
+    //     ];
+    // }
+
     public function getReturnsForAdmin(?string $status = null): array
     {
-        $query = OrderReturn::with(['order', 'user'])
+        $query = OrderReturn::with(['order', 'user', 'refund'])
             ->orderBy('created_at', 'desc');
 
         if ($status && in_array($status, ['pending', 'approved', 'rejected', 'received', 'completed'])) {
@@ -1522,6 +1565,8 @@ class ReturnService
             'rejected' => $returns->where('status', 'rejected')->count(),
             'completed' => $returns->where('status', 'completed')->count(),
             'data' => $returns->map(function ($return) {
+                $refund = $return->refund; // hasOne
+
                 return [
                     'id' => $return->id,
                     'type' => $return->type,
@@ -1542,11 +1587,25 @@ class ReturnService
                     'created_at' => $return->created_at->toDateTimeString(),
                     'can_approve' => $return->canApprove(),
                     'can_reject' => $return->canReject(),
+
+                    // ========== Refund info from refunds table ==========
+                    'refund_info' => $refund ? [
+                        'id'                 => $refund->id,
+                        'amount'             => (float) $refund->amount,
+                        'status'             => $refund->status,
+                        'gateway_reference'  => $refund->gateway_reference,
+                        'refund_method'      => $refund->refund_method,
+                        'deduction_breakdown' => $refund->deduction_breakdown ?? null,
+                        'notes'              => $refund->notes,
+                        'approved_by'        => $refund->approved_by,
+                        'completed_at'       => optional($refund->completed_at)->toDateTimeString(),
+                        'created_at'         => $refund->created_at->toDateTimeString(),
+                    ] : null,
+                    // ======================================================
                 ];
             }),
         ];
     }
-
     /**
      * Get user's return requests
      */
@@ -1610,10 +1669,56 @@ class ReturnService
     /**
      * Admin: Get single return details
      */
+    // public function getReturnForAdmin(int $returnId): array
+    // {
+    //     $return = OrderReturn::with(['order', 'user', 'order.lines.product'])
+    //         ->findOrFail($returnId);
+
+    //     return [
+    //         'id' => $return->id,
+    //         'order' => $return->order ? [
+    //             'id' => $return->order->id,
+    //             'order_reference' => $return->order->order_reference,
+    //             'status' => $return->order->status,
+    //             'return_status' => $return->order->return_status,
+    //             'delivered_at' => $return->order->delivered_at?->toDateTimeString(),
+    //         ] : null,
+    //         'user' => $return->user ? [
+    //             'id' => $return->user->id,
+    //             'name' => $return->user->full_name,
+    //             'email' => $return->user->email,
+    //             'account_type' => $return->user->account_type,
+    //             'phone' => $return->user->phone ?? null,
+    //         ] : null,
+    //         'status' => $return->status,
+    //         'items' => $return->return_items_with_details,
+    //         'refund_details' => [
+    //             'subtotal' => (float) $return->refund_subtotal,
+    //             'tax' => (float) $return->refund_tax,
+    //             'shipping' => (float) $return->refund_shipping,
+    //             'refund_gateway_charges' => (float) $return->refund_gateway_charges,
+    //             'total' => (float) $return->refund_subtotal - $return->refund_tax - $return->refund_gateway_charges,
+    //             // 'total' => (float) $return->total_refund_amount,
+    //         ],
+    //         'reason' => $return->reason,
+    //         'admin_notes' => $return->admin_notes,
+    //         'rejection_reason' => $return->rejection_reason,
+    //         'created_at' => $return->created_at->toDateTimeString(),
+    //         'approved_at' => $return->approved_at?->toDateTimeString(),
+    //         'received_at' => $return->received_at?->toDateTimeString(),
+    //         'completed_at' => $return->completed_at?->toDateTimeString(),
+    //         'can_approve' => $return->canApprove(),
+    //         'can_reject' => $return->canReject(),
+    //         'can_mark_received' => $return->canMarkReceived(),
+    //         'can_complete' => $return->canComplete(),
+    //     ];
+    // }
     public function getReturnForAdmin(int $returnId): array
     {
-        $return = OrderReturn::with(['order', 'user', 'order.lines.product'])
+        $return = OrderReturn::with(['order', 'user', 'order.lines.product', 'refund'])
             ->findOrFail($returnId);
+
+        $refund = $return->refund; // hasOne relation
 
         return [
             'id' => $return->id,
@@ -1639,7 +1744,6 @@ class ReturnService
                 'shipping' => (float) $return->refund_shipping,
                 'refund_gateway_charges' => (float) $return->refund_gateway_charges,
                 'total' => (float) $return->refund_subtotal - $return->refund_tax - $return->refund_gateway_charges,
-                // 'total' => (float) $return->total_refund_amount,
             ],
             'reason' => $return->reason,
             'admin_notes' => $return->admin_notes,
@@ -1652,6 +1756,22 @@ class ReturnService
             'can_reject' => $return->canReject(),
             'can_mark_received' => $return->canMarkReceived(),
             'can_complete' => $return->canComplete(),
+
+            // ========== NEW: refunds table info ==========
+            'refund_info' => $refund ? [
+                'id'                  => $refund->id,
+                'amount'              => (float) $refund->amount,
+                'status'              => $refund->status,
+                'gateway_reference'   => $refund->gateway_reference,
+                'refund_method'       => $refund->refund_method,
+                'deduction_breakdown' => $refund->deduction_breakdown ?? null,
+                'notes'               => $refund->notes,
+                'approved_by'         => $refund->approved_by,
+                'failure_reason'      => $refund->failure_reason,
+                'completed_at'        => optional($refund->completed_at)->toDateTimeString(),
+                'created_at'          => $refund->created_at->toDateTimeString(),
+            ] : null,
+            // =============================================
         ];
     }
 
