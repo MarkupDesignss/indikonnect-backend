@@ -237,6 +237,8 @@ class AdminUserController extends Controller
 
             // ===== Step 4: PAN =====
             'encrypted_pan'     => 'nullable|string|size:10',
+            'gst_in'     => 'nullable|string',
+            'company_name'     => 'nullable|string',
 
             // ===== Step 5: Bank =====
             'bank_holder_name'  => 'nullable|string|max:255',
@@ -338,6 +340,8 @@ class AdminUserController extends Controller
                 'terms_accepted_at'  => now(),
                 'registration_completed' => 1,
                 // Location consent (only latitude/longitude)
+                'gst_in'           => $request->gst_in ?? 'URP',
+                'company_name'       => $request->company_name,
                 'latitude'           => $request->latitude,
                 'longitude'          => $request->longitude,
                 'location_consent'   => $request->location_consent ?? 0,
