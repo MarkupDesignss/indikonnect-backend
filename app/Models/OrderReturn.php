@@ -13,49 +13,7 @@ class OrderReturn extends Model
 
     protected $table = 'returns';
 
-    protected $fillable = [
-        'order_id',
-        'user_id',
-        'items',
-        'status',
-        'reason',
-
-        // Refund details
-        'refund_subtotal',
-        'refund_tax',
-        'refund_shipping',
-        'total_refund_amount',
-        'refund_transaction_id',
-        'refund_status',
-        'refund_processed_at',
-
-        // CV
-        'total_cv_reversed',
-
-        // Images
-        'general_images',
-
-        // Admin / processing
-        'admin_id',
-        'admin_notes',
-        'rejection_reason',
-
-        // ADDED: Return type (return, cooling_off, buyback)
-        'type',
-
-        // ADDED: Extra metadata (buy-back declarations, etc.)
-        'extra_data',
-
-        // Status timestamps
-        'approved_at',
-        'received_at',
-        'completed_at',
-
-        // timestamps
-        'created_at',
-        'updated_at',
-        'deleted_at',
-    ];
+    protected $guarded = [];
 
     public const STATUS_PENDING = 'pending';
     public const STATUS_CANCELLED = 'cancelled';

@@ -148,6 +148,7 @@ class BuybackController extends Controller
      *
      * POST /distributor/buyback/initiate
      */
+
     // public function initiate(Request $request)
     // {
     //     $user = Auth::user();
@@ -165,9 +166,9 @@ class BuybackController extends Controller
     //         'items.*.quantity' => 'required|integer|min:1',
     //         'items.*.reason' => 'nullable|string|max:500',
     //         'return_reason' => 'nullable|string|max:1000',
-    //         'declares_marketable' => 'required|boolean|accepted',
-    //         'declares_unsold' => 'required|boolean|accepted',
-    //         'declares_unused' => 'required|boolean|accepted',
+    //         'declares_marketable' => 'required|boolean',
+    //         'declares_unsold' => 'nullable|boolean',
+    //         'declares_unused' => 'nullable|boolean',
     //     ]);
 
     //     if ($validator->fails()) {
@@ -199,10 +200,8 @@ class BuybackController extends Controller
     //                 throw new \Exception("Order line not found: {$itemData['order_line_id']}");
     //             }
 
-    //             // ✅ FIX: Safe product name with fallback
     //             $productName = $orderLine->product ? $orderLine->product->name : 'Unknown Product (ID: ' . $orderLine->product_id . ')';
 
-    //             // ✅ FIX: Detailed validation with proper error messages
     //             $this->validateOrderLineForBuyback($orderLine, $user, $productName, $buybackWindow, $itemData['quantity']);
 
     //             if (!$orderId) {
@@ -215,7 +214,6 @@ class BuybackController extends Controller
     //             $returnedQty = (int) ($orderLine->returned_quantity ?? 0);
     //             $availableQty = $purchasedQty - $returnedQty;
 
-    //             // ✅ FIX: Double-check available quantity
     //             if ($availableQty <= 0) {
     //                 throw new \Exception("No available quantity for '{$productName}'. Purchased: {$purchasedQty}, Already returned: {$returnedQty}");
     //             }
@@ -265,8 +263,8 @@ class BuybackController extends Controller
     //             $orderLine->update([
     //                 'returned_quantity' => $returnedQty + $itemData['quantity'],
     //                 'return_status' => 'pending',
-    //                 'return_requested_at' => now(),
-    //                 'delivery_status' => 'return_initiated',
+    //                 'buyback_requested_at' => now(),
+    //                 'delivery_status' => 'buyback_pending',
     //             ]);
     //         }
 
@@ -296,7 +294,7 @@ class BuybackController extends Controller
     //             'refund_subtotal' => $totalRefund,
     //             'refund_tax' => $totalTax,
     //             'refund_shipping' => $refundShipping,
-    //             'total_refund_amount' => $totalRefund + $refundShipping,
+    //             'total_refund_amount' => $totalRefund,
     //             'total_cv_reversed' => $totalCvReversed,
     //             'extra_data' => [
     //                 'declares_marketable' => (bool) $data['declares_marketable'],
@@ -309,6 +307,36 @@ class BuybackController extends Controller
     //                 'days_since_purchase' => $order->created_at->diffInDays(now()) ?? 0,
     //             ],
     //         ]);
+
+    //         // Log buyback initiation
+    //         $this->logAudit(
+    //             'buyback_initiate',
+    //             'compliance',
+    //             null,
+    //             [
+    //                 'buyback_id' => $return->id,
+    //                 'distributor_id' => $user->id,
+    //                 'distributor_name' => $user->full_name,
+    //                 'distributor_email' => $user->email,
+    //                 'order_id' => $orderId,
+    //                 'order_reference' => $order->order_reference ?? null,
+    //                 'products' => $returnItems,
+    //                 'total_amount' => $totalRefund + $refundShipping,
+    //                 'total_deduction' => $totalDeduction,
+    //                 'deduction_percent' => $deductionPercent,
+    //                 'total_cv_reversed' => $totalCvReversed,
+    //                 'status' => 'pending',
+    //                 'declarations' => [
+    //                     'marketable' => (bool) $data['declares_marketable'],
+    //                     'unsold' => (bool) $data['declares_unsold'],
+    //                     'unused' => (bool) $data['declares_unused'],
+    //                 ],
+    //                 'items' => $returnItems,
+    //                 'initiated_by' => $user->id,
+    //                 'initiated_at' => now()->toDateTimeString(),
+    //             ],
+    //             $user->id
+    //         );
 
     //         // Update order return status
     //         $this->updateOrderReturnStatus($order);
@@ -343,7 +371,6 @@ class BuybackController extends Controller
     //                 'created_at' => $return->created_at->toDateTimeString(),
     //             ],
     //         ]);
-
     //     } catch (\Exception $e) {
     //         DB::rollBack();
     //         Log::error('Buy-back request failed', [
@@ -357,6 +384,7 @@ class BuybackController extends Controller
     //         ], 422);
     //     }
     // }
+
     public function initiate(Request $request)
     {
         $user = Auth::user();
@@ -395,6 +423,7 @@ class BuybackController extends Controller
         $totalDeduction = 0;
         $totalCvReversed = 0;
         $totalTax = 0;
+        $totalShippingRefund = 0;
         $processedLineIds = [];
         $orderId = null;
 
@@ -445,6 +474,9 @@ class BuybackController extends Controller
                 $perUnitCv = (float) ($orderLine->commissionable_volume ?? 0) / $purchasedQty;
                 $cvReversed = round($perUnitCv * $itemData['quantity'], 2);
 
+                // Per-unit shipping charge × returned quantity
+                $itemShippingRefund = round((float) ($orderLine->shipping_charge ?? 0) * $itemData['quantity'], 2);
+
                 $returnItems[] = [
                     'order_line_id' => $orderLine->id,
                     'product_id' => $orderLine->product_id,
@@ -455,6 +487,7 @@ class BuybackController extends Controller
                     'subtotal' => round($itemSubtotal, 2),
                     'tax' => round($itemTax, 2),
                     'line_total' => round($itemTotal, 2),
+                    'shipping_refund' => $itemShippingRefund,
                     'reason' => $itemData['reason'] ?? 'Buy-back request',
                     'image_paths' => [],
                     'return_status' => 'pending',
@@ -465,6 +498,7 @@ class BuybackController extends Controller
                 $totalDeduction += $deductionAmount;
                 $totalCvReversed += $cvReversed;
                 $totalTax += $itemTax;
+                $totalShippingRefund += $itemShippingRefund;
                 $processedLineIds[] = $orderLine->id;
 
                 // Update order line status
@@ -481,20 +515,15 @@ class BuybackController extends Controller
             $totalDeduction = round($totalDeduction, 2);
             $totalCvReversed = round($totalCvReversed, 2);
             $totalTax = round($totalTax, 2);
+            $totalShippingRefund = round($totalShippingRefund, 2);
 
-            // Proportional shipping refund
+            // Shipping refund is now sum of per-line shipping refunds
             $order = Order::find($orderId);
-            $refundShipping = 0;
-            if ($order && $order->shipping_charge > 0 && $order->subtotal > 0) {
-                $refundSubtotal = $totalRefund;
-                $returnedProportion = min($refundSubtotal / $order->subtotal, 1);
-                $refundShipping = round($order->shipping_charge * $returnedProportion, 2);
-            }
+            $refundShipping = $totalShippingRefund;
 
             // Create return record with type 'buyback'
             $return = OrderReturn::create([
                 'order_id' => $orderId,
-                'order_line_id' => $returnItems[0]['order_line_id'],
                 'user_id' => $user->id,
                 'type' => 'buyback',
                 'items' => $returnItems,
@@ -503,7 +532,7 @@ class BuybackController extends Controller
                 'refund_subtotal' => $totalRefund,
                 'refund_tax' => $totalTax,
                 'refund_shipping' => $refundShipping,
-                'total_refund_amount' => $totalRefund,
+                'total_refund_amount' => $totalRefund + $refundShipping,
                 'total_cv_reversed' => $totalCvReversed,
                 'extra_data' => [
                     'declares_marketable' => (bool) $data['declares_marketable'],
