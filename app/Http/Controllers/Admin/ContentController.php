@@ -167,8 +167,7 @@ class ContentController extends Controller
                     'heading' => $blockData['heading'] ?? null,
                     'short_description' => $blockData['short_description'] ?? null,
                     'description' => $blockData['description'] ?? null,
-                    'sort_order' => $blockData['sort_order'] ?? 0,
-                    'slug' => $this->generateUniqueBlockSlug($blockData['heading'] ?? null),
+                    'sort_order' => $blockData['sort_order'] ?? 0
                 ]);
 
                 // Upload images - Check if images exist and are valid files
@@ -311,8 +310,7 @@ class ContentController extends Controller
                                 'heading' => $blockData['heading'] ?? $originalBlock->heading,
                                 'short_description' => $blockData['short_description'] ?? $originalBlock->short_description,
                                 'description' => $blockData['description'] ?? $originalBlock->description,
-                                'sort_order' => $blockSortOrder++,
-                                'slug' => $originalBlock->slug,
+                                'sort_order' => $blockSortOrder++
                             ]);
                             $this->copyMedia($originalBlock, $block);
                         }
@@ -322,8 +320,7 @@ class ContentController extends Controller
                             'heading' => $blockData['heading'] ?? null,
                             'short_description' => $blockData['short_description'] ?? null,
                             'description' => $blockData['description'] ?? null,
-                            'sort_order' => $blockSortOrder++,
-                            'slug' => $this->generateUniqueBlockSlug($blockData['heading'] ?? null),
+                            'sort_order' => $blockSortOrder++
                         ]);
                     }
 
@@ -427,8 +424,7 @@ class ContentController extends Controller
                         'heading' => $originalBlock->heading,
                         'short_description' => $originalBlock->short_description,
                         'description' => $originalBlock->description,
-                        'sort_order' => $originalBlock->sort_order,
-                        'slug' => $originalBlock->slug,
+                        'sort_order' => $originalBlock->sort_order
                     ]);
                     $this->copyMedia($originalBlock, $newBlock);
                 }
@@ -454,26 +450,6 @@ class ContentController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
-    }
-
-    private function generateUniqueBlockSlug($heading = null)
-    {
-        $base = \Illuminate\Support\Str::slug($heading ?? '');
-
-        if (empty($base)) {
-            $base = 'block';
-        }
-
-        $slug = $base;
-        $counter = 1;
-
-        // Ensure uniqueness against existing content_blocks.slug values
-        while (ContentBlock::where('slug', $slug)->exists()) {
-            $slug = $base . '-' . $counter;
-            $counter++;
-        }
-
-        return $slug;
     }
 
     /**
