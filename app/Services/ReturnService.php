@@ -1538,6 +1538,7 @@ class ReturnService
                         : 0,
                     'refund_amount' => (float) $return->total_refund_amount - $return->refund_shipping,
                     'reason' => $return->reason,
+                    'refund_gateway_charges' => $return->refund_gateway_charges,
                     'created_at' => $return->created_at->toDateTimeString(),
                     'can_approve' => $return->canApprove(),
                     'can_reject' => $return->canReject(),
@@ -1636,7 +1637,8 @@ class ReturnService
                 'subtotal' => (float) $return->refund_subtotal,
                 'tax' => (float) $return->refund_tax,
                 'shipping' => (float) $return->refund_shipping,
-                'total' => (float) $return->refund_subtotal - $return->refund_tax,
+                'refund_gateway_charges' => (float) $return->refund_gateway_charges,
+                'total' => (float) $return->refund_subtotal - $return->refund_tax - $return->refund_gateway_charges,
                 // 'total' => (float) $return->total_refund_amount,
             ],
             'reason' => $return->reason,
@@ -1876,7 +1878,7 @@ class ReturnService
         return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
 
             // ========== CALCULATE GATEWAY CHARGES ==========
-            $gatewayChargesPercent = (float) setting('gateway_charges', 0);
+            $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
             $gatewayCharges = round(
                 (float) $returnOrder->total_refund_amount * ($gatewayChargesPercent / 100),
                 2
@@ -1892,6 +1894,7 @@ class ReturnService
                 'admin_id'               => $adminId,
                 'admin_notes'            => $adminNotes,
                 'approved_at'            => now(),
+                'refund_approved_by'     => auth()->id(),
                 'refund_gateway_charges' => $gatewayCharges,
             ]);
 
@@ -2261,7 +2264,7 @@ class ReturnService
             // 4. Mark return as completed
             $returnOrder->update([
                 'status'       => OrderReturn::STATUS_COMPLETED,
-                'refund_extra_deductions' => $returnOrder->total_refund_amount -  $returnOrder->refund_shipping - $returnOrder->refund_tax -  $refundAmount,
+                'refund_extra_deductions' => $returnOrder->total_refund_amount -  $returnOrder->refund_shipping - $returnOrder->refund_gateway_charges - $returnOrder->refund_tax -  $refundAmount,
                 'completed_at' => now(),
             ]);
 
@@ -2804,6 +2807,166 @@ class ReturnService
      * @throws Exception
      */
 
+    // protected function processRefund(
+    //     OrderReturn $returnOrder,
+    //     ?float $refundAmount = null,
+    //     ?string $adminNotes = null,
+    //     ?int $approvedBy = null
+    // ): array {
+    //     $order = $returnOrder->order;
+
+    //     if (!$order) {
+    //         throw new Exception('Order not found for this return.');
+    //     }
+
+    //     $gateway   = $order->payment_gateway ?? 'razorpay';
+    //     $paymentId = $order->gateway_transaction_id;
+
+    //     // ---------------------------------------------
+    //     // Resolve refund amount:
+    //     //  - if admin provided an amount, use it
+    //     //  - otherwise calculate from returned items
+    //     // ---------------------------------------------
+    //     $calculatedAmount = $this->calculateRefundAmountFromItems($returnOrder);
+    //     $refundAmount     = $refundAmount ?? $calculatedAmount;
+
+    //     // Cap against refundable balance
+    //     $refundable = $this->getRefundableAmount($order);
+
+    //     if ($refundAmount > $refundable) {
+    //         throw new Exception(
+    //             "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}) for order {$order->order_reference}"
+    //         );
+    //     }
+
+    //     if ($refundAmount <= 0) {
+    //         throw new Exception('Refund amount must be greater than zero.');
+    //     }
+
+    //     if ($gateway !== 'razorpay') {
+    //         throw new Exception('Refund is not supported for payment gateway: ' . $gateway);
+    //     }
+
+    //     if (empty($paymentId)) {
+    //         throw new Exception('Razorpay payment ID is missing for this order.');
+    //     }
+
+    //     try {
+    //         Log::info('Starting Razorpay refund', [
+    //             'return_id'        => $returnOrder->id,
+    //             'order_id'         => $order->id,
+    //             'payment_id'       => $paymentId,
+    //             'refund_amount'    => $refundAmount,
+    //             'amount_in_paise'  => (int) round($refundAmount * 100),
+    //             'admin_notes'      => $adminNotes,
+    //             'approved_by'      => $approvedBy,
+    //             'refund_breakdown' => [
+    //                 'line_totals' => $this->getItemLineTotals($returnOrder),
+    //                 'shipping'    => (float) $returnOrder->refund_shipping,
+    //                 'calculated'  => $calculatedAmount,
+    //                 'final'       => $refundAmount,
+    //             ],
+    //         ]);
+
+    //         // Call Razorpay
+    //         $refundResponse = $this->razorpayService->refundPayment($paymentId, $refundAmount);
+
+    //         if (!is_array($refundResponse) || empty($refundResponse['refund_id'])) {
+    //             throw new Exception('Razorpay refund failed. No refund ID was returned.');
+    //         }
+
+    //         // Map Razorpay status to our enum
+    //         $statusMap = [
+    //             'processing' => 'initiated',
+    //             'processed'  => 'completed',
+    //             'failed'     => 'failed',
+    //         ];
+    //         $refundStatus = $statusMap[$refundResponse['status']] ?? 'completed';
+
+    //         // Insert into `refunds` table (with new columns)
+    //         $refund = Refund::create([
+    //             'order_id'          => $order->id,
+    //             'order_line_id'     => $returnOrder->order_line_id,
+    //             'return_id'         => $returnOrder->id,
+    //             'amount'            => $refundAmount,
+    //             'gateway_reference' => $refundResponse['refund_id'],
+    //             'status'            => $refundStatus,
+    //             'completed_at'      => ($refundStatus === 'completed') ? now() : null,
+    //             'failure_reason'    => null,
+    //             'notes'             => $adminNotes,
+    //             'approved_by'       => $approvedBy,
+    //             'refund_method'     => $gateway,
+    //         ]);
+
+    //         // Update OrderReturn with refund details
+    //         $updateData = [
+    //             'refund_transaction_id' => $refundResponse['refund_id'],
+    //             'refund_status'         => $refundStatus,
+    //             'refund_processed_at'   => now(),
+    //         ];
+
+    //         if (Schema::hasColumn('order_returns', 'refund_id')) {
+    //             $updateData['refund_id'] = $refund->id;
+    //         }
+
+    //         $returnOrder->update($updateData);
+
+    //         $user = $order->user;
+
+    //         if ($user) {
+    //             $templateData = [
+    //                 'order_reference'       => $order->order_reference,
+    //                 'refund_amount'         => number_format($refundAmount, 2),
+    //                 'refund_transaction_id' => $refundResponse['refund_id'],
+    //                 'refund_status'         => $refundStatus,
+    //                 'refund_date'           => now()->format('d M Y, h:i A'),
+    //                 'customer_name'         => $user->full_name
+    //                     ?? $user->name
+    //                     ?? 'Customer',
+    //                 'order_id'              => $order->id,
+    //                 'return_id'             => $returnOrder->id,
+    //             ];
+
+    //             $this->notificationService->sendUserNotification(
+    //                 $user,
+    //                 'refund_processed',
+    //                 $templateData,
+    //                 ['database', 'mail']
+    //             );
+    //         }
+
+    //         Log::info('Refund record created', [
+    //             'refund_id'             => $refund->id,
+    //             'return_id'             => $returnOrder->id,
+    //             'refund_transaction_id' => $refundResponse['refund_id'],
+    //             'razorpay_status'       => $refundResponse['status'],
+    //             'mapped_status'         => $refundStatus,
+    //             'notes'                 => $adminNotes,
+    //             'approved_by'           => $approvedBy,
+    //         ]);
+
+    //         Log::info('Refund successfully processed via Razorpay', [
+    //             'return_id'     => $returnOrder->id,
+    //             'payment_id'    => $paymentId,
+    //             'refund_id'     => $refundResponse['refund_id'],
+    //             'refund_status' => $refundStatus,
+    //             'amount'        => $refundAmount,
+    //         ]);
+
+    //         return $refundResponse;
+    //     } catch (\Throwable $e) {
+    //         Log::error('Refund failed for return', [
+    //             'return_id'     => $returnOrder->id,
+    //             'order_id'      => $order->id,
+    //             'payment_id'    => $paymentId,
+    //             'refund_amount' => $refundAmount,
+    //             'error'         => $e->getMessage(),
+    //             'trace'         => $e->getTraceAsString(),
+    //         ]);
+
+    //         throw new Exception('Failed to process refund: ' . $e->getMessage(), 0, $e);
+    //     }
+    // }
     protected function processRefund(
         OrderReturn $returnOrder,
         ?float $refundAmount = null,
@@ -2848,18 +3011,112 @@ class ReturnService
             throw new Exception('Razorpay payment ID is missing for this order.');
         }
 
+        // =========================================================
+        // BUILD DEDUCTION BREAKDOWN
+        // =========================================================
+        $refundSubtotal       = (float) ($returnOrder->refund_subtotal ?? 0);
+        $refundTax            = (float) ($returnOrder->refund_tax ?? 0);
+        $refundShipping       = (float) ($returnOrder->refund_shipping ?? 0);
+        $gatewayCharges       = (float) ($returnOrder->refund_gateway_charges ?? 0);
+        $extraDeductionsRaw   = $returnOrder->refund_extra_deductions ?? [];
+
+        // Normalize extra deductions (support both array of {label, amount} and assoc array)
+        $extraDeductions = [];
+        $extraDeductionsTotal = 0.0;
+
+        if (is_array($extraDeductionsRaw)) {
+            foreach ($extraDeductionsRaw as $key => $entry) {
+                if (is_array($entry) && isset($entry['amount'])) {
+                    $label  = $entry['label'] ?? (is_string($key) ? $key : 'Extra Deduction');
+                    $amount = (float) $entry['amount'];
+                } elseif (is_numeric($entry)) {
+                    $label  = is_string($key) ? $key : 'Extra Deduction';
+                    $amount = (float) $entry;
+                } else {
+                    continue;
+                }
+
+                if ($amount == 0.0) {
+                    continue;
+                }
+
+                $extraDeductions[] = [
+                    'label'  => $label,
+                    'amount' => round($amount, 2),
+                ];
+                $extraDeductionsTotal += $amount;
+            }
+        }
+
+        $extraDeductionsTotal = round($extraDeductionsTotal, 2);
+
+        // Gross = items + tax + shipping (what customer "should" get before deductions)
+        $grossRefund = round($refundSubtotal + $refundTax + $refundShipping, 2);
+
+        // Total deductions
+        $totalDeductions = round($gatewayCharges + $extraDeductionsTotal, 2);
+
+        // Net refund = gross - deductions (this is what actually gets sent to Razorpay)
+        $netRefund = round($grossRefund - $totalDeductions, 2);
+
+        // Safety: ensure we are not refunding more than approved amount
+        if ($refundAmount > $grossRefund) {
+            // If admin passed an amount bigger than gross, cap it
+            $refundAmount = $grossRefund;
+        }
+
+        // If admin passed a specific amount, treat that as the net amount to send
+        // (deductions are informational only in that case)
+        if ($refundAmount !== $calculatedAmount && $refundAmount != $netRefund) {
+            // admin override — keep their value, but still record breakdown
+            $netRefund = round($refundAmount, 2);
+        } else {
+            // use calculated net
+            $refundAmount = $netRefund;
+        }
+
+        $deductionBreakdown = [
+            'gross_refund' => [
+                'subtotal' => round($refundSubtotal, 2),
+                'tax'      => round($refundTax, 2),
+                'shipping' => round($refundShipping, 2),
+                'total'    => $grossRefund,
+            ],
+            'deductions' => array_values(array_filter([
+                $gatewayCharges > 0 ? [
+                    'key'    => 'gateway_charges',
+                    'label'  => 'Payment Gateway Charges',
+                    'amount' => round($gatewayCharges, 2),
+                ] : null,
+                ...array_map(function ($d) {
+                    return [
+                        'key'    => 'extra',
+                        'label'  => $d['label'],
+                        'amount' => $d['amount'],
+                    ];
+                }, $extraDeductions),
+            ])),
+            'deductions_total' => $totalDeductions,
+            'net_refund'       => $netRefund,
+            'calculated_at'    => now()->toDateTimeString(),
+        ];
+        // =========================================================
+        // END BUILD DEDUCTION BREAKDOWN
+        // =========================================================
+
         try {
             Log::info('Starting Razorpay refund', [
-                'return_id'        => $returnOrder->id,
-                'order_id'         => $order->id,
-                'payment_id'       => $paymentId,
-                'refund_amount'    => $refundAmount,
-                'amount_in_paise'  => (int) round($refundAmount * 100),
-                'admin_notes'      => $adminNotes,
-                'approved_by'      => $approvedBy,
-                'refund_breakdown' => [
+                'return_id'          => $returnOrder->id,
+                'order_id'           => $order->id,
+                'payment_id'         => $paymentId,
+                'refund_amount'      => $refundAmount,
+                'amount_in_paise'    => (int) round($refundAmount * 100),
+                'admin_notes'        => $adminNotes,
+                'approved_by'        => $approvedBy,
+                'deduction_breakdown' => $deductionBreakdown,
+                'refund_breakdown'   => [
                     'line_totals' => $this->getItemLineTotals($returnOrder),
-                    'shipping'    => (float) $returnOrder->refund_shipping,
+                    'shipping'    => $refundShipping,
                     'calculated'  => $calculatedAmount,
                     'final'       => $refundAmount,
                 ],
@@ -2880,19 +3137,20 @@ class ReturnService
             ];
             $refundStatus = $statusMap[$refundResponse['status']] ?? 'completed';
 
-            // Insert into `refunds` table (with new columns)
+            // Insert into `refunds` table
             $refund = Refund::create([
-                'order_id'          => $order->id,
-                'order_line_id'     => $returnOrder->order_line_id,
-                'return_id'         => $returnOrder->id,
-                'amount'            => $refundAmount,
-                'gateway_reference' => $refundResponse['refund_id'],
-                'status'            => $refundStatus,
-                'completed_at'      => ($refundStatus === 'completed') ? now() : null,
-                'failure_reason'    => null,
-                'notes'             => $adminNotes,
-                'approved_by'       => $approvedBy,
-                'refund_method'     => $gateway,
+                'order_id'            => $order->id,
+                'order_line_id'       => $returnOrder->order_line_id,
+                'return_id'           => $returnOrder->id,
+                'amount'              => $refundAmount,
+                'gateway_reference'   => $refundResponse['refund_id'],
+                'status'              => $refundStatus,
+                'completed_at'        => ($refundStatus === 'completed') ? now() : null,
+                'failure_reason'      => null,
+                'notes'               => $adminNotes,
+                'approved_by'         => $approvedBy,
+                'refund_method'       => $gateway,
+                'deduction_breakdown' => $deductionBreakdown,
             ]);
 
             // Update OrderReturn with refund details
@@ -2922,6 +3180,8 @@ class ReturnService
                         ?? 'Customer',
                     'order_id'              => $order->id,
                     'return_id'             => $returnOrder->id,
+                    'gateway_charges'       => number_format($gatewayCharges, 2),
+                    'net_refund'            => number_format($netRefund, 2),
                 ];
 
                 $this->notificationService->sendUserNotification(
@@ -2940,6 +3200,7 @@ class ReturnService
                 'mapped_status'         => $refundStatus,
                 'notes'                 => $adminNotes,
                 'approved_by'           => $approvedBy,
+                'deduction_breakdown'   => $deductionBreakdown,
             ]);
 
             Log::info('Refund successfully processed via Razorpay', [
