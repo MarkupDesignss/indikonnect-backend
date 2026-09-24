@@ -15,39 +15,7 @@ class DistributorProfile extends Model
     /**
      * The attributes that are mass assignable.
      */
-    protected $fillable = [
-        'user_id',
-        'encrypted_aadhaar',
-        'aadhaar_verified',
-        'aadhaar_verified_at',
-        'aadhaar_consent',
-        'encrypted_pan',
-        'pan_verified',
-        'pan_verified_at',
-        'encrypted_bank_account',
-        'bank_ifsc',
-        'bank_name',
-        'branch_name',
-        'account_type',
-        'bank_verified',
-        'bank_holder_name',
-        'kyc_status',
-        'location_consent',
-        'location_consent_at',
-        'latitude',
-        'longitude',
-        'pincode',
-        'city',
-        'state',
-        'registration_completed',
-        'submitted_at',
-        'terms_accepted_at',
-        'application_status',
-        'withdrawn_at',
-        'reviewed_at',
-        'reviewed_by',
-        'rejection_reason',
-    ];
+    protected $guarded = [];
 
     /**
      * The attributes that should be cast.
