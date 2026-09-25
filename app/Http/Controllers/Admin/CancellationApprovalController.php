@@ -8,6 +8,7 @@ use App\Models\Notification;
 use App\Models\AdminNotification;
 use App\Models\Order;
 use App\Models\Refund;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\CheckoutService;
 use App\Services\ReturnService;
@@ -31,8 +32,28 @@ class CancellationApprovalController extends Controller
     /**
      * Get all pending cancellation requests
      */
+    // public function getPendingRequests(Request $request): JsonResponse
+    // {
+    //     $pendingRequests = OrderLine::whereIn('delivery_status', [
+    //         'cancel_pending',
+    //         'cancelled',
+    //         'cancelled_rejected'
+    //     ])
+    //         ->with(['order', 'order.user', 'product', 'variant'])
+    //         ->orderBy('cancellation_requested_at', 'asc')
+    //         ->paginate($request->get('per_page', 20));
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'data' => $pendingRequests,
+    //     ]);
+    // }
+
     public function getPendingRequests(Request $request): JsonResponse
     {
+        $gatewayChargesPercent = (float) Setting::where('key', 'gateway_charges')
+            ->value('value');
+
         $pendingRequests = OrderLine::whereIn('delivery_status', [
             'cancel_pending',
             'cancelled',
@@ -42,11 +63,33 @@ class CancellationApprovalController extends Controller
             ->orderBy('cancellation_requested_at', 'asc')
             ->paginate($request->get('per_page', 20));
 
+        $pendingRequests->getCollection()->transform(function ($orderLine) use ($gatewayChargesPercent) {
+
+            $lineTotal = (float) $orderLine->line_total;
+
+            $gatewayCharge = round(
+                ($lineTotal * $gatewayChargesPercent) / 100,
+                2
+            );
+
+            // Add gateway charge as separate response key
+            $orderLine->gateway_charge = $gatewayCharge;
+
+            // Add gateway charge to line total
+            $orderLine->line_total = round(
+                $lineTotal + $gatewayCharge,
+                2
+            );
+
+            return $orderLine;
+        });
+
         return response()->json([
             'success' => true,
             'data' => $pendingRequests,
         ]);
     }
+
 
     /**
      * Get specific cancellation request details

@@ -3500,6 +3500,7 @@ class CheckoutService
 
             $refund = Refund::create([
                 'order_id'          => $order->id,
+                'order_line_id'     =>  $orderLine->id,
                 'return_id'         => null,
                 'amount'            => $refundAmount,
                 'gateway_reference' => $refundResponse['refund_id'],
