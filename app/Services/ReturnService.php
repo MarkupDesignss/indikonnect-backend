@@ -1773,7 +1773,7 @@ class ReturnService
             : round($shippingCharge * 1, 2);
 
         // Net total after all deductions
-        $totalRefund = (float) $return->refund_subtotal
+        $totalRefund = (float) $return->total_refund_amount
             - (float) $return->refund_tax
             - (float) $return->refund_gateway_charges
             - $deductedShippingCharge;
