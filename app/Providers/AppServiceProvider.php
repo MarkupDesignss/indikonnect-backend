@@ -57,7 +57,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         RateLimiter::for('distributor-login', function (Request $request) {
-            return Limit::perMinute(1)->by(
+            return Limit::perMinute(10)->by(
                 'distributor-login'
             );
         });
