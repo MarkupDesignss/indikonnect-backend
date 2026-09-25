@@ -603,6 +603,10 @@ class ReturnService
                 'string',
                 'exists:orders,order_reference',
             ],
+            'return_method' => [
+                'required',
+                'in:doorstep,courier',
+            ],
             'items' => [
                 'required',
                 'array',
@@ -947,6 +951,7 @@ class ReturnService
                 'order_id' => $order->id,
                 'order_line_id' => $returnItems[0]['order_line_id'],
                 'user_id' => $userId,
+                'return_method' => $data['return_method'],
                 'items' => $returnItems,
                 'status' => OrderReturn::STATUS_PENDING,
                 'reason' => $data['return_reason'] ?? null,
@@ -1504,49 +1509,6 @@ class ReturnService
     /**
      * Admin: Get all return requests
      */
-    // public function getReturnsForAdmin(?string $status = null): array
-    // {
-    //     $query = OrderReturn::with(['order', 'user'])
-    //         ->orderBy('created_at', 'desc');
-
-    //     if ($status && in_array($status, ['pending', 'approved', 'rejected', 'received', 'completed'])) {
-    //         $query->where('status', $status);
-    //     }
-
-    //     $returns = $query->get();
-
-    //     return [
-    //         'total' => $returns->count(),
-    //         'pending' => $returns->where('status', 'pending')->count(),
-    //         'approved' => $returns->where('status', 'approved')->count(),
-    //         'rejected' => $returns->where('status', 'rejected')->count(),
-    //         'completed' => $returns->where('status', 'completed')->count(),
-    //         'data' => $returns->map(function ($return) {
-    //             return [
-    //                 'id' => $return->id,
-    //                 'type' => $return->type,
-    //                 'order_reference' => $return->order->order_reference ?? null,
-    //                 'user' => $return->user ? [
-    //                     'id' => $return->user->id,
-    //                     'name' => $return->user->full_name,
-    //                     'email' => $return->user->email,
-    //                     'account_type' => $return->user->account_type,
-    //                 ] : null,
-    //                 'status' => $return->status,
-    //                 'items_count' => $return->order
-    //                     ? $return->order->lines->sum('returned_quantity')
-    //                     : 0,
-    //                 'refund_amount' => (float) $return->total_refund_amount - $return->refund_shipping,
-    //                 'reason' => $return->reason,
-    //                 'refund_gateway_charges' => $return->refund_gateway_charges,
-    //                 'created_at' => $return->created_at->toDateTimeString(),
-    //                 'can_approve' => $return->canApprove(),
-    //                 'can_reject' => $return->canReject(),
-    //             ];
-    //         }),
-    //     ];
-    // }
-
     public function getReturnsForAdmin(?string $status = null): array
     {
         $query = OrderReturn::with(['order', 'user', 'refund'])
@@ -1606,6 +1568,73 @@ class ReturnService
             }),
         ];
     }
+    // public function getReturnsForAdmin(?string $status = null): array
+    // {
+    //     $query = OrderReturn::with(['order', 'user', 'refund'])
+    //         ->orderBy('created_at', 'desc');
+
+    //     if ($status && in_array($status, ['pending', 'approved', 'rejected', 'received', 'completed'])) {
+    //         $query->where('status', $status);
+    //     }
+
+    //     $returns = $query->get();
+
+    //     return [
+    //         'total' => $returns->count(),
+    //         'pending' => $returns->where('status', 'pending')->count(),
+    //         'approved' => $returns->where('status', 'approved')->count(),
+    //         'rejected' => $returns->where('status', 'rejected')->count(),
+    //         'completed' => $returns->where('status', 'completed')->count(),
+    //         'data' => $returns->map(function ($return) {
+    //             $refund = $return->refund; // hasOne
+
+    //             // Shipping charge deduction based on return method
+    //             $shippingCharge = (float) $return->refund_shipping;
+    //             $deductedShippingCharge = $return->return_method === 'doorstep'
+    //                 ? round($shippingCharge * 2, 2)
+    //                 : round($shippingCharge * 1, 2);
+
+    //             return [
+    //                 'id' => $return->id,
+    //                 'type' => $return->type,
+    //                 'return_method' => $return->return_method,
+    //                 'order_reference' => $return->order->order_reference ?? null,
+    //                 'user' => $return->user ? [
+    //                     'id' => $return->user->id,
+    //                     'name' => $return->user->full_name,
+    //                     'email' => $return->user->email,
+    //                     'account_type' => $return->user->account_type,
+    //                 ] : null,
+    //                 'status' => $return->status,
+    //                 'items_count' => $return->order
+    //                     ? $return->order->lines->sum('returned_quantity')
+    //                     : 0,
+    //                 'refund_amount' => (float) $return->total_refund_amount - $return->refund_shipping,
+    //                 'deducted_shipping_charge' => $deductedShippingCharge,
+    //                 'reason' => $return->reason,
+    //                 'refund_gateway_charges' => $return->refund_gateway_charges,
+    //                 'created_at' => $return->created_at->toDateTimeString(),
+    //                 'can_approve' => $return->canApprove(),
+    //                 'can_reject' => $return->canReject(),
+
+    //                 // ========== Refund info from refunds table ==========
+    //                 'refund_info' => $refund ? [
+    //                     'id'                 => $refund->id,
+    //                     'amount'             => (float) $refund->amount,
+    //                     'status'             => $refund->status,
+    //                     'gateway_reference'  => $refund->gateway_reference,
+    //                     'refund_method'      => $refund->refund_method,
+    //                     'deduction_breakdown' => $refund->deduction_breakdown ?? null,
+    //                     'notes'              => $refund->notes,
+    //                     'approved_by'        => $refund->approved_by,
+    //                     'completed_at'       => optional($refund->completed_at)->toDateTimeString(),
+    //                     'created_at'         => $refund->created_at->toDateTimeString(),
+    //                 ] : null,
+    //                 // ======================================================
+    //             ];
+    //         }),
+    //     ];
+    // }
     /**
      * Get user's return requests
      */
@@ -1671,8 +1700,10 @@ class ReturnService
      */
     // public function getReturnForAdmin(int $returnId): array
     // {
-    //     $return = OrderReturn::with(['order', 'user', 'order.lines.product'])
+    //     $return = OrderReturn::with(['order', 'user', 'order.lines.product', 'refund'])
     //         ->findOrFail($returnId);
+
+    //     $refund = $return->refund;
 
     //     return [
     //         'id' => $return->id,
@@ -1698,7 +1729,6 @@ class ReturnService
     //             'shipping' => (float) $return->refund_shipping,
     //             'refund_gateway_charges' => (float) $return->refund_gateway_charges,
     //             'total' => (float) $return->refund_subtotal - $return->refund_tax - $return->refund_gateway_charges,
-    //             // 'total' => (float) $return->total_refund_amount,
     //         ],
     //         'reason' => $return->reason,
     //         'admin_notes' => $return->admin_notes,
@@ -1711,6 +1741,22 @@ class ReturnService
     //         'can_reject' => $return->canReject(),
     //         'can_mark_received' => $return->canMarkReceived(),
     //         'can_complete' => $return->canComplete(),
+
+    //         // ========== NEW: refunds table info ==========
+    //         'refund_info' => $refund ? [
+    //             'id'                  => $refund->id,
+    //             'amount'              => (float) $refund->amount,
+    //             'status'              => $refund->status,
+    //             'gateway_reference'   => $refund->gateway_reference,
+    //             'refund_method'       => $refund->refund_method,
+    //             'deduction_breakdown' => $refund->deduction_breakdown ?? null,
+    //             'notes'               => $refund->notes,
+    //             'approved_by'         => $refund->approved_by,
+    //             'failure_reason'      => $refund->failure_reason,
+    //             'completed_at'        => optional($refund->completed_at)->toDateTimeString(),
+    //             'created_at'          => $refund->created_at->toDateTimeString(),
+    //         ] : null,
+    //         // =============================================
     //     ];
     // }
     public function getReturnForAdmin(int $returnId): array
@@ -1720,8 +1766,22 @@ class ReturnService
 
         $refund = $return->refund;
 
+        // Shipping charge deduction based on return method
+        $shippingCharge = (float) $return->refund_shipping;
+        $deductedShippingCharge = $return->return_method === 'doorstep'
+            ? round($shippingCharge * 2, 2)
+            : round($shippingCharge * 1, 2);
+
+        // Net total after all deductions
+        $totalRefund = (float) $return->refund_subtotal
+            - (float) $return->refund_tax
+            - (float) $return->refund_gateway_charges
+            - $deductedShippingCharge;
+
         return [
             'id' => $return->id,
+            'type' => $return->type,
+            'return_method' => $return->return_method,
             'order' => $return->order ? [
                 'id' => $return->order->id,
                 'order_reference' => $return->order->order_reference,
@@ -1741,9 +1801,10 @@ class ReturnService
             'refund_details' => [
                 'subtotal' => (float) $return->refund_subtotal,
                 'tax' => (float) $return->refund_tax,
-                'shipping' => (float) $return->refund_shipping,
+                'shipping' => $shippingCharge,
+                'deducted_shipping_charge' => $deductedShippingCharge,
                 'refund_gateway_charges' => (float) $return->refund_gateway_charges,
-                'total' => (float) $return->refund_subtotal - $return->refund_tax - $return->refund_gateway_charges,
+                'total' => round($totalRefund, 2),
             ],
             'reason' => $return->reason,
             'admin_notes' => $return->admin_notes,
@@ -1990,7 +2051,7 @@ class ReturnService
     {
         $returnOrder = OrderReturn::with(['order', 'user'])
             ->findOrFail($returnId);
-        
+
         if (!$returnOrder->canApprove()) {
             throw new Exception('This return request cannot be approved (already processed).');
         }

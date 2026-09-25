@@ -398,6 +398,7 @@ class BuybackController extends Controller
 
         $validator = Validator::make($request->all(), [
             'items' => 'required|array|min:1',
+            'return_method' => 'required|in:doorstep,courier',
             'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.reason' => 'nullable|string|max:500',
@@ -524,9 +525,11 @@ class BuybackController extends Controller
             // Create return record with type 'buyback'
             $return = OrderReturn::create([
                 'order_id' => $orderId,
+                'order_line_id' => $orderLine->id,
                 'user_id' => $user->id,
                 'type' => 'buyback',
                 'items' => $returnItems,
+                'return_method' => $data['return_method'],
                 'status' => 'pending',
                 'reason' => $data['return_reason'] ?? 'Buy-back request',
                 'refund_subtotal' => $totalRefund,
