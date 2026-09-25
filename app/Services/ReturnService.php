@@ -1543,7 +1543,7 @@ class ReturnService
                     'items_count' => $return->order
                         ? $return->order->lines->sum('returned_quantity')
                         : 0,
-                    'refund_amount' => (float) $return->total_refund_amount - $return->refund_shipping,
+                    'refund_amount' => (float) $return->total_refund_amount,
                     'reason' => $return->reason,
                     'refund_gateway_charges' => $return->refund_gateway_charges,
                     'created_at' => $return->created_at->toDateTimeString(),
@@ -1799,9 +1799,11 @@ class ReturnService
             'status' => $return->status,
             'items' => $return->return_items_with_details,
             'refund_details' => [
+                'method' => $return->return_method ?? null,
                 'subtotal' => (float) $return->refund_subtotal,
                 'tax' => (float) $return->refund_tax,
                 'shipping' => $shippingCharge,
+                'amount_with_tax_shipping' => (float) $return->total_refund_amount,
                 'deducted_shipping_charge' => $deductedShippingCharge,
                 'refund_gateway_charges' => (float) $return->refund_gateway_charges,
                 'total' => round($totalRefund, 2),
