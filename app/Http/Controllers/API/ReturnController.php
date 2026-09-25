@@ -117,6 +117,7 @@ class ReturnController extends Controller
                     'string',
                     'exists:orders,order_reference',
                 ],
+                'return_method' => 'required|in:doorstep,courier',
 
                 'items' => [
                     'required',
@@ -187,13 +188,14 @@ class ReturnController extends Controller
              * into file paths.
              */
             $processedData = $this->processReturnImages($validated);
+            $processedData['return_method'] = $validated['return_method'];
 
             /*
              * Send only processed data to service.
              */
             $result = $this->returnService->initiateReturn(
                 auth()->id(),
-                $processedData
+                $processedData,
             );
 
             return response()->json($result);
