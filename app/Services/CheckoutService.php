@@ -2016,7 +2016,7 @@ class CheckoutService
                         'product_name'              => $r['product']->name,
                         'tax_category'              => $r['product']->taxCategory?->name ?? 'Default',
                         'tax_rate'                  => $r['tax_rate'],
-                        'line_total_after_discount' => $r['discounted_line_total'],
+                        'line_total_after_disc  ount' => $r['discounted_line_total'],
                         'tax_amount'                => $r['tax_amount'],
                         'cgst_amount'               => $r['cgst_amount'],
                         'sgst_amount'               => $r['sgst_amount'],
