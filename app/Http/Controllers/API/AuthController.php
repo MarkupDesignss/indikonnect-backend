@@ -1055,7 +1055,7 @@ class AuthController extends Controller
                 return response()->json([
                     'status' => false,
                     'message' => 'Existing email not found, Proceed with registration.'
-                ], 422);
+                ], 200);
             }
 
             $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
