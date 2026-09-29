@@ -1930,20 +1930,24 @@ class ReturnService
 
     protected function resolveDeliveryStatus(string $type, string $stage): string
     {
-        $type = strtolower(trim($type));
+        $type  = strtolower(trim($type));
+        $stage = strtolower(trim($stage));
 
         $map = [
             'return' => [
-                'initiate' => 'return_pending',
-                'approve'  => 'return_approved',
-                'reject'   => 'return_rejected',
-                'receive'  => 'refunded',
+                'initiate'    => 'return_pending',
+                'approve'     => 'return_approved',
+                'reject'      => 'return_rejected',
+                'receive'     => 'return_received',   // physical receipt, awaiting resolution
+                'refund'      => 'refunded',          // resolution = refund
+                'replacement' => 'replaced',          // resolution = replacement
             ],
             'buyback' => [
-                'initiate' => 'buyback_pending',
-                'approve'  => 'buyback_approved',
-                'reject'   => 'buyback_rejected',
-                'receive'  => 'buyback_refunded',
+                'initiate'    => 'buyback_pending',
+                'approve'     => 'buyback_approved',
+                'reject'      => 'buyback_rejected',
+                'receive'     => 'buyback_approved',  // buyback has no "received" enum; keep approved
+                'refund'      => 'buyback_refunded',  // resolution = refund (payout)
             ],
         ];
 
@@ -1956,20 +1960,24 @@ class ReturnService
 
     protected function resolveTimestampColumn(string $type, string $stage): string
     {
-        $type = strtolower(trim($type));
+        $type  = strtolower(trim($type));
+        $stage = strtolower(trim($stage));
 
         $map = [
             'return' => [
-                'initiate' => 'return_requested_at',
-                'approve'  => 'return_approved_at',
-                'reject'   => 'return_rejected_at',
-                'receive'  => 'return_completed_at',
+                'initiate'    => 'return_requested_at',
+                'approve'     => 'return_approved_at',
+                'reject'      => 'return_rejected_at',
+                'receive'     => 'return_received_at',    // NEW column (was return_completed_at)
+                'refund'      => 'return_completed_at',
+                'replacement' => 'return_completed_at',
             ],
             'buyback' => [
-                'initiate' => 'buyback_requested_at',
-                'approve'  => 'buyback_approved_at',
-                'reject'   => 'buyback_rejected_at',
-                'receive'  => 'buyback_refunded_at',
+                'initiate'    => 'buyback_requested_at',
+                'approve'     => 'buyback_approved_at',
+                'reject'      => 'buyback_rejected_at',
+                'receive'     => 'buyback_approved_at',   // no dedicated column; reuse
+                'refund'      => 'buyback_refunded_at',
             ],
         ];
 
@@ -2665,7 +2673,7 @@ class ReturnService
                     $receiveTimestamp = $this->resolveTimestampColumn($returnOrder->type, 'receive');
 
                     $orderLine->update([
-                        'return_status'   => 'received',
+                        'return_status'   => 'returned',
                         'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'receive'),
                         $receiveTimestamp => now(),
                     ]);
@@ -2769,7 +2777,11 @@ class ReturnService
             throw new Exception("Invalid resolution. Allowed: 'refund', 'replacement'.");
         }
 
-        $returnOrder = OrderReturn::with(['order.lines', 'items'])
+        /*
+     * NOTE: `items` is a JSON column on `returns`, cast to array.
+     * It is NOT an Eloquent relation — do NOT eager-load it here.
+     */
+        $returnOrder = OrderReturn::with(['order.lines'])
             ->findOrFail($returnId);
 
         if (!$returnOrder->canComplete()) {
@@ -2783,15 +2795,16 @@ class ReturnService
             $adminNotes,
             $approvedBy
         ) {
-            $creditNote = null;
-            $refund     = null;
+            $creditNote       = null;
+            $refund           = null;
+            $replacementOrder = null;
 
             // ============================================================
             // BRANCH A: REFUND
             // ============================================================
             if ($resolution === 'refund') {
 
-                // 1. Process refund via Razorpay (moved from markReturnReceived)
+                // 1. Process refund via Razorpay
                 $refundResponse = $this->processRefund(
                     $returnOrder,
                     $refundAmount,
@@ -2812,7 +2825,7 @@ class ReturnService
                     throw new Exception('Refund record not found in database.');
                 }
 
-                // 3. Generate credit note
+                // 3. Generate credit note (non-fatal if it fails)
                 try {
                     $creditNoteService = app(\App\Services\CreditNoteService::class);
                     $creditNote = $creditNoteService->generateFromReturn($returnOrder, $refund->id);
@@ -2827,18 +2840,21 @@ class ReturnService
                         'return_id' => $returnOrder->id,
                         'refund_id' => $refund->id,
                         'error'     => $e->getMessage(),
+                        'trace'     => $e->getTraceAsString(),
                     ]);
                 }
 
                 // 4. Mark return completed with refund metadata
+                $effectiveRefundAmount = $refundAmount ?? (float) $returnOrder->total_refund_amount;
+
                 $returnOrder->update([
                     'status'                  => OrderReturn::STATUS_COMPLETED,
                     'resolution'              => 'refund',
-                    'refund_extra_deductions' => $returnOrder->total_refund_amount
-                        - $returnOrder->refund_shipping
-                        - $returnOrder->refund_gateway_charges
-                        - $returnOrder->refund_tax
-                        - $refundAmount,
+                    'refund_extra_deductions' => (float) $returnOrder->total_refund_amount
+                        - (float) $returnOrder->refund_shipping
+                        - (float) ($returnOrder->refund_gateway_charges ?? 0)
+                        - (float) $returnOrder->refund_tax
+                        - (float) $effectiveRefundAmount,
                     'completed_at'            => now(),
                 ]);
 
@@ -2872,10 +2888,10 @@ class ReturnService
 
                 // 2. Mark return completed
                 $returnOrder->update([
-                    'status'              => OrderReturn::STATUS_COMPLETED,
-                    'resolution'          => 'replacement',
+                    'status'               => OrderReturn::STATUS_COMPLETED,
+                    'resolution'           => 'replacement',
                     'replacement_order_id' => $replacementOrder->id,
-                    'completed_at'        => now(),
+                    'completed_at'         => now(),
                 ]);
 
                 // 3. Mark order lines as replaced (not refunded)
@@ -2907,6 +2923,12 @@ class ReturnService
             $this->createReturnNotification($returnOrder, 'completed');
             $this->sendUserNotification($returnOrder, 'completed');
 
+            // Refresh the order so latest status is reflected in response
+            $returnOrder->order->refresh();
+
+            // ============================================================
+            // RESPONSE
+            // ============================================================
             return [
                 'success'               => true,
                 'message'               => $resolution === 'refund'
@@ -2919,7 +2941,9 @@ class ReturnService
                 'status'                => OrderReturn::STATUS_COMPLETED,
 
                 // Refund-specific
-                'refund_amount'         => $refundAmount ?? (float) $returnOrder->total_refund_amount,
+                'refund_amount'         => $resolution === 'refund'
+                    ? ($refundAmount ?? (float) $returnOrder->total_refund_amount)
+                    : null,
                 'refund_transaction_id' => $returnOrder->refund_transaction_id ?? null,
                 'credit_note_generated' => $creditNote !== null,
                 'credit_note_id'        => $creditNote->id ?? null,
@@ -2927,7 +2951,7 @@ class ReturnService
 
                 // Replacement-specific
                 'replacement_order_id'  => $replacementOrder->id ?? null,
-                'replacement_order_no'  => $replacementOrder->order_number ?? null,
+                'replacement_order_no'  => $replacementOrder->order_reference ?? null,
             ];
         });
     }
@@ -2936,30 +2960,83 @@ class ReturnService
     {
         $originalOrder = $returnOrder->order;
 
-        return DB::transaction(function () use ($returnOrder, $originalOrder) {
+        /*
+     * Anchor to ROOT order — so a replacement-of-a-replacement
+     * still points back to the very first order.
+     * Prevents infinite chain A → A-R1 → A-R2 → ...
+     */
+        $rootOrder = method_exists($this, 'getReturnWindowAnchor')
+            ? $this->getReturnWindowAnchor($originalOrder)
+            : $originalOrder;
 
+        return DB::transaction(function () use ($returnOrder, $originalOrder, $rootOrder) {
+
+            // ============================================================
             // 1. Create the replacement order
+            // ============================================================
             $replacement = Order::create([
-                'user_id'             => $originalOrder->user_id,
-                'order_number'        => $this->generateReplacementOrderNumber($originalOrder),
-                'parent_order_id'     => $originalOrder->id,
-                'is_replacement'      => true,
-                'type'                => 'replacement',
-                'status'              => 'confirmed',
-                'payment_status'      => 'paid',         // already paid via original
-                'payment_method'      => $originalOrder->payment_method,
-                'subtotal'            => 0,
-                'tax'                 => 0,
-                'shipping_charge'     => 0,
-                'discount'            => 0,
-                'total'               => 0,
-                'delivery_address_id' => $originalOrder->delivery_address_id,
-                'billing_address_id'  => $originalOrder->billing_address_id,
-                'notes'               => "Replacement for return #{$returnOrder->id} (Order {$originalOrder->order_number})",
+                // ── Identity / linkage ─────────────────────────────────
+                'parent_order_id'         => $rootOrder->id,       // 👈 root, not immediate parent
+                'is_replacement'          => true,
+                'order_reference'         => $this->generateReplacementOrderNumber($rootOrder),
+
+                // ── Customer / addresses ──────────────────────────────
+                'user_id'                 => $originalOrder->user_id,
+                'billing_address_id'      => $originalOrder->billing_address_id,
+                'delivery_address_id'     => $originalOrder->delivery_address_id,
+
+                // ── Type / status ─────────────────────────────────────
+                'order_type'              => 'replacement',         // 👈 actual column name
+                'status'                  => 'confirmed',
+                'delivery_status'         => 'confirmed',
+                'return_status'           => null,
+                'refund_status'           => null,
+
+                // ── Money (all zero — free replacement) ───────────────
+                'subtotal'                => 0,
+                'total_gst'               => 0,
+                'total_cgst'              => 0,
+                'total_sgst'              => 0,
+                'total_igst'              => 0,
+                'shipping_charge'         => 0,
+                'coin_redeemed'           => 0,
+                'coin_redeemed_amount'    => 0,
+                'total_payable'           => 0,
+                'commissionable_volume'   => 0,
+                'amount_paid'             => 0,
+                'coupon_discount'         => 0,
+                'coupon_code'             => null,
+
+                // ── Payment (inherit, no new charge) ──────────────────
+                'payment_gateway'         => $originalOrder->payment_gateway,
+                'gateway_transaction_id'  => $originalOrder->gateway_transaction_id,
+                'checkout_type'           => $originalOrder->checkout_type,
+
+                // ── Shipping method inherit ───────────────────────────
+                'shipping_method_id'      => $originalOrder->shipping_method_id,
+
+                // ── Timestamps ────────────────────────────────────────
+                'confirmed_at'            => now(),
+
+                // ── Notes ─────────────────────────────────────────────
+                'delivery_notes'          => "Replacement for return #{$returnOrder->id} "
+                    . "(Order {$rootOrder->order_reference})",
+
+                // ── Optional JSON snapshots ───────────────────────────
+                'tax_breakdown'           => null,
+                'summary_data'            => [
+                    'is_replacement'         => true,
+                    'return_id'              => $returnOrder->id,
+                    'root_order_reference'   => $rootOrder->order_reference,
+                    'immediate_parent_ref'   => $originalOrder->order_reference,
+                ],
             ]);
 
-            // 2. Copy items from the return
+            // ============================================================
+            // 2. Copy items from the return as replacement lines
+            // ============================================================
             foreach ($returnOrder->items ?? [] as $item) {
+
                 $orderLineId = is_array($item)
                     ? ($item['order_line_id'] ?? null)
                     : ($item->order_line_id ?? null);
@@ -2977,38 +3054,112 @@ class ReturnService
                     continue;
                 }
 
+                // Product snapshot name
+                $productName = $originalLine->product->name
+                    ?? $originalLine->product_name
+                    ?? 'Unknown Product';
+
                 OrderLine::create([
-                    'order_id'         => $replacement->id,
-                    'product_id'       => $originalLine->product_id,
-                    'variant_id'       => $originalLine->variant_id,
-                    'product_name'     => $originalLine->product_name ?? $originalLine->product->name,
-                    'variant_name'     => $originalLine->variant_name ?? optional($originalLine->variant)->name,
-                    'quantity'         => $qty,
-                    'unit_price'       => 0,
-                    'total_price'      => 0,
-                    'tax_amount'       => 0,
-                    'discount_amount'  => 0,
-                    'delivery_status'  => 'confirmed',
-                    'return_status'    => null,
-                    'is_replacement'   => true,
-                    'parent_line_id'   => $originalLine->id,
+                    // ── Linkage ───────────────────────────────────────
+                    'order_id'           => $replacement->id,
+                    'parent_line_id'     => $originalLine->id,
+                    'is_replacement'     => true,
+                    'item_reference_id'  => $this->generateLineReference($replacement),
+
+                    // ── Product ───────────────────────────────────────
+                    'product_id'         => $originalLine->product_id,
+                    'variant_id'         => $originalLine->variant_id,
+
+                    // ── Quantity ──────────────────────────────────────
+                    'quantity'           => $qty,
+                    'returned_quantity'  => 0,
+
+                    // ── Money (all zero — free replacement) ───────────
+                    'unit_price'         => 0,
+                    'shipping_charge'    => 0,
+                    'line_total'         => 0,
+
+                    // ── Tax (all zero) ────────────────────────────────
+                    'gst_rate'           => $originalLine->gst_rate  ?? 0,
+                    'cgst_rate'          => $originalLine->cgst_rate ?? 0,
+                    'sgst_rate'          => $originalLine->sgst_rate ?? 0,
+                    'igst_rate'          => $originalLine->igst_rate ?? 0,
+                    'gst_amount'         => 0,
+                    'cgst_amount'        => 0,
+                    'sgst_amount'        => 0,
+                    'igst_amount'        => 0,
+
+                    // ── Commission ────────────────────────────────────
+                    'commissionable_volume' => 0,
+
+                    // ── Status ────────────────────────────────────────
+                    'delivery_status'    => 'confirmed',
+                    'return_status'      => null,
+
+                    // ── Return eligibility ────────────────────────────
+                    'is_returnable'      => true,   // window still governed by ROOT order
+
+                    // ── Notes ─────────────────────────────────────────
+                    'delivery_notes'     => "Replacement for line #{$originalLine->id} "
+                        . "({$productName})",
+
+                    // ── JSON snapshots ────────────────────────────────
+                    'tax_data'           => null,
                 ]);
             }
 
+            // ============================================================
+            // 3. Log
+            // ============================================================
             Log::info('Replacement order created', [
-                'replacement_order_id' => $replacement->id,
-                'original_order_id'    => $originalOrder->id,
-                'return_id'            => $returnOrder->id,
+                'replacement_order_id'   => $replacement->id,
+                'replacement_reference'  => $replacement->order_reference,
+                'root_order_id'          => $rootOrder->id,
+                'root_order_reference'   => $rootOrder->order_reference,
+                'immediate_parent_id'    => $originalOrder->id,
+                'immediate_parent_ref'   => $originalOrder->order_reference,
+                'return_id'              => $returnOrder->id,
+                'line_count'             => $replacement->lines()->count(),
             ]);
 
             return $replacement;
         });
     }
 
-    protected function generateReplacementOrderNumber(Order $originalOrder): string
+    /**
+     * Generate a unique order_reference for the replacement.
+     * Format: {ROOT_REF}-R{NN}  (R1, R2, R3...)
+     */
+    protected function generateReplacementOrderNumber(Order $rootOrder): string
     {
-        return $originalOrder->order_number . '-R' . strtoupper(Str::random(4));
+        // Count existing replacements for this root
+        $existing = Order::where('parent_order_id', $rootOrder->id)
+            ->where('is_replacement', true)
+            ->count();
+
+        $sequence = $existing + 1;
+
+        // Safety: ensure uniqueness even if sequence collides
+        do {
+            $candidate = $rootOrder->order_reference . '-R' . $sequence;
+            $exists    = Order::where('order_reference', $candidate)->exists();
+            if ($exists) {
+                $sequence++;
+            }
+        } while ($exists);
+
+        return $candidate;
     }
+
+    /**
+     * Generate a unique item_reference_id for a replacement line.
+     * Adjust prefix/format to match your existing convention.
+     */
+    protected function generateLineReference(Order $order): string
+    {
+        return $order->order_reference . '-L' . (($order->lines()->count()) + 1) . '-' . strtoupper(Str::random(4));
+    }
+
 
 
     /**
