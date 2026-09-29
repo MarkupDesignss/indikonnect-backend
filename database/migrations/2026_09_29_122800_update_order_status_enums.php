@@ -70,7 +70,7 @@ return new class extends Migration
                 'rejected',
                 'received',
                 'returned',
-                'replaced',         
+                'replaced',
                 'refunded'
             ) NULL DEFAULT 'none'
         ");
