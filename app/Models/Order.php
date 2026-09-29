@@ -13,16 +13,45 @@ class Order extends Model
 
     protected $guarded = [];
 
+    // protected $casts = [
+    //     'tax_breakdown' => 'array',
+    //     'confirmed_at' => 'datetime',
+    //     'delivered_at' => 'datetime',
+    //     'subtotal' => 'decimal:2',
+    //     'total_gst' => 'decimal:2',
+    //     'shipping_charge' => 'decimal:2',
+    //     'coin_redeemed' => 'decimal:2',
+    //     'total_payable' => 'decimal:2',
+    //     'amount_paid' => 'decimal:2',
+    // ];
     protected $casts = [
-        'tax_breakdown' => 'array',
-        'confirmed_at' => 'datetime',
-        'delivered_at' => 'datetime',
-        'subtotal' => 'decimal:2',
-        'total_gst' => 'decimal:2',
-        'shipping_charge' => 'decimal:2',
-        'coin_redeemed' => 'decimal:2',
-        'total_payable' => 'decimal:2',
-        'amount_paid' => 'decimal:2',
+        // ── JSON columns ─────────────────────────────────────────
+        'tax_breakdown'          => 'array',
+        'summary_data'           => 'array',
+
+        // ── Timestamps ───────────────────────────────────────────
+        'confirmed_at'           => 'datetime',
+        'shipped_at'             => 'datetime',
+        'delivered_at'           => 'datetime',
+        'cancelled_at'           => 'datetime',
+        'refunded_at'            => 'datetime',
+
+        // ── Booleans ─────────────────────────────────────────────
+        'is_replacement'         => 'boolean',
+
+        // ── Decimals ─────────────────────────────────────────────
+        'subtotal'               => 'decimal:2',
+        'total_gst'              => 'decimal:2',
+        'total_cgst'             => 'decimal:2',
+        'total_sgst'             => 'decimal:2',
+        'total_igst'             => 'decimal:2',
+        'shipping_charge'        => 'decimal:2',
+        'coin_redeemed'          => 'decimal:2',
+        'coin_redeemed_amount'   => 'decimal:2',
+        'total_payable'          => 'decimal:2',
+        'amount_paid'            => 'decimal:2',
+        'coupon_discount'        => 'decimal:2',
+        'commissionable_volume'  => 'decimal:2',
     ];
 
     // Relationships
