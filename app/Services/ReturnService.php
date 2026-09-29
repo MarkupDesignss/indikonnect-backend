@@ -1968,7 +1968,6 @@ class ReturnService
                 'initiate'    => 'return_requested_at',
                 'approve'     => 'return_approved_at',
                 'reject'      => 'return_rejected_at',
-                'receive'     => 'return_received_at',    // NEW column (was return_completed_at)
                 'refund'      => 'return_completed_at',
                 'replacement' => 'return_completed_at',
             ],
@@ -2976,7 +2975,7 @@ class ReturnService
             // ============================================================
             $replacement = Order::create([
                 // ── Identity / linkage ─────────────────────────────────
-                'parent_order_id'         => $rootOrder->id,       // 👈 root, not immediate parent
+                'parent_order_id'         => $rootOrder->id,
                 'is_replacement'          => true,
                 'order_reference'         => $this->generateReplacementOrderNumber($rootOrder),
 
@@ -2986,9 +2985,7 @@ class ReturnService
                 'delivery_address_id'     => $originalOrder->delivery_address_id,
 
                 // ── Type / status ─────────────────────────────────────
-                'order_type'              => 'replacement',         // 👈 actual column name
                 'status'                  => 'confirmed',
-                'delivery_status'         => 'confirmed',
                 'return_status'           => null,
                 'refund_status'           => null,
 

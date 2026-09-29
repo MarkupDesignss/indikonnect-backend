@@ -9,19 +9,68 @@ class OrderLine extends Model
 {
     protected $guarded = [];
 
-    protected $casts = [
-        'unit_price' => 'decimal:2',
-        'gst_rate' => 'decimal:2',
-        'gst_amount' => 'decimal:2',
-        'line_total' => 'decimal:2',
-        'commissionable_volume' => 'decimal:2',
-        'returned_quantity' => 'integer',
-        'dispatched_at' => 'datetime',
-        'shipped_at' => 'datetime',
-        'delivered_at' => 'datetime',
-        'confirmed_at' => 'datetime',
-    ];
+    // protected $casts = [
+    //     'unit_price' => 'decimal:2',
+    //     'gst_rate' => 'decimal:2',
+    //     'gst_amount' => 'decimal:2',
+    //     'line_total' => 'decimal:2',
+    //     'commissionable_volume' => 'decimal:2',
+    //     'returned_quantity' => 'integer',
+    //     'dispatched_at' => 'datetime',
+    //     'shipped_at' => 'datetime',
+    //     'delivered_at' => 'datetime',
+    //     'confirmed_at' => 'datetime',
+    // ];
 
+    protected $casts = [
+        // ── JSON columns ─────────────────────────────────────────
+        'tax_data'                     => 'array',
+
+        // ── Integers ─────────────────────────────────────────────
+        'quantity'                     => 'integer',
+        'returned_quantity'            => 'integer',
+
+        // ── Booleans ─────────────────────────────────────────────
+        'is_replacement'               => 'boolean',
+        'is_returnable'                => 'boolean',
+
+        // ── Decimals — money ─────────────────────────────────────
+        'unit_price'                   => 'decimal:2',
+        'shipping_charge'              => 'decimal:2',
+        'line_total'                   => 'decimal:2',
+        'commissionable_volume'        => 'decimal:2',
+
+        // ── Decimals — tax rates ─────────────────────────────────
+        'gst_rate'                     => 'decimal:2',
+        'cgst_rate'                    => 'decimal:2',
+        'sgst_rate'                    => 'decimal:2',
+        'igst_rate'                    => 'decimal:2',
+
+        // ── Decimals — tax amounts ───────────────────────────────
+        'gst_amount'                   => 'decimal:2',
+        'cgst_amount'                  => 'decimal:2',
+        'sgst_amount'                  => 'decimal:2',
+        'igst_amount'                  => 'decimal:2',
+
+        // ── Timestamps ───────────────────────────────────────────
+        'confirmed_at'                 => 'datetime',
+        'dispatched_at'                => 'datetime',
+        'shipped_at'                   => 'datetime',
+        'delivered_at'                 => 'datetime',
+        'cancelled_at'                 => 'datetime',
+        'return_at'                    => 'datetime',
+        'return_requested_at'          => 'datetime',
+        'return_approved_at'           => 'datetime',
+        'return_rejected_at'           => 'datetime',
+        'return_completed_at'          => 'datetime',
+        'return_received_at'           => 'datetime',
+        'cancellation_requested_at'    => 'datetime',
+        'cancellation_rejected_at'     => 'datetime',
+        'buyback_requested_at'         => 'datetime',
+        'buyback_approved_at'          => 'datetime',
+        'buyback_rejected_at'          => 'datetime',
+        'buyback_refunded_at'          => 'datetime',
+    ];
     const DELIVERY_STATUS_CANCEL_PENDING = 'cancel_pending';
     const DELIVERY_STATUS_CANCELLED = 'cancelled';
     const DELIVERY_STATUS_CANCEL_REJECTED = 'cancel_rejected';
