@@ -597,17 +597,47 @@ class ReturnController extends Controller
      * POST /api/admin/returns/{id}/received
      */
 
-    // public function adminMarkReceived(int $returnId): JsonResponse
+    // public function adminMarkReceived(Request $request, int $returnId): JsonResponse
     // {
     //     try {
-    //         $result = $this->returnService->markReturnReceived($returnId);
+    //         $request->validate([
+    //             'admin_notes'   => 'nullable|string|max:500',
+    //             'refund_amount' => 'nullable|numeric|min:0',
+    //         ]);
+
+    //         $refundAmount = $request->filled('refund_amount')
+    //             ? (float) $request->refund_amount
+    //             : null;
+
+    //         // Pre-validate against refundable balance (fail fast before touching DB)
+    //         if ($refundAmount !== null) {
+    //             $returnOrder = OrderReturn::with('order')->findOrFail($returnId);
+    //             $order = $returnOrder->order;
+
+    //             if ($order) {
+    //                 $refundable = $this->returnService->getRefundableAmount($order);
+
+    //                 if ($refundAmount > $refundable) {
+    //                     return response()->json([
+    //                         'success' => false,
+    //                         'message' => "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}).",
+    //                     ], 422);
+    //                 }
+    //             }
+    //         }
+
+    //         $result = $this->returnService->markReturnReceived(
+    //             $returnId,
+    //             $refundAmount,
+    //             $request->admin_notes,
+    //             auth()->id(),
+    //         );
 
     //         return response()->json($result, 200);
     //     } catch (\Throwable $e) {
-
     //         Log::error('Admin mark return received failed', [
     //             'return_id' => $returnId,
-    //             'error' => $e->getMessage(),
+    //             'error'     => $e->getMessage(),
     //         ]);
 
     //         return response()->json([
@@ -616,41 +646,20 @@ class ReturnController extends Controller
     //         ], 400);
     //     }
     // }
+
     public function adminMarkReceived(Request $request, int $returnId): JsonResponse
     {
         try {
             $request->validate([
-                'admin_notes'   => 'nullable|string|max:500',
-                'refund_amount' => 'nullable|numeric|min:0',
+                'admin_notes' => 'nullable|string|max:500',
             ]);
 
-            $refundAmount = $request->filled('refund_amount')
-                ? (float) $request->refund_amount
-                : null;
+            // Refund amount & resolution are NOT handled here anymore.
+            // This endpoint only confirms physical receipt of the returned item(s).
+            // Admin will be prompted for "Resolution" (refund / replacement)
+            // when they hit the "Complete" endpoint.
 
-            // Pre-validate against refundable balance (fail fast before touching DB)
-            if ($refundAmount !== null) {
-                $returnOrder = OrderReturn::with('order')->findOrFail($returnId);
-                $order = $returnOrder->order;
-
-                if ($order) {
-                    $refundable = $this->returnService->getRefundableAmount($order);
-
-                    if ($refundAmount > $refundable) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}).",
-                        ], 422);
-                    }
-                }
-            }
-
-            $result = $this->returnService->markReturnReceived(
-                $returnId,
-                $refundAmount,
-                $request->admin_notes,
-                auth()->id(),
-            );
+            $result = $this->returnService->markReturnReceived($returnId);
 
             return response()->json($result, 200);
         } catch (\Throwable $e) {
@@ -670,13 +679,51 @@ class ReturnController extends Controller
      * Admin: Complete return
      * POST /api/admin/returns/{id}/complete
      */
-    public function adminComplete(int $returnId): JsonResponse
+    public function adminComplete(Request $request, int $returnId): JsonResponse
     {
         try {
-            $result = $this->returnService->completeReturn($returnId);
+            $validated = $request->validate([
+                'resolution'    => 'required|in:refund,replacement',
+                'refund_amount' => 'nullable|numeric|min:0',
+                'admin_notes'   => 'nullable|string|max:500',
+            ]);
 
-            return response()->json($result);
-        } catch (Exception $e) {
+            $refundAmount = $request->filled('refund_amount')
+                ? (float) $request->refund_amount
+                : null;
+
+            // Pre-validate refund amount ONLY when resolution = refund
+            if ($validated['resolution'] === 'refund' && $refundAmount !== null) {
+                $returnOrder = OrderReturn::with('order')->findOrFail($returnId);
+                $order = $returnOrder->order;
+
+                if ($order) {
+                    $refundable = $this->returnService->getRefundableAmount($order);
+
+                    if ($refundAmount > $refundable) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}).",
+                        ], 422);
+                    }
+                }
+            }
+
+            $result = $this->returnService->completeReturn(
+                $returnId,
+                $validated['resolution'],
+                $refundAmount,
+                $validated['admin_notes'] ?? null,
+                auth()->id(),
+            );
+
+            return response()->json($result, 200);
+        } catch (\Throwable $e) {
+            Log::error('Admin complete return failed', [
+                'return_id' => $returnId,
+                'error'     => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
