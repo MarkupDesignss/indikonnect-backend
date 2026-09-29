@@ -68,7 +68,7 @@ return new class extends Migration
                 'pending',
                 'approved',
                 'rejected',
-                'received',
+                'cancelled',
                 'returned',
                 'replaced',
                 'refunded'
