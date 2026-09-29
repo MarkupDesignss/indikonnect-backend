@@ -50,6 +50,7 @@ use App\Http\Controllers\Admin\FAQController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\CancellationApprovalController;
+use App\Http\Controllers\Admin\CatalogueController;
 use App\Http\Controllers\Admin\FaqSectionController;
 use App\Http\Controllers\API\BrandController;
 use App\Http\Controllers\API\SubcategoryController;
@@ -771,3 +772,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
         [CancellationApprovalController::class, 'reject']
     );
 });
+
+Route::post('/catalogues', [CatalogueController::class, 'store']);
+Route::get('/catalogues', [CatalogueController::class, 'index']);
+Route::post('/catalogues/{id}', [CatalogueController::class, 'replace']);
