@@ -2662,7 +2662,7 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            $user = User::with('roles')->where('phone', $request->phone)->first();
+            $user = User::where('phone', $request->phone)->first();
 
             if (!$user) {
                 return response()->json([
