@@ -498,7 +498,9 @@ class ReturnService
             $refundTotal,
             $totalRefund,
             $totalCvReversed,
-            $data
+            $data,
+            $returnDeadline,      // ← ADD
+            $returnWindowDays     // ← ADD
         ) {
             // Create return order
             $returnOrder = OrderReturn::create([
