@@ -104,6 +104,12 @@ class CatalogueController extends Controller
     {
         $catalogues = Catalogue::latest()->paginate(15);
 
+        $catalogues->getCollection()->transform(function ($catalogue) {
+            $catalogue->file_url = asset('storage/' . $catalogue->file_path);
+
+            return $catalogue;
+        });
+
         return response()->json([
             'status' => true,
             'data'   => $catalogues,
