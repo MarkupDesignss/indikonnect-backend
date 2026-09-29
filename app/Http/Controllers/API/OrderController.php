@@ -939,8 +939,13 @@ class OrderController extends Controller
     //             'order.shippingMethod',
     //             'order.invoice',
     //             'order.returns',
+    //             'order.creditNotes',
     //             'product',
-    //             'product.images'
+    //             'product.images',
+    //             'product.reviews' => function ($query) {
+    //                 $query->where('status', 'approved')
+    //                     ->with(['user', 'images']); // Load user and images
+    //             },
     //         ])
     //             ->whereHas('order', function ($query) {
     //                 $query->where('user_id', auth()->id());
@@ -953,6 +958,15 @@ class OrderController extends Controller
     //         foreach ($orderLines as $line) {
     //             $order = $line->order;
     //             $product = $line->product;
+
+    //             // Debug: Check if reviews are loaded
+    //             Log::info('Line ID: ' . $line->id . ', Product ID: ' . $line->product_id);
+    //             if ($product) {
+    //                 Log::info('Reviews count for product: ' . $product->reviews->count());
+    //                 foreach ($product->reviews as $review) {
+    //                     Log::info('Review: ID=' . $review->id . ', order_line_id=' . $review->order_line_id . ', order_id=' . $review->order_id . ', status=' . $review->status);
+    //                 }
+    //             }
 
     //             // Get product images
     //             $images = [];
@@ -971,311 +985,51 @@ class OrderController extends Controller
     //                     }
     //                 }
 
-    //                 // If no primary image set, use first image
     //                 if (!$primaryImage && !empty($images)) {
     //                     $primaryImage = $images[0]['image_url'];
     //                 }
     //             }
 
-    //             // Format addresses
-    //             $billingAddress = $order->billingAddress;
-    //             $deliveryAddress = $order->deliveryAddress;
-    //             $shippingMethod = $order->shippingMethod;
+    //             // FIX: Get ONLY approved reviews for this specific order line
+    //             $productReviews = [];
+    //             if ($product && $product->reviews) {
+    //                 foreach ($product->reviews as $review) {
+    //                     // Debug: Check each review
+    //                     Log::info('Checking review: ' . $review->id . ' against line_id: ' . $line->id);
 
-    //             // Format returns with full image URLs
-    //             $returns = $order->returns->map(function ($return) {
-    //                 // Process return items with full image URLs
-    //                 $returnItems = [];
-    //                 if ($return->items) {
-    //                     $items = is_string($return->items)
-    //                         ? json_decode($return->items, true)
-    //                         : $return->items;
+    //                     // Only include approved reviews that belong to this specific order line
+    //                     if (
+    //                         $review->status === 'approved' &&
+    //                         (int)$review->order_line_id === (int)$line->id
+    //                     ) {
+    //                         Log::info('MATCH FOUND! Review ID: ' . $review->id . ' for line_id: ' . $line->id);
 
-    //                     foreach ($items as $item) {
-    //                         // Process image paths
-    //                         $imagePaths = $item['image_paths'] ?? [];
-    //                         $fullImageUrls = [];
-
-    //                         foreach ($imagePaths as $path) {
-    //                             $fullImageUrls[] = asset('storage/' . $path);
-    //                         }
-
-    //                         $returnItems[] = [
-    //                             'order_line_id' => $item['order_line_id'] ?? null,
-    //                             'product_id' => $item['product_id'] ?? null,
-    //                             'product_name' => $item['product_name'] ?? 'Unknown',
-    //                             'quantity' => $item['quantity'] ?? 0,
-    //                             'unit_price' => (float) ($item['unit_price'] ?? 0),
-    //                             'gst_rate' => (float) ($item['gst_rate'] ?? 0),
-    //                             'subtotal' => (float) ($item['subtotal'] ?? 0),
-    //                             'tax' => (float) ($item['tax'] ?? 0),
-    //                             'line_total' => (float) ($item['line_total'] ?? 0),
-    //                             'reason' => $item['reason'] ?? null,
-    //                             'image_paths' => $imagePaths, // Keep original paths
-    //                             'image_urls' => $fullImageUrls, // Full URLs
-    //                             'return_status' => $item['return_status'] ?? 'pending',
+    //                         $productReviews[] = [
+    //                             'id' => $review->id,
+    //                             'user_id' => $review->user_id,
+    //                             'user_name' => $review->user?->full_name ?? $review->user?->name ?? 'Unknown User',
+    //                             'rating' => (int) $review->rating,
+    //                             'review_text' => $review->review_text,
+    //                             'order_id' => $review->order_id,
+    //                             'order_line_id' => $review->order_line_id,
+    //                             'status' => $review->status,
+    //                             'is_verified_purchase' => true,
+    //                             'images' => $review->images ?
+    //                                 $review->images->map(function ($img) {
+    //                                     return [
+    //                                         'id' => $img->id,
+    //                                         'image_url' => $img->image_url ?? asset('storage/' . $img->image),
+    //                                         'sort_order' => $img->sort_order ?? 0,
+    //                                     ];
+    //                                 })->values()->toArray()
+    //                                 : [],
+    //                             'created_at' => $review->created_at?->toDateTimeString(),
+    //                             'updated_at' => $review->updated_at?->toDateTimeString(),
     //                         ];
     //                     }
     //                 }
-
-    //                 // Process general images
-    //                 $generalImages = [];
-    //                 if ($return->general_images) {
-    //                     $images = is_string($return->general_images)
-    //                         ? json_decode($return->general_images, true)
-    //                         : $return->general_images;
-
-    //                     foreach ($images as $image) {
-    //                         $generalImages[] = [
-    //                             'path' => $image,
-    //                             'url' => asset('storage/' . $image),
-    //                         ];
-    //                     }
-    //                 }
-
-    //                 return [
-    //                     'id' => $return->id,
-    //                     'order_id' => $return->order_id,
-    //                     'user_id' => $return->user_id,
-    //                     'items' => $returnItems,
-    //                     // 'general_images' => $generalImages,
-    //                     // 'partial_approval_details' => is_string($return->partial_approval_details)
-    //                     //     ? json_decode($return->partial_approval_details, true)
-    //                     //     : $return->partial_approval_details,
-    //                     'status' => $return->status,
-    //                     // 'reason' => $return->reason,
-    //                     'refund_subtotal' => (float) $return->refund_subtotal,
-    //                     'refund_tax' => (float) $return->refund_tax,
-    //                     'refund_line_total' => (float) ($return->refund_line_total ?? 0),
-    //                     'refund_shipping' => (float) $return->refund_shipping,
-    //                     'total_refund_amount' => (float) $return->total_refund_amount,
-    //                     'refund_status' => $return->refund_status,
-    //                     'refund_processed_at' => $return->refund_processed_at?->toDateTimeString(),
-    //                     'admin_notes' => $return->admin_notes,
-    //                     'rejection_reason' => $return->rejection_reason,
-    //                     // 'approved_at' => $return->approved_at?->toDateTimeString(),
-    //                     // 'received_at' => $return->received_at?->toDateTimeString(),
-    //                     // 'completed_at' => $return->completed_at?->toDateTimeString(),
-    //                     // 'created_at' => $return->created_at?->toDateTimeString(),
-    //                 ];
-    //             })->values()->toArray();
-
-    //             // Check if product is reviewed
-    //             $isReviewed = \App\Models\ProductReview::where('user_id', auth()->id())
-    //                 ->where('product_id', $line->product_id)
-    //                 ->where('order_id', $order->id)
-    //                 ->exists();
-
-    //             // Helper function to format date
-    //             $formatDate = function ($date) {
-    //                 if (!$date) {
-    //                     return null;
-    //                 }
-    //                 if ($date instanceof \Carbon\Carbon) {
-    //                     return $date->toDateTimeString();
-    //                 }
-    //                 if (is_string($date)) {
-    //                     try {
-    //                         return \Carbon\Carbon::parse($date)->toDateTimeString();
-    //                     } catch (\Exception $e) {
-    //                         return $date;
-    //                     }
-    //                 }
-    //                 return null;
-    //             };
-
-    //             // Build formatted item
-    //             $formattedItems[] = [
-    //                 // Order Reference
-    //                 'order_id' => $order->id,
-    //                 'order_reference' => $order->order_reference,
-    //                 'order_status' => $order->status,
-    //                 'order_type' => $order->order_type,
-    //                 'order_date' => $formatDate($order->created_at),
-    //                 'confirmed_date' => $formatDate($order->confirmed_at),
-
-    //                 // Line Item Details
-    //                 'line_id' => $line->id,
-    //                 'product_id' => $line->product_id,
-    //                 'product_name' => $product?->name ?? 'Product Not Found',
-    //                 'product_code' => $product?->product_code ?? 'N/A',
-    //                 'quantity' => $line->quantity,
-    //                 'unit_price' => (float) $line->unit_price,
-    //                 'gst_rate' => (float) $line->gst_rate,
-    //                 'gst_amount' => (float) $line->gst_amount,
-    //                 'line_total' => (float) $line->line_total,
-    //                 'commissionable_volume' => (float) $line->commissionable_volume,
-
-    //                 // Product Status (Order Line Level)
-    //                 'delivery_status' => $line->delivery_status ?? 'pending',
-    //                 'return_status' => $line->return_status ?? 'none',
-    //                 'returned_quantity' => (int) ($line->returned_quantity ?? 0),
-    //                 'available_for_return' => $line->getAvailableForReturnAttribute(),
-    //                 'is_returnable' => $line->is_returnable ?? true,
-
-    //                 // Timeline at Order Line Level
-    //                 'timeline' => [
-    //                     'order_placed' => $formatDate($order->created_at),
-    //                     'order_confirmed' => $formatDate($order->confirmed_at),
-    //                     'shipped_at' => $formatDate($line->shipped_at),
-    //                     'delivered_at' => $formatDate($line->delivered_at),
-    //                     'return_requested_at' => $formatDate($line->return_requested_at),
-    //                     'return_approved_at' => $formatDate($line->return_approved_at),
-    //                     'return_rejected_at' => $formatDate($line->return_rejected_at),
-    //                     'return_completed_at' => $formatDate($line->return_completed_at),
-    //                 ],
-
-    //                 'is_reviewed' => $isReviewed,
-
-    //                 // Product Images
-    //                 'images' => $images,
-    //                 'primary_image' => $primaryImage,
-
-    //                 // Order Financial Info
-    //                 'payment_gateway' => $order->payment_gateway ?? 'Razorpay',
-    //                 'gateway_transaction_id' => $order->gateway_transaction_id,
-    //                 'amount_paid' => (float) $order->amount_paid,
-    //                 'payment_status' => $order->amount_paid > 0 ? 'paid' : 'unpaid',
-    //                 'subtotal' => (float) $order->subtotal,
-    //                 'total_gst' => (float) $order->total_gst,
-    //                 'shipping_charge' => (float) $order->shipping_charge,
-    //                 'coin_redeemed' => (int) $order->coin_redeemed,
-    //                 'coin_redeemed_amount' => (float) $order->coin_redeemed_amount,
-    //                 'total_payable' => (float) $order->total_payable,
-
-    //                 // Tax Breakdown
-    //                 'tax_breakdown' => !empty($order->tax_breakdown)
-    //                     ? (
-    //                         is_string($order->tax_breakdown)
-    //                         ? json_decode($order->tax_breakdown, true)
-    //                         : $order->tax_breakdown
-    //                     )
-    //                     : [],
-
-    //                 // Shipping Method Details
-    //                 'shipping_method' => $shippingMethod ? [
-    //                     'id' => $shippingMethod->id,
-    //                     'name' => $shippingMethod->name,
-    //                     'code' => $shippingMethod->code,
-    //                     'description' => $shippingMethod->description,
-    //                     'base_rate' => (float) $shippingMethod->base_rate,
-    //                     'rate_type' => $shippingMethod->rate_type,
-    //                     'rate_value' => (float) $shippingMethod->rate_value,
-    //                     'min_order_amount' => (float) $shippingMethod->min_order_amount,
-    //                     'max_order_amount' => (float) $shippingMethod->max_order_amount,
-    //                     'estimated_days' => $shippingMethod->estimated_days,
-    //                     'is_active' => (bool) $shippingMethod->is_active,
-    //                 ] : null,
-
-    //                 // Addresses
-    //                 'billing_address' => $billingAddress ? [
-    //                     'id' => $billingAddress->id,
-    //                     'full_name' => $billingAddress->full_name ?? null,
-    //                     'phone' => $billingAddress->phone ?? null,
-    //                     'address_line_1' => $billingAddress->address_line_1,
-    //                     'address_line_2' => $billingAddress->address_line_2 ?? null,
-    //                     'city' => $billingAddress->city,
-    //                     'state' => $billingAddress->state,
-    //                     'postal_code' => $billingAddress->postal_code,
-    //                     'country' => $billingAddress->country ?? 'India',
-    //                     'full_address' => $this->formatAddress($billingAddress),
-    //                 ] : null,
-
-    //                 'delivery_address' => $deliveryAddress ? [
-    //                     'id' => $deliveryAddress->id,
-    //                     'full_name' => $deliveryAddress->full_name ?? null,
-    //                     'phone' => $deliveryAddress->phone ?? null,
-    //                     'address_line_1' => $deliveryAddress->address_line_1,
-    //                     'address_line_2' => $deliveryAddress->address_line_2 ?? null,
-    //                     'city' => $deliveryAddress->city,
-    //                     'state' => $deliveryAddress->state,
-    //                     'postal_code' => $deliveryAddress->postal_code,
-    //                     'country' => $deliveryAddress->country ?? 'India',
-    //                     'full_address' => $this->formatAddress($deliveryAddress),
-    //                 ] : null,
-
-    //                 // User Info
-    //                 'user' => [
-    //                     'id' => $order->user->id,
-    //                     'name' => $order->user->name,
-    //                     'email' => $order->user->email,
-    //                     'phone' => $order->user->phone ?? null,
-    //                     'is_distributor' => $order->user->isDistributor(),
-    //                 ],
-
-    //                 // Invoice Info
-    //                 'invoice' => $order->invoice ? [
-    //                     'invoice_number' => $order->invoice->invoice_number,
-    //                     // 'invoice_url' => asset(
-    //                     //     'storage/invoices/' . $order->invoice->invoice_number . '.pdf'
-    //                     // ),
-    //                     'generated_at' => $formatDate($order->invoice->created_at),
-    //                 ] : null,
-
-    //                 // Returns
-    //                 'returns' => $returns,
-
-    //             ];
-    //         }
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'data' => $formattedItems,
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 500);
-    //     }
-    // }
-
-    // public function getOrder()
-    // {
-    //     try {
-    //         $orderLines = OrderLine::with([
-    //             'order.user',
-    //             'order.billingAddress',
-    //             'order.deliveryAddress',
-    //             'order.shippingMethod',
-    //             'order.invoice',
-    //             'order.returns',
-    //             'order.creditNotes',
-    //             'product',
-    //             'product.images'
-    //         ])
-    //             ->whereHas('order', function ($query) {
-    //                 $query->where('user_id', auth()->id());
-    //             })
-    //             ->latest('id')
-    //             ->get();
-
-    //         $formattedItems = [];
-
-    //         foreach ($orderLines as $line) {
-    //             $order = $line->order;
-    //             $product = $line->product;
-
-    //             // Get product images
-    //             $images = [];
-    //             $primaryImage = null;
-
-    //             if ($product && $product->images) {
-    //                 foreach ($product->images as $image) {
-    //                     $images[] = [
-    //                         'id' => $image->id,
-    //                         'image_url' => asset('storage/' . $image->image),
-    //                         'is_primary' => $image->is_primary,
-    //                     ];
-
-    //                     if ($image->is_primary) {
-    //                         $primaryImage = asset('storage/' . $image->image);
-    //                     }
-    //                 }
-
-    //                 if (!$primaryImage && !empty($images)) {
-    //                     $primaryImage = $images[0]['image_url'];
-    //                 }
+    //             } else {
+    //                 Log::info('No product or no reviews found for line_id: ' . $line->id);
     //             }
 
     //             // Format addresses
@@ -1335,6 +1089,7 @@ class OrderController extends Controller
     //                     'id' => $return->id,
     //                     'order_id' => $return->order_id,
     //                     'user_id' => $return->user_id,
+    //                     'type' => $return->type,
     //                     'items' => $returnItems,
     //                     'status' => $return->status,
     //                     'refund_subtotal' => (float) $return->refund_subtotal,
@@ -1349,11 +1104,14 @@ class OrderController extends Controller
     //                 ];
     //             })->values()->toArray();
 
-    //             // Check if product is reviewed
+    //             // FIX: Check if THIS SPECIFIC order line has an approved review
     //             $isReviewed = \App\Models\ProductReview::where('user_id', auth()->id())
     //                 ->where('product_id', $line->product_id)
-    //                 ->where('order_id', $order->id)
+    //                 ->where('order_line_id', $line->id)
+    //                 ->where('status', 'approved')
     //                 ->exists();
+
+    //             Log::info('isReviewed for line_id ' . $line->id . ': ' . ($isReviewed ? 'true' : 'false'));
 
     //             // Helper function to format date
     //             $formatDate = function ($date) {
@@ -1409,8 +1167,10 @@ class OrderController extends Controller
     //                 'confirmed_date' => $formatDate($order->confirmed_at),
 
     //                 // Line Item Details
+    //                 // Line Item Details
     //                 'line_id' => $line->id,
     //                 'product_id' => $line->product_id,
+    //                 'item_reference_id' => $line->item_reference_id,
     //                 'product_name' => $product?->name ?? 'Product Not Found',
     //                 'product_code' => $product?->product_code ?? 'N/A',
     //                 'quantity' => $line->quantity,
@@ -1418,6 +1178,8 @@ class OrderController extends Controller
     //                 'gst_rate' => (float) $line->gst_rate,
     //                 'gst_amount' => (float) $line->gst_amount,
     //                 'line_total' => (float) $line->line_total,
+    //                 'final_amount' => (float) $line->line_total + ($line->quantity * $line->shipping_charge),
+    //                 'delivery_charges' => ($line->quantity * $line->shipping_charge),
     //                 'commissionable_volume' => (float) $line->commissionable_volume,
 
     //                 // Product Status (Order Line Level)
@@ -1425,7 +1187,8 @@ class OrderController extends Controller
     //                 'return_status' => $line->return_status ?? 'none',
     //                 'returned_quantity' => (int) ($line->returned_quantity ?? 0),
     //                 'available_for_return' => $line->getAvailableForReturnAttribute(),
-    //                 'is_returnable' => $line->is_returnable ?? true,
+    //                 'is_returnable' => $line->isReturnable() ?? true,
+    //                 // 'is_returnable' => $line->is_returnable ?? true,
 
     //                 // Timeline at Order Line Level
     //                 'timeline' => [
@@ -1434,6 +1197,15 @@ class OrderController extends Controller
     //                     'shipped_at' => $formatDate($line->shipped_at),
     //                     'cancelled_at' => $formatDate($line->cancelled_at),
     //                     'dispatched_at' => $formatDate($line->dispatched_at),
+    //                     // 'return_applicable_till' => $line->dispatched_at
+    //                     //     ? $formatDate(\Carbon\Carbon::parse($line->dispatched_at)->addDays(30))
+    //                     //     : null,
+    //                     'return_applicable_till' => $line->dispatched_at
+    //                         ? $formatDate(
+    //                             \Carbon\Carbon::parse($line->dispatched_at)
+    //                                 ->addDays((int) setting('return_window_days', 30))
+    //                         )
+    //                         : null,
     //                     'delivered_at' => $formatDate($line->delivered_at),
     //                     'return_requested_at' => $formatDate($line->return_requested_at),
     //                     'return_approved_at' => $formatDate($line->return_approved_at),
@@ -1446,6 +1218,9 @@ class OrderController extends Controller
     //                 // Product Images
     //                 'images' => $images,
     //                 'primary_image' => $primaryImage,
+
+    //                 // FIXED: Only show approved reviews for THIS specific order line
+    //                 'product_reviews' => $productReviews,
 
     //                 // Order Financial Info
     //                 'payment_gateway' => $order->payment_gateway ?? 'Razorpay',
@@ -1491,6 +1266,7 @@ class OrderController extends Controller
     //                     'address_line_1' => $billingAddress->address_line_1,
     //                     'address_line_2' => $billingAddress->address_line_2 ?? null,
     //                     'city' => $billingAddress->city,
+    //                     'type' => $billingAddress->type ?? null,
     //                     'state' => $billingAddress->state,
     //                     'postal_code' => $billingAddress->postal_code,
     //                     'country' => $billingAddress->country ?? 'India',
@@ -1504,6 +1280,7 @@ class OrderController extends Controller
     //                     'address_line_1' => $deliveryAddress->address_line_1,
     //                     'address_line_2' => $deliveryAddress->address_line_2 ?? null,
     //                     'city' => $deliveryAddress->city,
+    //                     'type' => $deliveryAddress->type ?? null,
     //                     'state' => $deliveryAddress->state,
     //                     'postal_code' => $deliveryAddress->postal_code,
     //                     'country' => $deliveryAddress->country ?? 'India',
@@ -1529,7 +1306,7 @@ class OrderController extends Controller
     //                 'returns' => $returns,
 
     //                 // ============================================================
-    //                 // CREDIT NOTES (NEW)
+    //                 // CREDIT NOTES
     //                 // ============================================================
     //                 'credit_notes' => $itemCreditNotes,
     //             ];
@@ -1540,13 +1317,15 @@ class OrderController extends Controller
     //             'data' => $formattedItems,
     //         ]);
     //     } catch (\Exception $e) {
+    //         Log::error('Error in getOrder: ' . $e->getMessage());
+    //         Log::error($e->getTraceAsString());
+
     //         return response()->json([
     //             'success' => false,
     //             'message' => $e->getMessage(),
     //         ], 500);
     //     }
     // }
-
     public function getOrder()
     {
         try {
@@ -1562,7 +1341,7 @@ class OrderController extends Controller
                 'product.images',
                 'product.reviews' => function ($query) {
                     $query->where('status', 'approved')
-                        ->with(['user', 'images']); // Load user and images
+                        ->with(['user', 'images']);
                 },
             ])
                 ->whereHas('order', function ($query) {
@@ -1573,6 +1352,9 @@ class OrderController extends Controller
 
             $formattedItems = [];
 
+            // Gateway charges percentage from settings (e.g. 2.5)
+            $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
+            $returnWindowDays = (int) setting('return_window_days', 30);
             foreach ($orderLines as $line) {
                 $order = $line->order;
                 $product = $line->product;
@@ -1608,14 +1390,12 @@ class OrderController extends Controller
                     }
                 }
 
-                // FIX: Get ONLY approved reviews for this specific order line
+                // Get ONLY approved reviews for this specific order line
                 $productReviews = [];
                 if ($product && $product->reviews) {
                     foreach ($product->reviews as $review) {
-                        // Debug: Check each review
                         Log::info('Checking review: ' . $review->id . ' against line_id: ' . $line->id);
 
-                        // Only include approved reviews that belong to this specific order line
                         if (
                             $review->status === 'approved' &&
                             (int)$review->order_line_id === (int)$line->id
@@ -1722,7 +1502,7 @@ class OrderController extends Controller
                     ];
                 })->values()->toArray();
 
-                // FIX: Check if THIS SPECIFIC order line has an approved review
+                // Check if THIS SPECIFIC order line has an approved review
                 $isReviewed = \App\Models\ProductReview::where('user_id', auth()->id())
                     ->where('product_id', $line->product_id)
                     ->where('order_line_id', $line->id)
@@ -1774,6 +1554,68 @@ class OrderController extends Controller
                     }
                 }
 
+                // ============================================================
+                // RETURN / REFUND ESTIMATE CALCULATIONS
+                // ============================================================
+                $quantity = (int) $line->quantity;
+                $unitPrice = (float) $line->unit_price;
+                $gstRate = (float) $line->gst_rate;
+                $shippingPerUnit = (float) $line->shipping_charge;
+                $lineTotal = (float) $line->line_total;
+                $gstAmount = (float) $line->gst_amount;
+                $finalAmount = $lineTotal + ($quantity * $shippingPerUnit);
+
+                // Determine which return belongs to this order line (if any) to detect return_method
+                $returnMethod = null; // 'doorstep' | 'courier' | null
+
+                foreach ($order->returns as $return) {
+                    $returnItems = is_string($return->items)
+                        ? json_decode($return->items, true)
+                        : $return->items;
+
+                    if (is_array($returnItems)) {
+                        foreach ($returnItems as $rItem) {
+                            if (($rItem['order_line_id'] ?? null) == $line->id) {
+                                // return_method could be on the return or on the item itself
+                                $returnMethod = $rItem['return_method']
+                                    ?? $return->return_method
+                                    ?? null;
+                                break 2;
+                            }
+                        }
+                    }
+                }
+
+                // Deducted shipping charges:
+                //   doorstep -> 2 * (quantity * per-unit shipping)
+                //   courier  -> 1 * (quantity * per-unit shipping)
+                //   no return -> 0
+                $totalShippingForLine = $quantity * $shippingPerUnit;
+                $deductedShippingCharges = 0;
+
+                if ($returnMethod === 'doorstep') {
+                    $deductedShippingCharges = 2 * $totalShippingForLine;
+                } elseif ($returnMethod === 'courier') {
+                    $deductedShippingCharges = 1 * $totalShippingForLine;
+                }
+
+                // Gateway charges (percentage from settings) calculated on final amount
+                $gatewayCharges = $finalAmount * ($gatewayChargesPercent / 100);
+
+                // Tax amount for the product (GST)
+                $taxAmount = $gstAmount;
+
+                // Total returnable amount (approx)
+                // = final amount - deducted shipping - gateway charges
+                // (tax is included inside line_total / final amount, so we don't add separately)
+                $totalReturnableAmount = $finalAmount
+                    - $deductedShippingCharges
+                    - $gatewayCharges;
+
+                if ($totalReturnableAmount < 0) {
+                    $totalReturnableAmount = 0;
+                }
+
                 // Build formatted item
                 $formattedItems[] = [
                     // Order Reference
@@ -1785,7 +1627,6 @@ class OrderController extends Controller
                     'confirmed_date' => $formatDate($order->confirmed_at),
 
                     // Line Item Details
-                    // Line Item Details
                     'line_id' => $line->id,
                     'product_id' => $line->product_id,
                     'item_reference_id' => $line->item_reference_id,
@@ -1796,8 +1637,8 @@ class OrderController extends Controller
                     'gst_rate' => (float) $line->gst_rate,
                     'gst_amount' => (float) $line->gst_amount,
                     'line_total' => (float) $line->line_total,
-                    'final_amount' => (float) $line->line_total + ($line->quantity * $line->shipping_charge),
-                    'delivery_charges' => ($line->quantity * $line->shipping_charge),
+                    'final_amount' => (float) $finalAmount,
+                    'delivery_charges' => (float) $totalShippingForLine,
                     'commissionable_volume' => (float) $line->commissionable_volume,
 
                     // Product Status (Order Line Level)
@@ -1806,7 +1647,6 @@ class OrderController extends Controller
                     'returned_quantity' => (int) ($line->returned_quantity ?? 0),
                     'available_for_return' => $line->getAvailableForReturnAttribute(),
                     'is_returnable' => $line->isReturnable() ?? true,
-                    // 'is_returnable' => $line->is_returnable ?? true,
 
                     // Timeline at Order Line Level
                     'timeline' => [
@@ -1815,13 +1655,10 @@ class OrderController extends Controller
                         'shipped_at' => $formatDate($line->shipped_at),
                         'cancelled_at' => $formatDate($line->cancelled_at),
                         'dispatched_at' => $formatDate($line->dispatched_at),
-                        // 'return_applicable_till' => $line->dispatched_at
-                        //     ? $formatDate(\Carbon\Carbon::parse($line->dispatched_at)->addDays(30))
-                        //     : null,
                         'return_applicable_till' => $line->dispatched_at
                             ? $formatDate(
                                 \Carbon\Carbon::parse($line->dispatched_at)
-                                    ->addDays((int) setting('return_window_days', 30))
+                                    ->addDays($returnWindowDays)
                             )
                             : null,
                         'delivered_at' => $formatDate($line->delivered_at),
@@ -1837,7 +1674,7 @@ class OrderController extends Controller
                     'images' => $images,
                     'primary_image' => $primaryImage,
 
-                    // FIXED: Only show approved reviews for THIS specific order line
+                    // Only show approved reviews for THIS specific order line
                     'product_reviews' => $productReviews,
 
                     // Order Financial Info
@@ -1923,10 +1760,18 @@ class OrderController extends Controller
                     // Returns
                     'returns' => $returns,
 
-                    // ============================================================
-                    // CREDIT NOTES
-                    // ============================================================
+                    // Credit Notes
                     'credit_notes' => $itemCreditNotes,
+
+                    // ============================================================
+                    // RETURN / REFUND ESTIMATE
+                    // ============================================================
+                    'return_method' => $returnMethod, // 'doorstep' | 'courier' | null
+                    'deducted_shipping_charges' => round($deductedShippingCharges, 2),
+                    'gateway_charges' => round($gatewayCharges, 2),
+                    'gateway_charges_percent' => $gatewayChargesPercent,
+                    'tax_amount' => round($taxAmount, 2),
+                    'total_returnable_amount' => round($totalReturnableAmount, 2),
                 ];
             }
 

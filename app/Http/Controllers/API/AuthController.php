@@ -3218,6 +3218,8 @@ class AuthController extends Controller
                 'branch_name' => $distributorProfile->branch_name,
                 'account_type' => $distributorProfile->account_type,
                 'location_consent' => $distributorProfile->location_consent,
+                'latitude' => $distributorProfile->latitude,
+                'longitude' => $distributorProfile->longitude,
                 'registration_completed' => $distributorProfile->registration_completed,
             ];
         }
