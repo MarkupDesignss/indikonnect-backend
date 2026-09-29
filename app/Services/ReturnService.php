@@ -1968,6 +1968,7 @@ class ReturnService
                 'initiate'    => 'return_requested_at',
                 'approve'     => 'return_approved_at',
                 'reject'      => 'return_rejected_at',
+                'receive'     => 'return_approved_at',
                 'refund'      => 'return_completed_at',
                 'replacement' => 'return_completed_at',
             ],
@@ -1975,7 +1976,7 @@ class ReturnService
                 'initiate'    => 'buyback_requested_at',
                 'approve'     => 'buyback_approved_at',
                 'reject'      => 'buyback_rejected_at',
-                'receive'     => 'buyback_approved_at',   // no dedicated column; reuse
+                'receive'     => 'buyback_approved_at',
                 'refund'      => 'buyback_refunded_at',
             ],
         ];
