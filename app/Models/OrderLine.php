@@ -32,6 +32,16 @@ class OrderLine extends Model
         return $this->hasOne(ProductReview::class);
     }
 
+    public function items()
+    {
+        $lineIds = collect($this->items ?? [])
+            ->pluck('order_line_id')
+            ->filter()
+            ->values();
+
+        return OrderLine::whereIn('id', $lineIds);
+    }
+
     public function order()
     {
         return $this->belongsTo(Order::class);
