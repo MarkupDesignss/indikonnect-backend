@@ -3140,7 +3140,7 @@ class ReturnService
             // ============================================================
             // 1. Pre-calculate totals from return items (ACTUAL values)
             // ============================================================
-            $subtotal      = 0;   // tax-EXCLUSIVE base
+            $subtotal      = 0;   
             $totalCgst     = 0;
             $totalSgst     = 0;
             $totalIgst     = 0;
