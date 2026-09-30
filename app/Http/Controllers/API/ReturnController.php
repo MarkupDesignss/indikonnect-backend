@@ -189,6 +189,7 @@ class ReturnController extends Controller
              */
             $processedData = $this->processReturnImages($validated);
             $processedData['return_method'] = $validated['return_method'];
+            $processedData['return_reason'] = $validated['return_reason'];
 
             /*
              * Send only processed data to service.
