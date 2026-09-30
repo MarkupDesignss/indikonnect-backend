@@ -22,6 +22,7 @@ class Product extends Model
         'deal_of_the_day_starts_at' => 'datetime',
         'deal_of_the_day_ends_at' => 'datetime',
         'is_trending' => 'boolean',
+        'parent_combo_id' => 'array',
     ];
 
     protected $attributes = [
@@ -136,6 +137,29 @@ class Product extends Model
     public function getIsWishlistedAttribute()
     {
         return false;
+    }
+
+    /**
+     * Normalize parent_combo_id to ensure it is always an array of arrays.
+     * This prevents "foreach() argument must be of type array|object, int given" errors.
+     */
+    public function getParentComboIdAttribute($value)
+    {
+        // Decode if it's a JSON string
+        $decoded = is_string($value) ? json_decode($value, true) : $value;
+
+        // If it's not an array, wrap it or return empty array
+        if (!is_array($decoded)) {
+            return $decoded ? [[$decoded]] : [];
+        }
+
+        // Ensure it's an array of arrays. If it's a flat array (e.g. [1,2]), wrap it.
+        if (!empty($decoded) && !is_array(reset($decoded))) {
+            return [$decoded];
+        }
+
+        // Filter out non-array elements
+        return array_values(array_filter($decoded, 'is_array'));
     }
 
     public function isActiveDealOfTheDay(): bool

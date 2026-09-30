@@ -2664,7 +2664,7 @@ class AuthController extends Controller
 
             $user = User::where('phone', $request->phone)->first();
 
-            if (!$user) {
+            if (!$user) {   
                 return response()->json([
                     'status' => false,
                     'message' => 'User not found.'
