@@ -776,3 +776,11 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
 Route::post('/catalogues', [CatalogueController::class, 'store']);
 Route::get('/catalogues', [CatalogueController::class, 'index']);
 Route::post('/catalogues/{id}', [CatalogueController::class, 'replace']);
+
+// routes/api.php
+Route::middleware('optional.auth:sanctum')->group(function () {
+    Route::get('/combo/products', [ProductController::class, 'availableProducts']);
+    Route::post('/combo/create',  [ProductController::class, 'createCombo']);
+    Route::get('/combos',         [ProductController::class, 'listCombos']);
+    Route::delete('/combo/{parentComboId}', [ProductController::class, 'deleteCombo']);
+});

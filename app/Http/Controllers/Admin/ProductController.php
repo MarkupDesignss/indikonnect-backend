@@ -6589,4 +6589,390 @@ class ProductController extends Controller
             ], 500);
         }
     }
+
+    public function availableProducts(Request $request)
+    {
+        $request->validate([
+            'combo_size'    => 'required|integer|min:2|max:10',
+            'exclude_ids'   => 'array',
+            'exclude_ids.*' => 'integer|exists:products,id',
+        ]);
+
+        $excludeIds = $request->input('exclude_ids', []);
+
+        $products = Product::query()
+            ->whereNull('deleted_at')
+            ->whereHas('brand', fn($q) => $q->where('status', true))
+            ->when(!empty($excludeIds), fn($q) => $q->whereNotIn('id', $excludeIds))
+            ->select('id', 'name', 'product_code', 'retail_price', 'retail_mrp', 'stock_quantity')
+            ->orderBy('name')
+            ->get();
+
+        return response()->json([
+            'status'     => true,
+            'combo_size' => (int) $request->combo_size,
+            'remaining'  => $request->combo_size - count($excludeIds),
+            'products'   => $products,
+        ]);
+    }
+
+    /**
+     * Step 2: Combo create
+     * POST /admin/combo/create
+     * Body: { "product_ids": [1, 2] }
+     */
+    public function createCombo(Request $request)
+    {
+        $request->validate([
+            'product_ids'   => 'required|array|min:2',
+            'product_ids.*' => 'integer|distinct|exists:products,id',
+        ], [
+            'product_ids.required'   => 'Please select at least two products.',
+            'product_ids.array'      => 'Product IDs must be provided as an array.',
+            'product_ids.min'        => 'At least two products are required to create a combo.',
+            'product_ids.*.integer'  => 'Each product ID must be a valid integer.',
+            'product_ids.*.distinct' => 'Duplicate product IDs are not allowed.',
+            'product_ids.*.exists'   => 'One or more selected products do not exist.',
+        ]);
+
+        // Sorted combo signature — order independent
+        $combo = collect($request->product_ids)
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->sort()
+            ->values()
+            ->toArray();
+
+        // 1. Same combination already exists?
+        //    Har product ke parent_combo_id (array of arrays) me check karo
+        $products = Product::whereIn('id', $combo)
+            ->whereNull('deleted_at')
+            ->get(['id', 'name', 'parent_combo_id']);
+
+        foreach ($products as $product) {
+
+            $existingCombos = $product->parent_combo_id ?? [];
+
+            // SAFETY CHECK: Ensure it's an array
+            if (!is_array($existingCombos)) {
+                $existingCombos = [];
+            }
+
+            foreach ($existingCombos as $existing) {
+
+                // SAFETY CHECK: Ensure each item is an array
+                if (!is_array($existing)) {
+                    continue;
+                }
+
+                $existingSorted = collect($existing)
+                    ->map(fn($id) => (int) $id)
+                    ->sort()
+                    ->values()
+                    ->toArray();
+
+                if ($existingSorted === $combo) {
+                    return response()->json([
+                        'status'  => false,
+                        'message' => 'This exact combination already exists (combo: [' . implode(', ', $combo) . ']).',
+                    ], 422);
+                }
+            }
+        }
+
+        // 2. Add combo to each product's parent_combo_id array
+        DB::beginTransaction();
+        try {
+
+            foreach ($products as $product) {
+
+                $existing = $product->parent_combo_id ?? [];
+
+                // SAFETY CHECK: Ensure it's an array
+                if (!is_array($existing)) {
+                    $existing = [];
+                }
+
+                // Append new combo if not already present
+                $existing[] = $combo;
+
+                // Dedupe and ensure valid structure
+                $unique = collect($existing)
+                    ->filter(fn($c) => is_array($c)) // Only keep arrays
+                    ->map(fn($c) => collect($c)->sort()->values()->toArray())
+                    ->unique(fn($c) => implode('-', $c))
+                    ->values()
+                    ->toArray();
+
+                $product->parent_combo_id = $unique;
+                $product->updated_at = now();
+                $product->save();
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'status'   => true,
+                'message'  => 'Combo created successfully.',
+                'combo'    => $combo,
+                'products' => Product::whereIn('id', $combo)->get(),
+            ], 201);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'status'  => false,
+                'message' => 'Failed to create combo: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Saare combos list karo (parent_combo_id ke hisaab se grouped)
+     * GET /admin/combos
+     */
+    public function listCombos(Request $request)
+    {
+        // ============================================================
+        // DETECT LOGGED-IN USER / ACCOUNT TYPE
+        // ============================================================
+
+        $user = $request->user();
+
+        $isDistributor = $user && $user->account_type === 'distributor';
+
+        $priceColumn = $isDistributor
+            ? 'distributor_price'
+            : 'retail_price';
+
+
+        // ============================================================
+        // BUILD UNIQUE COMBO SIGNATURES
+        // ============================================================
+
+        // Fetch all products that are part of at least one combo
+        $allComboProducts = Product::whereNull('deleted_at')
+            ->whereNotNull('parent_combo_id')
+            ->whereHas('brand', fn($q) => $q->where('status', true))
+            ->get(['id', 'parent_combo_id']);
+
+        // Collect unique combos
+        $comboMap = []; // signature => array of product ids
+
+        foreach ($allComboProducts as $p) {
+
+            $parentCombos = $p->parent_combo_id ?? [];
+
+            if (!is_array($parentCombos)) {
+                continue;
+            }
+
+            foreach ($parentCombos as $combo) {
+
+                if (!is_array($combo)) {
+                    continue;
+                }
+
+                $sorted = collect($combo)
+                    ->map(fn($id) => (int) $id)
+                    ->sort()
+                    ->values()
+                    ->toArray();
+
+                $signature = implode('-', $sorted);
+
+                if (!isset($comboMap[$signature])) {
+                    $comboMap[$signature] = $sorted;
+                }
+            }
+        }
+
+
+        // ============================================================
+        // COLLECT ALL PRODUCT IDS THAT BELONG TO ANY COMBO
+        // ============================================================
+
+        $allIds = collect($comboMap)->flatten()->unique()->values()->toArray();
+
+
+        // ============================================================
+        // FETCH PRODUCTS WITH RELATIONSHIPS
+        // ============================================================
+
+        $products = Product::with([
+            'category',
+            'subcategory',
+            'taxCategory',
+            'images',
+            'variants.images',
+            'brand',
+        ])
+            ->whereIn('id', $allIds)
+            ->whereNull('deleted_at')
+            ->whereHas('brand', fn($q) => $q->where('status', true))
+            ->get()
+            ->keyBy('id');
+
+
+        // ============================================================
+        // WISHLIST
+        // ============================================================
+
+        $wishlistIds = $this->getUserWishlistIds();
+
+
+        // ============================================================
+        // BUILD COMBO COLLECTION (with filters applied per combo)
+        // ============================================================
+
+        $combos = collect($comboMap)->map(function ($ids, $signature) use (
+            $products,
+            $wishlistIds,
+            $isDistributor
+        ) {
+
+            // Products belonging to this combo (order preserved by signature)
+            $comboProducts = collect($ids)
+                ->map(fn($id) => $products->get($id))
+                ->filter()
+                ->values();
+
+            if ($comboProducts->isEmpty()) {
+                return null;
+            }
+
+            // Format via existing helper
+            $formatted = $this->formatProductCollection(
+                $comboProducts,
+                $wishlistIds,
+                $isDistributor
+            );
+
+            // First product = parent (for display)
+            $parentId = $comboProducts->first()->id;
+
+            return [
+                'combo_id'   => $signature,
+                'parent_id'  => $parentId,
+                'combo_size' => $comboProducts->count(),
+                'products'   => collect($formatted)->map(function ($item) use ($parentId) {
+                    $item['is_parent'] = ($item['id'] == $parentId);
+                    return $item;
+                })->values()->toArray(),
+            ];
+        })->filter()->values();
+
+
+        // ============================================================
+        // APPLY REQUEST FILTERS (search, category, price, etc.)
+        // ============================================================
+
+        // SEARCH — combo ke kisi bhi product ke name/code pe
+        if ($request->has('search') && $request->search) {
+
+            $search = strtolower(trim($request->search));
+
+            $combos = $combos->filter(function ($combo) use ($search) {
+                foreach ($combo['products'] as $p) {
+                    if (
+                        str_contains(strtolower($p['name'] ?? ''), $search) ||
+                        str_contains(strtolower($p['product_code'] ?? ''), $search) ||
+                        str_contains(strtolower($p['slug'] ?? ''), $search)
+                    ) {
+                        return true;
+                    }
+                }
+                return false;
+            })->values();
+        }
+
+        // CATEGORY
+        if ($request->has('category_ids') && $request->category_ids) {
+            $catIds = array_filter(
+                is_array($request->category_ids)
+                    ? $request->category_ids
+                    : explode(',', $request->category_ids)
+            );
+            if (!empty($catIds)) {
+                $combos = $combos->filter(function ($combo) use ($catIds) {
+                    foreach ($combo['products'] as $p) {
+                        if (in_array($p['category_id'], $catIds)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                })->values();
+            }
+        }
+
+        // COMBO SIZE
+        if ($request->has('combo_size') && is_numeric($request->combo_size)) {
+            $size = (int) $request->combo_size;
+            $combos = $combos->filter(fn($c) => $c['combo_size'] == $size)->values();
+        }
+
+        // SORT BY PRICE (uses parent price)
+        $sortParam = $request->get('sort');
+
+        if ($sortParam === 'price-low') {
+            $combos = $combos->sortBy(function ($combo) use ($priceColumn) {
+                return $combo['products'][0][$priceColumn] ?? 0;
+            })->values();
+        } elseif ($sortParam === 'price-high') {
+            $combos = $combos->sortByDesc(function ($combo) use ($priceColumn) {
+                return $combo['products'][0][$priceColumn] ?? 0;
+            })->values();
+        }
+
+
+        // ============================================================
+        // MANUAL PAGINATION
+        // ============================================================
+
+        $perPage = (int) $request->get('per_page', 25);
+        if ($perPage < 1) $perPage = 25;
+        if ($perPage > 100) $perPage = 100;
+
+        $currentPage = (int) $request->get('page', 1);
+        $total       = $combos->count();
+        $lastPage    = max(1, (int) ceil($total / $perPage));
+        $offset      = ($currentPage - 1) * $perPage;
+
+        $paginated = $combos->slice($offset, $perPage)->values();
+
+
+        // ============================================================
+        // PRICE RANGE
+        // ============================================================
+
+        $priceRange = $this->getPriceRange($priceColumn);
+
+
+        // ============================================================
+        // RESPONSE
+        // ============================================================
+
+        return response()->json([
+
+            'data' => $paginated,
+
+            'pagination' => [
+                'total'        => $total,
+                'per_page'     => $perPage,
+                'current_page' => $currentPage,
+                'last_page'    => $lastPage,
+                'from'         => $total ? $offset + 1 : null,
+                'to'           => $total ? min($offset + $perPage, $total) : null,
+            ],
+
+            'filters' => [
+                'price_range' => $priceRange,
+            ],
+
+            'meta' => [
+                'account_type' => $isDistributor ? 'distributor' : 'retail',
+                'price_column' => $priceColumn,
+                'sort'         => $sortParam,
+            ],
+        ]);
+    }
 }

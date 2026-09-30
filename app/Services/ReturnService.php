@@ -1638,6 +1638,7 @@ class ReturnService
                     'created_at' => $return->created_at->toDateTimeString(),
                     'can_approve' => $return->canApprove(),
                     'can_reject' => $return->canReject(),
+                    'resolution' => $return->resolution,
 
                     // ========== Refund info from refunds table ==========
                     'refund_info' => $refund ? [
@@ -1908,6 +1909,7 @@ class ReturnService
             'can_reject' => $return->canReject(),
             'can_mark_received' => $return->canMarkReceived(),
             'can_complete' => $return->canComplete(),
+            'resolution' => $return->resolution,
 
             // ========== NEW: refunds table info ==========
             'refund_info' => $refund ? [
