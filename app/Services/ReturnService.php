@@ -2958,6 +2958,173 @@ class ReturnService
         });
     }
 
+    // protected function createReplacementOrder(OrderReturn $returnOrder): Order
+    // {
+    //     $originalOrder = $returnOrder->order;
+
+    //     /*
+    //  * Anchor to ROOT order — so a replacement-of-a-replacement
+    //  * still points back to the very first order.
+    //  * Prevents infinite chain A → A-R1 → A-R2 → ...
+    //  */
+    //     $rootOrder = method_exists($this, 'getReturnWindowAnchor')
+    //         ? $this->getReturnWindowAnchor($originalOrder)
+    //         : $originalOrder;
+
+    //     return DB::transaction(function () use ($returnOrder, $originalOrder, $rootOrder) {
+
+    //         // ============================================================
+    //         // 1. Create the replacement order
+    //         // ============================================================
+    //         $replacement = Order::create([
+    //             // ── Identity / linkage ─────────────────────────────────
+    //             'parent_order_id'         => $rootOrder->id,
+    //             'is_replacement'          => true,
+    //             'order_reference'         => $this->generateReplacementOrderNumber($rootOrder),
+
+    //             // ── Customer / addresses ──────────────────────────────
+    //             'user_id'                 => $originalOrder->user_id,
+    //             'billing_address_id'      => $originalOrder->billing_address_id,
+    //             'delivery_address_id'     => $originalOrder->delivery_address_id,
+
+    //             // ── Type / status ─────────────────────────────────────
+    //             'status'                  => 'confirmed',
+    //             'return_status'           => null,
+    //             'refund_status'           => null,
+
+    //             // ── Money (all zero — free replacement) ───────────────
+    //             'subtotal'                => 0,
+    //             'total_gst'               => 0,
+    //             'total_cgst'              => 0,
+    //             'total_sgst'              => 0,
+    //             'total_igst'              => 0,
+    //             'shipping_charge'         => 0,
+    //             'coin_redeemed'           => 0,
+    //             'coin_redeemed_amount'    => 0,
+    //             'total_payable'           => 0,
+    //             'commissionable_volume'   => 0,
+    //             'amount_paid'             => 0,
+    //             'coupon_discount'         => 0,
+    //             'coupon_code'             => null,
+
+    //             // ── Payment (inherit, no new charge) ──────────────────
+    //             'payment_gateway'         => $originalOrder->payment_gateway,
+    //             'gateway_transaction_id'  => $originalOrder->gateway_transaction_id,
+    //             'checkout_type'           => $originalOrder->checkout_type,
+
+    //             // ── Shipping method inherit ───────────────────────────
+    //             'shipping_method_id'      => $originalOrder->shipping_method_id,
+
+    //             // ── Timestamps ────────────────────────────────────────
+    //             'confirmed_at'            => now(),
+
+    //             // ── Notes ─────────────────────────────────────────────
+    //             'delivery_notes'          => "Replacement for return #{$returnOrder->id} "
+    //                 . "(Order {$rootOrder->order_reference})",
+
+    //             // ── Optional JSON snapshots ───────────────────────────
+    //             'tax_breakdown'           => null,
+    //             'summary_data'            => [
+    //                 'is_replacement'         => true,
+    //                 'return_id'              => $returnOrder->id,
+    //                 'root_order_reference'   => $rootOrder->order_reference,
+    //                 'immediate_parent_ref'   => $originalOrder->order_reference,
+    //             ],
+    //         ]);
+
+    //         // ============================================================
+    //         // 2. Copy items from the return as replacement lines
+    //         // ============================================================
+    //         foreach ($returnOrder->items ?? [] as $item) {
+
+    //             $orderLineId = is_array($item)
+    //                 ? ($item['order_line_id'] ?? null)
+    //                 : ($item->order_line_id ?? null);
+
+    //             $qty = is_array($item)
+    //                 ? ($item['quantity'] ?? 0)
+    //                 : ($item->quantity ?? 0);
+
+    //             if (!$orderLineId || $qty <= 0) {
+    //                 continue;
+    //             }
+
+    //             $originalLine = OrderLine::with(['product', 'variant'])->find($orderLineId);
+    //             if (!$originalLine) {
+    //                 continue;
+    //             }
+
+    //             // Product snapshot name
+    //             $productName = $originalLine->product->name
+    //                 ?? $originalLine->product_name
+    //                 ?? 'Unknown Product';
+
+    //             OrderLine::create([
+    //                 // ── Linkage ───────────────────────────────────────
+    //                 'order_id'           => $replacement->id,
+    //                 'parent_line_id'     => $originalLine->id,
+    //                 'is_replacement'     => true,
+    //                 'item_reference_id'  => $this->generateLineReference($replacement),
+
+    //                 // ── Product ───────────────────────────────────────
+    //                 'product_id'         => $originalLine->product_id,
+    //                 'variant_id'         => $originalLine->variant_id,
+
+    //                 // ── Quantity ──────────────────────────────────────
+    //                 'quantity'           => $qty,
+    //                 'returned_quantity'  => 0,
+
+    //                 // ── Money (all zero — free replacement) ───────────
+    //                 'unit_price'         => 0,
+    //                 'shipping_charge'    => 0,
+    //                 'line_total'         => 0,
+
+    //                 // ── Tax (all zero) ────────────────────────────────
+    //                 'gst_rate'           => $originalLine->gst_rate  ?? 0,
+    //                 'cgst_rate'          => $originalLine->cgst_rate ?? 0,
+    //                 'sgst_rate'          => $originalLine->sgst_rate ?? 0,
+    //                 'igst_rate'          => $originalLine->igst_rate ?? 0,
+    //                 'gst_amount'         => 0,
+    //                 'cgst_amount'        => 0,
+    //                 'sgst_amount'        => 0,
+    //                 'igst_amount'        => 0,
+
+    //                 // ── Commission ────────────────────────────────────
+    //                 'commissionable_volume' => 0,
+
+    //                 // ── Status ────────────────────────────────────────
+    //                 'delivery_status'    => 'confirmed',
+    //                 'return_status'      => null,
+
+    //                 // ── Return eligibility ────────────────────────────
+    //                 'is_returnable'      => true,   // window still governed by ROOT order
+
+    //                 // ── Notes ─────────────────────────────────────────
+    //                 'delivery_notes'     => "Replacement for line #{$originalLine->id} "
+    //                     . "({$productName})",
+
+    //                 // ── JSON snapshots ────────────────────────────────
+    //                 'tax_data'           => null,
+    //             ]);
+    //         }
+
+    //         // ============================================================
+    //         // 3. Log
+    //         // ============================================================
+    //         Log::info('Replacement order created', [
+    //             'replacement_order_id'   => $replacement->id,
+    //             'replacement_reference'  => $replacement->order_reference,
+    //             'root_order_id'          => $rootOrder->id,
+    //             'root_order_reference'   => $rootOrder->order_reference,
+    //             'immediate_parent_id'    => $originalOrder->id,
+    //             'immediate_parent_ref'   => $originalOrder->order_reference,
+    //             'return_id'              => $returnOrder->id,
+    //             'line_count'             => $replacement->lines()->count(),
+    //         ]);
+
+    //         return $replacement;
+    //     });
+    // }
     protected function createReplacementOrder(OrderReturn $returnOrder): Order
     {
         $originalOrder = $returnOrder->order;
@@ -2974,7 +3141,91 @@ class ReturnService
         return DB::transaction(function () use ($returnOrder, $originalOrder, $rootOrder) {
 
             // ============================================================
-            // 1. Create the replacement order
+            // 1. Pre-calculate totals from return items (ACTUAL values)
+            // ============================================================
+            $subtotal      = 0;
+            $totalCgst     = 0;
+            $totalSgst     = 0;
+            $totalIgst     = 0;
+            $totalGst      = 0;
+            $totalShipping = 0;
+
+            $returnItems = $returnOrder->items ?? [];
+
+            // Pre-fetch all original lines to avoid N+1
+            $lineIds = [];
+            foreach ($returnItems as $item) {
+                $lineId = is_array($item)
+                    ? ($item['order_line_id'] ?? null)
+                    : ($item->order_line_id ?? null);
+                if ($lineId) {
+                    $lineIds[] = $lineId;
+                }
+            }
+
+            $originalLines = OrderLine::with(['product', 'variant'])
+                ->whereIn('id', $lineIds)
+                ->get()
+                ->keyBy('id');
+
+            // Compute totals first
+            foreach ($returnItems as $item) {
+                $lineId = is_array($item)
+                    ? ($item['order_line_id'] ?? null)
+                    : ($item->order_line_id ?? null);
+                $qty = is_array($item)
+                    ? ($item['quantity'] ?? 0)
+                    : ($item->quantity ?? 0);
+
+                if (!$lineId || $qty <= 0 || !isset($originalLines[$lineId])) {
+                    continue;
+                }
+
+                $originalLine = $originalLines[$lineId];
+
+                // Actual unit price from original line
+                $unitPrice = (float) $originalLine->unit_price;
+                $lineTotal = round($unitPrice * $qty, 2);
+
+                // Tax rates from original line
+                $gstRate  = (float) ($originalLine->gst_rate  ?? 0);
+                $cgstRate = (float) ($originalLine->cgst_rate ?? 0);
+                $sgstRate = (float) ($originalLine->sgst_rate ?? 0);
+                $igstRate = (float) ($originalLine->igst_rate ?? 0);
+
+                // Tax amounts proportional to qty
+                $gstAmount  = round(($lineTotal * $gstRate)  / 100, 2);
+                $cgstAmount = round(($lineTotal * $cgstRate) / 100, 2);
+                $sgstAmount = round(($lineTotal * $sgstRate) / 100, 2);
+                $igstAmount = round(($lineTotal * $igstRate) / 100, 2);
+
+                // Shipping (proportional to qty)
+                $shippingCharge = round((float) ($originalLine->shipping_charge ?? 0) * $qty, 2);
+
+                $subtotal      += $lineTotal;
+                $totalCgst     += $cgstAmount;
+                $totalSgst     += $sgstAmount;
+                $totalIgst     += $igstAmount;
+                $totalGst      += $gstAmount;
+                $totalShipping += $shippingCharge;
+            }
+
+            $subtotal      = round($subtotal, 2);
+            $totalCgst     = round($totalCgst, 2);
+            $totalSgst     = round($totalSgst, 2);
+            $totalIgst     = round($totalIgst, 2);
+            $totalGst      = round($totalGst, 2);
+            $totalShipping = round($totalShipping, 2);
+
+            // Replacement is FREE for customer:
+            //   - subtotal / tax / shipping reflect ACTUAL value (for accounting)
+            //   - total_payable = 0 (customer owes nothing)
+            //   - amount_paid   = 0 (nothing collected)
+            $totalPayable = 0;
+            $amountPaid   = 0;
+
+            // ============================================================
+            // 2. Create the replacement order
             // ============================================================
             $replacement = Order::create([
                 // ── Identity / linkage ─────────────────────────────────
@@ -2992,18 +3243,18 @@ class ReturnService
                 'return_status'           => null,
                 'refund_status'           => null,
 
-                // ── Money (all zero — free replacement) ───────────────
-                'subtotal'                => 0,
-                'total_gst'               => 0,
-                'total_cgst'              => 0,
-                'total_sgst'              => 0,
-                'total_igst'              => 0,
-                'shipping_charge'         => 0,
+                // ── Money (ACTUAL values, but payable = 0) ─────────────
+                'subtotal'                => $subtotal,
+                'total_gst'               => $totalGst,
+                'total_cgst'              => $totalCgst,
+                'total_sgst'              => $totalSgst,
+                'total_igst'              => $totalIgst,
+                'shipping_charge'         => $totalShipping,
                 'coin_redeemed'           => 0,
                 'coin_redeemed_amount'    => 0,
-                'total_payable'           => 0,
-                'commissionable_volume'   => 0,
-                'amount_paid'             => 0,
+                'total_payable'           => $totalPayable,   // 0 — free replacement
+                'commissionable_volume'   => 0,               // no commission on free replacement
+                'amount_paid'             => $amountPaid,     // 0 — nothing collected
                 'coupon_discount'         => 0,
                 'coupon_code'             => null,
 
@@ -3029,13 +3280,17 @@ class ReturnService
                     'return_id'              => $returnOrder->id,
                     'root_order_reference'   => $rootOrder->order_reference,
                     'immediate_parent_ref'   => $originalOrder->order_reference,
+                    'billing_note'           => 'Free replacement — no charge to customer. '
+                        . 'Values reflect actual product/tax for accounting.',
+                    'actual_value'           => round($subtotal + $totalGst + $totalShipping, 2),
                 ],
             ]);
 
             // ============================================================
-            // 2. Copy items from the return as replacement lines
+            // 3. Copy items from the return as replacement lines
+            //    (ACTUAL prices, not zero)
             // ============================================================
-            foreach ($returnOrder->items ?? [] as $item) {
+            foreach ($returnItems as $item) {
 
                 $orderLineId = is_array($item)
                     ? ($item['order_line_id'] ?? null)
@@ -3045,19 +3300,34 @@ class ReturnService
                     ? ($item['quantity'] ?? 0)
                     : ($item->quantity ?? 0);
 
-                if (!$orderLineId || $qty <= 0) {
+                if (!$orderLineId || $qty <= 0 || !isset($originalLines[$orderLineId])) {
                     continue;
                 }
 
-                $originalLine = OrderLine::with(['product', 'variant'])->find($orderLineId);
-                if (!$originalLine) {
-                    continue;
-                }
+                $originalLine = $originalLines[$orderLineId];
 
-                // Product snapshot name
                 $productName = $originalLine->product->name
                     ?? $originalLine->product_name
                     ?? 'Unknown Product';
+
+                // Actual unit price and line total
+                $unitPrice = (float) $originalLine->unit_price;
+                $lineTotal = round($unitPrice * $qty, 2);
+
+                // Tax rates
+                $gstRate  = (float) ($originalLine->gst_rate  ?? 0);
+                $cgstRate = (float) ($originalLine->cgst_rate ?? 0);
+                $sgstRate = (float) ($originalLine->sgst_rate ?? 0);
+                $igstRate = (float) ($originalLine->igst_rate ?? 0);
+
+                // Tax amounts
+                $gstAmount  = round(($lineTotal * $gstRate)  / 100, 2);
+                $cgstAmount = round(($lineTotal * $cgstRate) / 100, 2);
+                $sgstAmount = round(($lineTotal * $sgstRate) / 100, 2);
+                $igstAmount = round(($lineTotal * $igstRate) / 100, 2);
+
+                // Shipping (actual, proportional to qty)
+                $shippingCharge = round((float) ($originalLine->shipping_charge ?? 0) * $qty, 2);
 
                 OrderLine::create([
                     // ── Linkage ───────────────────────────────────────
@@ -3074,22 +3344,22 @@ class ReturnService
                     'quantity'           => $qty,
                     'returned_quantity'  => 0,
 
-                    // ── Money (all zero — free replacement) ───────────
-                    'unit_price'         => 0,
-                    'shipping_charge'    => 0,
-                    'line_total'         => 0,
+                    // ── Money (ACTUAL, not zero) ──────────────────────
+                    'unit_price'         => round($unitPrice, 2),
+                    'shipping_charge'    => $shippingCharge,
+                    'line_total'         => $lineTotal,
 
-                    // ── Tax (all zero) ────────────────────────────────
-                    'gst_rate'           => $originalLine->gst_rate  ?? 0,
-                    'cgst_rate'          => $originalLine->cgst_rate ?? 0,
-                    'sgst_rate'          => $originalLine->sgst_rate ?? 0,
-                    'igst_rate'          => $originalLine->igst_rate ?? 0,
-                    'gst_amount'         => 0,
-                    'cgst_amount'        => 0,
-                    'sgst_amount'        => 0,
-                    'igst_amount'        => 0,
+                    // ── Tax (ACTUAL, not zero) ────────────────────────
+                    'gst_rate'           => $gstRate,
+                    'cgst_rate'          => $cgstRate,
+                    'sgst_rate'          => $sgstRate,
+                    'igst_rate'          => $igstRate,
+                    'gst_amount'         => $gstAmount,
+                    'cgst_amount'        => $cgstAmount,
+                    'sgst_amount'        => $sgstAmount,
+                    'igst_amount'        => $igstAmount,
 
-                    // ── Commission ────────────────────────────────────
+                    // ── Commission (zero — free replacement) ──────────
                     'commissionable_volume' => 0,
 
                     // ── Status ────────────────────────────────────────
@@ -3101,7 +3371,7 @@ class ReturnService
 
                     // ── Notes ─────────────────────────────────────────
                     'delivery_notes'     => "Replacement for line #{$originalLine->id} "
-                        . "({$productName})",
+                        . "({$productName}) — free of charge",
 
                     // ── JSON snapshots ────────────────────────────────
                     'tax_data'           => null,
@@ -3109,7 +3379,7 @@ class ReturnService
             }
 
             // ============================================================
-            // 3. Log
+            // 4. Log
             // ============================================================
             Log::info('Replacement order created', [
                 'replacement_order_id'   => $replacement->id,
@@ -3120,6 +3390,11 @@ class ReturnService
                 'immediate_parent_ref'   => $originalOrder->order_reference,
                 'return_id'              => $returnOrder->id,
                 'line_count'             => $replacement->lines()->count(),
+                'actual_subtotal'        => $subtotal,
+                'actual_tax'             => $totalGst,
+                'actual_shipping'        => $totalShipping,
+                'total_payable'          => $totalPayable,
+                'amount_paid'            => $amountPaid,
             ]);
 
             return $replacement;
