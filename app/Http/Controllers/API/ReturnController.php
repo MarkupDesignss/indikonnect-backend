@@ -182,6 +182,7 @@ class ReturnController extends Controller
                     'max:5120',
                 ],
             ]);
+            $returnReason = $request->input('items.0.reason');
 
             /*
              * Store uploaded images and convert them
@@ -197,6 +198,7 @@ class ReturnController extends Controller
             $result = $this->returnService->initiateReturn(
                 auth()->id(),
                 $processedData,
+                $returnReason
             );
 
             return response()->json($result);
