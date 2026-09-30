@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\RefreshToken;
+use Illuminate\Support\Facades\Cache;
 use App\Models\RejectedUser;
 use App\Models\AdminNotification;
 use App\Models\DistributorProfile;
@@ -747,179 +748,6 @@ class AuthController extends Controller
     //             ]);
     //         }
 
-    //         // Get distributor profile
-    //         $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
-
-    //         // Check if user is already fully registered
-    //         if ($user->is_registered == 1) {
-    //             return response()->json([
-    //                 'status' => true,
-    //                 'exists' => true,
-    //                 'is_registered' => true,
-    //                 'message' => 'User already registered.',
-    //                 'current_step' => 7,
-    //                 'user_data' => $this->getUserStepData($user, $distributorProfile, 7)
-    //             ]);
-    //         }
-
-    //         // Get current step data
-    //         $currentStep = $user->registration_step ?? 1;
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'exists' => true,
-    //             'is_registered' => false,
-    //             'message' => 'User found. Continuing registration.',
-    //             'current_step' => $currentStep,
-    //             'next_step' => $currentStep + 1,
-    //             'user_data' => $this->getUserStepData($user, $distributorProfile, $currentStep)
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('Check user status error: ' . $e->getMessage());
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
-
-    // public function checkUserStatus(Request $request)
-    // {
-    //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'phone' => 'nullable|min:10|max:15',
-    //             'email' => 'nullable|email',
-    //         ]);
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'errors' => $validator->errors()
-    //             ], 422);
-    //         }
-
-    //         // At least one identifier is required
-    //         if (empty($request->phone) && empty($request->email)) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Please provide either phone or email.'
-    //             ], 422);
-    //         }
-
-    //         // Find user
-    //         $user = User::where(function ($query) use ($request) {
-    //             if ($request->phone) {
-    //                 $query->orWhere('phone', $request->phone);
-    //             }
-    //             if ($request->email) {
-    //                 $query->orWhere('email', $request->email);
-    //             }
-    //         })->first();
-
-    //         // If user doesn't exist, return new user flow
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => true,
-    //                 'exists' => false,
-    //                 'message' => 'New user. Proceed with registration.',
-    //                 'current_step' => 1,
-    //                 'next_step' => 1,
-    //                 'user_data' => null
-    //             ]);
-    //         }
-
-    //         // Check if user is registered with customer role
-    //         if ($user->account_type !== 'customer') {
-    //             $roleName = ucfirst($user->account_type ?? 'Unknown');
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'exists' => true,
-    //                 'message' => "This email is registered as {$roleName}.Please login.",
-    //                 'role' => $user->role
-    //             ], 403);
-    //         }
-
-    //         // Get distributor profile
-    //         $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
-
-    //         // Check if user is already fully registered
-    //         if ($user->is_registered == 1) {
-    //             return response()->json([
-    //                 'status' => true,
-    //                 'exists' => true,
-    //                 'is_registered' => true,
-    //                 'message' => 'User already registered.',
-    //                 'current_step' => 7,
-    //                 'user_data' => $this->getUserStepData($user, $distributorProfile, 7)
-    //             ]);
-    //         }
-
-    //         // Get current step data
-    //         $currentStep = $user->registration_step ?? 1;
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'exists' => true,
-    //             'is_registered' => false,
-    //             'message' => 'User found. Continuing registration.',
-    //             'current_step' => $currentStep,
-    //             'next_step' => $currentStep + 1,
-    //             'user_data' => $this->getUserStepData($user, $distributorProfile, $currentStep)
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('Check user status error: ' . $e->getMessage());
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
-
-    // public function checkUserStatus(Request $request)
-    // {
-    //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'phone' => 'nullable|min:10|max:15',
-    //             'email' => 'nullable|email',
-    //         ]);
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'errors' => $validator->errors()
-    //             ], 422);
-    //         }
-
-    //         // At least one identifier is required
-    //         if (empty($request->phone) && empty($request->email)) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Please provide either phone or email.'
-    //             ], 422);
-    //         }
-
-    //         // Find user
-    //         $user = User::where(function ($query) use ($request) {
-    //             if ($request->phone) {
-    //                 $query->orWhere('phone', $request->phone);
-    //             }
-    //             if ($request->email) {
-    //                 $query->orWhere('email', $request->email);
-    //             }
-    //         })->first();
-
-    //         // If user doesn't exist, return new user flow
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => true,
-    //                 'exists' => false,
-    //                 'message' => 'New user. Proceed with registration.',
-    //                 'current_step' => 1,
-    //                 'next_step' => 1,
-    //                 'user_data' => null
-    //             ]);
-    //         }
-
     //         // Check if user is registered with customer role
     //         if ($user->account_type !== 'customer' && $user->is_registered == 1) {
     //             $roleName = ucfirst($user->account_type ?? 'Unknown');
@@ -967,6 +795,133 @@ class AuthController extends Controller
     //         ], 500);
     //     }
     // }
+    // public function checkUserStatus(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone' => 'nullable|min:10|max:15',
+    //             'email' => 'nullable|email',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         // At least one identifier is required
+    //         if (empty($request->phone) && empty($request->email)) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please provide either phone or email.'
+    //             ], 422);
+    //         }
+
+    //         // Find user
+    //         $user = User::where(function ($query) use ($request) {
+    //             if ($request->phone) {
+    //                 $query->orWhere('phone', $request->phone);
+    //             }
+
+    //             if ($request->email) {
+    //                 $query->orWhere('email', $request->email);
+    //             }
+    //         })->first();
+
+    //         // If user doesn't exist, return new distributor registration flow
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => true,
+    //                 'exists' => false,
+    //                 'message' => 'New user. Proceed with distributor registration.',
+    //                 'current_step' => 1,
+    //                 'next_step' => 1,
+    //                 'user_data' => null
+    //             ]);
+    //         }
+
+    //         /*
+    //         |--------------------------------------------------------------------------
+    //         | Customer account protection
+    //         |--------------------------------------------------------------------------
+    //         | If email/phone belongs to an already registered customer,
+    //         | do NOT allow it to continue in distributor registration.
+    //         |--------------------------------------------------------------------------
+    //         */
+    //         if ($user->account_type === 'customer' && $user->is_registered == 1) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'exists' => true,
+    //                 'is_registered' => true,
+    //                 'message' => 'This email address is already registered with a Customer account. Please use a different email address.',
+    //                 'role' => $user->role
+    //             ], 403);
+    //         }
+
+    //         /*
+    //         |--------------------------------------------------------------------------
+    //         | Other already registered non-distributor accounts
+    //         |--------------------------------------------------------------------------
+    //         | Only distributor accounts should be allowed in this flow.
+    //         |--------------------------------------------------------------------------
+    //         */
+    //         if ($user->account_type !== 'distributor' && $user->is_registered == 1) {
+    //             $roleName = ucfirst($user->account_type ?? 'Unknown');
+
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'exists' => true,
+    //                 'is_registered' => true,
+    //                 'message' => "This account is already registered as {$roleName}. Please use a different email address.",
+    //                 'role' => $user->role
+    //             ], 403);
+    //         }
+
+    //         // Get distributor profile
+    //         $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
+
+    //         // Check if distributor is already fully registered
+    //         if ($user->account_type === 'distributor' && $user->is_registered == 1) {
+    //             return response()->json([
+    //                 'status' => true,
+    //                 'exists' => true,
+    //                 'is_registered' => true,
+    //                 'message' => 'Distributor already registered.',
+    //                 'current_step' => 7,
+    //                 'user_data' => $this->getUserStepData(
+    //                     $user,
+    //                     $distributorProfile,
+    //                     7
+    //                 )
+    //             ]);
+    //         }
+
+    //         // Get current registration step
+    //         $currentStep = $user->registration_step ?? 1;
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'exists' => true,
+    //             'is_registered' => false,
+    //             'message' => 'User found. Continuing distributor registration.',
+    //             'current_step' => $currentStep,
+    //             'next_step' => $currentStep + 1,
+    //             'user_data' => $this->getUserStepData(
+    //                 $user,
+    //                 $distributorProfile,
+    //                 $currentStep
+    //             )
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Check user status error: ' . $e->getMessage());
+
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function checkUserStatus(Request $request)
     {
         try {
@@ -990,18 +945,27 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Find user
+            /*
+        |--------------------------------------------------------------------------
+        | Find User
+        |--------------------------------------------------------------------------
+        */
             $user = User::where(function ($query) use ($request) {
-                if ($request->phone) {
+
+                if ($request->filled('phone')) {
                     $query->orWhere('phone', $request->phone);
                 }
 
-                if ($request->email) {
+                if ($request->filled('email')) {
                     $query->orWhere('email', $request->email);
                 }
             })->first();
 
-            // If user doesn't exist, return new distributor registration flow
+            /*
+        |--------------------------------------------------------------------------
+        | User Does Not Exist
+        |--------------------------------------------------------------------------
+        */
             if (!$user) {
                 return response()->json([
                     'status' => true,
@@ -1014,64 +978,86 @@ class AuthController extends Controller
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | Customer account protection
-            |--------------------------------------------------------------------------
-            | If email/phone belongs to an already registered customer,
-            | do NOT allow it to continue in distributor registration.
-            |--------------------------------------------------------------------------
-            */
-            if ($user->account_type === 'customer' && $user->is_registered == 1) {
+        |--------------------------------------------------------------------------
+        | BLOCK ALREADY REGISTERED DISTRIBUTOR
+        |--------------------------------------------------------------------------
+        | If email/phone already belongs to a registered distributor,
+        | stop the flow immediately.
+        |--------------------------------------------------------------------------
+        */
+            if (
+                $user->account_type === 'distributor' &&
+                (int) $user->is_registered === 1
+            ) {
                 return response()->json([
                     'status' => false,
                     'exists' => true,
                     'is_registered' => true,
-                    'message' => 'This email address is already registered with a Customer account. Please use a different email address.',
+                    'message' => 'This email or phone is already registered with a Distributor account. Please login or use a different email.',
                     'role' => $user->role
-                ], 403);
+                ], 422);
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | Other already registered non-distributor accounts
-            |--------------------------------------------------------------------------
-            | Only distributor accounts should be allowed in this flow.
-            |--------------------------------------------------------------------------
-            */
-            if ($user->account_type !== 'distributor' && $user->is_registered == 1) {
+        |--------------------------------------------------------------------------
+        | BLOCK ALREADY REGISTERED CUSTOMER
+        |--------------------------------------------------------------------------
+        */
+            if (
+                $user->account_type === 'customer' &&
+                (int) $user->is_registered === 1
+            ) {
+                return response()->json([
+                    'status' => false,
+                    'exists' => true,
+                    'is_registered' => true,
+                    'message' => 'This email or phone is already registered with a Customer account. Please use a different email.',
+                    'role' => $user->role
+                ], 422);
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | BLOCK OTHER REGISTERED ACCOUNTS
+        |--------------------------------------------------------------------------
+        */
+            if (
+                $user->account_type !== 'distributor' &&
+                (int) $user->is_registered === 1
+            ) {
                 $roleName = ucfirst($user->account_type ?? 'Unknown');
 
                 return response()->json([
                     'status' => false,
                     'exists' => true,
                     'is_registered' => true,
-                    'message' => "This account is already registered as {$roleName}. Please use a different email address.",
+                    'message' => "This account is already registered as {$roleName}. Please use a different email or phone.",
                     'role' => $user->role
-                ], 403);
+                ], 422);
             }
 
-            // Get distributor profile
-            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
+            /*
+        |--------------------------------------------------------------------------
+        | Get Distributor Profile
+        |--------------------------------------------------------------------------
+        */
+            $distributorProfile = DistributorProfile::where(
+                'user_id',
+                $user->id
+            )->first();
 
-            // Check if distributor is already fully registered
-            if ($user->account_type === 'distributor' && $user->is_registered == 1) {
-                return response()->json([
-                    'status' => true,
-                    'exists' => true,
-                    'is_registered' => true,
-                    'message' => 'Distributor already registered.',
-                    'current_step' => 7,
-                    'user_data' => $this->getUserStepData(
-                        $user,
-                        $distributorProfile,
-                        7
-                    )
-                ]);
-            }
-
-            // Get current registration step
+            /*
+        |--------------------------------------------------------------------------
+        | Get Current Registration Step
+        |--------------------------------------------------------------------------
+        */
             $currentStep = $user->registration_step ?? 1;
 
+            /*
+        |--------------------------------------------------------------------------
+        | Continue Distributor Registration
+        |--------------------------------------------------------------------------
+        */
             return response()->json([
                 'status' => true,
                 'exists' => true,
@@ -1086,6 +1072,7 @@ class AuthController extends Controller
                 )
             ]);
         } catch (\Exception $e) {
+
             Log::error('Check user status error: ' . $e->getMessage());
 
             return response()->json([
