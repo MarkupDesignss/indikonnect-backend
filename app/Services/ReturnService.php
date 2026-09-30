@@ -124,7 +124,8 @@ class ReturnService
      */
     public function initiateReturn(
         int $userId,
-        array $data
+        array $data,
+        string $returnReason
     ): array {
         /*
      * Validate processed data.
@@ -418,7 +419,7 @@ class ReturnService
                 'tax'            => $tax,
                 'line_total'     => $lineTotal,
                 'shipping_refund' => $itemShippingRefund,
-                'reason'         => $itemData['reason'] ?? null,
+                'reason'         => $returnReason ?? null,
                 'image_paths'    => array_values($imagePaths),
                 'return_status'  => 'pending',
             ];
