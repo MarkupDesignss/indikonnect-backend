@@ -3131,11 +3131,6 @@ class ReturnService
     {
         $originalOrder = $returnOrder->order;
 
-        /*
- * Anchor to ROOT order — so a replacement-of-a-replacement
- * still points back to the very first order.
- * Prevents infinite chain A → A-R1 → A-R2 → ...
- */
         $rootOrder = method_exists($this, 'getReturnWindowAnchor')
             ? $this->getReturnWindowAnchor($originalOrder)
             : $originalOrder;
@@ -3220,12 +3215,16 @@ class ReturnService
             $totalGst      = round($totalGst, 2);
             $totalShipping = round($totalShipping, 2);
 
-            // Replacement is FREE for customer:
-            //   - subtotal / tax / shipping reflect ACTUAL value (for accounting)
-            //   - total_payable = 0 (customer owes nothing)
-            //   - amount_paid   = 0 (nothing collected)
-            $totalPayable = 0;
-            $amountPaid   = 0;
+            // ============================================================
+            // ✅ ORDER VALUE = SUM OF LINE TOTALS (base + tax) + shipping
+            //    total_payable  = actual order value (line_total sum + shipping)
+            //    amount_paid    = same (free replacement — fully settled)
+            // ============================================================
+            $lineTotalsSum    = round($subtotal + $totalGst, 2);          // sum of line_total
+            $actualOrderValue = round($lineTotalsSum + $totalShipping, 2); // + shipping
+
+            $totalPayable = $actualOrderValue;   // ✅ actual value, not 0
+            $amountPaid   = $actualOrderValue;   // ✅ actual value, not 0
 
             // ============================================================
             // 2. Create the replacement order
@@ -3246,7 +3245,7 @@ class ReturnService
                 'return_status'           => null,
                 'refund_status'           => null,
 
-                // ── Money (ACTUAL values, but payable = 0) ─────────────
+                // ── Money (ACTUAL values) ──────────────────────────────
                 'subtotal'                => $subtotal,       // tax-exclusive
                 'total_gst'               => $totalGst,
                 'total_cgst'              => $totalCgst,
@@ -3255,9 +3254,9 @@ class ReturnService
                 'shipping_charge'         => $totalShipping,
                 'coin_redeemed'           => 0,
                 'coin_redeemed_amount'    => 0,
-                'total_payable'           => $totalPayable,   // 0 — free replacement
+                'total_payable'           => $totalPayable,   // ✅ actual order value
                 'commissionable_volume'   => 0,               // no commission on free replacement
-                'amount_paid'             => $amountPaid,     // 0 — nothing collected
+                'amount_paid'             => $amountPaid,     // ✅ actual order value
                 'coupon_discount'         => 0,
                 'coupon_code'             => null,
 
@@ -3285,7 +3284,10 @@ class ReturnService
                     'immediate_parent_ref'   => $originalOrder->order_reference,
                     'billing_note'           => 'Free replacement — no charge to customer. '
                         . 'Values reflect actual product/tax for accounting.',
-                    'actual_value'           => round($subtotal + $totalGst + $totalShipping, 2),
+                    'line_totals_sum'        => $lineTotalsSum,
+                    'shipping'               => $totalShipping,
+                    'actual_value'           => $actualOrderValue,
+                    'amount_charged'         => 0,
                 ],
             ]);
 
@@ -3373,7 +3375,7 @@ class ReturnService
                     'return_status'      => null,
 
                     // ── Return eligibility ────────────────────────────
-                    'is_returnable'      => true,   // window still governed by ROOT order
+                    'is_returnable'      => true,
 
                     // ── Notes ─────────────────────────────────────────
                     'delivery_notes'     => "Replacement for line #{$originalLine->id} "
@@ -3399,6 +3401,8 @@ class ReturnService
                 'actual_subtotal'        => $subtotal,
                 'actual_tax'             => $totalGst,
                 'actual_shipping'        => $totalShipping,
+                'line_totals_sum'        => $lineTotalsSum,
+                'actual_order_value'     => $actualOrderValue,
                 'total_payable'          => $totalPayable,
                 'amount_paid'            => $amountPaid,
             ]);
