@@ -419,7 +419,7 @@ class ReturnService
                 'tax'            => $tax,
                 'line_total'     => $lineTotal,
                 'shipping_refund' => $itemShippingRefund,
-                'reason'         => $returnReason ?? null,
+                'reason'         => $itemData['reason'] ?? null,
                 'image_paths'    => array_values($imagePaths),
                 'return_status'  => 'pending',
             ];
@@ -501,7 +501,8 @@ class ReturnService
             $totalCvReversed,
             $data,
             $returnDeadline,      // ← ADD
-            $returnWindowDays     // ← ADD
+            $returnWindowDays,
+            $returnReason // ← ADD     
         ) {
             // Create return order
             $returnOrder = OrderReturn::create([
@@ -511,7 +512,7 @@ class ReturnService
                 'return_method'       => $data['return_method'],
                 'items'               => $returnItems,
                 'status'              => OrderReturn::STATUS_PENDING,
-                'reason'              => $data['return_reason'] ?? null,
+                'reason'              => $returnReason  ?? null,
                 'general_images'      => $generalImagePaths,
                 'refund_subtotal'     => $refundSubtotal,
                 'refund_tax'          => $refundTax,
