@@ -2764,11 +2764,202 @@ class AuthController extends Controller
     /**
      * DISTRIBUTOR: Step 7 - Review & Submit
      */
+    // public function distributorStep7Submit(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone' => 'required|min:10',
+    //             'accept_terms' => 'required|in:0,1',
+    //             'accept_agreement' => 'required|in:0,1',
+    //             'accept_code_of_conduct' => 'required|in:0,1',
+    //         ]);
+
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         // Check all acceptances
+    //         if ($request->accept_terms != 1 || $request->accept_agreement != 1 || $request->accept_code_of_conduct != 1) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please accept all terms and conditions.'
+    //             ], 422);
+    //         }
+
+    //         $user = User::where('phone', $request->phone)->first();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'User not found.'
+    //             ], 422);
+    //         }
+
+    //         // Check if step 6 is completed
+    //         if ($user->registration_step < 6) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please complete step 6 (Location) first.'
+    //             ], 422);
+    //         }
+
+    //         // Check all previous steps completed
+    //         $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
+    //         if (!$distributorProfile) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please complete all previous steps.'
+    //             ], 422);
+    //         }
+
+    //         // Verify all required verifications are complete
+    //         if (!$user->phone_verified || !$user->email_verified_at) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Phone and email verification required.'
+    //             ], 422);
+    //         }
+
+    //         if (!$distributorProfile->aadhaar_verified) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Aadhaar verification required.'
+    //             ], 422);
+    //         }
+
+    //         if (!$distributorProfile->pan_verified) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'PAN verification required.'
+    //             ], 422);
+    //         }
+
+    //         if (empty($distributorProfile->encrypted_bank_account)) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Bank details required.'
+    //             ], 422);
+    //         }
+
+    //         // Finalize registration
+    //         $user->update([
+    //             'is_registered' => 1,
+    //             'distributor_status' => 'pending',
+    //             'registration_step' => max($user->registration_step ?? 0, 7),
+    //             'registration_completed_at' => now(),
+    //             'otp' => null,
+    //             'otp_expires_at' => null,
+    //             'email_otp' => null,
+    //             'email_otp_expires_at' => null,
+    //             'accept_terms' => $request->accept_terms,
+    //             'accept_agreement' => $request->accept_agreement,
+    //             'accept_code_of_conduct' => $request->accept_code_of_conduct
+    //         ]);
+
+    //         $distributorProfile->update([
+    //             'registration_completed' => 1,
+    //             'submitted_at' => now(),
+    //             'terms_accepted_at' => now(),
+    //             //'kyc_status' => 'verified'
+    //             'kyc_status' => 'pending',
+    //             'application_status' => 'submitted',
+    //         ]);
+
+    //         // Assign role
+    //         $this->assignRoleToUser($user);
+
+    //         // Send notification to admin
+    //         $admin = DB::table('admins')->first();
+    //         if ($admin) {
+    //             DB::table('admin_notifications')->insert([
+    //                 'admin_id' => $admin->id ?? '1',
+    //                 'type' => 'new_distributor_registration',
+    //                 'title' => 'New Distributor Registration',
+    //                 'message' => "{$user->full_name} has completed distributor registration.",
+    //                 'reference_type' => 'user',
+    //                 'reference_id' => $user->id,
+    //                 'priority' => 'high',
+    //                 'extra_data' => json_encode([
+    //                     'distributor_id' => $user->id,
+    //                     'name' => $user->full_name,
+    //                     'phone' => $user->phone,
+    //                     'email' => $user->email,
+    //                     'distributor_profile' => $distributorProfile
+    //                 ]),
+    //                 'created_at' => now(),
+    //                 'updated_at' => now()
+    //             ]);
+    //         }
+
+    //         UserNotificationSetting::updateOrCreate(
+    //             ['user_id' => $user->id],
+    //             [
+    //                 'email_notifications' => true,
+    //                 'order_updates' => true,
+    //                 'payment_alerts' => true,
+    //                 'promotional_emails' => true,
+    //                 'security_alerts' => true,
+    //             ]
+    //         );
+
+    //         // if ($user->email) {
+    //         //     try {
+    //         //         Mail::to($user->email)
+    //         //             ->send(new DistributorRegistrationCompletedMail($user));
+    //         //     } catch (\Exception $mailException) {
+    //         //         Log::error('Registration completion mail failed: ' . $mailException->getMessage());
+    //         //     }
+    //         // }
+
+    //         try {
+    //             $this->notificationService->sendUserNotification(
+    //                 $user,
+    //                 'distributor_registration_completed',
+    //                 [
+    //                     'title'         => 'Registration Submitted Successfully',
+    //                     'message'       => 'Your distributor registration has been submitted successfully. We will notify you once the KYC review is complete.',
+    //                     'customer_name' => $user->full_name ?? $user->name ?? 'Distributor',
+    //                     'phone'         => $user->phone,
+    //                     'email'         => $user->email,
+    //                     'submitted_at'  => now()->format('d M Y, h:i A'),
+    //                     'url'           => rtrim(config('app.frontend_url', config('app.url')), '/') . '/dashboard',
+    //                 ],
+    //                 ['database', 'mail']
+    //             );
+    //         } catch (\Throwable $e) {
+    //             Log::error('Distributor registration notification failed', [
+    //                 'user_id' => $user->id,
+    //                 'error'   => $e->getMessage(),
+    //             ]);
+    //         }
+
+    //         // Clear cache
+    //         \Illuminate\Support\Facades\Cache::forget('registration_token_' . $request->phone);
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Distributor registration submitted successfully. Please wait for admin approval.',
+    //             'user' => $user,
+    //             'distributor_profile' => $distributorProfile,
+    //             'status' => 'pending_approval'
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Distributor step 7 submit error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function distributorStep7Submit(Request $request)
     {
         try {
             $validator = Validator::make($request->all(), [
-                'phone' => 'required|min:10|max:15',
+                'phone' => 'required|min:10',
                 'accept_terms' => 'required|in:0,1',
                 'accept_agreement' => 'required|in:0,1',
                 'accept_code_of_conduct' => 'required|in:0,1',
@@ -2781,15 +2972,36 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Check all acceptances
-            if ($request->accept_terms != 1 || $request->accept_agreement != 1 || $request->accept_code_of_conduct != 1) {
+            /*
+            |--------------------------------------------------------------------------
+            | Check All Acceptances
+            |--------------------------------------------------------------------------
+            */
+            if (
+                $request->accept_terms != 1 ||
+                $request->accept_agreement != 1 ||
+                $request->accept_code_of_conduct != 1
+            ) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Please accept all terms and conditions.'
                 ], 422);
             }
 
-            $user = User::where('phone', $request->phone)->first();
+            /*
+            |--------------------------------------------------------------------------
+            | Find User By Phone OR Email
+            |--------------------------------------------------------------------------
+            | Request will contain only `phone`.
+            | Example:
+            | phone = 9876543210
+            | OR
+            | phone = user@example.com
+            |--------------------------------------------------------------------------
+            */
+            $user = User::where('phone', $request->phone)
+                ->orWhere('email', $request->phone)
+                ->first();
 
             if (!$user) {
                 return response()->json([
@@ -2798,16 +3010,28 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Check if step 6 is completed
-            if ($user->registration_step < 6) {
+            /*
+            |--------------------------------------------------------------------------
+            | Check Step 6 Completion
+            |--------------------------------------------------------------------------
+            */
+            if (($user->registration_step ?? 0) < 6) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Please complete step 6 (Location) first.'
                 ], 422);
             }
 
-            // Check all previous steps completed
-            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
+            /*
+            |--------------------------------------------------------------------------
+            | Check Distributor Profile
+            |--------------------------------------------------------------------------
+            */
+            $distributorProfile = DistributorProfile::where(
+                'user_id',
+                $user->id
+            )->first();
+
             if (!$distributorProfile) {
                 return response()->json([
                     'status' => false,
@@ -2815,7 +3039,11 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Verify all required verifications are complete
+            /*
+            |--------------------------------------------------------------------------
+            | Verify Phone & Email
+            |--------------------------------------------------------------------------
+            */
             if (!$user->phone_verified || !$user->email_verified_at) {
                 return response()->json([
                     'status' => false,
@@ -2823,6 +3051,11 @@ class AuthController extends Controller
                 ], 422);
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | Verify Aadhaar
+            |--------------------------------------------------------------------------
+            */
             if (!$distributorProfile->aadhaar_verified) {
                 return response()->json([
                     'status' => false,
@@ -2830,6 +3063,11 @@ class AuthController extends Controller
                 ], 422);
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | Verify PAN
+            |--------------------------------------------------------------------------
+            */
             if (!$distributorProfile->pan_verified) {
                 return response()->json([
                     'status' => false,
@@ -2837,6 +3075,11 @@ class AuthController extends Controller
                 ], 422);
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | Verify Bank Details
+            |--------------------------------------------------------------------------
+            */
             if (empty($distributorProfile->encrypted_bank_account)) {
                 return response()->json([
                     'status' => false,
@@ -2844,58 +3087,91 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Finalize registration
+            /*
+            |--------------------------------------------------------------------------
+            | Finalize Registration
+            |--------------------------------------------------------------------------
+            */
             $user->update([
                 'is_registered' => 1,
                 'distributor_status' => 'pending',
-                'registration_step' => max($user->registration_step ?? 0, 7),
+                'registration_step' => max(
+                    $user->registration_step ?? 0,
+                    7
+                ),
                 'registration_completed_at' => now(),
+
+                // Clear OTPs
                 'otp' => null,
                 'otp_expires_at' => null,
                 'email_otp' => null,
                 'email_otp_expires_at' => null,
+
+                // Acceptances
                 'accept_terms' => $request->accept_terms,
                 'accept_agreement' => $request->accept_agreement,
-                'accept_code_of_conduct' => $request->accept_code_of_conduct
+                'accept_code_of_conduct' => $request->accept_code_of_conduct,
             ]);
 
+            /*
+            |--------------------------------------------------------------------------
+            | Update Distributor Profile
+            |--------------------------------------------------------------------------
+            */
             $distributorProfile->update([
                 'registration_completed' => 1,
                 'submitted_at' => now(),
                 'terms_accepted_at' => now(),
-                //'kyc_status' => 'verified'
                 'kyc_status' => 'pending',
                 'application_status' => 'submitted',
             ]);
 
-            // Assign role
+            /*
+            |--------------------------------------------------------------------------
+            | Assign Distributor Role
+            |--------------------------------------------------------------------------
+            */
             $this->assignRoleToUser($user);
 
-            // Send notification to admin
+            /*
+            |--------------------------------------------------------------------------
+            | Send Notification To Admin
+            |--------------------------------------------------------------------------
+            */
             $admin = DB::table('admins')->first();
+
             if ($admin) {
                 DB::table('admin_notifications')->insert([
-                    'admin_id' => $admin->id ?? '1',
+                    'admin_id' => $admin->id ?? 1,
                     'type' => 'new_distributor_registration',
                     'title' => 'New Distributor Registration',
                     'message' => "{$user->full_name} has completed distributor registration.",
                     'reference_type' => 'user',
                     'reference_id' => $user->id,
                     'priority' => 'high',
+
                     'extra_data' => json_encode([
                         'distributor_id' => $user->id,
                         'name' => $user->full_name,
                         'phone' => $user->phone,
                         'email' => $user->email,
-                        'distributor_profile' => $distributorProfile
+                        'distributor_profile' => $distributorProfile,
                     ]),
+
                     'created_at' => now(),
-                    'updated_at' => now()
+                    'updated_at' => now(),
                 ]);
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | User Notification Settings
+            |--------------------------------------------------------------------------
+            */
             UserNotificationSetting::updateOrCreate(
-                ['user_id' => $user->id],
+                [
+                    'user_id' => $user->id
+                ],
                 [
                     'email_notifications' => true,
                     'order_updates' => true,
@@ -2905,49 +3181,87 @@ class AuthController extends Controller
                 ]
             );
 
-            // if ($user->email) {
-            //     try {
-            //         Mail::to($user->email)
-            //             ->send(new DistributorRegistrationCompletedMail($user));
-            //     } catch (\Exception $mailException) {
-            //         Log::error('Registration completion mail failed: ' . $mailException->getMessage());
-            //     }
-            // }
-
+            /*
+            |--------------------------------------------------------------------------
+            | Send User Notification
+            |--------------------------------------------------------------------------
+            */
             try {
                 $this->notificationService->sendUserNotification(
                     $user,
                     'distributor_registration_completed',
                     [
-                        'title'         => 'Registration Submitted Successfully',
-                        'message'       => 'Your distributor registration has been submitted successfully. We will notify you once the KYC review is complete.',
-                        'customer_name' => $user->full_name ?? $user->name ?? 'Distributor',
-                        'phone'         => $user->phone,
-                        'email'         => $user->email,
-                        'submitted_at'  => now()->format('d M Y, h:i A'),
-                        'url'           => rtrim(config('app.frontend_url', config('app.url')), '/') . '/dashboard',
+                        'title' => 'Registration Submitted Successfully',
+
+                        'message' =>
+                        'Your distributor registration has been submitted successfully. ' .
+                            'We will notify you once the KYC review is complete.',
+
+                        'customer_name' =>
+                        $user->full_name ??
+                            $user->name ??
+                            'Distributor',
+
+                        'phone' => $user->phone,
+                        'email' => $user->email,
+
+                        'submitted_at' =>
+                        now()->format('d M Y, h:i A'),
+
+                        'url' =>
+                        rtrim(
+                            config(
+                                'app.frontend_url',
+                                config('app.url')
+                            ),
+                            '/'
+                        ) . '/dashboard',
                     ],
                     ['database', 'mail']
                 );
             } catch (\Throwable $e) {
-                Log::error('Distributor registration notification failed', [
-                    'user_id' => $user->id,
-                    'error'   => $e->getMessage(),
-                ]);
+
+                Log::error(
+                    'Distributor registration notification failed',
+                    [
+                        'user_id' => $user->id,
+                        'error' => $e->getMessage(),
+                    ]
+                );
             }
 
-            // Clear cache
-            \Illuminate\Support\Facades\Cache::forget('registration_token_' . $request->phone);
+            /*
+            |--------------------------------------------------------------------------
+            | Clear Registration Token
+            |--------------------------------------------------------------------------
+            */
+            Cache::forget(
+                'registration_token_' . $request->phone
+            );
 
+            /*
+            |--------------------------------------------------------------------------
+            | Success Response
+            |--------------------------------------------------------------------------
+            */
             return response()->json([
                 'status' => true,
-                'message' => 'Distributor registration submitted successfully. Please wait for admin approval.',
+                'message' =>
+                'Distributor registration submitted successfully. ' .
+                    'Please wait for admin approval.',
+
                 'user' => $user,
+
                 'distributor_profile' => $distributorProfile,
-                'status' => 'pending_approval'
+
+                'registration_status' => 'pending_approval',
             ]);
         } catch (\Exception $e) {
-            Log::error('Distributor step 7 submit error: ' . $e->getMessage());
+
+            Log::error(
+                'Distributor step 7 submit error: ' . $e->getMessage()
+            );
+
             return response()->json([
                 'status' => false,
                 'message' => $e->getMessage()
