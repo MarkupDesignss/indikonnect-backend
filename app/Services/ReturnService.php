@@ -502,7 +502,7 @@ class ReturnService
             $data,
             $returnDeadline,      // ← ADD
             $returnWindowDays,
-            $returnReason // ← ADD     
+            $returnReason // ← ADD
         ) {
             // Create return order
             $returnOrder = OrderReturn::create([
@@ -3132,10 +3132,10 @@ class ReturnService
         $originalOrder = $returnOrder->order;
 
         /*
-     * Anchor to ROOT order — so a replacement-of-a-replacement
-     * still points back to the very first order.
-     * Prevents infinite chain A → A-R1 → A-R2 → ...
-     */
+ * Anchor to ROOT order — so a replacement-of-a-replacement
+ * still points back to the very first order.
+ * Prevents infinite chain A → A-R1 → A-R2 → ...
+ */
         $rootOrder = method_exists($this, 'getReturnWindowAnchor')
             ? $this->getReturnWindowAnchor($originalOrder)
             : $originalOrder;
@@ -3145,7 +3145,7 @@ class ReturnService
             // ============================================================
             // 1. Pre-calculate totals from return items (ACTUAL values)
             // ============================================================
-            $subtotal      = 0;
+            $subtotal      = 0;   // tax-EXCLUSIVE base
             $totalCgst     = 0;
             $totalSgst     = 0;
             $totalIgst     = 0;
@@ -3185,9 +3185,9 @@ class ReturnService
 
                 $originalLine = $originalLines[$lineId];
 
-                // Actual unit price from original line
-                $unitPrice = (float) $originalLine->unit_price;
-                $lineTotal = round($unitPrice * $qty, 2);
+                // Base unit price (tax-exclusive) from original line
+                $unitPrice     = (float) $originalLine->unit_price;
+                $baseLineTotal = round($unitPrice * $qty, 2);
 
                 // Tax rates from original line
                 $gstRate  = (float) ($originalLine->gst_rate  ?? 0);
@@ -3195,16 +3195,17 @@ class ReturnService
                 $sgstRate = (float) ($originalLine->sgst_rate ?? 0);
                 $igstRate = (float) ($originalLine->igst_rate ?? 0);
 
-                // Tax amounts proportional to qty
-                $gstAmount  = round(($lineTotal * $gstRate)  / 100, 2);
-                $cgstAmount = round(($lineTotal * $cgstRate) / 100, 2);
-                $sgstAmount = round(($lineTotal * $sgstRate) / 100, 2);
-                $igstAmount = round(($lineTotal * $igstRate) / 100, 2);
+                // Tax amounts on base line total
+                $gstAmount  = round(($baseLineTotal * $gstRate)  / 100, 2);
+                $cgstAmount = round(($baseLineTotal * $cgstRate) / 100, 2);
+                $sgstAmount = round(($baseLineTotal * $sgstRate) / 100, 2);
+                $igstAmount = round(($baseLineTotal * $igstRate) / 100, 2);
 
                 // Shipping (proportional to qty)
                 $shippingCharge = round((float) ($originalLine->shipping_charge ?? 0) * $qty, 2);
 
-                $subtotal      += $lineTotal;
+                // subtotal = tax-EXCLUSIVE base total
+                $subtotal      += $baseLineTotal;
                 $totalCgst     += $cgstAmount;
                 $totalSgst     += $sgstAmount;
                 $totalIgst     += $igstAmount;
@@ -3246,7 +3247,7 @@ class ReturnService
                 'refund_status'           => null,
 
                 // ── Money (ACTUAL values, but payable = 0) ─────────────
-                'subtotal'                => $subtotal,
+                'subtotal'                => $subtotal,       // tax-exclusive
                 'total_gst'               => $totalGst,
                 'total_cgst'              => $totalCgst,
                 'total_sgst'              => $totalSgst,
@@ -3290,7 +3291,7 @@ class ReturnService
 
             // ============================================================
             // 3. Copy items from the return as replacement lines
-            //    (ACTUAL prices, not zero)
+            //    (ACTUAL prices, with tax included in line_total)
             // ============================================================
             foreach ($returnItems as $item) {
 
@@ -3312,9 +3313,9 @@ class ReturnService
                     ?? $originalLine->product_name
                     ?? 'Unknown Product';
 
-                // Actual unit price and line total
-                $unitPrice = (float) $originalLine->unit_price;
-                $lineTotal = round($unitPrice * $qty, 2);
+                // Base unit price (tax-exclusive)
+                $unitPrice     = (float) $originalLine->unit_price;
+                $baseLineTotal = round($unitPrice * $qty, 2);
 
                 // Tax rates
                 $gstRate  = (float) ($originalLine->gst_rate  ?? 0);
@@ -3322,11 +3323,14 @@ class ReturnService
                 $sgstRate = (float) ($originalLine->sgst_rate ?? 0);
                 $igstRate = (float) ($originalLine->igst_rate ?? 0);
 
-                // Tax amounts
-                $gstAmount  = round(($lineTotal * $gstRate)  / 100, 2);
-                $cgstAmount = round(($lineTotal * $cgstRate) / 100, 2);
-                $sgstAmount = round(($lineTotal * $sgstRate) / 100, 2);
-                $igstAmount = round(($lineTotal * $igstRate) / 100, 2);
+                // Tax amounts on base
+                $gstAmount  = round(($baseLineTotal * $gstRate)  / 100, 2);
+                $cgstAmount = round(($baseLineTotal * $cgstRate) / 100, 2);
+                $sgstAmount = round(($baseLineTotal * $sgstRate) / 100, 2);
+                $igstAmount = round(($baseLineTotal * $igstRate) / 100, 2);
+
+                // ✅ line_total = base + tax
+                $lineTotal = round($baseLineTotal + $gstAmount, 2);
 
                 // Shipping (actual, proportional to qty)
                 $shippingCharge = round((float) ($originalLine->shipping_charge ?? 0) * $qty, 2);
@@ -3346,12 +3350,12 @@ class ReturnService
                     'quantity'           => $qty,
                     'returned_quantity'  => 0,
 
-                    // ── Money (ACTUAL, not zero) ──────────────────────
-                    'unit_price'         => round($unitPrice, 2),
+                    // ── Money ─────────────────────────────────────────
+                    'unit_price'         => round($unitPrice, 2),   // tax-exclusive base
                     'shipping_charge'    => $shippingCharge,
-                    'line_total'         => $lineTotal,
+                    'line_total'         => $lineTotal,             // ✅ base + tax
 
-                    // ── Tax (ACTUAL, not zero) ────────────────────────
+                    // ── Tax ───────────────────────────────────────────
                     'gst_rate'           => $gstRate,
                     'cgst_rate'          => $cgstRate,
                     'sgst_rate'          => $sgstRate,
