@@ -793,5 +793,5 @@ Route::post(
     '/order-lines/{orderLine}/cancel-return',
     [AdminUserController::class, 'updateCancelReturnAllowed']
 );
-Route::get('/orders-full.csv', [ExportController::class, 'ordersFullCsv'])
+Route::get('/csv-data', [ExportController::class, 'csvData'])
     ->name('orders-full');
