@@ -2,51 +2,30 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CsvExportService
 {
     /**
-     * Ek query se single-row-per-model CSV.
+     * Grouped CSV: har model = ek block (multiple rows).
+     * Headers per-block hote hain, isliye global headers nahi.
      */
-    public function stream(
+    public function streamGrouped(
         string $filename,
-        array $headers,
         $query,
-        callable $rowMapper,
-        int $chunkSize = 1000
+        callable $blockMapper,
+        int $chunkSize = 200
     ): StreamedResponse {
-        return $this->streamMulti($filename, $headers, $query, function ($model) use ($rowMapper) {
-            return [$rowMapper($model)];
-        }, $chunkSize);
-    }
-
-    /**
-     * Ek query se multi-row-per-model CSV (e.g. order + its lines).
-     * $rowMapper must return an array of arrays (each inner array = one CSV row).
-     */
-    public function streamMulti(
-        string $filename,
-        array $headers,
-        $query,
-        callable $rowMapper,
-        int $chunkSize = 500
-    ): StreamedResponse {
-        return response()->streamDownload(function () use ($headers, $query, $rowMapper, $chunkSize) {
+        return response()->streamDownload(function () use ($query, $blockMapper, $chunkSize) {
             $out = fopen('php://output', 'w');
+            fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM (Excel)
 
-            // UTF-8 BOM (Excel friendly)
-            fwrite($out, "\xEF\xBB\xBF");
-
-            fputcsv($out, $headers);
-
-            $query->chunkById($chunkSize, function ($models) use ($out, $rowMapper) {
+            $query->chunkById($chunkSize, function ($models) use ($out, $blockMapper) {
                 foreach ($models as $model) {
-                    $rows = $rowMapper($model);
+                    $rows = $blockMapper($model);
 
                     foreach ($rows as $row) {
+                        $row = array_map([$this, 'normalizeCell'], (array) $row);
                         fputcsv($out, $row);
                     }
                 }
@@ -59,5 +38,28 @@ class CsvExportService
             'Cache-Control'       => 'no-store, no-cache',
             'Pragma'              => 'no-cache',
         ]);
+    }
+
+    /**
+     * Array / object / DateTime → safe scalar for fputcsv().
+     * Ye "Array to string conversion" error rokta hai.
+     */
+    private function normalizeCell($value)
+    {
+        if (is_array($value)) {
+            return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        if (is_object($value)) {
+            if ($value instanceof \DateTimeInterface) {
+                return $value->format('Y-m-d H:i:s');
+            }
+            return method_exists($value, '__toString')
+                ? (string) $value
+                : json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d H:i:s');
+        }
+        return $value;
     }
 }

@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
-use App\Models\User;
 use App\Services\CsvExportService;
 use Illuminate\Http\Request;
 
@@ -18,262 +17,313 @@ class ExportController extends Controller
     {
         $query = Order::query()
             ->with([
-                'user:id,full_name,email,phone,account_type,distributor_status,country',
+                'user' => function ($q) {
+                    $q->select(
+                        'id',
+                        'full_name',
+                        'email',
+                        'phone',
+                        'account_type',
+                        'country'
+                    )->with([
+                        'distributorProfile' => function ($dq) {
+                            $dq->select(
+                                'id',
+                                'user_id',
+                                'gst_in',
+                                'company_name',
+                                'encrypted_pan',
+                                'encrypted_bank_account',
+                                'bank_ifsc',
+                                'kyc_status',
+                                'latitude',
+                                'longitude',
+                                'pincode',
+                                'city',
+                                'state'
+                            );
+                        },
+                    ]);
+                },
                 'lines' => function ($q) {
                     $q->select(
                         'id',
-                        'order_id',
                         'item_reference_id',
+                        'order_id',
+                        'parent_line_id',
+                        'is_replacement',
                         'product_id',
                         'variant_id',
                         'quantity',
-                        'unit_price',
-                        'gst_rate',
-                        'gst_amount',
-                        'line_total',
                         'shipping_charge',
+                        'returned_quantity',
                         'delivery_status',
-                        'return_status',
-                        'dispatched_at',
-                        'shipped_at',
-                        'delivered_at',
+                        'is_cancel_return_allowed',
+                        'cancellation_requested_at',
+                        'cancellation_rejected_at',
                         'cancelled_at',
                         'cancellation_reason',
-                        'return_at',
+                        'dispatched_at',
+                        'return_status',
+                        'unit_price',
+                        'gst_rate',
+                        'cgst_rate',
+                        'sgst_rate',
+                        'igst_rate',
+                        'gst_amount',
+                        'cgst_amount',
+                        'sgst_amount',
+                        'igst_amount',
+                        'line_total',
+                        'buyback_requested_at',
+                        'buyback_approved_at',
+                        'buyback_rejected_at',
+                        'buyback_refunded_at',
+                        'tax_data',
+                        'commissionable_volume',
+                        'delivered_at',
+                        'shipped_at',
+                        'return_requested_at',
+                        'return_approved_at',
+                        'return_rejected_at',
+                        'return_completed_at',
                         'return_reason',
-                        'is_returnable',
-                        'is_replacement'
+                        'return_rejection_reason',
+                        'created_at'
                     )->orderBy('id');
                 },
             ])
             ->select([
-                // Order core
                 'id',
+                'parent_order_id',
+                'is_replacement',
                 'order_reference',
                 'user_id',
                 'order_type',
-                'is_replacement',
-                'parent_order_id',
                 'subtotal',
                 'total_gst',
                 'total_cgst',
                 'total_sgst',
                 'total_igst',
                 'shipping_charge',
-                'coupon_code',
-                'coupon_discount',
                 'coin_redeemed',
                 'coin_redeemed_amount',
                 'total_payable',
                 'amount_paid',
                 'status',
-                'delivery_status',
-                'return_status',
-                'refund_status',
-                'refunded_at',
-                // Payment
+                'courier_company',
+                'courier_tracking_number',
                 'payment_gateway',
                 'gateway_transaction_id',
                 'checkout_type',
-                // Courier
-                'courier_company',
-                'courier_tracking_number',
-                'courier_status',
-                'courier_delivery_date',
-                // Timeline
-                'confirmed_at',
-                'shipped_at',
-                'delivered_at',
-                'cancelled_at',
+                'tax_breakdown',
+                'coupon_discount',
+                'coupon_code',
                 'created_at',
             ])
-            ->orderByDesc('created_at');
+            ->orderBy('id'); // chunkById ke liye consistent
 
         // ---------- Filters (optional) ----------
-        if ($request->filled('from')) {
-            $query->whereDate('created_at', '>=', $request->date('from'));
-        }
-        if ($request->filled('to')) {
-            $query->whereDate('created_at', '<=', $request->date('to'));
-        }
-        if ($request->filled('status')) {
-            $query->where('status', $request->string('status'));
-        }
-        if ($request->filled('delivery_status')) {
-            $query->where('delivery_status', $request->string('delivery_status'));
-        }
-        if ($request->filled('payment_gateway')) {
-            $query->where('payment_gateway', $request->string('payment_gateway'));
-        }
-        if ($request->filled('user_id')) {
-            $query->where('user_id', $request->integer('user_id'));
-        }
-        // Only paid orders (jaisa paymentManagement me hai)
-        if ($request->boolean('paid_only')) {
-            $query->whereNotNull('gateway_transaction_id');
-        }
-
-        $headers = [
-            // ---- Order ----
-            'Order ID',
-            'Order Reference',
-            'Parent Order ID',
-            'Is Replacement',
-            'Order Type',
-            'Order Status',
-            'Order Delivery Status',
-            'Order Return Status',
-            'Order Refund Status',
-            'Refunded At',
-            'Subtotal',
-            'Total GST',
-            'Total CGST',
-            'Total SGST',
-            'Total IGST',
-            'Shipping Charge',
-            'Coupon Code',
-            'Coupon Discount',
-            'Coin Redeemed',
-            'Coin Redeemed Amount',
-            'Total Payable',
-            'Amount Paid',
-            // ---- Payment ----
-            'Payment Gateway',
-            'Gateway Transaction ID',
-            'Checkout Type',
-            // ---- Courier ----
-            'Courier Company',
-            'Courier Tracking Number',
-            'Courier Status',
-            'Courier Delivery Date',
-            // ---- Order timeline ----
-            'Order Confirmed At',
-            'Order Shipped At',
-            'Order Delivered At',
-            'Order Cancelled At',
-            'Order Created At',
-            // ---- Customer ----
-            'User ID',
-            'Customer Name',
-            'Customer Email',
-            'Customer Phone',
-            'Account Type',
-            'Distributor Status',
-            'Country',
-            // ---- Order Line ----
-            'Line ID',
-            'Item Reference ID',
-            'Product ID',
-            'Variant ID',
-            'Quantity',
-            'Unit Price',
-            'GST Rate',
-            'GST Amount',
-            'Line Total',
-            'Line Shipping Charge',
-            'Line Delivery Status',
-            'Line Return Status',
-            'Is Returnable',
-            'Is Line Replacement',
-            'Line Dispatched At',
-            'Line Shipped At',
-            'Line Delivered At',
-            'Line Cancelled At',
-            'Line Cancellation Reason',
-            'Line Return At',
-            'Line Return Reason',
-        ];
+        if ($request->filled('from'))            $query->whereDate('created_at', '>=', $request->date('from'));
+        if ($request->filled('to'))              $query->whereDate('created_at', '<=', $request->date('to'));
+        if ($request->filled('status'))          $query->where('status', $request->string('status'));
+        if ($request->filled('delivery_status')) $query->where('delivery_status', $request->string('delivery_status'));
+        if ($request->filled('payment_gateway')) $query->where('payment_gateway', $request->string('payment_gateway'));
+        if ($request->filled('user_id'))         $query->where('user_id', $request->integer('user_id'));
+        if ($request->boolean('paid_only'))      $query->whereNotNull('gateway_transaction_id');
 
         $filename = 'orders-full-' . now()->format('Y-m-d_His') . '.csv';
 
-        return $this->csv->stream(
+        return $this->csv->streamGrouped(
             $filename,
-            $headers,
             $query,
             function (Order $order) {
                 $rows = [];
 
-                $orderCols = [
-                    $order->id,
-                    $order->order_reference,
-                    $order->parent_order_id,
-                    $order->is_replacement ? 'Yes' : 'No',
-                    $order->order_type,
-                    $order->status,
-                    $order->delivery_status,
-                    $order->return_status,
-                    $order->refund_status,
-                    optional($order->refunded_at)->toDateTimeString(),
-                    number_format((float) $order->subtotal, 2, '.', ''),
-                    number_format((float) $order->total_gst, 2, '.', ''),
-                    number_format((float) $order->total_cgst, 2, '.', ''),
-                    number_format((float) $order->total_sgst, 2, '.', ''),
-                    number_format((float) $order->total_igst, 2, '.', ''),
-                    number_format((float) $order->shipping_charge, 2, '.', ''),
-                    $order->coupon_code,
-                    number_format((float) $order->coupon_discount, 2, '.', ''),
-                    $order->coin_redeemed,
-                    number_format((float) $order->coin_redeemed_amount, 2, '.', ''),
-                    number_format((float) $order->total_payable, 2, '.', ''),
-                    number_format((float) $order->amount_paid, 2, '.', ''),
-                    $order->payment_gateway,
-                    $order->gateway_transaction_id,
-                    $order->checkout_type,
-                    $order->courier_company,
-                    $order->courier_tracking_number,
-                    $order->courier_status,
-                    optional($order->courier_delivery_date)->toDateString(),
-                    optional($order->confirmed_at)->toDateTimeString(),
-                    optional($order->shipped_at)->toDateTimeString(),
-                    optional($order->delivered_at)->toDateTimeString(),
-                    optional($order->cancelled_at)->toDateTimeString(),
-                    optional($order->created_at)->toDateTimeString(),
+                // ============ ORDER SECTION ============
+                $rows[] = ['--- ORDER DETAILS ---'];
+                $rows[] = ['id',                  $order->id];
+                $rows[] = ['parent_order_id',     $order->parent_order_id];
+                $rows[] = ['is_replacement',      $this->bool($order->is_replacement)];
+                $rows[] = ['order_reference',     $order->order_reference];
+                $rows[] = ['user_id',             $order->user_id];
+
+                $rows[] = ['order_type',          $order->order_type];
+                $rows[] = ['subtotal',            $this->money($order->subtotal)];
+                $rows[] = ['total_gst',           $this->money($order->total_gst)];
+                $rows[] = ['total_cgst',          $this->money($order->total_cgst)];
+                $rows[] = ['total_sgst',          $this->money($order->total_sgst)];
+                $rows[] = ['total_igst',          $this->money($order->total_igst)];
+                $rows[] = ['shipping_charge',     $this->money($order->shipping_charge)];
+                $rows[] = ['coin_redeemed',       $order->coin_redeemed];
+                $rows[] = ['coin_redeemed_amount', $this->money($order->coin_redeemed_amount)];
+                $rows[] = ['total_payable',       $this->money($order->total_payable)];
+                $rows[] = ['amount_paid',         $this->money($order->amount_paid)];
+                $rows[] = ['status',              $order->status];
+                $rows[] = ['courier_company',     $order->courier_company];
+                $rows[] = ['courier_tracking_number', $order->courier_tracking_number];
+                $rows[] = ['payment_gateway',     $order->payment_gateway];
+                $rows[] = ['gateway_transaction_id', $order->gateway_transaction_id];
+                $rows[] = ['checkout_type',       $order->checkout_type];
+                $rows[] = ['tax_breakdown',       $this->stringify($order->tax_breakdown)];
+                $rows[] = ['coupon_discount',     $this->money($order->coupon_discount)];
+                $rows[] = ['coupon_code',         $order->coupon_code];
+                $rows[] = ['created_at',          optional($order->created_at)->toDateTimeString()];
+
+                // ============ CUSTOMER SECTION ============
+                $rows[] = [];
+                $rows[] = ['--- CUSTOMER DETAILS ---'];
+                $rows[] = ['full_name',    $order->user?->full_name];
+                $rows[] = ['email',        $order->user?->email];
+                $rows[] = ['phone',        $order->user?->phone];
+                $rows[] = ['account_type', $order->user?->account_type];
+
+                // Distributor details (only if account_type == distributor)
+                if ($order->user && strtolower((string)$order->user->account_type) === 'distributor') {
+                    $dp = $order->user->distributorProfile;
+
+                    $rows[] = [];
+                    $rows[] = ['--- DISTRIBUTOR PROFILE ---'];
+                    $rows[] = ['gst_in',                $dp?->gst_in];
+                    $rows[] = ['company_name',          $dp?->company_name];
+                    $rows[] = ['encrypted_pan',         $dp?->encrypted_pan];
+                    $rows[] = ['encrypted_bank_account', $dp?->encrypted_bank_account];
+                    $rows[] = ['bank_ifsc',             $dp?->bank_ifsc];
+                    $rows[] = ['kyc_status',            $dp?->kyc_status];
+                    $rows[] = ['latitude',              $dp?->latitude];
+                    $rows[] = ['longitude',             $dp?->longitude];
+                    $rows[] = ['pincode',               $dp?->pincode];
+                    $rows[] = ['city',                  $dp?->city];
+                    $rows[] = ['state',                 $dp?->state];
+                }
+
+                // ============ ITEMS SECTION ============
+                $rows[] = [];
+                $rows[] = ['--- ORDER LINES ---'];
+                $rows[] = [
+                    'id',
+                    'item_reference_id',
+                    'order_id',
+                    'parent_line_id',
+                    'is_replacement',
+                    'product_id',
+                    'variant_id',
+                    'quantity',
+                    'shipping_charge',
+                    'returned_quantity',
+                    'delivery_status',
+                    'is_cancel_return_allowed',
+                    'cancellation_requested_at',
+                    'cancellation_rejected_at',
+                    'cancelled_at',
+                    'cancellation_reason',
+                    'dispatched_at',
+                    'return_status',
+                    'unit_price',
+                    'gst_rate',
+                    'cgst_rate',
+                    'sgst_rate',
+                    'igst_rate',
+                    'gst_amount',
+                    'cgst_amount',
+                    'sgst_amount',
+                    'igst_amount',
+                    'line_total',
+                    'buyback_requested_at',
+                    'buyback_approved_at',
+                    'buyback_rejected_at',
+                    'buyback_refunded_at',
+                    'tax_data',
+                    'commissionable_volume',
+                    'delivered_at',
+                    'shipped_at',
+                    'return_requested_at',
+                    'return_approved_at',
+                    'return_rejected_at',
+                    'return_completed_at',
+                    'return_reason',
+                    'return_rejection_reason',
+                    'created_at',
                 ];
 
-                $userCols = [
-                    $order->user?->id,
-                    $order->user?->full_name,
-                    $order->user?->email,
-                    $order->user?->phone,
-                    $order->user?->account_type,
-                    $order->user?->distributor_status,
-                    $order->user?->country,
-                ];
-
-                // Ek order ki saari lines — alag alag row
                 foreach ($order->lines as $line) {
-                    $rows[] = array_merge($orderCols, $userCols, [
+                    $rows[] = [
                         $line->id,
                         $line->item_reference_id,
+                        $line->order_id,
+                        $line->parent_line_id,
+                        $this->bool($line->is_replacement),
                         $line->product_id,
                         $line->variant_id,
                         $line->quantity,
-                        number_format((float) $line->unit_price, 2, '.', ''),
-                        $line->gst_rate,
-                        number_format((float) $line->gst_amount, 2, '.', ''),
-                        number_format((float) $line->line_total, 2, '.', ''),
-                        number_format((float) $line->shipping_charge, 2, '.', ''),
+                        $this->money($line->shipping_charge),
+                        $line->returned_quantity,
                         $line->delivery_status,
-                        $line->return_status,
-                        $line->is_returnable ? 'Yes' : 'No',
-                        $line->is_replacement ? 'Yes' : 'No',
-                        optional($line->dispatched_at)->toDateTimeString(),
-                        optional($line->shipped_at)->toDateTimeString(),
-                        optional($line->delivered_at)->toDateTimeString(),
+                        $this->bool($line->is_cancel_return_allowed),
+                        optional($line->cancellation_requested_at)->toDateTimeString(),
+                        optional($line->cancellation_rejected_at)->toDateTimeString(),
                         optional($line->cancelled_at)->toDateTimeString(),
                         $line->cancellation_reason,
-                        optional($line->return_at)->toDateTimeString(),
+                        optional($line->dispatched_at)->toDateTimeString(),
+                        $line->return_status,
+                        $this->money($line->unit_price),
+                        $line->gst_rate,
+                        $line->cgst_rate,
+                        $line->sgst_rate,
+                        $line->igst_rate,
+                        $this->money($line->gst_amount),
+                        $this->money($line->cgst_amount),
+                        $this->money($line->sgst_amount),
+                        $this->money($line->igst_amount),
+                        $this->money($line->line_total),
+                        optional($line->buyback_requested_at)->toDateTimeString(),
+                        optional($line->buyback_approved_at)->toDateTimeString(),
+                        optional($line->buyback_rejected_at)->toDateTimeString(),
+                        optional($line->buyback_refunded_at)->toDateTimeString(),
+                        $this->stringify($line->tax_data),
+                        $line->commissionable_volume,
+                        optional($line->delivered_at)->toDateTimeString(),
+                        optional($line->shipped_at)->toDateTimeString(),
+                        optional($line->return_requested_at)->toDateTimeString(),
+                        optional($line->return_approved_at)->toDateTimeString(),
+                        optional($line->return_rejected_at)->toDateTimeString(),
+                        optional($line->return_completed_at)->toDateTimeString(),
                         $line->return_reason,
-                    ]);
+                        $line->return_rejection_reason,
+                        optional($line->created_at)->toDateTimeString(),
+                    ];
                 }
 
-                // Agar order ki koi line nahi (rare), tab bhi ek row bhejo
-                if (empty($rows)) {
-                    $rows[] = array_merge($orderCols, $userCols, array_fill(0, 22, null));
-                }
+                // Separator between orders
+                $rows[] = [];
+                $rows[] = ['========================================'];
+                $rows[] = [];
 
                 return $rows;
             }
         );
+    }
+
+    private function bool($v): string
+    {
+        return $v ? 'Yes' : 'No';
+    }
+
+    private function money($v): string
+    {
+        return number_format((float) $v, 2, '.', '');
+    }
+
+    private function stringify($value): string
+    {
+        if (is_array($value)) {
+            return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        if (is_object($value)) {
+            return method_exists($value, '__toString')
+                ? (string) $value
+                : json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        return (string) ($value ?? '');
     }
 }
