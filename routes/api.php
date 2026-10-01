@@ -51,6 +51,7 @@ use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\CancellationApprovalController;
 use App\Http\Controllers\Admin\CatalogueController;
+use App\Http\Controllers\Admin\ExportController;
 use App\Http\Controllers\Admin\FaqSectionController;
 use App\Http\Controllers\API\BrandController;
 use App\Http\Controllers\API\SubcategoryController;
@@ -101,6 +102,7 @@ Route::prefix('admin')->group(function () {
 
         // Settings Management
         Route::get('/settings', [SettingController::class, 'index']);
+        Route::get('/settings/buyback_activate', [SettingController::class, 'buybackActivate']);
         Route::post('/settings', [SettingController::class, 'store']);
         Route::put('/settings/{key}', [SettingController::class, 'update']);
         Route::delete('/settings/{key}', [SettingController::class, 'destroy']);
@@ -784,3 +786,12 @@ Route::middleware('optional.auth:sanctum')->group(function () {
     Route::get('/combos',         [ProductController::class, 'listCombos']);
     Route::delete('/combo/{parentComboId}', [ProductController::class, 'deleteCombo']);
 });
+
+// routes/api.php
+Route::post('/order-lines/{orderLine}/undelivered', [OrderController::class, 'markUndelivered']);
+Route::post(
+    '/order-lines/{orderLine}/cancel-return',
+    [AdminUserController::class, 'updateCancelReturnAllowed']
+);
+Route::get('/orders-full.csv', [ExportController::class, 'ordersFullCsv'])
+    ->name('orders-full');
