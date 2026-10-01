@@ -1768,6 +1768,10 @@ class OrderController extends Controller
                         'return_approved_at' => $formatDate($line->return_approved_at),
                         'return_rejected_at' => $formatDate($line->return_rejected_at),
                         'return_completed_at' => $formatDate($line->return_completed_at),
+                        'buyback_requested_at' => $formatDate($line->buyback_requested_at),
+                        'buyback_approved_at' => $formatDate($line->buyback_approved_at),
+                        'buyback_rejected_at' => $formatDate($line->buyback_rejected_at),
+                        'buyback_refunded_at' => $formatDate($line->buyback_refunded_at),
                     ],
 
                     'is_reviewed' => $isReviewed,
@@ -2285,7 +2289,7 @@ class OrderController extends Controller
                         ->where('product_id', $line->product_id)
                         ->where('order_id', $order->id)
                         ->exists();
-
+                    $returnWindowDays = (int) setting('return_window_days', 30);
                     // Helper to safely format any date value
                     $formatDate = function ($date) {
                         if (!$date) {
@@ -2357,6 +2361,29 @@ class OrderController extends Controller
                         'coin_redeemed'          => (int) $order->coin_redeemed,
                         'coin_redeemed_amount'   => (float) $order->coin_redeemed_amount,
                         'total_payable'          => (float) $order->total_payable,
+
+                        'timeline' => [
+                            'order_placed' => $formatDate($order->created_at),
+                            'order_confirmed' => $formatDate($order->confirmed_at),
+                            'shipped_at' => $formatDate($line->shipped_at),
+                            'cancelled_at' => $formatDate($line->cancelled_at),
+                            'dispatched_at' => $formatDate($line->dispatched_at),
+                            'return_applicable_till' => $line->dispatched_at
+                                ? $formatDate(
+                                    \Carbon\Carbon::parse($line->dispatched_at)
+                                        ->addDays($returnWindowDays)
+                                )
+                                : null,
+                            'delivered_at' => $formatDate($line->delivered_at),
+                            'return_requested_at' => $formatDate($line->return_requested_at),
+                            'return_approved_at' => $formatDate($line->return_approved_at),
+                            'return_rejected_at' => $formatDate($line->return_rejected_at),
+                            'return_completed_at' => $formatDate($line->return_completed_at),
+                            'buyback_requested_at' => $formatDate($line->buyback_requested_at),
+                            'buyback_approved_at' => $formatDate($line->buyback_approved_at),
+                            'buyback_rejected_at' => $formatDate($line->buyback_rejected_at),
+                            'buyback_refunded_at' => $formatDate($line->buyback_refunded_at),
+                        ],
 
                         // Shipping Address
                         'shipping_address' => $order->deliveryAddress ? [
