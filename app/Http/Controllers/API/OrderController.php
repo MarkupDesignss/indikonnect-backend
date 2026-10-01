@@ -2330,6 +2330,7 @@ class OrderController extends Controller
                         'line_total'        => (float) $line->line_total + ($line->shipping_charge * $line->quantity),
                         'delivery_charges'  => ($line->quantity * $line->shipping_charge),
                         'is_cancel_return_allowed'  => $line->is_cancel_return_allowed,
+                        'courier_tracking_number'  => $line->shippingDetails->courier_tracking_number,
 
                         // ── Category + Brand info (NEW) ──
                         'category_id'   => $product?->category_id,
@@ -3588,7 +3589,7 @@ class OrderController extends Controller
 
     private function validateDeliverable(OrderLine $orderLine)
     {
-        if (!in_array($orderLine->delivery_status, ['dispatched', 'shipped'])) {
+        if (!in_array($orderLine->delivery_status, ['dispatched', 'shipped', 'undelivered'])) {
             throw new Exception(
                 "Item '{$orderLine->product->name}' must be dispatched or shipped before delivery. Current status: {$orderLine->delivery_status}"
             );
