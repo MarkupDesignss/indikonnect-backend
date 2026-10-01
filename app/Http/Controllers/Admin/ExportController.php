@@ -95,7 +95,6 @@ class ExportController extends Controller
             ])
             ->select([
                 'id',
-                'parent_order_id',
                 'is_replacement',
                 'order_reference',
                 'user_id',
@@ -143,7 +142,6 @@ class ExportController extends Controller
                 // ============ ORDER SECTION ============
                 $rows[] = ['--- ORDER DETAILS ---'];
                 $rows[] = ['id',                  $order->id];
-                $rows[] = ['parent_order_id',     $order->parent_order_id];
                 $rows[] = ['is_replacement',      $this->bool($order->is_replacement)];
                 $rows[] = ['order_reference',     $order->order_reference];
                 $rows[] = ['user_id',             $order->user_id];
