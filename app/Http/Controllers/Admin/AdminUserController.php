@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\DistributorProfile;
+use App\Models\OrderLine;
 use App\Models\UserNotificationSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -408,5 +409,39 @@ class AdminUserController extends Controller
                 'message' => 'Failed to create distributor. ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    public function updateCancelReturnAllowed(
+        Request $request,
+        OrderLine $orderLine
+    ) {
+        $validator = Validator::make($request->all(), [
+            'is_cancel_return_allowed' => 'required|boolean',
+        ]);
+
+        if ($validator->fails()) {  
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $orderLine->update([
+            'is_cancel_return_allowed' => $request->boolean(
+                'is_cancel_return_allowed'
+            ),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => $request->boolean('is_cancel_return_allowed')
+                ? 'Cancel/return option activated successfully.'
+                : 'Cancel/return option deactivated successfully.',
+            'data' => [
+                'order_line_id' => $orderLine->id,
+                'is_cancel_return_allowed' => (bool) $orderLine->is_cancel_return_allowed,
+            ],
+        ]);
     }
 }

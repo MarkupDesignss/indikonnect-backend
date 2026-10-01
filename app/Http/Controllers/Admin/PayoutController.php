@@ -282,12 +282,48 @@ class PayoutController extends Controller
         ]);
     }
 
+    // public function paymentManagement(Request $request)
+    // {
+    //     try {
+
+    //         $payments = Order::query()
+    //             ->select([
+    //                 'order_reference',
+    //                 'gateway_transaction_id',
+    //                 'amount_paid',
+    //                 'status',
+    //                 'payment_gateway',
+    //                 'created_at',
+    //             ])
+    //             ->whereNotNull('gateway_transaction_id')
+    //             ->orderByDesc('created_at')
+    //             ->get();
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Payment records fetched successfully.',
+    //             'data' => $payments,
+    //         ], 200);
+    //     } catch (\Exception $e) {
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to fetch payment records.',
+    //             'error' => $e->getMessage(),
+    //         ], 500);
+    //     }
+    // }
     public function paymentManagement(Request $request)
     {
         try {
 
             $payments = Order::query()
+                ->with([
+                    'user:id,full_name,email,phone'
+                ])
                 ->select([
+                    'id',
+                    'user_id',
                     'order_reference',
                     'gateway_transaction_id',
                     'amount_paid',
@@ -297,7 +333,22 @@ class PayoutController extends Controller
                 ])
                 ->whereNotNull('gateway_transaction_id')
                 ->orderByDesc('created_at')
-                ->get();
+                ->get()
+                ->map(function ($payment) {
+                    return [
+                        'order_reference'       => $payment->order_reference,
+                        'gateway_transaction_id' => $payment->gateway_transaction_id,
+                        'amount_paid'           => $payment->amount_paid,
+                        'status'                => $payment->status,
+                        'payment_gateway'       => $payment->payment_gateway,
+                        'created_at'            => $payment->created_at,
+
+                        'full_name'             => $payment->user?->full_name,
+                        'email'                 => $payment->user?->email,
+                        'phone'                 => $payment->user?->phone,
+                        'account_type'                 => $payment->user?->account_type,
+                    ];
+                });
 
             return response()->json([
                 'success' => true,

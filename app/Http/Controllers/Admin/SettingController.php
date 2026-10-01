@@ -21,6 +21,15 @@ class SettingController extends Controller
             'data' => $query->get()
         ]);
     }
+    public function buybackActivate(Request $request)
+    {
+        $setting = Setting::where('key', 'buyback_activate')->first();
+
+        return response()->json([
+            'success' => true,
+            'data' => $setting,
+        ]);
+    }
 
     // Create a new setting
     public function store(Request $request)

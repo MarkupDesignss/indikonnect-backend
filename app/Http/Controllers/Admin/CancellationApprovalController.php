@@ -49,6 +49,137 @@ class CancellationApprovalController extends Controller
     //     ]);
     // }
 
+    // public function getPendingRequests(Request $request): JsonResponse
+    // {
+    //     $gatewayChargesPercent = (float) Setting::where('key', 'gateway_charges')
+    //         ->value('value');
+
+    //     $pendingRequests = OrderLine::whereIn('delivery_status', [
+    //         'cancel_pending',
+    //         'cancelled',
+    //         'cancelled_rejected'
+    //     ])
+    //         ->with(['order', 'order.user', 'product', 'variant'])
+    //         ->orderBy('cancellation_requested_at', 'asc')
+    //         ->paginate($request->get('per_page', 20));
+
+    //     $pendingRequests->getCollection()->transform(function ($orderLine) use ($gatewayChargesPercent) {
+
+    //         $lineTotal = (float) $orderLine->line_total;
+
+    //         $gatewayCharge = round(
+    //             ($lineTotal * $gatewayChargesPercent) / 100,
+    //             2
+    //         );
+
+    //         // Add gateway charge as separate response key
+    //         $orderLine->gateway_charge = $gatewayCharge;
+
+    //         // Add gateway charge to line total
+    //         $orderLine->line_total = round(
+    //             $lineTotal + $gatewayCharge,
+    //             2
+    //         );
+
+    //         return $orderLine;
+    //     });
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'data' => $pendingRequests,
+    //     ]);
+    // }
+
+    // public function getPendingRequests(Request $request): JsonResponse
+    // {
+    //     $gatewayChargesPercent = (float) Setting::where('key', 'gateway_charges')
+    //         ->value('value');
+
+    //     $pendingRequests = OrderLine::whereIn('delivery_status', [
+    //         'cancel_pending',
+    //         'cancelled',
+    //         'cancelled_rejected'
+    //     ])
+    //         ->with(['order', 'order.user', 'product', 'variant'])
+    //         ->orderBy('cancellation_requested_at', 'asc')
+    //         ->paginate($request->get('per_page', 20));
+
+    //     $pendingRequests->getCollection()->transform(function ($orderLine) use ($gatewayChargesPercent) {
+
+    //         $lineTotal = (float) $orderLine->line_total;
+
+    //         $gatewayCharge = round(
+    //             ($lineTotal * $gatewayChargesPercent) / 100,
+    //             2
+    //         );
+
+    //         // Add gateway charge as separate response key
+    //         $orderLine->gateway_charge = $gatewayCharge;
+
+    //         // Add gateway charge to line total
+    //         $orderLine->line_total = round(
+    //             $lineTotal + $gatewayCharge,
+    //             2
+    //         );
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Timeline
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $timeline = [];
+
+    //         if (!empty($orderLine->created_at)) {
+    //             $timeline[] = [
+    //                 'event' => 'Order Line Created',
+    //                 'date' => $orderLine->created_at,
+    //             ];
+    //         }
+
+    //         if (!empty($orderLine->cancellation_requested_at)) {
+    //             $timeline[] = [
+    //                 'event' => 'Cancellation Requested',
+    //                 'date' => $orderLine->cancellation_requested_at,
+    //             ];
+    //         }
+
+    //         if (!empty($orderLine->cancelled_at)) {
+    //             $timeline[] = [
+    //                 'event' => 'Cancelled',
+    //                 'date' => $orderLine->cancelled_at,
+    //             ];
+    //         }
+
+    //         if (!empty($orderLine->cancelled_rejected_at)) {
+    //             $timeline[] = [
+    //                 'event' => 'Cancellation Rejected',
+    //                 'date' => $orderLine->cancelled_rejected_at,
+    //             ];
+    //         }
+
+    //         if (!empty($orderLine->updated_at)) {
+    //             $timeline[] = [
+    //                 'event' => 'Last Updated',
+    //                 'date' => $orderLine->updated_at,
+    //             ];
+    //         }
+
+    //         // Sort timeline according to date
+    //         usort($timeline, function ($a, $b) {
+    //             return strtotime($a['date']) <=> strtotime($b['date']);
+    //         });
+
+    //         $orderLine->timeline = $timeline;
+
+    //         return $orderLine;
+    //     });
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'data' => $pendingRequests,
+    //     ]);
+    // }
     public function getPendingRequests(Request $request): JsonResponse
     {
         $gatewayChargesPercent = (float) Setting::where('key', 'gateway_charges')
@@ -81,6 +212,22 @@ class CancellationApprovalController extends Controller
                 2
             );
 
+            /*
+        |--------------------------------------------------------------------------
+        | Timeline — single object (start → end)
+        |--------------------------------------------------------------------------
+        */
+            $orderLine->timeline = [
+                'created_at'                => optional($orderLine->created_at)->toDateTimeString(),
+                'dispatched_at'             => optional($orderLine->dispatched_at)->toDateTimeString(),
+                'shipped_at'                => optional($orderLine->shipped_at)->toDateTimeString(),
+                'delivered_at'              => optional($orderLine->delivered_at)->toDateTimeString(),
+                'cancellation_requested_at' => optional($orderLine->cancellation_requested_at)->toDateTimeString(),
+                'cancelled_at'              => optional($orderLine->cancelled_at)->toDateTimeString(),
+                'cancellation_rejected_at'  => optional($orderLine->cancellation_rejected_at)->toDateTimeString(),
+                'updated_at'                => optional($orderLine->updated_at)->toDateTimeString(),
+            ];
+
             return $orderLine;
         });
 
@@ -89,7 +236,6 @@ class CancellationApprovalController extends Controller
             'data' => $pendingRequests,
         ]);
     }
-
 
     /**
      * Get specific cancellation request details

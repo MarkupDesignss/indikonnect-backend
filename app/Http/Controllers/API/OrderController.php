@@ -19,6 +19,7 @@ use Exception;
 use App\Traits\AuditLogTrait;
 use Illuminate\Support\Facades\Log;
 use App\Services\NotificationService;
+use App\Services\ReturnService;
 use Illuminate\Support\Facades\Validator;
 
 class OrderController extends Controller
@@ -28,19 +29,15 @@ class OrderController extends Controller
     protected $checkoutService;
     protected $invoiceService;
     protected NotificationService $notificationService;
-
     protected $cancellationService;
-
-    public function __construct(
-        CheckoutService $checkoutService,
-        NotificationService $notificationService,
-        InvoiceService $invoiceService,
-        CancellationService $cancellationService
-    ) {
+    protected $returnService;
+    public function __construct(CheckoutService $checkoutService, NotificationService $notificationService, InvoiceService $invoiceService, CancellationService $cancellationService, ReturnService $returnService)
+    {
         $this->checkoutService = $checkoutService;
         $this->notificationService = $notificationService;
         $this->cancellationService = $cancellationService;
         $this->invoiceService = $invoiceService;
+        $this->returnService = $returnService;
     }
 
     /**
@@ -2284,6 +2281,10 @@ class OrderController extends Controller
                             'phone'          => $order->user->phone ?? null,
                             'is_distributor' => $order->user->isDistributor(),
                         ],
+                        'invoice' => [
+                            'id'             => $order->invoice->id,
+                            'invoice_number' => $order->invoice->invoice_number,
+                        ],
 
                         // Returns
                         'returns' => $returns,
@@ -3496,6 +3497,19 @@ class OrderController extends Controller
             ]);
         } else {
             $this->createShippingDetail($order, $orderLine, $request, $status);
+        }
+    }
+
+    public function markUndelivered(Request $request, OrderLine $orderLine)
+    {
+        $validated = $request->validate(['reason' => 'nullable|string|max:1000',]);
+        try {
+            $result = $this->returnService->markUndelivered($orderLine, $validated['reason'] ?? null);
+            return response()->json(['message' => 'Line marked as undelivered.', 'order_line' => $result['order_line'], 'order' => $result['order'],]);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage(),], 422);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Something went wrong while marking the order line as undelivered.', 'error' => $e->getMessage(),], 500);
         }
     }
 }
