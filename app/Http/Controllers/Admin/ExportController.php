@@ -132,7 +132,7 @@ class ExportController extends Controller
         if ($request->filled('user_id'))         $query->where('user_id', $request->integer('user_id'));
         if ($request->boolean('paid_only'))      $query->whereNotNull('gateway_transaction_id');
 
-        $filename = 'orders-full-' . now()->format('Y-m-d_His') . '.csv';
+        $filename = 'order-details-' . now()->format('Y-m-d_His') . '.csv';
 
         return $this->csv->streamGrouped(
             $filename,

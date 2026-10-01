@@ -18,7 +18,7 @@ class CsvExportService
     ): StreamedResponse {
         return response()->streamDownload(function () use ($query, $blockMapper, $chunkSize) {
             $out = fopen('php://output', 'w');
-            fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM (Excel)
+            fwrite($out, "\xEF\xBB\xBF");
 
             $query->chunkById($chunkSize, function ($models) use ($out, $blockMapper) {
                 foreach ($models as $model) {
