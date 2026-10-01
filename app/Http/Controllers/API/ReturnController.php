@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Models\OrderLine;
 use App\Models\OrderReturn;
 use App\Models\Refund;
 use App\Services\ReturnService;
@@ -108,6 +109,114 @@ class ReturnController extends Controller
     /**
      * Initiate a return request.
      */
+    // public function initiate(Request $request): JsonResponse
+    // {
+    //     try {
+    //         $validated = $request->validate([
+    //             'order_reference' => [
+    //                 'required',
+    //                 'string',
+    //                 'exists:orders,order_reference',
+    //             ],
+    //             'return_method' => 'required|in:doorstep,courier',
+
+    //             'items' => [
+    //                 'required',
+    //                 'array',
+    //                 'min:1',
+    //             ],
+
+    //             'items.*.order_line_id' => [
+    //                 'required',
+    //                 'integer',
+    //                 'exists:order_lines,id',
+    //             ],
+
+    //             'items.*.quantity' => [
+    //                 'required',
+    //                 'integer',
+    //                 'min:1',
+    //             ],
+
+    //             'items.*.reason' => [
+    //                 'nullable',
+    //                 'string',
+    //                 'max:500',
+    //             ],
+
+    //             /*
+    //              * Item-specific images
+    //              */
+    //             'items.*.images' => [
+    //                 'nullable',
+    //                 'array',
+    //                 'max:5',
+    //             ],
+
+    //             'items.*.images.*' => [
+    //                 'image',
+    //                 'mimes:jpeg,png,jpg,gif,avif',
+    //                 'max:5120',
+    //             ],
+
+    //             /*
+    //              * General return information
+    //              */
+    //             'return_reason' => [
+    //                 'nullable',
+    //                 'string',
+    //                 'max:1000',
+    //             ],
+
+    //             /*
+    //              * General return images
+    //              */
+    //             'return_images' => [
+    //                 'nullable',
+    //                 'array',
+    //                 'max:10',
+    //             ],
+
+    //             'return_images.*' => [
+    //                 'image',
+    //                 'mimes:jpeg,png,jpg,gif,avif,webp',
+    //                 'max:5120',
+    //             ],
+    //         ]);
+    //         $returnReason = $request->input('items.0.reason');
+
+    //         /*
+    //          * Store uploaded images and convert them
+    //          * into file paths.
+    //          */
+    //         $processedData = $this->processReturnImages($validated);
+    //         $processedData['return_method'] = $validated['return_method'];
+
+    //         /*
+    //          * Send only processed data to service.
+    //          */
+    //         $result = $this->returnService->initiateReturn(
+    //             auth()->id(),
+    //             $processedData,
+    //             $returnReason
+    //         );
+
+    //         return response()->json($result);
+    //     } catch (ValidationException $e) {
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Invalid parameters provided.',
+    //             'errors' => $e->errors(),
+    //         ], 422);
+    //     } catch (Exception $e) {
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
     public function initiate(Request $request): JsonResponse
     {
         try {
@@ -144,8 +253,8 @@ class ReturnController extends Controller
                 ],
 
                 /*
-                 * Item-specific images
-                 */
+             * Item-specific images
+             */
                 'items.*.images' => [
                     'nullable',
                     'array',
@@ -159,8 +268,8 @@ class ReturnController extends Controller
                 ],
 
                 /*
-                 * General return information
-                 */
+             * General return information
+             */
                 'return_reason' => [
                     'nullable',
                     'string',
@@ -168,8 +277,8 @@ class ReturnController extends Controller
                 ],
 
                 /*
-                 * General return images
-                 */
+             * General return images
+             */
                 'return_images' => [
                     'nullable',
                     'array',
@@ -182,18 +291,41 @@ class ReturnController extends Controller
                     'max:5120',
                 ],
             ]);
+
+            // ✅ Verify every order line allows cancellation/return
+            $lineIds = collect($validated['items'])->pluck('order_line_id')->unique()->values();
+
+            $blockedLines = OrderLine::whereIn('id', $lineIds)
+                ->where(function ($q) {
+                    $q->where('is_cancel_return_allowed', false)
+                        ->orWhereNull('is_cancel_return_allowed');
+                })
+                ->get(['id', 'product_id']);
+
+            if ($blockedLines->isNotEmpty()) {
+                $productNames = $blockedLines->map(function ($line) {
+                    return $line->product->name ?? "Line #{$line->id}";
+                })->implode(', ');
+
+                return response()->json([
+                    'success' => false,
+                    'message' => "Return is not allowed for the following item(s): {$productNames}",
+                    'blocked_line_ids' => $blockedLines->pluck('id')->values(),
+                ], 403);
+            }
+
             $returnReason = $request->input('items.0.reason');
 
             /*
-             * Store uploaded images and convert them
-             * into file paths.
-             */
+         * Store uploaded images and convert them
+         * into file paths.
+         */
             $processedData = $this->processReturnImages($validated);
             $processedData['return_method'] = $validated['return_method'];
 
             /*
-             * Send only processed data to service.
-             */
+         * Send only processed data to service.
+         */
             $result = $this->returnService->initiateReturn(
                 auth()->id(),
                 $processedData,
@@ -202,14 +334,12 @@ class ReturnController extends Controller
 
             return response()->json($result);
         } catch (ValidationException $e) {
-
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid parameters provided.',
                 'errors' => $e->errors(),
             ], 422);
         } catch (Exception $e) {
-
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),

@@ -7,6 +7,7 @@ use App\Models\AdminNotification;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\OrderShippingDetail;
+use App\Models\Setting;
 use App\Services\CheckoutService;
 use App\Services\InvoiceService;
 use Illuminate\Http\Request;
@@ -167,6 +168,101 @@ class OrderController extends Controller
     //     }
     // }
 
+    // public function requestCancellation(Request $request, string $orderReference, int $orderLineId): JsonResponse
+    // {
+    //     try {
+    //         $request->validate([
+    //             'reason' => 'required|string|max:500',
+    //         ]);
+
+    //         // Get order line
+    //         $orderLine = OrderLine::where('id', $orderLineId)
+    //             ->with('order')
+    //             ->firstOrFail();
+
+    //         $order = $orderLine->order;
+
+    //         // Check if order belongs to authenticated user
+    //         if ($order->user_id !== auth()->id()) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Unauthorized to cancel this order item',
+    //             ], 403);
+    //         }
+
+    //         // Check if line is already cancelled or in pending state
+    //         if (in_array($orderLine->delivery_status, ['cancelled', 'cancel_pending', 'cancel_rejected'])) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'This item cannot be cancelled',
+    //             ], 400);
+    //         }
+
+    //         // Check if item can be cancelled
+    //         if (in_array($orderLine->delivery_status, ['dispatched', 'delivered', 'shipped'])) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Items that are dispatched, shipped or delivered cannot be cancelled',
+    //             ], 400);
+    //         }
+
+    //         // Process cancellation request
+    //         $result = $this->cancellationService->requestCancellation(
+    //             auth()->id(),
+    //             $orderReference,
+    //             $orderLineId,
+    //             $request->reason
+    //         );
+
+
+    //         // Send notification to admin
+    //         $this->sendAdminNotification(
+    //             'New Cancellation Request',
+    //             "User " . auth()->user()->name . " requested cancellation for order #{$orderReference}",
+    //             'order_cancellation_request',
+    //             $orderLineId,
+    //             'high',
+    //             [
+    //                 'order_reference' => $orderReference,
+    //                 'order_line_id' => $orderLineId,
+    //                 'user_id' => auth()->id(),
+    //                 'user_name' => auth()->user()->name,
+    //                 'user_email' => auth()->user()->email,
+    //                 'reason' => $request->reason,
+    //                 'order_total' => $order->total,
+    //                 'line_total' => $orderLine->line_total,
+    //                 'product_name' => $orderLine->product->name ?? 'Unknown Product',
+    //                 'quantity' => $orderLine->quantity,
+    //                 'requested_at' => now()->toDateTimeString()
+    //             ]
+    //         );
+
+    //         // Log the request
+    //         Log::info('Cancellation request submitted', [
+    //             'order_reference' => $orderReference,
+    //             'order_line_id' => $orderLineId,
+    //             'user_id' => auth()->id(),
+    //             'reason' => $request->reason
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $result,
+    //             'message' => 'Cancellation request submitted successfully. Waiting for admin approval.',
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Cancellation request failed: ' . $e->getMessage(), [
+    //             'order_reference' => $orderReference,
+    //             'order_line_id' => $orderLineId,
+    //             'user_id' => auth()->id()
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
     public function requestCancellation(Request $request, string $orderReference, int $orderLineId): JsonResponse
     {
         try {
@@ -187,6 +283,14 @@ class OrderController extends Controller
                     'success' => false,
                     'message' => 'Unauthorized to cancel this order item',
                 ], 403);
+            }
+
+            // ✅ Check if cancellation/return is allowed for this order line
+            if (!$orderLine->is_cancel_return_allowed) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cancellation is not allowed for this item',
+                ], 400);
             }
 
             // Check if line is already cancelled or in pending state
@@ -212,7 +316,6 @@ class OrderController extends Controller
                 $orderLineId,
                 $request->reason
             );
-
 
             // Send notification to admin
             $this->sendAdminNotification(
@@ -1351,6 +1454,7 @@ class OrderController extends Controller
 
             // Gateway charges percentage from settings (e.g. 2.5)
             $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
+            $buybackActivate = Setting::where('key', 'buyback_activate')->value('value');
             $returnWindowDays = (int) setting('return_window_days', 30);
             foreach ($orderLines as $line) {
                 $order = $line->order;
@@ -1644,6 +1748,7 @@ class OrderController extends Controller
                     'returned_quantity' => (int) ($line->returned_quantity ?? 0),
                     'available_for_return' => $line->getAvailableForReturnAttribute(),
                     'is_returnable' => $line->isReturnable() ?? true,
+                    'is_cancel_return_allowed' => $line->is_cancel_return_allowed,
 
                     // Timeline at Order Line Level
                     'timeline' => [
@@ -1763,7 +1868,8 @@ class OrderController extends Controller
                     // ============================================================
                     // RETURN / REFUND ESTIMATE
                     // ============================================================
-                    'return_method' => $returnMethod, // 'doorstep' | 'courier' | null
+                    'return_method' => $returnMethod,
+                    'is_buyback_enabled' => $buybackActivate,
                     'deducted_shipping_charges' => round($deductedShippingCharges, 2),
                     'gateway_charges' => round($gatewayCharges, 2),
                     'gateway_charges_percent' => $gatewayChargesPercent,
@@ -2219,6 +2325,7 @@ class OrderController extends Controller
                         'gst_amount'        => (float) $line->gst_amount,
                         'line_total'        => (float) $line->line_total + ($line->shipping_charge * $line->quantity),
                         'delivery_charges'  => ($line->quantity * $line->shipping_charge),
+                        'is_cancel_return_allowed'  => $line->is_cancel_return_allowed,
 
                         // ── Category + Brand info (NEW) ──
                         'category_id'   => $product?->category_id,
@@ -2281,10 +2388,10 @@ class OrderController extends Controller
                             'phone'          => $order->user->phone ?? null,
                             'is_distributor' => $order->user->isDistributor(),
                         ],
-                        'invoice' => [
+                        'invoice' => $order->invoice ? [
                             'id'             => $order->invoice->id,
                             'invoice_number' => $order->invoice->invoice_number,
-                        ],
+                        ] : null,
 
                         // Returns
                         'returns' => $returns,
@@ -3505,7 +3612,7 @@ class OrderController extends Controller
         $validated = $request->validate(['reason' => 'nullable|string|max:1000',]);
         try {
             $result = $this->returnService->markUndelivered($orderLine, $validated['reason'] ?? null);
-            return response()->json(['message' => 'Line marked as undelivered.', 'order_line' => $result['order_line'], 'order' => $result['order'],]);
+            return response()->json(['message' => 'Item marked as undelivered.', 'order_line' => $result['order_line'], 'order' => $result['order'],]);
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage(),], 422);
         } catch (\Throwable $e) {
