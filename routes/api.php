@@ -828,14 +828,12 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('admins/{id}/warehouses', [WarehouseAssignmentController::class, 'adminWarehouses']);
 });
 
-
 Route::prefix('warehouse-stocks')->group(function () {
-    Route::get('/',              [WarehouseStockController::class, 'index']);
+    Route::get('/{wareohuseId}',              [WarehouseStockController::class, 'index']);
     Route::post('/',             [WarehouseStockController::class, 'store']);
-    Route::post('/bulk',         [WarehouseStockController::class, 'bulkUpsert']);
-    Route::get('/{id}',          [WarehouseStockController::class, 'show']);
-    Route::put('/{id}',          [WarehouseStockController::class, 'update']);
-    Route::patch('/{id}',        [WarehouseStockController::class, 'update']);
-    Route::delete('/{id}',       [WarehouseStockController::class, 'destroy']);
+    Route::post('/{id}',          [WarehouseStockController::class, 'update']);
 });
-Route::get('/warehouses/{warehouseId}/stocks', [WarehouseStockController::class, 'byWarehouse']);
+Route::post(
+    '/warehouses/{warehouseId}/update-stock',
+    [WarehouseStockController::class, 'updateStock']
+);
