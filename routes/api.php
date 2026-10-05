@@ -828,7 +828,6 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('admins/{id}/warehouses', [WarehouseAssignmentController::class, 'adminWarehouses']);
 });
 
-
 Route::prefix('warehouse-stocks')->group(function () {
     Route::get('/{wareohuseId}',              [WarehouseStockController::class, 'index']);
     Route::post('/',             [WarehouseStockController::class, 'store']);
