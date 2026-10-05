@@ -55,6 +55,7 @@ use App\Http\Controllers\Admin\ExportController;
 use App\Http\Controllers\Admin\FaqSectionController;
 use App\Http\Controllers\Admin\WarehouseAssignmentController;
 use App\Http\Controllers\Admin\WarehouseController;
+use App\Http\Controllers\Admin\WarehouseStockController;
 use App\Http\Controllers\API\BrandController;
 use App\Http\Controllers\API\SubcategoryController;
 use App\Http\Controllers\API\TestimonialController;
@@ -814,10 +815,10 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
         Route::get('/', [WarehouseAssignmentController::class, 'index'])
             ->name('warehouse-assignments.index');
         Route::post('/', [WarehouseAssignmentController::class, 'store'])
-            ->name('warehouse-assign    ments.store');
+            ->name('warehouse-assignments.store');
         Route::get('/{id}', [WarehouseAssignmentController::class, 'show'])
             ->name('warehouse-assignments.show');
-        Route::put('/{id}', [WarehouseAssignmentController::class, 'update'])
+        Route::post('/{id}', [WarehouseAssignmentController::class, 'update'])
             ->name('warehouse-assignments.update');
         Route::delete('/{id}', [WarehouseAssignmentController::class, 'destroy'])
             ->name('warehouse-assignments.destroy');
@@ -826,3 +827,15 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('warehouses/{id}/admins', [WarehouseAssignmentController::class, 'warehouseAdmins']);
     Route::get('admins/{id}/warehouses', [WarehouseAssignmentController::class, 'adminWarehouses']);
 });
+
+
+Route::prefix('warehouse-stocks')->group(function () {
+    Route::get('/',              [WarehouseStockController::class, 'index']);
+    Route::post('/',             [WarehouseStockController::class, 'store']);
+    Route::post('/bulk',         [WarehouseStockController::class, 'bulkUpsert']);
+    Route::get('/{id}',          [WarehouseStockController::class, 'show']);
+    Route::put('/{id}',          [WarehouseStockController::class, 'update']);
+    Route::patch('/{id}',        [WarehouseStockController::class, 'update']);
+    Route::delete('/{id}',       [WarehouseStockController::class, 'destroy']);
+});
+Route::get('/warehouses/{warehouseId}/stocks', [WarehouseStockController::class, 'byWarehouse']);
