@@ -23,14 +23,15 @@ return new class extends Migration
 
             $table->unsignedBigInteger('warehouse_id')
                 ->comment('Warehouse where assigned');
-            $table->unsignedBigInteger('role_id')->nullable()->after('warehouse_id');
+
+            $table->unsignedBigInteger('role_id')
+                ->nullable()
+                ->comment('Role assigned to admin for this warehouse');
 
             // ============================================
             // ASSIGNMENT DETAILS
             // ============================================
 
-            // Primary warehouse OR secondary?
-            //If Manager have multiple warehouses
             $table->boolean('is_primary')
                 ->default(false)
                 ->comment('Is this primary warehouse for admin?');
@@ -38,9 +39,11 @@ return new class extends Migration
             // ============================================
             // TIMELINE
             // ============================================
+
             $table->date('assigned_from')
                 ->nullable()
                 ->comment('Assignment start date');
+
             $table->date('assigned_until')
                 ->nullable()
                 ->comment('Assignment end date (null = permanent)');
@@ -56,11 +59,11 @@ return new class extends Migration
             // ============================================
             // AUDIT TRAIL
             // ============================================
+
             $table->unsignedBigInteger('assigned_by')
                 ->nullable()
                 ->comment('Super admin who made this assignment');
 
-            // Extra notes
             $table->text('notes')
                 ->nullable()
                 ->comment('Any additional notes about this assignment');
@@ -93,6 +96,15 @@ return new class extends Migration
                 ->onDelete('set null')
                 ->onUpdate('cascade');
 
+            // If role_id references a roles table, uncomment:
+            /*
+            $table->foreign('role_id')
+                ->references('id')
+                ->on('roles')
+                ->onDelete('set null')
+                ->onUpdate('cascade');
+            */
+
             // ============================================
             // UNIQUE CONSTRAINTS
             // ============================================
@@ -103,15 +115,20 @@ return new class extends Migration
             );
 
             // ============================================
-            // INDEXES (Performance)
+            // INDEXES
             // ============================================
-
-            $table->index('admin_id', 'idx_assign_admin');
-            $table->index('warehouse_id', 'idx_assign_warehouse');
             $table->index('is_active', 'idx_assign_active');
             $table->index('is_primary', 'idx_assign_primary');
-            $table->index(['is_active', 'warehouse_id'], 'idx_assign_active_wh');
-            $table->index(['is_active', 'admin_id'], 'idx_assign_active_admin');
+
+            $table->index(
+                ['is_active', 'warehouse_id'],
+                'idx_assign_active_wh'
+            );
+
+            $table->index(
+                ['is_active', 'admin_id'],
+                'idx_assign_active_admin'
+            );
         });
     }
 
@@ -120,6 +137,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('warehouse_assignments');
+        Schema::dropIfExists('admin_warehouse_assignments');
     }
 };
