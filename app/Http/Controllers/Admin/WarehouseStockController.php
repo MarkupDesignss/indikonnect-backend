@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\ProductReview;
+use App\Models\ProductVariant;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
 use App\Models\Wishlist;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class WarehouseStockController extends Controller
@@ -832,5 +834,297 @@ class WarehouseStockController extends Controller
             'from'         => $paginator->firstItem(),
             'to'           => $paginator->lastItem(),
         ];
+    }
+
+    public function updateStock(Request $request, int $warehouseId)
+    {
+        try {
+            // ============ VALIDATION ============
+            $validator = \Illuminate\Support\Facades\Validator::make(
+                $request->all(),
+                [
+                    'product_id' => 'required|exists:products,id',
+
+                    // Optional: variant-wise updates
+                    'variants' => 'nullable|array',
+                    'variants.*.id' => 'required_with:variants|exists:product_variants,id',
+                    'variants.*.quantity' => 'required_with:variants|integer|min:0',
+
+                    // Optional: direct product (non-variant) update
+                    'quantity' => 'nullable|integer|min:0',
+
+                    // Operation type
+                    'operation' => 'required|in:set,add,subtract',
+                ],
+                [
+                    'product_id.required' => 'Product ID is required',
+                    'product_id.exists' => 'Product not found',
+                    'variants.*.id.exists' => 'One or more variants not found',
+                    'variants.*.quantity.min' => 'Variant quantity cannot be negative',
+                    'quantity.min' => 'Quantity cannot be negative',
+                    'operation.required' => 'Operation is required',
+                    'operation.in' => 'Operation must be set, add, or subtract',
+                ]
+            );
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $validated = $validator->validated();
+
+            $warehouse = Warehouse::findOrFail($warehouseId);
+            $product = Product::findOrFail($validated['product_id']);
+
+            $operation = $validated['operation'];
+
+            DB::beginTransaction();
+
+            // ============================================================
+            // CASE 1: VARIANT-WISE UPDATE
+            // ============================================================
+            if (isset($validated['variants']) && !empty($validated['variants'])) {
+
+                $variantsData = $validated['variants'];
+                $variantIds = collect($variantsData)->pluck('id')->toArray();
+
+                // Verify all variants belong to this product
+                $existingVariants = ProductVariant::whereIn('id', $variantIds)
+                    ->where('product_id', $product->id)
+                    ->get()
+                    ->keyBy('id');
+
+                if ($existingVariants->count() != count($variantsData)) {
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'One or more variants do not belong to this product',
+                    ], 400);
+                }
+
+                $updatedVariants = [];
+
+                foreach ($variantsData as $variantData) {
+
+                    $variant = $existingVariants[$variantData['id']];
+                    $quantity = $variantData['quantity'];
+
+                    // ----------------------------------------------------
+                    // 1. Warehouse stock row (may or may not exist)
+                    // ----------------------------------------------------
+                    $warehouseStock = WarehouseStock::firstOrCreate(
+                        [
+                            'warehouse_id' => $warehouseId,
+                            'product_id'   => $product->id,
+                            'variant_id'   => $variant->id,
+                        ],
+                        [
+                            'quantity' => 0,
+                        ]
+                    );
+
+                    $oldWarehouseQty = $warehouseStock->quantity;
+
+                    $newWarehouseQty = $this->applyOperation($oldWarehouseQty, $quantity, $operation);
+
+                    if ($newWarehouseQty < 0) {
+                        DB::rollBack();
+                        return response()->json([
+                            'success' => false,
+                            'message' => "Warehouse stock cannot be negative for variant ID {$variant->id}. Current: {$oldWarehouseQty}, Operation: {$operation}, Quantity: {$quantity}",
+                        ], 400);
+                    }
+
+                    $warehouseStock->quantity = $newWarehouseQty;
+                    $warehouseStock->save();
+
+                    // ----------------------------------------------------
+                    // 2. Variant global stock
+                    // ----------------------------------------------------
+                    $oldVariantQty = $variant->stock_quantity;
+
+                    $newVariantQty = $this->applyOperation($oldVariantQty, $quantity, $operation);
+
+                    if ($newVariantQty < 0) {
+                        DB::rollBack();
+                        return response()->json([
+                            'success' => false,
+                            'message' => "Variant stock cannot be negative for variant ID {$variant->id}. Current: {$oldVariantQty}, Operation: {$operation}, Quantity: {$quantity}",
+                        ], 400);
+                    }
+
+                    $variant->stock_quantity = $newVariantQty;
+                    $variant->save();
+
+                    $updatedVariants[] = [
+                        'id'                 => $variant->id,
+                        'sku'                => $variant->sku,
+                        'attributes'         => $variant->attributes,
+                        'operation'          => $operation,
+                        'quantity'           => $quantity,
+                        'warehouse_old_qty'  => $oldWarehouseQty,
+                        'warehouse_new_qty'  => $newWarehouseQty,
+                        'variant_old_stock'  => $oldVariantQty,
+                        'variant_new_stock'  => $newVariantQty,
+                    ];
+                }
+
+                // --------------------------------------------------------
+                // 3. Recalculate parent product global stock (sum of variants)
+                // --------------------------------------------------------
+                $totalProductStock = ProductVariant::where('product_id', $product->id)
+                    ->sum('stock_quantity');
+
+                $product->stock_quantity = (int) $totalProductStock;
+                $product->save();
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Variant stocks updated successfully',
+                    'data' => [
+                        'warehouse' => [
+                            'id'   => $warehouse->id,
+                            'name' => $warehouse->name ?? null,
+                        ],
+                        'product' => [
+                            'id'           => $product->id,
+                            'name'         => $product->name,
+                            'total_stock'  => (int) $product->stock_quantity,
+                            'has_variants' => true,
+                        ],
+                        'operation'        => $operation,
+                        'total_updated'    => count($updatedVariants),
+                        'updated_variants' => $updatedVariants,
+                    ],
+                    'timestamp' => now()->toISOString(),
+                ]);
+            }
+
+            // ============================================================
+            // CASE 2: NON-VARIANT PRODUCT UPDATE
+            // ============================================================
+            if (!isset($validated['quantity'])) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Quantity is required when updating product directly',
+                ], 400);
+            }
+
+            $quantity = $validated['quantity'];
+
+            // ------------------------------------------------------------
+            // 1. Warehouse stock row
+            // ------------------------------------------------------------
+            $warehouseStock = WarehouseStock::firstOrCreate(
+                [
+                    'warehouse_id' => $warehouseId,
+                    'product_id'   => $product->id,
+                    'variant_id'   => null,
+                ],
+                [
+                    'quantity' => 0,
+                ]
+            );
+
+            $oldWarehouseQty = $warehouseStock->quantity;
+
+            $newWarehouseQty = $this->applyOperation($oldWarehouseQty, $quantity, $operation);
+
+            if ($newWarehouseQty < 0) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => "Warehouse stock cannot be negative. Current: {$oldWarehouseQty}, Operation: {$operation}, Quantity: {$quantity}",
+                ], 400);
+            }
+
+            $warehouseStock->quantity = $newWarehouseQty;
+            $warehouseStock->save();
+
+            // ------------------------------------------------------------
+            // 2. Parent product global stock
+            // ------------------------------------------------------------
+            $oldProductQty = $product->stock_quantity;
+
+            $newProductQty = $this->applyOperation($oldProductQty, $quantity, $operation);
+
+            if ($newProductQty < 0) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => "Product stock cannot be negative. Current: {$oldProductQty}, Operation: {$operation}, Quantity: {$quantity}",
+                ], 400);
+            }
+
+            $product->stock_quantity = $newProductQty;
+            $product->save();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Product stock updated successfully',
+                'data' => [
+                    'warehouse' => [
+                        'id'   => $warehouse->id,
+                        'name' => $warehouse->name ?? null,
+                    ],
+                    'product' => [
+                        'id'          => $product->id,
+                        'name'        => $product->name,
+                        'old_stock'   => $oldProductQty,
+                        'new_stock'   => $newProductQty,
+                        'operation'   => $operation,
+                        'quantity'    => $quantity,
+                        'has_variants' => $product->variants()->count() > 0,
+                    ],
+                    'warehouse_stock' => [
+                        'old_quantity' => $oldWarehouseQty,
+                        'new_quantity' => $newWarehouseQty,
+                    ],
+                ],
+                'timestamp' => now()->toISOString(),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            Log::error('Warehouse stock update failed: ' . $e->getMessage(), [
+                'trace'        => $e->getTraceAsString(),
+                'warehouse_id' => $warehouseId,
+                'request'      => $request->all(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update stock',
+                'error'   => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+
+    // ================================================================
+    // HELPER: Apply operation (set / add / subtract)
+    // ================================================================
+    protected function applyOperation(int $current, int $value, string $operation): int
+    {
+        switch ($operation) {
+            case 'add':
+                return $current + $value;
+
+            case 'subtract':
+                return $current - $value;
+
+            case 'set':
+            default:
+                return $value;
+        }
     }
 }
