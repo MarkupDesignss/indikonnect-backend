@@ -51,10 +51,10 @@ class WarehouseAssignmentController extends Controller
         $data = $request->validate([
             'admin_id'         => ['required', 'exists:admins,id'],
             'warehouse_id'     => ['required', 'exists:warehouses,id'],
-            'role_id'          => ['required', 'exists:admin_roles,id'],
+            'role_id'          => ['required', 'exists:admin_admin_role,id'],
             'is_primary'       => ['nullable', 'boolean'],
             'assigned_from'    => ['nullable', 'date'],
-            'assigned_until'   => ['nullable', 'date', 'after:assigned_from'],
+            'assigned_until'   => ['nullable'],
             'is_active'        => ['nullable', 'boolean'],
             'notes'            => ['nullable', 'string'],
         ]);
