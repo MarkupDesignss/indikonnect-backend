@@ -225,4 +225,8 @@ class Product extends Model
     {
         return url("/product/{$this->slug}");
     }
+    public function warehouseStocks()
+    {
+        return $this->hasMany(WarehouseStock::class, 'product_id');
+    }
 }

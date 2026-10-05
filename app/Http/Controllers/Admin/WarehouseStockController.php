@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Product;
+use App\Models\ProductReview;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
+use App\Models\Wishlist;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -12,72 +15,488 @@ use Illuminate\Validation\Rule;
 
 class WarehouseStockController extends Controller
 {
-        // ============================================================
+    // ============================================================
     // LIST ALL (with filters + pagination)
     // GET /api/warehouse-stocks
     // ============================================================
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, int $warehouseId)
     {
-        $query = WarehouseStock::with(['warehouse', 'product', 'variant']);
+        // ============================================================
+        // WAREHOUSE
+        // ============================================================
 
-        // Filter by warehouse_id
-        if ($request->filled('warehouse_id')) {
-            $query->where('warehouse_id', $request->warehouse_id);
+        $warehouse = Warehouse::findOrFail($warehouseId);
+
+
+        // ============================================================
+        // BASE QUERY (scoped to warehouse)
+        // ============================================================
+
+        $query = Product::with([
+            'category',
+            'subcategory',
+            'taxCategory',
+            'brand',
+            'images',
+            'variants',
+        ])
+            ->whereHas('brand', function ($q) {
+                $q->where('status', true);
+            })
+            // Only products that exist in this warehouse
+            ->whereHas('warehouseStocks', function ($q) use ($warehouseId) {
+                $q->where('warehouse_id', $warehouseId);
+            });
+
+
+        // ============================================================
+        // CATEGORY FILTER
+        // ============================================================
+
+        if ($request->has('category_ids') && $request->category_ids) {
+
+            $categoryIds = is_array($request->category_ids)
+                ? $request->category_ids
+                : explode(',', $request->category_ids);
+
+            $categoryIds = array_filter($categoryIds);
+
+            if (!empty($categoryIds)) {
+                $query->whereIn('category_id', $categoryIds);
+            }
         }
 
-        // Filter by product_id
-        if ($request->filled('product_id')) {
-            $query->where('product_id', $request->product_id);
+
+        // ============================================================
+        // SUBCATEGORY FILTER
+        // ============================================================
+
+        if ($request->has('subcategory_ids') && $request->subcategory_ids) {
+
+            $subcategoryIds = is_array($request->subcategory_ids)
+                ? $request->subcategory_ids
+                : explode(',', $request->subcategory_ids);
+
+            $subcategoryIds = array_filter($subcategoryIds);
+
+            if (!empty($subcategoryIds)) {
+                $query->whereIn('subcategory_id', $subcategoryIds);
+            }
         }
 
-        // Filter by variant_id
-        if ($request->filled('variant_id')) {
-            $query->where('variant_id', $request->variant_id);
+
+        // ============================================================
+        // SINGLE CATEGORY FILTER (backward compatibility)
+        // ============================================================
+
+        if (
+            $request->has('category_id') &&
+            $request->category_id &&
+            !$request->has('category_ids')
+        ) {
+            $query->where('category_id', $request->category_id);
         }
 
-        // Search by product name / code / sku
-        if ($request->filled('search')) {
+
+        // ============================================================
+        // BRAND FILTER
+        // ============================================================
+
+        if ($request->has('brand_ids') && $request->brand_ids) {
+
+            $brandIds = is_array($request->brand_ids)
+                ? $request->brand_ids
+                : explode(',', $request->brand_ids);
+
+            $brandIds = array_filter($brandIds);
+
+            if (!empty($brandIds)) {
+                $query->whereIn('brand_id', $brandIds);
+            }
+        }
+
+
+        // ============================================================
+        // TAX CATEGORY FILTER
+        // ============================================================
+
+        if ($request->has('tax_category_ids') && $request->tax_category_ids) {
+
+            $taxIds = is_array($request->tax_category_ids)
+                ? $request->tax_category_ids
+                : explode(',', $request->tax_category_ids);
+
+            $taxIds = array_filter($taxIds);
+
+            if (!empty($taxIds)) {
+                $query->whereIn('tax_category_id', $taxIds);
+            }
+        }
+
+
+        // ============================================================
+        // PRICE FILTER
+        // ============================================================
+
+        if (
+            $request->has('min_price') &&
+            $request->min_price !== null &&
+            $request->min_price !== '' &&
+            is_numeric($request->min_price)
+        ) {
+            $query->where('retail_price', '>=', $request->min_price);
+        }
+
+        if (
+            $request->has('max_price') &&
+            $request->max_price !== null &&
+            $request->max_price !== '' &&
+            is_numeric($request->max_price)
+        ) {
+            $query->where('retail_price', '<=', $request->max_price);
+        }
+
+
+        // ============================================================
+        // PUBLISHED STATUS FILTER
+        // ============================================================
+
+        if ($request->has('is_published')) {
+            $query->where('is_published', $request->boolean('is_published'));
+        }
+
+
+        // ============================================================
+        // WAREHOUSE STOCK STATUS FILTER
+        // ============================================================
+
+        if ($request->has('stock_status') && $request->stock_status) {
+
+            $stockStatus = $request->stock_status;
+
+            $lowThreshold = (int) $request->get('low_stock_threshold', 10);
+
+            if (is_array($stockStatus)) {
+
+                $query->where(function ($q) use ($stockStatus, $warehouseId, $lowThreshold) {
+
+                    if (in_array('in_stock', $stockStatus)) {
+                        $q->orWhereHas('warehouseStocks', function ($wq) use ($warehouseId, $lowThreshold) {
+                            $wq->where('warehouse_id', $warehouseId)
+                                ->where('quantity', '>', $lowThreshold);
+                        });
+                    }
+
+                    if (in_array('low_stock', $stockStatus)) {
+                        $q->orWhereHas('warehouseStocks', function ($wq) use ($warehouseId, $lowThreshold) {
+                            $wq->where('warehouse_id', $warehouseId)
+                                ->where('quantity', '>', 0)
+                                ->where('quantity', '<=', $lowThreshold);
+                        });
+                    }
+
+                    if (in_array('out_of_stock', $stockStatus)) {
+                        $q->orWhereHas('warehouseStocks', function ($wq) use ($warehouseId) {
+                            $wq->where('warehouse_id', $warehouseId)
+                                ->where('quantity', 0);
+                        });
+                    }
+                });
+            } else {
+
+                switch ($stockStatus) {
+
+                    case 'in_stock':
+                        $query->whereHas('warehouseStocks', function ($wq) use ($warehouseId, $lowThreshold) {
+                            $wq->where('warehouse_id', $warehouseId)
+                                ->where('quantity', '>', $lowThreshold);
+                        });
+                        break;
+
+                    case 'low_stock':
+                        $query->whereHas('warehouseStocks', function ($wq) use ($warehouseId, $lowThreshold) {
+                            $wq->where('warehouse_id', $warehouseId)
+                                ->where('quantity', '>', 0)
+                                ->where('quantity', '<=', $lowThreshold);
+                        });
+                        break;
+
+                    case 'out_of_stock':
+                        $query->whereHas('warehouseStocks', function ($wq) use ($warehouseId) {
+                            $wq->where('warehouse_id', $warehouseId)
+                                ->where('quantity', 0);
+                        });
+                        break;
+                }
+            }
+        }
+
+
+        // ============================================================
+        // SEARCH
+        // ============================================================
+
+        if ($request->has('search') && $request->search) {
+
             $search = trim($request->search);
 
             $query->where(function ($q) use ($search) {
-                $q->whereHas('product', function ($pq) use ($search) {
-                    $pq->where('name', 'LIKE', "%{$search}%")
-                       ->orWhere('product_code', 'LIKE', "%{$search}%");
-                })->orWhereHas('variant', function ($vq) use ($search) {
-                    $vq->where('sku', 'LIKE', "%{$search}%");
-                });
+
+                $q->where('name', 'LIKE', "%{$search}%")
+                    ->orWhere('product_code', 'LIKE', "%{$search}%")
+                    ->orWhere('slug', 'LIKE', "%{$search}%")
+                    ->orWhereHas('variants', function ($variantQuery) use ($search) {
+                        $variantQuery->where('sku', 'LIKE', "%{$search}%");
+                    });
             });
         }
 
-        // Low stock filter
-        if ($request->filled('low_stock') && $request->boolean('low_stock')) {
-            $threshold = (int) $request->get('low_stock_threshold', 10);
-            $query->where('quantity', '>', 0)->where('quantity', '<=', $threshold);
+
+        // ============================================================
+        // SORT
+        // ============================================================
+
+        // In-stock (in this warehouse) first, out-of-stock last
+        $query->orderByRaw(
+            'CASE
+            WHEN (SELECT COALESCE(SUM(quantity), 0)
+                  FROM warehouse_stocks
+                  WHERE warehouse_stocks.product_id = products.id
+                    AND warehouse_stocks.warehouse_id = ?) = 0
+            THEN 1 ELSE 0 END ASC',
+            [$warehouseId]
+        );
+
+        $sortParam = $request->get('sort');
+
+        if ($sortParam === 'price-low') {
+
+            $query->orderBy('retail_price', 'asc');
+        } elseif ($sortParam === 'price-high') {
+
+            $query->orderBy('retail_price', 'desc');
+        } else {
+
+            $sortField = $request->get('sort_by', 'created_at');
+            $sortDirection = strtolower($request->get('sort_direction', 'desc'));
+
+            $allowedSortFields = [
+                'id',
+                'name',
+                'product_code',
+                'retail_price',
+                'distributor_price',
+                'created_at',
+                'updated_at',
+            ];
+
+            if (!in_array($sortField, $allowedSortFields)) {
+                $sortField = 'created_at';
+            }
+
+            if (!in_array($sortDirection, ['asc', 'desc'])) {
+                $sortDirection = 'desc';
+            }
+
+            $query->orderBy($sortField, $sortDirection);
         }
 
-        // Out of stock
-        if ($request->filled('out_of_stock') && $request->boolean('out_of_stock')) {
-            $query->where('quantity', 0);
+
+        // ============================================================
+        // PAGINATION
+        // ============================================================
+
+        $perPage = (int) $request->get('per_page', 25);
+
+        if ($perPage < 1) {
+            $perPage = 25;
         }
 
-        // In stock
-        if ($request->filled('in_stock') && $request->boolean('in_stock')) {
-            $query->where('quantity', '>', 0);
+        if ($perPage > 100) {
+            $perPage = 100;
         }
 
-        // Sorting
-        [$sortField, $sortDirection] = $this->resolveSort($request);
+        $products = $query->paginate($perPage);
 
-        $query->orderBy($sortField, $sortDirection);
 
-        // Pagination
-        $perPage = $this->resolvePerPage($request);
+        // ============================================================
+        // WAREHOUSE STOCK MAP (for this page)
+        // ============================================================
 
-        $stocks = $query->paginate($perPage);
+        $productIds = $products->pluck('id')->all();
+
+        $warehouseStockMap = WarehouseStock::where('warehouse_id', $warehouseId)
+            ->whereIn('product_id', $productIds)
+            ->get()
+            ->groupBy('product_id');
+
+
+        // ============================================================
+        // FORMAT (admin-friendly, no reviews / wishlist)
+        // ============================================================
+
+        $formatted = $products->getCollection()->map(function ($product) use ($warehouseStockMap, $warehouseId) {
+
+            $stocks = $warehouseStockMap->get($product->id, collect());
+
+            $totalQuantity = (int) $stocks->sum('quantity');
+
+            $stockStatus = $totalQuantity <= 0
+                ? 'out_of_stock'
+                : ($totalQuantity <= (int) $product->low_stock_threshold ? 'low_stock' : 'in_stock');
+
+            return [
+                'id'           => $product->id,
+                'product_code' => $product->product_code,
+                'name'         => $product->name,
+                'slug'         => $product->slug,
+                'description'  => $product->description,
+                'specification' => $product->specification,
+
+                'brand_id'     => $product->brand_id,
+                'brand'        => $product->brand ? [
+                    'id'     => $product->brand->id,
+                    'title'  => $product->brand->title,
+                    'slug'   => $product->brand->slug ?? null,
+                    'logo'   => $product->brand->logo
+                        ? asset('storage/' . $product->brand->logo)
+                        : null,
+                    'banner' => $product->brand->banner
+                        ? asset('storage/' . $product->brand->banner)
+                        : null,
+                    'status' => (bool) $product->brand->status,
+                ] : null,
+
+                'category_id'  => $product->category_id,
+                'category'     => $product->category ? [
+                    'id'    => $product->category->id,
+                    'title' => $product->category->title,
+                    'slug'  => $product->category->slug,
+                ] : null,
+
+                'subcategory_id' => $product->subcategory_id,
+                'subcategory'    => $product->subcategory ? [
+                    'id'          => $product->subcategory->id,
+                    'category_id' => $product->subcategory->category_id,
+                    'name'        => $product->subcategory->name,
+                    'slug'        => $product->subcategory->slug,
+                ] : null,
+
+                'tax_category_id' => $product->tax_category_id,
+                'tax_category'    => $product->taxCategory ? [
+                    'id'   => $product->taxCategory->id,
+                    'name' => $product->taxCategory->name,
+                    'rate' => $product->taxCategory->rate,
+                ] : null,
+
+                // Pricing
+                'retail_mrp'           => $product->retail_mrp,
+                'retail_price'         => $product->retail_price,
+                'distributor_mrp'      => $product->distributor_mrp,
+                'distributor_price'    => $product->distributor_price,
+                'commission_value'     => $product->commission_value ?? null,
+
+                // Flags
+                'is_published'         => (bool) $product->is_published,
+                'is_trending'          => (bool) $product->is_trending,
+                'is_deal_of_the_day'   => (bool) $product->is_deal_of_the_day,
+                'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+                'deal_of_the_day_ends_at'   => $product->deal_of_the_day_ends_at?->toISOString(),
+                'sale_type'            => $product->sale_type,
+
+                // Product-level stock (global)
+                'stock_quantity'       => (int) $product->stock_quantity,
+                'low_stock_threshold'  => (int) $product->low_stock_threshold,
+
+                // Warehouse-specific stock
+                'warehouse_stock' => [
+                    'warehouse_id'   => $warehouseId,
+                    'total_quantity' => $totalQuantity,
+                    'stock_status'   => $stockStatus,
+                    'entries'        => $stocks->map(function ($s) {
+                        return [
+                            'id'         => $s->id,
+                            'variant_id' => $s->variant_id,
+                            'quantity'   => (int) $s->quantity,
+                        ];
+                    })->values()->all(),
+                ],
+
+                // Images
+                'images' => $product->images->map(function ($image) {
+                    return [
+                        'id'         => $image->id,
+                        'image_url'  => asset('storage/' . $image->image),
+                        'is_primary' => (bool) $image->is_primary,
+                        'sort_order' => (int) $image->sort_order,
+                    ];
+                })->values()->all(),
+
+                'primary_image_url' => optional(
+                    $product->images->where('is_primary', true)->first()
+                        ?? $product->images->first()
+                )->image
+                    ? asset('storage/' . (
+                        $product->images->where('is_primary', true)->first()->image
+                        ?? $product->images->first()->image
+                    ))
+                    : null,
+
+                // Variants
+                'variants' => $product->variants->map(function ($variant) {
+                    $attributes = $variant->attributes;
+                    if (is_string($attributes)) {
+                        $attributes = json_decode($attributes, true);
+                    }
+
+                    return [
+                        'id'                        => $variant->id,
+                        'product_id'                => $variant->product_id,
+                        'sku'                       => $variant->sku,
+                        'attributes'                => $attributes,
+                        'retail_price'              => $variant->retail_price,
+                        'retail_mrp'                => $variant->retail_mrp,
+                        'distributor_price'         => $variant->distributor_price,
+                        'distributor_mrp'           => $variant->distributor_mrp,
+                        'stock_quantity'            => (int) $variant->stock_quantity,
+                        'low_stock_threshold'       => (int) $variant->low_stock_threshold,
+                        'sort_order'                => (int) $variant->sort_order,
+                        'is_active'                 => (bool) $variant->is_active,
+                    ];
+                })->values()->all(),
+
+                'created_at' => optional($product->created_at)->toDateTimeString(),
+                'updated_at' => optional($product->updated_at)->toDateTimeString(),
+            ];
+        })->values()->all();
+
+
+        // ============================================================
+        // RESPONSE
+        // ============================================================
 
         return response()->json([
-            'data' => $this->formatCollection($stocks->getCollection()),
-            'pagination' => $this->paginationMeta($stocks),
+
+            'warehouse' => [
+                'id'   => $warehouse->id,
+                'name' => $warehouse->name ?? null,
+            ],
+
+            'data' => $formatted,
+
+            'pagination' => [
+                'total'        => $products->total(),
+                'per_page'     => $products->perPage(),
+                'current_page' => $products->currentPage(),
+                'last_page'    => $products->lastPage(),
+                'from'         => $products->firstItem(),
+                'to'           => $products->lastItem(),
+            ],
+
+            'meta' => [
+                'warehouse_id' => $warehouseId,
+                'sort'         => $sortParam,
+            ],
         ]);
     }
 
@@ -115,7 +534,7 @@ class WarehouseStockController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->whereHas('product', function ($pq) use ($search) {
                     $pq->where('name', 'LIKE', "%{$search}%")
-                       ->orWhere('product_code', 'LIKE', "%{$search}%");
+                        ->orWhere('product_code', 'LIKE', "%{$search}%");
                 })->orWhereHas('variant', function ($vq) use ($search) {
                     $vq->where('sku', 'LIKE', "%{$search}%");
                 });
@@ -140,8 +559,8 @@ class WarehouseStockController extends Controller
             'total_quantity' => (int) (clone $baseQuery)->sum('quantity'),
             'out_of_stock'   => (clone $baseQuery)->where('quantity', 0)->count(),
             'low_stock'      => (clone $baseQuery)->where('quantity', '>', 0)
-                                                    ->where('quantity', '<=', 10)
-                                                    ->count(),
+                ->where('quantity', '<=', 10)
+                ->count(),
         ];
 
         return response()->json([
@@ -318,8 +737,13 @@ class WarehouseStockController extends Controller
     protected function resolveSort(Request $request): array
     {
         $allowedFields = [
-            'id', 'warehouse_id', 'product_id', 'variant_id',
-            'quantity', 'created_at', 'updated_at',
+            'id',
+            'warehouse_id',
+            'product_id',
+            'variant_id',
+            'quantity',
+            'created_at',
+            'updated_at',
         ];
 
         $sortField = $request->get('sort_by', 'created_at');
@@ -392,7 +816,7 @@ class WarehouseStockController extends Controller
      */
     protected function formatCollection($collection): array
     {
-        return $collection->map(fn ($stock) => $this->formatSingle($stock))->values()->all();
+        return $collection->map(fn($stock) => $this->formatSingle($stock))->values()->all();
     }
 
     /**
