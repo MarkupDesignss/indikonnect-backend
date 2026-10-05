@@ -1965,7 +1965,6 @@ class ReturnService
             'buyback_approved_at'       => optional($line->buyback_approved_at)->toDateTimeString(),
             'buyback_rejected_at'       => optional($line->buyback_rejected_at)->toDateTimeString(),
             'buyback_refunded_at'       => optional($line->buyback_refunded_at)->toDateTimeString(),
-            'updated_at'                => optional($line->updated_at)->toDateTimeString(),
         ];
     }
     public function getReturnForAdmin(int $returnId): array

@@ -947,7 +947,7 @@ class OrderController extends Controller
         return [
             'order_id'                => $order->id,
             'order_reference'         => $order->order_reference,
-            // ❌ removed: 'order_group_id' => $order->order_group_id,
+            // removed: 'order_group_id' => $order->order_group_id,
             'status'                  => $order->status,
             'order_type'              => $order->order_type,
             'checkout_type'           => $order->checkout_type,

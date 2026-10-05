@@ -53,6 +53,8 @@ use App\Http\Controllers\Admin\CancellationApprovalController;
 use App\Http\Controllers\Admin\CatalogueController;
 use App\Http\Controllers\Admin\ExportController;
 use App\Http\Controllers\Admin\FaqSectionController;
+use App\Http\Controllers\Admin\WarehouseAssignmentController;
+use App\Http\Controllers\Admin\WarehouseController;
 use App\Http\Controllers\API\BrandController;
 use App\Http\Controllers\API\SubcategoryController;
 use App\Http\Controllers\API\TestimonialController;
@@ -795,3 +797,20 @@ Route::post(
 );
 Route::get('/csv-data', [ExportController::class, 'csvData'])
     ->name('orders-full');
+
+Route::prefix('warehouses')->name('warehouses.')->group(function () {
+    Route::get('/', [WarehouseController::class, 'index'])
+        ->name('index');
+    Route::post('/', [WarehouseController::class, 'store'])
+        ->name('store');
+    Route::get('/{warehouse}', [WarehouseController::class, 'show'])
+        ->name('show');
+    Route::post('/{warehouse}', [WarehouseController::class, 'update'])
+        ->name('update');
+});
+Route::middleware(['auth:admin', 'admin'])->prefix('admin')->group(function () {
+    // Step 3: Warehouse ↔ Admin ↔ Role assignments
+    Route::apiResource('warehouse-assignments', WarehouseAssignmentController::class);
+    Route::get('warehouses/{id}/admins', [WarehouseAssignmentController::class, 'warehouseAdmins']);
+    Route::get('admins/{id}/warehouses', [WarehouseAssignmentController::class, 'adminWarehouses']);
+});
