@@ -808,9 +808,21 @@ Route::prefix('warehouses')->name('warehouses.')->group(function () {
     Route::post('/{warehouse}', [WarehouseController::class, 'update'])
         ->name('update');
 });
-Route::middleware(['auth:admin', 'admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
     // Step 3: Warehouse ↔ Admin ↔ Role assignments
-    Route::apiResource('warehouse-assignments', WarehouseAssignmentController::class);
+    Route::prefix('warehouse-assignments')->group(function () {
+        Route::get('/', [WarehouseAssignmentController::class, 'index'])
+            ->name('warehouse-assignments.index');
+        Route::post('/', [WarehouseAssignmentController::class, 'store'])
+            ->name('warehouse-assign    ments.store');
+        Route::get('/{id}', [WarehouseAssignmentController::class, 'show'])
+            ->name('warehouse-assignments.show');
+        Route::put('/{id}', [WarehouseAssignmentController::class, 'update'])
+            ->name('warehouse-assignments.update');
+        Route::delete('/{id}', [WarehouseAssignmentController::class, 'destroy'])
+            ->name('warehouse-assignments.destroy');
+    });
+
     Route::get('warehouses/{id}/admins', [WarehouseAssignmentController::class, 'warehouseAdmins']);
     Route::get('admins/{id}/warehouses', [WarehouseAssignmentController::class, 'adminWarehouses']);
 });
