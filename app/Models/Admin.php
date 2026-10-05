@@ -55,4 +55,23 @@ class Admin extends Authenticatable
         }
         return array_unique($permissions);
     }
+
+    public function warehouses()
+    {
+        return $this->belongsToMany(Warehouse::class, 'admin_warehouse_assignments')
+            ->withPivot(['is_primary', 'is_active', 'assigned_from', 'assigned_until'])
+            ->withTimestamps();
+    }
+
+    public function warehouseAssignments()
+    {
+        return $this->hasMany(AdminWarehouseAssignment::class);
+    }
+
+    public function primaryWarehouse()
+    {
+        return $this->hasOne(AdminWarehouseAssignment::class)
+            ->where('is_primary', true)
+            ->where('is_active', true);
+    }
 }
