@@ -887,3 +887,5 @@ Route::post(
     '/warehouses/{warehouseId}/update-stock',
     [WarehouseStockController::class, 'updateStock']
 );
+
+Route::post('/upload-products/csv', [ProductController::class, 'upload']);

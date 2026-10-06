@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Admin;
+use App\Models\Brand;
+use App\Models\Category;
 use App\Models\NotifyMe;
 use App\Models\Order;
 use App\Models\OrderLine;
@@ -6422,4 +6424,493 @@ class ProductController extends Controller
             ],
         ]);
     }
+
+    public function upload(Request $request)
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:csv,txt', 'max:10240'],
+        ]);
+
+        $file = $request->file('file');
+        $handle = fopen($file->getRealPath(), 'r');
+
+        if (!$handle) {
+            return response()->json([
+                'message' => 'Unable to read CSV file.'
+            ], 422);
+        }
+
+        /*
+    |--------------------------------------------------------------------------
+    | CSV Row 1 = Banner / Title
+    |--------------------------------------------------------------------------
+    */
+        fgetcsv($handle);
+
+        /*
+    |--------------------------------------------------------------------------
+    | CSV Row 2 = Actual Header
+    |--------------------------------------------------------------------------
+    */
+        $header = fgetcsv($handle);
+
+        if (!$header) {
+            fclose($handle);
+
+            return response()->json([
+                'message' => 'CSV file is empty.'
+            ], 422);
+        }
+
+        /*
+    |--------------------------------------------------------------------------
+    | Normalize Headers
+    |--------------------------------------------------------------------------
+    */
+        $header = array_map(function ($h) {
+            return $this->normalizeKey($h);
+        }, $header);
+
+        $inserted = 0;
+        $updated = 0;
+        $skipped = [];
+
+        // Actual CSV data starts from row 3
+        $rowNum = 2;
+
+        DB::beginTransaction();
+
+        try {
+
+            while (($row = fgetcsv($handle)) !== false) {
+
+                $rowNum++;
+
+                /*
+            |--------------------------------------------------------------------------
+            | Skip empty rows
+            |--------------------------------------------------------------------------
+            */
+                if (
+                    count(
+                        array_filter(
+                            $row,
+                            fn($v) => trim((string) $v) !== ''
+                        )
+                    ) === 0
+                ) {
+                    continue;
+                }
+
+                /*
+            |--------------------------------------------------------------------------
+            | Create associative array
+            |--------------------------------------------------------------------------
+            */
+                $data = [];
+
+                foreach ($header as $i => $key) {
+                    $data[$key] = isset($row[$i])
+                        ? trim((string) $row[$i])
+                        : null;
+                }
+
+                /*
+            |--------------------------------------------------------------------------
+            | Required Fields
+            |--------------------------------------------------------------------------
+            */
+                $productCode = trim((string) ($data['product_code'] ?? ''));
+                $name = trim((string) ($data['product_name'] ?? ''));
+
+                if ($productCode === '' || $name === '') {
+
+                    $skipped[] = [
+                        'row' => $rowNum,
+                        'reason' => 'Missing product code or product name'
+                    ];
+
+                    continue;
+                }
+
+                /*
+            |--------------------------------------------------------------------------
+            | Brand
+            |--------------------------------------------------------------------------
+            */
+                $brandId = null;
+
+                $brandName = trim((string) ($data['brand'] ?? ''));
+
+                if ($brandName !== '') {
+
+                    $brand = Brand::firstOrCreate(
+                        [
+                            'title' => $brandName
+                        ],
+                        [
+                            'title' => $brandName,
+                            'slug' => Str::slug($brandName),
+                        ]
+                    );
+
+                    $brandId = $brand->id;
+                }
+
+                /*
+            |--------------------------------------------------------------------------
+            | Category
+            |--------------------------------------------------------------------------
+            */
+                $categoryId = null;
+
+                $categoryName = trim((string) ($data['category'] ?? ''));
+
+                if ($categoryName !== '') {
+
+                    $category = Category::firstOrCreate(
+                        [
+                            'title' => $categoryName
+                        ],
+                        [
+                            'title' => $categoryName,
+                            'slug' => Str::slug($categoryName),
+                        ]
+                    );
+
+                    $categoryId = $category->id;
+                }
+
+                /*
+            |--------------------------------------------------------------------------
+            | Prices
+            |--------------------------------------------------------------------------
+            */
+                $retailPrice = $this->parseMoney(
+                    $data['selling_mrp_with_gst'] ?? null
+                );
+
+                $distributorPrice = $this->parseMoney(
+                    $data['ba_price_with_gst'] ?? null
+                );
+
+                /*
+            |--------------------------------------------------------------------------
+            | Shipping
+            |--------------------------------------------------------------------------
+            */
+                $shippingCharge = $this->parseMoney(
+                    $data['sh'] ?? null
+                );
+
+                /*
+            |--------------------------------------------------------------------------
+            | GST
+            |--------------------------------------------------------------------------
+            */
+                $gst = $this->parsePercentage(
+                    $data['gst'] ?? null
+                );
+
+                /*
+            |--------------------------------------------------------------------------
+            | Specification
+            |--------------------------------------------------------------------------
+            */
+                $specifications = [];
+
+                foreach (
+                    [
+                        'key_spec_1',
+                        'key_spec_2',
+                        'key_spec_3'
+                    ] as $specKey
+                ) {
+
+                    if (
+                        isset($data[$specKey]) &&
+                        trim((string) $data[$specKey]) !== ''
+                    ) {
+                        $specifications[] = trim($data[$specKey]);
+                    }
+                }
+
+                $specification = !empty($specifications)
+                    ? implode("\n", $specifications)
+                    : null;
+
+                /*
+            |--------------------------------------------------------------------------
+            | Description
+            |--------------------------------------------------------------------------
+            */
+                $description = trim(
+                    (string) ($data['product_story_description'] ?? '')
+                );
+
+                /*
+            |--------------------------------------------------------------------------
+            | UOM
+            |--------------------------------------------------------------------------
+            */
+                $uom = '1';
+                // $uom = trim(
+                //     (string) ($data['net_quantity'] ?? '')
+                // );
+
+                /*
+            |--------------------------------------------------------------------------
+            | Slug
+            |--------------------------------------------------------------------------
+            */
+                $slug = Str::slug($name . '-' . $productCode);
+
+                /*
+            |--------------------------------------------------------------------------
+            | Product Data
+            |--------------------------------------------------------------------------
+            */
+                $productData = [
+
+                    'product_code' => $productCode,
+
+                    'parent_combo_id' => null,
+
+                    'hsn_code' => null,
+
+                    'uom' => $uom ?: null,
+
+                    'name' => $name,
+
+                    'slug' => $slug,
+
+                    'commission_value' => $this->parseMoney(
+                        $data['cv'] ?? null
+                    ),
+
+                    'description' => $description ?: null,
+
+                    'specification' => $specification,
+
+                    'category_id' => $categoryId,
+
+                    'subcategory_id' => null,
+
+                    'brand_id' => $brandId,
+
+                    'tax_category_id' => null,
+
+                    /*
+                |--------------------------------------------------------------------------
+                | Retail
+                |--------------------------------------------------------------------------
+                */
+                    'retail_price' => $retailPrice,
+
+                    'retail_mrp' => $retailPrice,
+
+                    'retail_discount_type' => null,
+
+                    'retail_discount_value' => 0,
+
+                    /*
+                |--------------------------------------------------------------------------
+                | Distributor / BA
+                |--------------------------------------------------------------------------
+                */
+                    'distributor_price' => $distributorPrice,
+
+                    'distributor_mrp' => $distributorPrice,
+
+                    'distributor_discount_type' => null,
+
+                    'distributor_discount_value' => 0,
+
+                    /*
+                |--------------------------------------------------------------------------
+                | Stock
+                |--------------------------------------------------------------------------
+                */
+                    'stock_quantity' => 0,
+
+                    'shipping_charge' => $shippingCharge ?? 0,
+
+                    'low_stock_threshold' => 5,
+
+                    /*
+                |--------------------------------------------------------------------------
+                | Status
+                |--------------------------------------------------------------------------
+                */
+                    'is_published' => 1,
+
+                    'sale_type' => "today_best",
+
+                    'is_trending' => 1,
+
+                    'trending_sort_order' => 1,
+
+                    'is_deal_of_the_day' => 0,
+
+                    'deal_of_the_day_starts_at' => null,
+
+                    'deal_of_the_day_ends_at' => null,
+                ];
+
+                /*
+            |--------------------------------------------------------------------------
+            | Insert or Update by Product Code
+            |--------------------------------------------------------------------------
+            */
+                $product = Product::where(
+                    'product_code',
+                    $productCode
+                )->first();
+
+                if ($product) {
+
+                    $product->update($productData);
+
+                    $updated++;
+                } else {
+
+                    Product::create($productData);
+
+                    $inserted++;
+                }
+            }
+
+            fclose($handle);
+
+            DB::commit();
+        } catch (\Throwable $e) {
+
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+
+            DB::rollBack();
+
+            Log::error('CSV product upload failed', [
+                'error' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile(),
+            ]);
+
+            return response()->json([
+                'message' => 'Upload failed.',
+                'error' => $e->getMessage(),
+                'line' => $e->getLine(),
+            ], 500);
+        }
+
+        return response()->json([
+            'message' => 'CSV processed successfully.',
+            'inserted' => $inserted,
+            'updated' => $updated,
+            'skipped' => $skipped,
+            'total_skipped' => count($skipped),
+        ], 201);
+    }
+
+
+    /**
+     * Normalize CSV header into a safe array key.
+     */
+    private function normalizeKey(string $key): string
+    {
+        $key = trim($key);
+
+        $key = strtolower($key);
+
+        $key = preg_replace('/[^a-z0-9]+/', '_', $key);
+
+        $key = trim($key, '_');
+
+        return match (true) {
+
+            str_contains($key, 'selling') &&
+                str_contains($key, 'mrp')
+            => 'selling_mrp_with_gst',
+
+            str_contains($key, 'ba_price')
+            => 'ba_price_with_gst',
+
+            $key === 's_h'
+            => 'sh',
+
+            str_contains($key, 'product_story')
+            => 'product_story_description',
+
+            default
+            => $key,
+        };
+    }
+
+
+    /**
+     * Parse money.
+     *
+     * Examples:
+     * 58,360.00 -> 58360
+     * ₹ 58360 -> 58360
+     * 750 -> 750
+     */
+    private function parseMoney($value): ?float
+    {
+        if ($value === null || trim((string) $value) === '') {
+            return null;
+        }
+
+        $clean = preg_replace(
+            '/[^0-9.\-]/',
+            '',
+            (string) $value
+        );
+
+        return $clean === ''
+            ? null
+            : (float) $clean;
+    }
+
+
+    /**
+     * Parse percentage.
+     *
+     * Examples:
+     * 3% -> 3
+     * 18% -> 18
+     * 3 -> 3
+     */
+    private function parsePercentage($value): ?float
+    {
+        if ($value === null || trim((string) $value) === '') {
+            return null;
+        }
+
+        $clean = preg_replace(
+            '/[^0-9.\-]/',
+            '',
+            (string) $value
+        );
+
+        return $clean === ''
+            ? null
+            : (float) $clean;
+    }
+    /**
+     * Ensure slug uniqueness.
+     */
+    // private function generateUniqueSlug(string $slug): string
+    // {
+    //     $original = $slug ?: 'product';
+    //     $slug     = $original;
+    //     $i        = 1;
+
+    //     while (Product::where('slug', $slug)->exists()) {
+    //         $slug = $original . '-' . $i++;
+    //     }
+
+    //     return $slug;
+    // }
 }

@@ -3405,7 +3405,7 @@ class OrderController extends Controller
             foreach ($itemsToDeliver as $orderLine) {
                 $this->validateDeliverable($orderLine);
 
-                $this->decreaseStock($orderLine);
+                // $this->decreaseStock($orderLine);
 
                 $orderLine->update([
                     'delivery_status' => 'delivered',
