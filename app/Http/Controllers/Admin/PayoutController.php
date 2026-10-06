@@ -319,7 +319,7 @@ class PayoutController extends Controller
 
             $payments = Order::query()
                 ->with([
-                    'user:id,full_name,email,phone'
+                    'user:id,full_name,email,phone,account_type'
                 ])
                 ->select([
                     'id',

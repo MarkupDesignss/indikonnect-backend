@@ -79,6 +79,7 @@ class ProductController extends Controller
             'name' => $product->name,
             'slug' => $product->slug,
             'commission_value' => $product->commission_value,
+            'shipping_charge' => $product->shipping_charge,
             'description' => $product->description,
             'specification' => $product->specification,
             'hsn_code' => $product->hsn_code,

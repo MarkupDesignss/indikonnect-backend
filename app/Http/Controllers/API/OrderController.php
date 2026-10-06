@@ -2330,7 +2330,7 @@ class OrderController extends Controller
                         'line_total'        => (float) $line->line_total + ($line->shipping_charge * $line->quantity),
                         'delivery_charges'  => ($line->quantity * $line->shipping_charge),
                         'is_cancel_return_allowed'  => $line->is_cancel_return_allowed,
-                        'courier_tracking_number'  => $line->shippingDetails->courier_tracking_number,
+                        'courier_tracking_number'  => $line->shippingDetails->courier_tracking_number ?? null,
 
                         // ── Category + Brand info (NEW) ──
                         'category_id'   => $product?->category_id,
@@ -2401,7 +2401,7 @@ class OrderController extends Controller
                         // Shipping / Courier Details
                         'shipping_details' => $line->shippingDetails ? [
                             'id'                     => $line->shippingDetails->id,
-                            'courier_tracking_number' => $line->shippingDetails->courier_tracking_number,
+                            'courier_tracking_number' => $line->shippingDetails->courier_tracking_number ?? null,
                             'courier_company'        => $line->shippingDetails->courier_company,
                             'delivery_notes'         => $line->shippingDetails->delivery_notes,
                             'courier_delivery_date'  => $line->shippingDetails->courier_delivery_date,
