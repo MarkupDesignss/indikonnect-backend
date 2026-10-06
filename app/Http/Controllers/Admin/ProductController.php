@@ -1225,234 +1225,234 @@ class ProductController extends Controller
         ]);
     }
     public function store(Request $request)
-{
-    $validator = Validator::make($request->all(), [
-        'product_code' => ['required', 'string', 'max:255', Rule::unique('products')],
-        'name' => ['required', 'string', 'max:255'],
-        'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')],
-        'description' => ['nullable', 'string'],
-        'specification' => ['nullable', 'string'],
-        'brand_id' => ['nullable'],
-        'hsn_code' => ['nullable', 'string', 'max:50'],
-        'uom' => ['nullable', 'string', 'max:50'],
-        'category_id' => ['required', 'exists:categories,id'],
-        'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
-        'retail_mrp' => ['required', 'numeric', 'min:0'],
-        'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
-        'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
-        'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
-        'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
-        'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
-        'stock_quantity' => ['required_if:variants,null', 'nullable', 'integer', 'min:0'],
-        'shipping_charge' => ['required', 'min:0'],
-        'commission_value' => ['required', 'integer', 'min:0'],
-        'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
-        'is_published' => ['nullable', 'boolean'],
-        'is_trending' => ['nullable', 'boolean'],
-        'trending_sort_order' => ['nullable', 'integer', 'min:0'],
-        'sale_type' => ['nullable', 'string', 'in:today_best,limited'],
-        'product_images' => ['nullable', 'array'],
-        'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
-        'product_images.*.sort_order' => ['nullable', 'integer'],
-        'product_images.*.is_primary' => ['nullable', 'boolean'],
+    {
+        $validator = Validator::make($request->all(), [
+            'product_code' => ['required', 'string', 'max:255', Rule::unique('products')],
+            'name' => ['required', 'string', 'max:255'],
+            'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')],
+            'description' => ['nullable', 'string'],
+            'specification' => ['nullable', 'string'],
+            'brand_id' => ['nullable'],
+            'hsn_code' => ['nullable', 'string', 'max:50'],
+            'uom' => ['nullable', 'string', 'max:50'],
+            'category_id' => ['required', 'exists:categories,id'],
+            'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+            'retail_mrp' => ['required', 'numeric', 'min:0'],
+            'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
+            'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+            'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
+            'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
+            'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
+            'stock_quantity' => ['required_if:variants,null', 'nullable', 'integer', 'min:0'],
+            'shipping_charge' => ['required', 'min:0'],
+            'commission_value' => ['required', 'integer', 'min:0'],
+            'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
+            'is_published' => ['nullable', 'boolean'],
+            'is_trending' => ['nullable', 'boolean'],
+            'trending_sort_order' => ['nullable', 'integer', 'min:0'],
+            'sale_type' => ['nullable', 'string', 'in:today_best,limited'],
+            'product_images' => ['nullable', 'array'],
+            'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
+            'product_images.*.sort_order' => ['nullable', 'integer'],
+            'product_images.*.is_primary' => ['nullable', 'boolean'],
 
-        // Variants validation
-        'variants' => ['nullable', 'array'],
-        'variants.*.sku' => ['required_with:variants', 'string', 'max:255'],
-        'variants.*.attributes' => ['required_with:variants'],
-        'variants.*.retail_mrp' => ['required_with:variants', 'numeric', 'min:0'],
-        'variants.*.retail_discount_type' => ['nullable', 'in:percentage,fixed'],
-        'variants.*.retail_discount_value' => ['nullable', 'numeric', 'min:0'],
-        'variants.*.distributor_mrp' => ['nullable', 'numeric', 'min:0'],
-        'variants.*.distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
-        'variants.*.distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
-        'variants.*.stock_quantity' => ['required_with:variants', 'integer', 'min:0'],
-        'variants.*.low_stock_threshold' => ['nullable', 'integer', 'min:0'],
-        'variants.*.sort_order' => ['nullable', 'integer', 'min:0'],
-        'variants.*.is_active' => ['nullable', 'boolean'],
-        'variants.*.images' => ['nullable', 'array'],
-        'variants.*.images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
-        'variants.*.images.*.sort_order' => ['nullable', 'integer'],
-        'variants.*.images.*.is_primary' => ['nullable', 'boolean'],
-    ]);
+            // Variants validation
+            'variants' => ['nullable', 'array'],
+            'variants.*.sku' => ['required_with:variants', 'string', 'max:255'],
+            'variants.*.attributes' => ['required_with:variants'],
+            'variants.*.retail_mrp' => ['required_with:variants', 'numeric', 'min:0'],
+            'variants.*.retail_discount_type' => ['nullable', 'in:percentage,fixed'],
+            'variants.*.retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+            'variants.*.distributor_mrp' => ['nullable', 'numeric', 'min:0'],
+            'variants.*.distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
+            'variants.*.distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
+            'variants.*.stock_quantity' => ['required_with:variants', 'integer', 'min:0'],
+            'variants.*.low_stock_threshold' => ['nullable', 'integer', 'min:0'],
+            'variants.*.sort_order' => ['nullable', 'integer', 'min:0'],
+            'variants.*.is_active' => ['nullable', 'boolean'],
+            'variants.*.images' => ['nullable', 'array'],
+            'variants.*.images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
+            'variants.*.images.*.sort_order' => ['nullable', 'integer'],
+            'variants.*.images.*.is_primary' => ['nullable', 'boolean'],
+        ]);
 
-    if ($validator->fails()) {
-        return response()->json(['errors' => $validator->errors()], 422);
-    }
-
-    DB::beginTransaction();
-    try {
-        $validated = $validator->validated();
-
-        // Extract product data
-        $productData = collect($validated)->except(['product_images', 'variants'])->toArray();
-        if (empty($productData['brand_id'])) {
-            $productData['brand_id'] = 1;
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        // Calculate retail price
-        $productData['retail_price'] = $this->calculatePrice(
-            $productData['retail_mrp'],
-            $productData['retail_discount_type'] ?? null,
-            $productData['retail_discount_value'] ?? null
-        );
+        DB::beginTransaction();
+        try {
+            $validated = $validator->validated();
 
-        // Calculate distributor price
-        if (!empty($productData['distributor_mrp'])) {
-            $productData['distributor_price'] = $this->calculatePrice(
-                $productData['distributor_mrp'],
-                $productData['distributor_discount_type'] ?? null,
-                $productData['distributor_discount_value'] ?? null
-            );
-        } else {
-            $productData['distributor_price'] = null;
-            $productData['distributor_mrp'] = null;
-            $productData['distributor_discount_type'] = null;
-            $productData['distributor_discount_value'] = null;
-        }
-
-        // Generate slug if not provided
-        if (empty($productData['slug'])) {
-            $productData['slug'] = Str::slug($productData['name']);
-        }
-        $productData['slug'] = $this->generateUniqueSlug($productData['slug']);
-        $productData['is_published'] = $productData['is_published'] ?? false;
-        $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
-        $productData['shipping_charge'] = $productData['shipping_charge'] ?? 0;
-        $productData['commission_value'] = $productData['commission_value'] ?? 0;
-
-        // Check if variants exist
-        $hasVariants = !empty($validated['variants']);
-
-        // If variants exist, product stock will be calculated from variants
-        if ($hasVariants) {
-            // Remove stock_quantity from product data if variants exist
-            // It will be calculated from variants sum
-            unset($productData['stock_quantity']);
-        } else {
-            // If no variants, use the provided stock_quantity
-            if (!isset($productData['stock_quantity'])) {
-                $productData['stock_quantity'] = 0;
+            // Extract product data
+            $productData = collect($validated)->except(['product_images', 'variants'])->toArray();
+            if (empty($productData['brand_id'])) {
+                $productData['brand_id'] = 1;
             }
-        }
 
-        // Create product
-        $product = Product::create($productData);
+            // Calculate retail price
+            $productData['retail_price'] = $this->calculatePrice(
+                $productData['retail_mrp'],
+                $productData['retail_discount_type'] ?? null,
+                $productData['retail_discount_value'] ?? null
+            );
 
-        // Handle product images
-        $this->handleProductImages($request, $product);
+            // Calculate distributor price
+            if (!empty($productData['distributor_mrp'])) {
+                $productData['distributor_price'] = $this->calculatePrice(
+                    $productData['distributor_mrp'],
+                    $productData['distributor_discount_type'] ?? null,
+                    $productData['distributor_discount_value'] ?? null
+                );
+            } else {
+                $productData['distributor_price'] = null;
+                $productData['distributor_mrp'] = null;
+                $productData['distributor_discount_type'] = null;
+                $productData['distributor_discount_value'] = null;
+            }
 
-        // Handle variants with their images
-        $variantDetails = [];
-        if ($hasVariants) {
-            $totalStock = 0;
+            // Generate slug if not provided
+            if (empty($productData['slug'])) {
+                $productData['slug'] = Str::slug($productData['name']);
+            }
+            $productData['slug'] = $this->generateUniqueSlug($productData['slug']);
+            $productData['is_published'] = $productData['is_published'] ?? false;
+            $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
+            $productData['shipping_charge'] = $productData['shipping_charge'] ?? 0;
+            $productData['commission_value'] = $productData['commission_value'] ?? 0;
 
-            foreach ($validated['variants'] as $variantIndex => $variantData) {
-                // Extract images from variant data
-                $variantImages = $variantData['images'] ?? [];
-                unset($variantData['images']);
+            // Check if variants exist
+            $hasVariants = !empty($validated['variants']);
 
-                // Create the variant
-                $variant = $this->createVariant($product, $variantData);
+            // If variants exist, product stock will be calculated from variants
+            if ($hasVariants) {
+                // Remove stock_quantity from product data if variants exist
+                // It will be calculated from variants sum
+                unset($productData['stock_quantity']);
+            } else {
+                // If no variants, use the provided stock_quantity
+                if (!isset($productData['stock_quantity'])) {
+                    $productData['stock_quantity'] = 0;
+                }
+            }
 
-                // Add variant stock to total
-                $totalStock += $variantData['stock_quantity'] ?? 0;
+            // Create product
+            $product = Product::create($productData);
 
-                // ✅ Handle variant images with file uploads — pass $variantIndex
-                if (!empty($variantImages)) {
-                    $this->handleVariantImages($request, $variant, $variantImages, $variantIndex);
+            // Handle product images
+            $this->handleProductImages($request, $product);
+
+            // Handle variants with their images
+            $variantDetails = [];
+            if ($hasVariants) {
+                $totalStock = 0;
+
+                foreach ($validated['variants'] as $variantIndex => $variantData) {
+                    // Extract images from variant data
+                    $variantImages = $variantData['images'] ?? [];
+                    unset($variantData['images']);
+
+                    // Create the variant
+                    $variant = $this->createVariant($product, $variantData);
+
+                    // Add variant stock to total
+                    $totalStock += $variantData['stock_quantity'] ?? 0;
+
+                    // ✅ Handle variant images with file uploads — pass $variantIndex
+                    if (!empty($variantImages)) {
+                        $this->handleVariantImages($request, $variant, $variantImages, $variantIndex);
+                    }
+
+                    $variantDetails[] = [
+                        'sku' => $variantData['sku'],
+                        'attributes' => $variantData['attributes'],
+                        'retail_mrp' => $variantData['retail_mrp'],
+                        'distributor_mrp' => $variantData['distributor_mrp'] ?? null,
+                        'stock_quantity' => $variantData['stock_quantity'] ?? 0,
+                        'is_active' => $variantData['is_active'] ?? true,
+                    ];
                 }
 
-                $variantDetails[] = [
-                    'sku' => $variantData['sku'],
-                    'attributes' => $variantData['attributes'],
-                    'retail_mrp' => $variantData['retail_mrp'],
-                    'distributor_mrp' => $variantData['distributor_mrp'] ?? null,
-                    'stock_quantity' => $variantData['stock_quantity'] ?? 0,
-                    'is_active' => $variantData['is_active'] ?? true,
-                ];
+                // Update product stock with total from variants
+                $product->update(['stock_quantity' => $totalStock]);
             }
 
-            // Update product stock with total from variants
-            $product->update(['stock_quantity' => $totalStock]);
-        }
+            DB::commit();
+            $product->load(['category', 'taxCategory', 'images', 'variants.images']);
 
-        DB::commit();
-        $product->load(['category', 'taxCategory', 'images', 'variants.images']);
+            try {
+                $users = User::whereHas('notificationSettings', function ($query) {
+                    $query->where('promotional_emails', true);
+                })->get();
 
-        try {
-            $users = User::whereHas('notificationSettings', function ($query) {
-                $query->where('promotional_emails', true);
-            })->get();
+                foreach ($users as $user) {
+                    $templateData = [
+                        'product_name' => $product->name,
+                        'product_code' => $product->product_code,
+                        'product_slug' => $product->slug,
+                        'retail_price' => number_format($product->retail_price, 2),
+                        'product_id' => $product->id,
+                        'category_name' => $product->category?->name ?? '',
+                        'customer_name' => $user->full_name ?? $user->name ?? 'Customer',
+                    ];
 
-            foreach ($users as $user) {
-                $templateData = [
-                    'product_name' => $product->name,
-                    'product_code' => $product->product_code,
-                    'product_slug' => $product->slug,
-                    'retail_price' => number_format($product->retail_price, 2),
+                    $this->notificationService->sendUserNotification(
+                        $user,
+                        'product_added',
+                        $templateData,
+                        ['mail']
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::error('Failed to send new product promotional notifications', [
                     'product_id' => $product->id,
-                    'category_name' => $product->category?->name ?? '',
-                    'customer_name' => $user->full_name ?? $user->name ?? 'Customer',
-                ];
-
-                $this->notificationService->sendUserNotification(
-                    $user,
-                    'product_added',
-                    $templateData,
-                    ['mail']
-                );
+                    'error' => $e->getMessage(),
+                ]);
             }
-        } catch (\Throwable $e) {
-            Log::error('Failed to send new product promotional notifications', [
-                'product_id' => $product->id,
+
+            $this->logAudit(
+                'product_create',
+                'catalogue',
+                null,
+                [
+                    'product_id' => $product->id,
+                    'product_code' => $product->product_code,
+                    'name' => $product->name,
+                    'slug' => $product->slug,
+                    'category_id' => $product->category_id,
+                    'category_name' => $product->category?->name,
+                    'tax_category_id' => $product->tax_category_id,
+                    'retail_mrp' => $product->retail_mrp,
+                    'retail_price' => $product->retail_price,
+                    'distributor_mrp' => $product->distributor_mrp,
+                    'distributor_price' => $product->distributor_price,
+                    'stock_quantity' => $product->stock_quantity,
+                    'low_stock_threshold' => $product->low_stock_threshold,
+                    'is_published' => $product->is_published,
+                    'is_trending' => $product->is_trending,
+                    'sale_type' => $product->sale_type,
+                    'has_variants' => $hasVariants,
+                    'variants_count' => count($variantDetails),
+                    'variants' => $variantDetails,
+                    'created_by' => $this->getAdminId(),
+                    'created_at' => now()->toDateTimeString(),
+                ]
+            );
+
+            return response()->json($this->formatProduct($product), 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Product creation failed:', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
+            return response()->json([
+                'message' => 'Failed to create product',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        $this->logAudit(
-            'product_create',
-            'catalogue',
-            null,
-            [
-                'product_id' => $product->id,
-                'product_code' => $product->product_code,
-                'name' => $product->name,
-                'slug' => $product->slug,
-                'category_id' => $product->category_id,
-                'category_name' => $product->category?->name,
-                'tax_category_id' => $product->tax_category_id,
-                'retail_mrp' => $product->retail_mrp,
-                'retail_price' => $product->retail_price,
-                'distributor_mrp' => $product->distributor_mrp,
-                'distributor_price' => $product->distributor_price,
-                'stock_quantity' => $product->stock_quantity,
-                'low_stock_threshold' => $product->low_stock_threshold,
-                'is_published' => $product->is_published,
-                'is_trending' => $product->is_trending,
-                'sale_type' => $product->sale_type,
-                'has_variants' => $hasVariants,
-                'variants_count' => count($variantDetails),
-                'variants' => $variantDetails,
-                'created_by' => $this->getAdminId(),
-                'created_at' => now()->toDateTimeString(),
-            ]
-        );
-
-        return response()->json($this->formatProduct($product), 201);
-    } catch (\Exception $e) {
-        DB::rollBack();
-        Log::error('Product creation failed:', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ]);
-        return response()->json([
-            'message' => 'Failed to create product',
-            'error' => $e->getMessage()
-        ], 500);
     }
-}
-    
+
     /**
      * Generic image quality — no category, no config
      * Primary  = 100%
@@ -1462,7 +1462,7 @@ class ProductController extends Controller
     {
         return $isPrimary ? 100 : 95;
     }
-    
+
     /**
      * Universal image optimizer
      * - No color profile touch (brightness fix)
@@ -1480,23 +1480,23 @@ class ProductController extends Controller
         $driver = $useImagick
             ? new \Intervention\Image\Drivers\Imagick\Driver()
             : new \Intervention\Image\Drivers\Gd\Driver();
-    
+
         $manager = new ImageManager($driver);
-    
+
         $uploadDir = public_path("storage/{$folder}/");
         if (!File::exists($uploadDir)) {
             File::makeDirectory($uploadDir, 0755, true);
         }
-    
+
         // Read original — no color profile touch, no resize
         $image = $manager->read($imageFile->getRealPath());
-    
+
         // Encode WebP with given quality
         $encoded  = $image->toWebp($quality);
         $fileName = time() . '_' . uniqid() . '.webp';
         $fullPath = $uploadDir . $fileName;
         $encoded->save($fullPath);
-    
+
         return "{$folder}/{$fileName}";
     }
 
@@ -1507,81 +1507,81 @@ class ProductController extends Controller
     {
         $imageCount = 0;
         $hasPrimary = false;
-    
+
         if (empty($variantImages)) {
             return;
         }
-    
+
         foreach ($variantImages as $imageData) {
-    
+
             // Safety: agar $imageData UploadedFile hai toh normalize karo
             if ($imageData instanceof \Illuminate\Http\UploadedFile) {
                 $imageData = ['image' => $imageData];
             }
-    
+
             // Safety: skip agar array nahi hai
             if (!is_array($imageData)) {
                 $imageCount++;
                 continue;
             }
-    
+
             // ✅ Sahi file path — variant index + image count
             $imageFile = $request->file("variants.{$variantIndex}.images.{$imageCount}.image");
-    
+
             // -------- URL-based image fallback --------
             if (!$imageFile && isset($imageData['image_url'])) {
                 $isPrimary = $imageData['is_primary'] ?? false;
                 if (!$hasPrimary && $imageCount === 0) {
                     $isPrimary = true;
                 }
-    
+
                 VariantImage::create([
                     'variant_id' => $variant->id,
                     'image'      => $imageData['image_url'],
                     'is_primary' => $isPrimary,
                     'sort_order' => $imageData['sort_order'] ?? $imageCount,
                 ]);
-    
+
                 if ($isPrimary) $hasPrimary = true;
                 $imageCount++;
                 continue;
             }
-    
+
             if (!$imageFile || !$imageFile->isValid()) {
                 $imageCount++;
                 continue;
             }
-    
+
             // -------- Primary flag --------
             $isPrimary = $imageData['is_primary'] ?? false;
             if (!$hasPrimary && $imageCount === 0) {
                 $isPrimary = true;
             }
-    
+
             // -------- Generic quality --------
             $quality = $this->getImageQuality($isPrimary);
-    
+
             try {
                 $relativePath = $this->optimizeAndSaveImage(
                     $imageFile,
                     'variant-images',
                     $quality
                 );
-    
+
                 VariantImage::create([
                     'variant_id' => $variant->id,
                     'image'      => $relativePath,
                     'is_primary' => $isPrimary,
                     'sort_order' => $imageData['sort_order'] ?? $imageCount,
                 ]);
-    
+
                 if ($isPrimary) $hasPrimary = true;
             } catch (\Exception $e) {
                 Log::error('Variant image optimization failed (store)', [
                     'variant_id' => $variant->id,
                     'error'      => $e->getMessage(),
                 ]);
-    
+
                 // Fallback: store original
                 $path = $imageFile->store('variant-images', 'public');
                 VariantImage::create([
@@ -1592,10 +1592,10 @@ class ProductController extends Controller
                 ]);
                 if ($isPrimary) $hasPrimary = true;
             }
-    
+
             $imageCount++;
         }
-    
+
         // Ensure primary exists
         if (!$hasPrimary && $imageCount > 0) {
             $firstImage = VariantImage::where('variant_id', $variant->id)
@@ -1615,18 +1615,18 @@ class ProductController extends Controller
         $productImages = $request->input('product_images', []);
         $imageCount = 0;
         $hasPrimary = false;
-    
+
         if (empty($productImages)) {
             return;
         }
-    
+
         foreach ($productImages as $index => $imageData) {
             $imageFile = $request->file("product_images.{$index}.image");
-    
+
             if (!$imageFile || !$imageFile->isValid()) {
                 continue;
             }
-    
+
             // Primary flag
             $isPrimary = false;
             if (isset($imageData['is_primary'])) {
@@ -1634,24 +1634,24 @@ class ProductController extends Controller
             } elseif (!$hasPrimary && $imageCount === 0) {
                 $isPrimary = true;
             }
-    
+
             // Generic quality
             $quality = $this->getImageQuality($isPrimary);
-    
+
             try {
                 $relativePath = $this->optimizeAndSaveImage(
                     $imageFile,
                     'products',
                     $quality
                 );
-    
+
                 ProductImage::create([
                     'product_id' => $product->id,
                     'image'      => $relativePath,
                     'is_primary' => $isPrimary,
                     'sort_order' => $imageData['sort_order'] ?? $imageCount,
                 ]);
-    
+
                 if ($isPrimary) {
                     $hasPrimary = true;
                 }
@@ -1660,7 +1660,7 @@ class ProductController extends Controller
                     'product_id' => $product->id,
                     'error' => $e->getMessage(),
                 ]);
-    
+
                 // Fallback: store original
                 $path = $imageFile->store('products', 'public');
                 ProductImage::create([
@@ -1673,10 +1673,10 @@ class ProductController extends Controller
                     $hasPrimary = true;
                 }
             }
-    
+
             $imageCount++;
         }
-    
+
         // Ensure primary exists
         if (!$hasPrimary && $imageCount > 0) {
             $firstImage = ProductImage::where('product_id', $product->id)
@@ -1821,7 +1821,7 @@ class ProductController extends Controller
             'stock_quantity' => ['nullable', 'integer', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'shipping_charge' => ['nullable', 'integer', 'min:0'],
-            'commission_value' => ['nullable', 'integer', 'min:0'],
+            'commission_value' => ['nullable', 'min:0'],
 
             // Status - FIXED: Use 'sometimes' instead of 'nullable' for better boolean handling
             'is_published' => ['sometimes', 'boolean'],
@@ -2666,30 +2666,30 @@ class ProductController extends Controller
             if (!isset($imageData['image'])) {
                 continue;
             }
-    
+
             $uploadedFile = $imageData['image'];
-    
+
             if (!$uploadedFile instanceof \Illuminate\Http\UploadedFile) {
                 continue;
             }
-    
+
             $isPrimary = $imageData['is_primary'] ?? false;
             $quality = $this->getImageQuality($isPrimary);
-    
+
             try {
                 $relativePath = $this->optimizeAndSaveImage(
                     $uploadedFile,
                     'variant-images',
                     $quality
                 );
-    
+
                 $variantImage = VariantImage::create([
                     'variant_id' => $variant->id,
                     'image'      => $relativePath,
                     'sort_order' => $imageData['sort_order'] ?? 0,
                     'is_primary' => $isPrimary,
                 ]);
-    
+
                 if ($variantImage->is_primary) {
                     VariantImage::where('variant_id', $variant->id)
                         ->where('id', '!=', $variantImage->id)
@@ -2700,7 +2700,7 @@ class ProductController extends Controller
                     'variant_id' => $variant->id,
                     'error' => $e->getMessage(),
                 ]);
-    
+
                 $path = $uploadedFile->store('variant-images', 'public');
                 VariantImage::create([
                     'variant_id' => $variant->id,
@@ -2715,7 +2715,7 @@ class ProductController extends Controller
     /**
      * Handle product image updates
      */
-     protected function handleProductImageUpdates($request, $product)
+    protected function handleProductImageUpdates($request, $product)
     {
         // Remove images (same as before)
         $removeImages = $request->input('remove_images', []);
@@ -2723,7 +2723,7 @@ class ProductController extends Controller
             $imagesToRemove = ProductImage::whereIn('id', $removeImages)
                 ->where('product_id', $product->id)
                 ->get();
-    
+
             foreach ($imagesToRemove as $image) {
                 if (Storage::disk('public')->exists($image->image)) {
                     Storage::disk('public')->delete($image->image);
@@ -2731,24 +2731,24 @@ class ProductController extends Controller
                 $image->delete();
             }
         }
-    
+
         // Add new images
         $productImages = $request->input('product_images', []);
         if (empty($productImages)) {
             return;
         }
-    
+
         $existingCount = $product->images()->count();
         $hasPrimary    = $product->images()->where('is_primary', true)->exists();
         $imageCount    = 0;
-    
+
         foreach ($productImages as $index => $imageData) {
             $imageFile = $request->file("product_images.{$index}.image");
-    
+
             if (!$imageFile || !$imageFile->isValid()) {
                 continue;
             }
-    
+
             // Primary flag
             $isPrimary = false;
             if (isset($imageData['is_primary'])) {
@@ -2756,36 +2756,36 @@ class ProductController extends Controller
             } elseif (!$hasPrimary && $imageCount === 0) {
                 $isPrimary = true;
             }
-    
+
             // Generic quality
             $quality = $this->getImageQuality($isPrimary);
-    
+
             try {
                 $relativePath = $this->optimizeAndSaveImage(
                     $imageFile,
                     'products',
                     $quality
                 );
-    
+
                 ProductImage::create([
                     'product_id' => $product->id,
                     'image'      => $relativePath,
                     'is_primary' => $isPrimary,
                     'sort_order' => $imageData['sort_order'] ?? ($existingCount + $imageCount),
                 ]);
-    
+
                 if ($isPrimary) $hasPrimary = true;
             } catch (\Exception $e) {
                 Log::error('Product image optimization failed, saved original', [
                     'product_id' => $product->id,
                     'error' => $e->getMessage(),
                 ]);
-    
+
                 $extension = strtolower($imageFile->getClientOriginalExtension() ?: 'jpg');
                 $fileName  = time() . '_' . uniqid() . '.' . $extension;
                 $imageFile->move(public_path('storage/products/'), $fileName);
                 $relativePath = 'products/' . $fileName;
-    
+
                 ProductImage::create([
                     'product_id' => $product->id,
                     'image'      => $relativePath,
@@ -2794,10 +2794,10 @@ class ProductController extends Controller
                 ]);
                 if ($isPrimary) $hasPrimary = true;
             }
-    
+
             $imageCount++;
         }
-    
+
         // Ensure primary exists
         if (!$hasPrimary && $imageCount > 0) {
             $firstImage = ProductImage::where('product_id', $product->id)
@@ -2808,7 +2808,7 @@ class ProductController extends Controller
             }
         }
     }
-    
+
 
     /**
      * Show single product with variants

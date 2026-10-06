@@ -593,33 +593,120 @@ class WarehouseStockController extends Controller
     // STORE
     // POST /api/warehouse-stocks
     // ============================================================
+    // public function store(Request $request): JsonResponse
+    // {
+    //     $validated = $request->validate([
+    //         'warehouse_id' => ['required', 'exists:warehouses,id'],
+    //         'product_id'   => ['required', 'exists:products,id'],
+    //         'variant_id'   => ['nullable', 'exists:product_variants,id'],
+    //         'quantity'     => ['required', 'integer', 'min:0'],
+    //     ]);
+
+    //     // Prevent duplicate (warehouse + product + variant)
+    //     $exists = WarehouseStock::where('warehouse_id', $validated['warehouse_id'])
+    //         ->where('product_id', $validated['product_id'])
+    //         ->where('variant_id', $validated['variant_id'] ?? null)
+    //         ->exists();
+
+    //     if ($exists) {
+    //         return response()->json([
+    //             'message' => 'This warehouse/product/variant combination already exists.',
+    //         ], 422);
+    //     }
+
+    //     $stock = WarehouseStock::create($validated);
+    //     $stock->load(['warehouse', 'product', 'variant']);
+
+    //     return response()->json([
+    //         'message' => 'Warehouse stock created successfully.',
+    //         'data'    => $this->formatSingle($stock),
+    //     ], 201);
+    // }
+
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'warehouse_id' => ['required', 'exists:warehouses,id'],
-            'product_id'   => ['required', 'exists:products,id'],
-            'variant_id'   => ['nullable', 'exists:product_variants,id'],
-            'quantity'     => ['required', 'integer', 'min:0'],
+
+            'product_id' => ['required', 'array', 'min:1'],
+            'product_id.*' => ['required', 'exists:products,id'],
+
+            'variant_id' => ['nullable', 'array'],
+            'variant_id.*' => ['nullable', 'exists:product_variants,id'],
+
+            'quantity' => ['nullable', 'integer', 'min:0'],
         ]);
 
-        // Prevent duplicate (warehouse + product + variant)
-        $exists = WarehouseStock::where('warehouse_id', $validated['warehouse_id'])
-            ->where('product_id', $validated['product_id'])
-            ->where('variant_id', $validated['variant_id'] ?? null)
-            ->exists();
+        $warehouseId = $validated['warehouse_id'];
+        $productIds = $validated['product_id'];
+        $variantIds = $validated['variant_id'] ?? [];
+        $quantity = $validated['quantity'] ?? 0;
 
-        if ($exists) {
+        // Make sure variant_id count matches product_id count
+        if (!empty($variantIds) && count($variantIds) !== count($productIds)) {
             return response()->json([
-                'message' => 'This warehouse/product/variant combination already exists.',
+                'message' => 'The number of variant_id values must match the number of product_id values.',
             ], 422);
         }
 
-        $stock = WarehouseStock::create($validated);
-        $stock->load(['warehouse', 'product', 'variant']);
+        $createdStocks = [];
+        $duplicates = [];
+
+        DB::transaction(function () use (
+            $warehouseId,
+            $productIds,
+            $variantIds,
+            $quantity,
+            &$createdStocks,
+            &$duplicates
+        ) {
+            foreach ($productIds as $index => $productId) {
+
+                $variantId = $variantIds[$index] ?? null;
+
+                // Check duplicate
+                $query = WarehouseStock::where('warehouse_id', $warehouseId)
+                    ->where('product_id', $productId);
+
+                if ($variantId === null) {
+                    $query->whereNull('variant_id');
+                } else {
+                    $query->where('variant_id', $variantId);
+                }
+
+                $exists = $query->exists();
+
+                if ($exists) {
+                    $duplicates[] = [
+                        'product_id' => $productId,
+                        'variant_id' => $variantId,
+                        'message' => 'This warehouse/product/variant combination already exists.',
+                    ];
+
+                    continue;
+                }
+
+                $stock = WarehouseStock::create([
+                    'warehouse_id' => $warehouseId,
+                    'product_id' => $productId,
+                    'variant_id' => $variantId,
+                    'quantity' => $quantity,
+                ]);
+
+                $stock->load([
+                    'warehouse',
+                    'product',
+                    'variant',
+                ]);
+
+                $createdStocks[] = $this->formatSingle($stock);
+            }
+        });
 
         return response()->json([
-            'message' => 'Warehouse stock created successfully.',
-            'data'    => $this->formatSingle($stock),
+            'message' => 'Warehouse stocks created successfully.',
+            'data' => $createdStocks,
+            'duplicates' => $duplicates,
         ], 201);
     }
 
@@ -627,42 +714,125 @@ class WarehouseStockController extends Controller
     // UPDATE
     // PUT/PATCH /api/warehouse-stocks/{id}
     // ============================================================
-    public function update(Request $request, int $id): JsonResponse
-    {
-        $stock = WarehouseStock::findOrFail($id);
+    // public function update(Request $request, int $id): JsonResponse
+    // {
+    //     $stock = WarehouseStock::findOrFail($id);
 
+    //     $validated = $request->validate([
+    //         'warehouse_id' => ['sometimes', 'required', 'exists:warehouses,id'],
+    //         'product_id'   => ['sometimes', 'required', 'exists:products,id'],
+    //         'variant_id'   => ['nullable', 'exists:product_variants,id'],
+    //         'quantity'     => ['sometimes', 'required', 'integer', 'min:0'],
+    //     ]);
+
+    //     // Resolve final values for uniqueness check
+    //     $warehouseId = $validated['warehouse_id'] ?? $stock->warehouse_id;
+    //     $productId   = $validated['product_id']   ?? $stock->product_id;
+    //     $variantId   = array_key_exists('variant_id', $validated)
+    //         ? $validated['variant_id']
+    //         : $stock->variant_id;
+
+    //     $duplicate = WarehouseStock::where('warehouse_id', $warehouseId)
+    //         ->where('product_id', $productId)
+    //         ->where('variant_id', $variantId)
+    //         ->where('id', '!=', $stock->id)
+    //         ->exists();
+
+    //     if ($duplicate) {
+    //         return response()->json([
+    //             'message' => 'Another stock entry already uses this warehouse/product/variant combination.',
+    //         ], 422);
+    //     }
+
+    //     $stock->update($validated);
+    //     $stock->load(['warehouse', 'product', 'variant']);
+
+    //     return response()->json([
+    //         'message' => 'Warehouse stock updated successfully.',
+    //         'data'    => $this->formatSingle($stock),
+    //     ]);
+    // }
+    public function update(Request $request): JsonResponse
+    {
         $validated = $request->validate([
-            'warehouse_id' => ['sometimes', 'required', 'exists:warehouses,id'],
-            'product_id'   => ['sometimes', 'required', 'exists:products,id'],
-            'variant_id'   => ['nullable', 'exists:product_variants,id'],
-            'quantity'     => ['sometimes', 'required', 'integer', 'min:0'],
+            'warehouse_id' => ['required', 'exists:warehouses,id'],
+
+            'product_id' => ['required', 'array', 'min:1'],
+            'product_id.*' => ['required', 'exists:products,id'],
+
+            'variant_id' => ['nullable', 'array'],
+            'variant_id.*' => ['nullable', 'exists:product_variants,id'],
+
+            'quantity' => ['nullable', 'integer', 'min:0'],
         ]);
 
-        // Resolve final values for uniqueness check
-        $warehouseId = $validated['warehouse_id'] ?? $stock->warehouse_id;
-        $productId   = $validated['product_id']   ?? $stock->product_id;
-        $variantId   = array_key_exists('variant_id', $validated)
-            ? $validated['variant_id']
-            : $stock->variant_id;
+        $warehouseId = $validated['warehouse_id'];
+        $productIds = $validated['product_id'];
+        $variantIds = $validated['variant_id'] ?? [];
+        $quantity = $validated['quantity'] ?? 0;
 
-        $duplicate = WarehouseStock::where('warehouse_id', $warehouseId)
-            ->where('product_id', $productId)
-            ->where('variant_id', $variantId)
-            ->where('id', '!=', $stock->id)
-            ->exists();
-
-        if ($duplicate) {
+        // Make sure variant_id count matches product_id count
+        if (!empty($variantIds) && count($variantIds) !== count($productIds)) {
             return response()->json([
-                'message' => 'Another stock entry already uses this warehouse/product/variant combination.',
+                'message' => 'The number of variant_id values must match the number of product_id values.',
             ], 422);
         }
 
-        $stock->update($validated);
-        $stock->load(['warehouse', 'product', 'variant']);
+        $updatedStocks = [];
+        $notFound = [];
+
+        DB::transaction(function () use (
+            $warehouseId,
+            $productIds,
+            $variantIds,
+            $quantity,
+            &$updatedStocks,
+            &$notFound
+        ) {
+            foreach ($productIds as $index => $productId) {
+
+                $variantId = $variantIds[$index] ?? null;
+
+                // Find existing stock
+                $query = WarehouseStock::where('warehouse_id', $warehouseId)
+                    ->where('product_id', $productId);
+
+                if ($variantId === null) {
+                    $query->whereNull('variant_id');
+                } else {
+                    $query->where('variant_id', $variantId);
+                }
+
+                $stock = $query->first();
+
+                if (!$stock) {
+                    $notFound[] = [
+                        'product_id' => $productId,
+                        'variant_id' => $variantId,
+                        'message' => 'Warehouse stock record not found.',
+                    ];
+
+                    continue;
+                }
+
+                $stock->update([
+                    'quantity' => $quantity,
+                ]);
+
+                $stock->load([
+                    'warehouse',
+                    'product',
+                    'variant',
+                ]);
+
+                $updatedStocks[] = $this->formatSingle($stock);
+            }
+        });
 
         return response()->json([
-            'message' => 'Warehouse stock updated successfully.',
-            'data'    => $this->formatSingle($stock),
+            'message' => 'Warehouse stocks updated successfully.',
+            'data' => $updatedStocks,
+            'not_found' => $notFound,
         ]);
     }
 
