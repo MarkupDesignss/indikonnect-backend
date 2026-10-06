@@ -60,11 +60,23 @@ use App\Http\Controllers\API\BrandController;
 use App\Http\Controllers\API\SubcategoryController;
 use App\Http\Controllers\API\TestimonialController;
 
+/*
+|--------------------------------------------------------------------------
+| API Routes
+|--------------------------------------------------------------------------
+*/
+
+// Fallback login route (for unauthenticated API access)
 Route::get('/login', function () {
-    return response()->json(['success' => false, 'message' => 'Authentication token is require to access this api.'], 401);
+    return response()->json([
+        'success' => false,
+        'message' => 'Authentication token is required to access this API.'
+    ], 401);
 })->name('login');
-Route::get('/admin/dashboard', [AdminController::class, 'dashboard']);
-// Auth
+
+// ============================
+// ADMIN AUTH ROUTES
+// ============================
 Route::prefix('admin')->group(function () {
     // Public Routes
     Route::post('/login', [AuthController::class, 'login']);
@@ -74,28 +86,27 @@ Route::prefix('admin')->group(function () {
     Route::get('/registered-users', [AuthController::class, 'getRegisteredUsers']);
     Route::get('/registered-users/{id}', [AuthController::class, 'getUserDetails']);
 
-    // Protected Routes for admin
+    // Protected Admin Routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+        Route::get('/dashboard', [AdminController::class, 'dashboard']);
         Route::post('/update-user-status/{id}', [AuthController::class, 'toggleUserStatus']);
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('distributors/{id}/status', [AuthController::class, 'updateStatus']);
         Route::post('/update', [AuthController::class, 'update']);
 
-        //Payout Run routes
+        // Payout Run routes
         Route::get('/payouts', [PayoutController::class, 'index']);
         Route::post('/payouts', [PayoutController::class, 'store']);
         Route::get('/payouts/{id}', [PayoutController::class, 'show']);
-
         Route::post('/payouts/{id}/release', [PayoutController::class, 'release']);
         Route::post('/payouts/entries/{entryId}/hold', [PayoutController::class, 'holdEntry']);
         Route::get('/payouts/{id}/export', [PayoutController::class, 'export']);
+        Route::post('/payouts/{id}/notify', [PayoutController::class, 'sendNotifications']);
 
+        // Orders
         Route::get('/all-orders', [OrderController::class, 'allOrder']);
         Route::get('/get-order-details/{id}', [OrderController::class, 'getOrderDetails']);
-
-        // Payout Notifications
-        Route::post('/payouts/{id}/notify', [PayoutController::class, 'sendNotifications']);
 
         // Commission Reconciliation Report
         Route::get('/reconciliation', [ReconciliationController::class, 'index']);
@@ -111,13 +122,18 @@ Route::prefix('admin')->group(function () {
         Route::delete('/settings/{key}', [SettingController::class, 'destroy']);
     });
 });
-Route::get('/payment-management', [PayoutController::class, 'paymentManagement']);
 
-// Header menu
+// Payment Management (should be admin protected)
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::get('/payment-management', [PayoutController::class, 'paymentManagement']);
+});
+
+// ============================
+// HEADER MENU
+// ============================
 Route::prefix('header')->group(function () {
-    // Public routes
     Route::get('/', [MenuController::class, 'index']);
-    // Protected routes for admin
+
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/add', [MenuController::class, 'store']);
         Route::delete('/delete/{id}', [MenuController::class, 'destroy']);
@@ -126,58 +142,52 @@ Route::prefix('header')->group(function () {
     });
 });
 
-// Contents (Pages)
+// ============================
+// CONTENTS (PAGES)
+// ============================
 Route::prefix('contents')->group(function () {
-    // Public routes (No middleware)
+    // Public routes
     Route::get('/', [ContentController::class, 'index']);
     Route::get('/landing-page', [ContentController::class, 'landingindex']);
     Route::get('/{slug}', [ContentController::class, 'show']);
-    // Protected routes for admin
+
+    // Admin routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/admins/all', [ContentController::class, 'adminindex']);
         Route::get('/admin/{slug}', [ContentController::class, 'adminindex']);
         Route::post('/add', [ContentController::class, 'store']);
         Route::post('/update/{id}', [ContentController::class, 'update']);
         Route::delete('/delete/{id}', [ContentController::class, 'destroy']);
+        Route::delete('/content-media/{id}', [ContentController::class, 'deleteMedia']);
     });
 });
-Route::delete('/content-media/{id}', [ContentController::class, 'deleteMedia']);
-// Categories
+
+// ============================
+// CATEGORIES
+// ============================
 Route::prefix('categories')->group(function () {
-    // Public routes (No middleware)
+    // Public routes
     Route::get('/', [CategoryController::class, 'index']);
     Route::get('/{id}', [CategoryController::class, 'show']);
-    // Protected routes for admin
+
+    // Admin routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/add', [CategoryController::class, 'store']);
         Route::post('/update/{id}', [CategoryController::class, 'update']);
         Route::delete('/delete/{id}', [CategoryController::class, 'destroy']);
         Route::post('/update/{id}/status', [CategoryController::class, 'updateStatus']);
         Route::post('/bulk-delete', [CategoryController::class, 'bulkDelete']);
-        // Route::delete('/delete-image/{id}', [CategoryController::class, 'deleteImage']);
     });
 });
 
-// Contact us
-// Route::post('/contacts-mark-read/{id}', [ContactController::class, 'markAsRead']);
-// Route::prefix('contact')->group(function () {
-//     // Public route
-//     Route::post('/send-request', [ContactController::class, 'store']);
-//     // Protected routes for admin
-//     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
-//         Route::get('/', [ContactController::class, 'index']);
-//         Route::get('/{id}', [ContactController::class, 'show']);
-//         Route::delete('/{id}', [ContactController::class, 'destroy']);
-//         Route::post('/bulk-delete', [ContactController::class, 'bulkDelete']);
-//     });
-// });
-// Contact us
+// ============================
+// CONTACT US
+// ============================
 Route::prefix('contact')->group(function () {
-    // Public route
     Route::middleware('optional.auth:sanctum')->group(function () {
         Route::post('/send-request', [ContactController::class, 'store']);
-        // Protected routes for admin
     });
+
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/', [ContactController::class, 'index']);
         Route::get('/{id}', [ContactController::class, 'show']);
@@ -187,28 +197,29 @@ Route::prefix('contact')->group(function () {
     });
 });
 
-
-// Newsletters
+// ============================
+// NEWSLETTERS / SUBSCRIBERS
+// ============================
 Route::prefix('subscribers')->group(function () {
-    // Public route
     Route::post('/', [SubscriberController::class, 'store']);
-    // Protected routes for admin
+
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/', [SubscriberController::class, 'index']);
         Route::delete('/{email}', [SubscriberController::class, 'destroy']);
     });
 });
-Route::post('/publish/{product}/product', [ProductController::class, 'togglePublished']);
+
+// ============================
+// PRODUCTS
+// ============================
 Route::prefix('products')->group(function () {
-    // Public routes with optional authentication
+    // Public routes with optional auth
     Route::middleware('optional.auth:sanctum')->group(function () {
         Route::get('/', [ProductController::class, 'index']);
         Route::get('/trending', [ProductController::class, 'trending']);
         Route::get('/slug/{slug}', [ProductController::class, 'showBySlug']);
         Route::get('/code/{code}', [ProductController::class, 'showByCode']);
         Route::get('/{product}', [ProductController::class, 'show']);
-        Route::post('/update/{id}', [ProductController::class, 'update']);
-        Route::delete('/images/{id}', [ProductController::class, 'deleteImages']);
         Route::get('/category/{categoryId}', [ProductController::class, 'productsByCategory']);
         Route::get('/brands/{brandId}', [ProductController::class, 'productsByBrand']);
     });
@@ -216,45 +227,47 @@ Route::prefix('products')->group(function () {
     // Admin protected routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/', [ProductController::class, 'store']);
-        // Route::post('/', [ProductController::class, 'store'])
-        //     ->middleware('permission:product.view');
+        Route::post('/update/{id}', [ProductController::class, 'update']);
+        Route::delete('/images/{id}', [ProductController::class, 'deleteImages']);
         Route::put('/{product}', [ProductController::class, 'update']);
         Route::delete('/{product}', [ProductController::class, 'destroy']);
         Route::delete('/{product}/images', [ProductController::class, 'deleteImages']);
         Route::post('/{product}/stock', [ProductController::class, 'updateStock']);
         Route::post('/{product}/toggle-publish', [ProductController::class, 'togglePublish']);
+        Route::post('/publish/{product}/product', [ProductController::class, 'togglePublished']);
+        Route::post('/stock/update', [ProductController::class, 'updateStock']);
     });
 });
+
+// Product extra routes
 Route::post('/global-search', [ProductController::class, 'globalSearch']);
-Route::post('/products-deal-of-the-day/{id}', [ProductController::class, 'markAsDealOfTheDay']);
-Route::delete('/products-deal-of-the-day/{id}', [ProductController::class, 'removeDealOfTheDay']);
 Route::get('/products-deal-of-the-day', [ProductController::class, 'getDealOfTheDayProducts']);
 Route::get('/products-top-discounted', [ProductController::class, 'getTopDiscountedProducts']);
 Route::get('/product-sections', [ProductController::class, 'getProductSections']);
+Route::get('/product-link/{id}', [ProductController::class, 'generateProductLink']);
+Route::get('/product/{slug}', [ProductController::class, 'getProductBySlug']);
 
-
-Route::prefix('tax-categories')->group(function () {
-    Route::middleware(['auth:sanctum', 'admin'])->group(function () {
-        // Tax Category Routes
-        Route::get('/', [TaxCategoryController::class, 'index']);
-        Route::get('/show/{id}', [TaxCategoryController::class, 'show']);
-        // Route::get('/get-all', [TaxCategoryController::class, 'all']);
-        // Route::get('/stats', [TaxCategoryController::class, 'stats']);
-        Route::post('/', [TaxCategoryController::class, 'store']);
-        Route::post('/update/{id}', [TaxCategoryController::class, 'update']);
-        // Route::delete('/delete/{id}', [TaxCategoryController::class, 'destroy']);
-        // Route::post('/bulk-delete', [TaxCategoryController::class, 'bulkDelete']);
-    });
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::post('/products-deal-of-the-day/{id}', [ProductController::class, 'markAsDealOfTheDay']);
+    Route::delete('/products-deal-of-the-day/{id}', [ProductController::class, 'removeDealOfTheDay']);
+    Route::post('/trending-products/{id}', [ProductController::class, 'updateTrendingStatus']);
 });
-Route::post(
-    '/trending-products/{id}',
-    [ProductController::class, 'updateTrendingStatus']
-);
-// Distributer and user
+
+// ============================
+// TAX CATEGORIES
+// ============================
+Route::prefix('tax-categories')->middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::get('/', [TaxCategoryController::class, 'index']);
+    Route::get('/show/{id}', [TaxCategoryController::class, 'show']);
+    Route::post('/', [TaxCategoryController::class, 'store']);
+    Route::post('/update/{id}', [TaxCategoryController::class, 'update']);
+});
+
+// ============================
+// DISTRIBUTOR & USER AUTH
+// ============================
 Route::prefix('distributor')->group(function () {
     Route::post('check-status', [APIAuthController::class, 'checkUserStatus']);
-
-    // OTP endpoints (separate for phone and email)
     Route::post('send-otp', [APIAuthController::class, 'sendVerificationOtp']);
     Route::post('verify-phone-otp', [APIAuthController::class, 'verifyPhoneOtp']);
     Route::post('verify-email-otp', [APIAuthController::class, 'verifyEmailOtp']);
@@ -266,34 +279,29 @@ Route::prefix('distributor')->group(function () {
     Route::post('step5-bank', [APIAuthController::class, 'distributorStep5Bank']);
     Route::post('step6-location', [APIAuthController::class, 'distributorStep6Location']);
     Route::post('step7-submit', [APIAuthController::class, 'distributorStep7Submit']);
-    // Route::post('step-data', [APIAuthController::class, 'getStepData']);
     Route::get('/step-data/{step}/{identifier}', [APIAuthController::class, 'getStepData']);
     Route::post('progress', [APIAuthController::class, 'getDistributorProgress']);
     Route::post('login', [APIAuthController::class, 'distributorLogin'])->middleware('throttle:distributor-login');
     Route::get('location-by-pincode', [APIAuthController::class, 'getLocationByPincode']);
-});
 
-Route::group(['prefix' => 'distributor'], function () {
+    // Password reset
     Route::post('forgot-password', [APIAuthController::class, 'forgotPassword']);
     Route::post('verify-reset-otp', [APIAuthController::class, 'verifyResetOtp']);
     Route::post('reset-password', [APIAuthController::class, 'resetPassword']);
 });
 
-Route::group(['prefix' => 'user'], function () {
-    // Public routes (no authentication required)
+Route::prefix('user')->group(function () {
+    // Public routes
     Route::post('send-otp', [APIAuthController::class, 'sendOtp']);
     Route::post('verify-otp', [APIAuthController::class, 'verifyOtp']);
     Route::post('confirm_registration', [APIAuthController::class, 'completeCustomerRegistration']);
     Route::post('resend-otp', [APIAuthController::class, 'resendOtp']);
-
     Route::post('login', [APIAuthController::class, 'login']);
     Route::post('verify-login-otp', [APIAuthController::class, 'verifyLoginOtp']);
-
-    // Refresh token route
     Route::post('refresh-token', [APIAuthController::class, 'refreshToken'])->name('refresh-token');
 
     // Protected routes
-    Route::group(['middleware' => 'auth:sanctum'], function () {
+    Route::middleware('auth:sanctum')->group(function () {
         Route::get('profile', [APIAuthController::class, 'profile'])->name('profile');
         Route::post('profile', [APIAuthController::class, 'updateProfile'])->name('update-profile');
         Route::delete('profile-picture', [APIAuthController::class, 'removeProfilePicture'])->name('remove-profile-picture');
@@ -303,7 +311,9 @@ Route::group(['prefix' => 'user'], function () {
     });
 });
 
-
+// ============================
+// WISHLIST
+// ============================
 Route::prefix('wishlist')->middleware('auth:sanctum')->group(function () {
     Route::get('/', [WishlistController::class, 'index']);
     Route::post('/add', [WishlistController::class, 'add']);
@@ -312,33 +322,33 @@ Route::prefix('wishlist')->middleware('auth:sanctum')->group(function () {
     Route::post('/move-to-cart', [WishlistController::class, 'moveToCart']);
 });
 
+// ============================
+// CART
+// ============================
 Route::prefix('cart')->group(function () {
-    // Public routes (for both guest and authenticated users)
     Route::get('/', [CartController::class, 'index']);
     Route::get('/count', [CartController::class, 'count']);
     Route::post('/add', [CartController::class, 'add']);
     Route::post('/update/{itemId}', [CartController::class, 'update']);
     Route::delete('/remove/{itemId}', [CartController::class, 'remove']);
     Route::delete('/clear', [CartController::class, 'clear']);
-
-    // Merge guest cart with user cart (after login)
     Route::post('/merge', [CartController::class, 'mergeCart'])->middleware('auth:sanctum');
 });
-Route::middleware('auth:sanctum')->group(function () {
-    // Address Management
-    Route::prefix('addresses')->group(function () {
-        Route::get('/', [AddressController::class, 'index']);
-        Route::post('/', [AddressController::class, 'store']);
-        // Route::get('/default', [AddressController::class, 'getDefault']);
-        // Route::get('/billing', [AddressController::class, 'getBillingAddresses']);
-        // Route::get('/delivery', [AddressController::class, 'getDeliveryAddresses']);
-        Route::post('/{id}', [AddressController::class, 'update']);
-        Route::post('/{id}/default', [AddressController::class, 'setDefault']);
-        Route::delete('/{id}', [AddressController::class, 'destroy']);
-    });
+
+// ============================
+// ADDRESSES
+// ============================
+Route::middleware('auth:sanctum')->prefix('addresses')->group(function () {
+    Route::get('/', [AddressController::class, 'index']);
+    Route::post('/', [AddressController::class, 'store']);
+    Route::post('/{id}', [AddressController::class, 'update']);
+    Route::post('/{id}/default', [AddressController::class, 'setDefault']);
+    Route::delete('/{id}', [AddressController::class, 'destroy']);
 });
 
-
+// ============================
+// CHECKOUT & ORDERS
+// ============================
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/checkout/summary', [CheckoutController::class, 'summary']);
     Route::post('/checkout/apply-coins', [CheckoutController::class, 'applyCoins']);
@@ -349,33 +359,47 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/checkout/apply-shipping', [CheckoutController::class, 'applyShipping']);
     Route::post('/checkout/remove-coupon', [CheckoutController::class, 'removeCoupon']);
 
-    // ========== CREDIT NOTES (USER) ==========
+    // Credit Notes (User)
     Route::get('/orders/{orderReference}/credit-notes', [CreditNoteController::class, 'getByOrder']);
     Route::get('/credit-notes/{id}', [CreditNoteController::class, 'userShow']);
     Route::get('/credit-notes/{id}/download-data', [CreditNoteController::class, 'downloadData']);
+
+    // Order actions
+    Route::get('/orders/confirmed/{order_reference}', [OrderController::class, 'getConfirmedOrder']);
+    Route::get('/my-orders', [OrderController::class, 'getOrder']);
+    Route::post('/orders/{orderReference}/cancel/{id}', [OrderController::class, 'requestCancellation']);
+    Route::post('/orders/{orderReference}/withdrawCancel/{id}', [OrderController::class, 'withdrawCancel']);
 });
 
-// Public routes
+Route::get('/orders/statuses', [OrderController::class, 'statuses']);
+
+// ============================
+// REVIEWS
+// ============================
 Route::get('/products/{product}/reviews', [ReviewController::class, 'index']);
 Route::get('/products/{product}/reviews/average', [ReviewController::class, 'getAverageRating']);
-Route::post('/admin/product-reviews/{id}/action', [ReviewController::class, 'updateReviewAction']);
-Route::get('/admin/product-reviews', [ReviewController::class, 'getAllReviews']);
 
-// Authenticated user routes
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::post('/admin/product-reviews/{id}/action', [ReviewController::class, 'updateReviewAction']);
+    Route::get('/admin/product-reviews', [ReviewController::class, 'getAllReviews']);
+});
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/reviews/{product}', [ReviewController::class, 'showUserReview']);
     Route::post('/reviews', [ReviewController::class, 'store']);
     Route::put('/reviews/{review}', [ReviewController::class, 'update']);
     Route::delete('/reviews/{review}', [ReviewController::class, 'destroy']);
-
-    // Get user's all reviews
     Route::get('/user/reviews', [ReviewController::class, 'userIndex']);
 });
+
+// ============================
+// WEBHOOKS
+// ============================
 Route::post('/webhook/razorpay', [RazorpayWebhookController::class, 'handle']);
-Route::get('/product-link/{id}', [ProductController::class, 'generateProductLink']);
-Route::get('/product/{slug}', [ProductController::class, 'getProductBySlug']);
 
-
+// ============================
+// SHIPPING METHODS
+// ============================
 Route::prefix('shipping-methods')->group(function () {
     Route::get('/', [ShippingMethodController::class, 'index']);
     Route::post('/', [ShippingMethodController::class, 'store']);
@@ -384,65 +408,75 @@ Route::prefix('shipping-methods')->group(function () {
     Route::delete('/{id}', [ShippingMethodController::class, 'destroy']);
 });
 
-Route::middleware('optional.auth:sanctum')->group(function () {
-    Route::prefix('coupons')->group(function () {
-        Route::get('/', [CouponController::class, 'index']);
-        Route::post('/', [CouponController::class, 'store']);
-        Route::get('/{id}', [CouponController::class, 'show']);
-        Route::post('/{id}', [CouponController::class, 'update']);
-        Route::delete('/{id}', [CouponController::class, 'destroy']);
-    });
+// ============================
+// COUPONS
+// ============================
+Route::middleware('optional.auth:sanctum')->prefix('coupons')->group(function () {
+    Route::get('/', [CouponController::class, 'index']);
+    Route::post('/', [CouponController::class, 'store']);
+    Route::get('/{id}', [CouponController::class, 'show']);
+    Route::post('/{id}', [CouponController::class, 'update']);
+    Route::delete('/{id}', [CouponController::class, 'destroy']);
 });
 
-Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/orders/confirmed/{order_reference}', [OrderController::class, 'getConfirmedOrder']);
-    // Or use a more generic route
-    Route::get('/my-orders', [OrderController::class, 'getOrder']);
-    Route::post('/orders/{orderReference}/cancel/{id}', [OrderController::class, 'requestCancellation']);
-    Route::post('/orders/{orderReference}/withdrawCancel/{id}', [OrderController::class, 'withdrawCancel']);
-});
-
-Route::get('/orders/statuses', [OrderController::class, 'statuses']);
-Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);
-
+// ============================
+// USER DASHBOARD & LEDGER
+// ============================
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/dashboard', [UserDashboardController::class, 'dashboard']);
     Route::get('/distributor-stats', [UserDashboardController::class, 'getDistributorStats']);
-    Route::get(
-        '/invoice/order/{orderId}/{lineId?}',
-        [InvoiceController::class, 'getInvoiceByOrder']
-    );
-    // Distributor Ledger & Tax SummaFry
+    Route::get('/invoice/order/{orderId}/{lineId?}', [InvoiceController::class, 'getInvoiceByOrder']);
     Route::get('/distributor/ledger', [LedgerController::class, 'index']);
     Route::get('/distributor/ledger/summary', [LedgerController::class, 'summary']);
     Route::get('/distributor/ledger/tax-summary', [LedgerController::class, 'taxSummary']);
 });
 
+Route::get('/stats', [UserDashboardController::class, 'getStats']);
+
+// ============================
+// REELS
+// ============================
 Route::prefix('reels')->group(function () {
     Route::get('/', [ReelController::class, 'index']);
-    Route::post('/', [ReelController::class, 'store']);
     Route::get('/{id}', [ReelController::class, 'show']);
-    Route::post('/{id}', [ReelController::class, 'update']);
-    Route::delete('/{id}', [ReelController::class, 'destroy']);
     Route::get('/product/{productId}', [ReelController::class, 'getByProduct']);
 });
 
-// Heritage Sites Routes
+Route::middleware(['auth:sanctum', 'admin'])->prefix('reels')->group(function () {
+    Route::post('/', [ReelController::class, 'store']);
+    Route::post('/{id}', [ReelController::class, 'update']);
+    Route::delete('/{id}', [ReelController::class, 'destroy']);
+});
+
+// ============================
+// HERITAGE SITES
+// ============================
 Route::prefix('heritage')->group(function () {
-    // Get all sites with optional filters
     Route::get('/', [HeritageSiteController::class, 'index']);
     Route::get('/{id}', [HeritageSiteController::class, 'show']);
+});
+
+Route::middleware(['auth:sanctum', 'admin'])->prefix('heritage')->group(function () {
     Route::post('/', [HeritageSiteController::class, 'store']);
     Route::put('/{id}', [HeritageSiteController::class, 'update']);
     Route::delete('/{id}', [HeritageSiteController::class, 'destroy']);
 });
 
+// ============================
+// FOOTER
+// ============================
 Route::prefix('footer')->group(function () {
     Route::get('/', [FooterController::class, 'index']);
+});
+
+Route::middleware(['auth:sanctum', 'admin'])->prefix('footer')->group(function () {
     Route::post('/', [FooterController::class, 'store']);
     Route::post('/update', [FooterController::class, 'update']);
 });
 
+// ============================
+// RETURNS
+// ============================
 Route::middleware('auth:sanctum')->group(function () {
     // User routes
     Route::get('/returns/eligibility', [ReturnController::class, 'eligibility']);
@@ -453,11 +487,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Admin routes
     Route::middleware('admin')->prefix('admin')->group(function () {
-
-        // ========== COOLING-OFF ADMIN ROUTES ==========
         Route::post('/cooling-off/{returnId}/approve', [ReturnController::class, 'approveCoolingOff']);
         Route::post('/cooling-off/{returnId}/reject', [ReturnController::class, 'rejectCoolingOff']);
-
         Route::get('/returns', [ReturnController::class, 'adminIndex']);
         Route::get('/returns/{id}', [ReturnController::class, 'adminShow']);
         Route::post('/returns/{id}/approve', [ReturnController::class, 'adminApprove']);
@@ -467,18 +498,25 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/returns/{id}/refund', [ReturnController::class, 'adminRefund']);
     });
 });
-Route::get('/stats', [UserDashboardController::class, 'getStats']);
 
+// ============================
+// GROWTH STEPS
+// ============================
 Route::prefix('growth-steps')->group(function () {
     Route::get('/', [GrowthStepController::class, 'index']);
-    Route::post('/', [GrowthStepController::class, 'store']);
     Route::get('/{id}', [GrowthStepController::class, 'show']);
+});
+
+Route::middleware(['auth:sanctum', 'admin'])->prefix('growth-steps')->group(function () {
+    Route::post('/', [GrowthStepController::class, 'store']);
     Route::post('/{id}', [GrowthStepController::class, 'update']);
     Route::delete('/{id}', [GrowthStepController::class, 'destroy']);
 });
 
+// ============================
+// NOTIFICATION SETTINGS
+// ============================
 Route::middleware('auth:sanctum')->prefix('notification-settings')->group(function () {
-    // Get notification settings
     Route::get('/', [NotificationSettingsController::class, 'index']);
     Route::put('/', [NotificationSettingsController::class, 'update']);
     Route::post('/toggle', [NotificationSettingsController::class, 'toggle']);
@@ -494,48 +532,49 @@ Route::middleware('auth:sanctum')->prefix('user-notifications')->group(function 
     Route::post('/deactivate-all', [NotificationSettingsController::class, 'deactivateAll']);
 });
 
-Route::middleware('auth:sanctum')->group(function () {
-    // Beneficiary Management
-    Route::prefix('distributor/beneficiaries')->group(function () {
-        Route::get('/', [BeneficiaryController::class, 'index']);
-        Route::post('/', [BeneficiaryController::class, 'store']);
-        Route::put('/{id}', [BeneficiaryController::class, 'update']);
-        Route::delete('/{id}', [BeneficiaryController::class, 'destroy']);
-        Route::post('/{id}/confirm', [BeneficiaryController::class, 'confirm']);
-        Route::get('/summary', [BeneficiaryController::class, 'summary']);
-    });
+// ============================
+// BENEFICIARIES
+// ============================
+Route::middleware('auth:sanctum')->prefix('distributor/beneficiaries')->group(function () {
+    Route::get('/', [BeneficiaryController::class, 'index']);
+    Route::post('/', [BeneficiaryController::class, 'store']);
+    Route::put('/{id}', [BeneficiaryController::class, 'update']);
+    Route::delete('/{id}', [BeneficiaryController::class, 'destroy']);
+    Route::post('/{id}/confirm', [BeneficiaryController::class, 'confirm']);
+    Route::get('/summary', [BeneficiaryController::class, 'summary']);
 });
 
-Route::middleware('auth:sanctum')->group(function () {
-    // Genealogy Tree
-    Route::prefix('distributor/genealogy')->group(function () {
-        Route::get('/tree', [GenealogyController::class, 'tree']);
-        Route::get('/children/{userId}', [GenealogyController::class, 'children']);
-        Route::get('/search', [GenealogyController::class, 'search']);
-        Route::get('/downline', [GenealogyController::class, 'downlineList']);
-    });
+// ============================
+// GENEALOGY
+// ============================
+Route::middleware('auth:sanctum')->prefix('distributor/genealogy')->group(function () {
+    Route::get('/tree', [GenealogyController::class, 'tree']);
+    Route::get('/children/{userId}', [GenealogyController::class, 'children']);
+    Route::get('/search', [GenealogyController::class, 'search']);
+    Route::get('/downline', [GenealogyController::class, 'downlineList']);
 });
 
-// Admin routes with authentication
+// ============================
+// NOTIFICATION TEMPLATES
+// ============================
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
-    // CRUD routes
     Route::get('/notification-templates', [NotificationTemplateController::class, 'index']);
     Route::post('/notification-templates', [NotificationTemplateController::class, 'store']);
     Route::get('/notification-templates/{id}', [NotificationTemplateController::class, 'show']);
     Route::post('/notification-templates/{id}', [NotificationTemplateController::class, 'update']);
     Route::delete('/notification-templates/{id}', [NotificationTemplateController::class, 'destroy']);
-
-    // Additional routes
     Route::post('/notification-templates/{id}/activate', [NotificationTemplateController::class, 'activate']);
     Route::post('/notification-templates/{id}/preview', [NotificationTemplateController::class, 'preview']);
     Route::get('/notification-template/event-types', [NotificationTemplateController::class, 'eventTypes']);
     Route::get('/notification-template/channels', [NotificationTemplateController::class, 'channels']);
 });
 
-// Public route for getting active template
 Route::get('/notification-templates/active/{eventType}/{channel}', [NotificationTemplateController::class, 'getActiveTemplate']);
 
-Route::middleware(['auth:sanctum'])->group(function () {
+// ============================
+// USER NOTIFICATIONS
+// ============================
+Route::middleware('auth:sanctum')->group(function () {
     Route::get('/notifications', [UserNotificationController::class, 'index']);
     Route::get('/notifications/unread', [UserNotificationController::class, 'unreadNotifications']);
     Route::post('/notifications/{id}/read', [UserNotificationController::class, 'markAsRead']);
@@ -545,61 +584,40 @@ Route::middleware(['auth:sanctum'])->group(function () {
 });
 
 // ============================
-// OUTBOUND API
+// OUTBOUND API (EXTERNAL)
 // ============================
 Route::prefix('external')->middleware(['outbound.api'])->group(function () {
-    // Products
     Route::get('/products', [ProductController::class, 'externalIndex']);
     Route::get('/products/{identifier}', [ProductController::class, 'externalShow']);
-
-    // Orders
     Route::get('/orders', [OrderController::class, 'externalIndex']);
     Route::get('/orders/{orderReference}', [OrderController::class, 'externalShow']);
 });
 
-
-// ========== DISTRIBUTOR COOLING-OFF ==========
+// ============================
+// DISTRIBUTOR COOLING-OFF
+// ============================
 Route::middleware('auth:sanctum')->group(function () {
-
-    // Purchase cooling-off (distributor)
-    Route::get(
-        '/orders/{orderReference}/cooling-off-eligibility',
-        [CoolingOffController::class, 'eligibility']
-    );
-    Route::post(
-        '/orders/{orderReference}/cooling-off-withdraw',
-        [CoolingOffController::class, 'withdraw']
-    );
-
-    // Distributorship withdrawal (account-level)
-    Route::get(
-        '/cooling-off/eligibility',
-        [CoolingOffController::class, 'distributorshipEligibility']
-    );
-    Route::post(
-        '/cooling-off/withdraw-distributorship',
-        [CoolingOffController::class, 'withdrawDistributorship']
-    );
-
-    // History
-    Route::get(
-        '/cooling-off/history',
-        [CoolingOffController::class, 'history']
-    );
+    Route::get('/orders/{orderReference}/cooling-off-eligibility', [CoolingOffController::class, 'eligibility']);
+    Route::post('/orders/{orderReference}/cooling-off-withdraw', [CoolingOffController::class, 'withdraw']);
+    Route::get('/cooling-off/eligibility', [CoolingOffController::class, 'distributorshipEligibility']);
+    Route::post('/cooling-off/withdraw-distributorship', [CoolingOffController::class, 'withdrawDistributorship']);
+    Route::get('/cooling-off/history', [CoolingOffController::class, 'history']);
 });
 
-// Buyback
-Route::middleware('auth:sanctum')->group(function () {
-    Route::prefix('distributor/buyback')->group(function () {
-        Route::get('/eligible', [BuybackController::class, 'eligibleStock']);
-        Route::post('/initiate', [BuybackController::class, 'initiate']);
-        Route::get('/history', [BuybackController::class, 'history']);
-        Route::get('/summary', [BuybackController::class, 'summary']);
-    });
+// ============================
+// BUYBACK (DISTRIBUTOR)
+// ============================
+Route::middleware('auth:sanctum')->prefix('distributor/buyback')->group(function () {
+    Route::get('/eligible', [BuybackController::class, 'eligibleStock']);
+    Route::post('/initiate', [BuybackController::class, 'initiate']);
+    Route::get('/history', [BuybackController::class, 'history']);
+    Route::get('/summary', [BuybackController::class, 'summary']);
 });
 
+// ============================
+// ADMIN BUYBACK MANAGEMENT
+// ============================
 Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
-    // Buyback Management
     Route::prefix('buyback')->group(function () {
         Route::get('/requests', [AdminBuybackController::class, 'index']);
         Route::get('/requests/{id}', [AdminBuybackController::class, 'show']);
@@ -610,7 +628,10 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
     });
 });
 
-Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
+// ============================
+// ADMIN NOTIFICATIONS
+// ============================
+Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get('notifications', [NotificationController::class, 'index']);
     Route::get('notifications/{id}', [NotificationController::class, 'show']);
     Route::put('notifications/{id}/read', [NotificationController::class, 'markAsRead']);
@@ -619,8 +640,10 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::delete('notifications', [NotificationController::class, 'destroyAll']);
 });
 
+// ============================
+// ADMIN KYC MANAGEMENT
+// ============================
 Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
-    // ========== KYC Application Management ==========
     Route::get('/kyc/applications', [KycController::class, 'pendingApplications']);
     Route::get('/kyc/applications/{userId}', [KycController::class, 'show']);
     Route::post('/kyc/applications/{userId}/approve', [KycController::class, 'approve']);
@@ -628,211 +651,238 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
     Route::post('/kyc/applications/{userId}/return', [KycController::class, 'returnForCorrection']);
 });
 
-Route::prefix('admin')->group(function () {
-    Route::middleware(['auth:sanctum'])->group(function () {
+// ============================
+// ADMIN MANAGEMENT
+// ============================
+Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::get('/get', [AdminController::class, 'index']);
+    Route::get('/admins/{id}', [AdminController::class, 'show']);
+    Route::post('/create', [AdminController::class, 'store']);
+    Route::post('/update/{id}', [AdminController::class, 'update']);
+    Route::delete('/delete/{id}', [AdminController::class, 'destroy']);
 
-        // Admin Management
-        Route::get('/get', [AdminController::class, 'index']);
-        Route::get('/admins/{id}', [AdminController::class, 'show']);
-        Route::post('/create', [AdminController::class, 'store']);
-        Route::post('/update/{id}', [AdminController::class, 'update']);
-        Route::delete('/delete/{id}', [AdminController::class, 'destroy']);
+    // Roles
+    Route::get('/roles', [RoleController::class, 'index']);
+    Route::get('/roles/{id}', [RoleController::class, 'show']);
+    Route::post('/roles', [RoleController::class, 'store']);
+    Route::post('/roles/{id}', [RoleController::class, 'update']);
+    Route::delete('/roles/{id}', [RoleController::class, 'destroy']);
 
-        // Role Management
-        Route::get('/roles', [RoleController::class, 'index']);
-        Route::get('/roles/{id}', [RoleController::class, 'show']);
-        Route::post('/roles', [RoleController::class, 'store']);
-        Route::post('/roles/{id}', [RoleController::class, 'update']);
-        Route::delete('/roles/{id}', [RoleController::class, 'destroy']);
-
-        // Permission Management
-        Route::get('/permissions', [PermissionController::class, 'index']);
-        Route::get('/permissions/modules', [PermissionController::class, 'getModules']);
-        Route::post('/permissions', [PermissionController::class, 'store']);
-        Route::post('/permissions/{id}', [PermissionController::class, 'update']);
-        Route::delete('/permissions/{id}', [PermissionController::class, 'destroy']);
-    });
+    // Permissions
+    Route::get('/permissions', [PermissionController::class, 'index']);
+    Route::get('/permissions/modules', [PermissionController::class, 'getModules']);
+    Route::post('/permissions', [PermissionController::class, 'store']);
+    Route::post('/permissions/{id}', [PermissionController::class, 'update']);
+    Route::delete('/permissions/{id}', [PermissionController::class, 'destroy']);
 });
 
+// ============================
+// ATTRIBUTES
+// ============================
 Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
-
-    // Individual routes (NO resource)
     Route::get('attributes', [AttributeController::class, 'index']);
     Route::post('attributes', [AttributeController::class, 'store']);
     Route::get('attributes/{id}', [AttributeController::class, 'show']);
     Route::put('attributes/{id}', [AttributeController::class, 'update']);
     Route::delete('attributes/{id}', [AttributeController::class, 'destroy']);
-
-    // Custom routes for values
     Route::get('attributes/{attributeId}/values', [AttributeController::class, 'getValues']);
     Route::post('attributes/{attributeId}/values', [AttributeController::class, 'storeValue']);
     Route::put('attributes/{attributeId}/values/{valueId}', [AttributeController::class, 'updateValue']);
     Route::delete('attributes/{attributeId}/values/{valueId}', [AttributeController::class, 'destroyValue']);
     Route::post('attributes/{attributeId}/values/bulk', [AttributeController::class, 'bulkStoreValues']);
-
-    // Helper routes
     Route::get('attributes-dropdown', [AttributeController::class, 'getForDropdown']);
 
-    // ========== CREDIT NOTES (ADMIN) ==========
+    // Credit Notes (Admin)
     Route::get('/credit-notes', [CreditNoteController::class, 'index']);
     Route::get('/credit-notes/{id}', [CreditNoteController::class, 'show']);
     Route::get('/credit-notes/{id}/download-data', [CreditNoteController::class, 'downloadAdminData']);
     Route::get('/credit-notes/export', [CreditNoteController::class, 'export']);
 
-    // Admin User Management (for distributors)
+    // Admin User Management
     Route::post('/users', [AdminUserController::class, 'store']);
 });
 
-Route::get('admin/orders/statuses', [OrderController::class, 'orderstatuses']);
-
-Route::middleware(['auth:sanctum', 'admin'])->group(function () {
-    Route::prefix('orders')->group(function () {
-        Route::post('/dispatch', [OrderController::class, 'dispatch']);
-        Route::post('/ship', [OrderController::class, 'ship']);
-        Route::post('/deliver', [OrderController::class, 'deliver']);
-        Route::get('/{orderReference}/shipping-details', [OrderController::class, 'getShippingDetails']);
-    });
+// ============================
+// ORDER STATUSES (ADMIN)
+// ============================
+Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::get('/orders/statuses', [OrderController::class, 'orderstatuses']);
 });
 
+// ============================
+// ORDER DISPATCH/SHIP/DELIVER (ADMIN)
+// ============================
+Route::middleware(['auth:sanctum', 'admin'])->prefix('orders')->group(function () {
+    Route::post('/dispatch', [OrderController::class, 'dispatch']);
+    Route::post('/ship', [OrderController::class, 'ship']);
+    Route::post('/deliver', [OrderController::class, 'deliver']);
+    Route::get('/{orderReference}/shipping-details', [OrderController::class, 'getShippingDetails']);
+});
+
+// ============================
+// AUDIT LOG (ADMIN)
+// ============================
 Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
-    // Audit Log
     Route::get('/audit-log', [AuditLogController::class, 'index']);
     Route::get('/audit-log/export', [AuditLogController::class, 'export']);
 });
 
-Route::post('/stock/update', [ProductController::class, 'updateStock']);
-
-
+// ============================
+// BRANDS
+// ============================
 Route::prefix('brands')->group(function () {
     Route::get('/', [BrandController::class, 'index']);
-    Route::post('/', [BrandController::class, 'store']);
     Route::get('/{id}', [BrandController::class, 'show']);
+});
+
+Route::middleware(['auth:sanctum', 'admin'])->prefix('brands')->group(function () {
+    Route::post('/', [BrandController::class, 'store']);
     Route::post('/{id}', [BrandController::class, 'update']);
     Route::delete('/{id}', [BrandController::class, 'destroy']);
 });
 
-
-
+// ============================
+// FAQS
+// ============================
 Route::prefix('faqs')->group(function () {
-    // Standard CRUD routes
     Route::get('/', [FAQController::class, 'index']);
-    Route::post('/', [FAQController::class, 'store']);
     Route::get('/{id}', [FAQController::class, 'show']);
+});
+
+Route::middleware(['auth:sanctum', 'admin'])->prefix('faqs')->group(function () {
+    Route::post('/', [FAQController::class, 'store']);
     Route::post('/{id}', [FAQController::class, 'update']);
     Route::delete('/{id}', [FAQController::class, 'destroy']);
-
-    // Additional useful endpoints
     Route::post('/bulk-delete', [FAQController::class, 'bulkDestroy']);
 });
 
+// FAQ Sections
 Route::get('faq-sections/dropdown', [FaqSectionController::class, 'dropdown']);
-Route::get('faq-sections',          [FaqSectionController::class, 'index']);
-Route::post('faq-sections',          [FaqSectionController::class, 'store']);
-Route::get('faq-sections/{id}',     [FaqSectionController::class, 'show']);
-Route::post('faq-sections/{id}',     [FaqSectionController::class, 'update']);
-Route::delete('faq-sections/{id}',     [FaqSectionController::class, 'destroy']);
+Route::get('faq-sections', [FaqSectionController::class, 'index']);
+Route::get('faq-sections/{id}', [FaqSectionController::class, 'show']);
 
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::post('faq-sections', [FaqSectionController::class, 'store']);
+    Route::post('faq-sections/{id}', [FaqSectionController::class, 'update']);
+    Route::delete('faq-sections/{id}', [FaqSectionController::class, 'destroy']);
+});
 
+// ============================
+// NOTIFY ME
+// ============================
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notify-me', [ProductController::class, 'notifyMe']);
 });
 
+// ============================
+// SUBCATEGORIES
+// ============================
 Route::prefix('subcategories')->group(function () {
     Route::get('/', [SubcategoryController::class, 'index']);
     Route::get('/category/{categoryId}', [SubcategoryController::class, 'getByCategory']);
+});
+
+Route::middleware(['auth:sanctum', 'admin'])->prefix('subcategories')->group(function () {
     Route::post('/', [SubcategoryController::class, 'store']);
     Route::post('/{id}', [SubcategoryController::class, 'update']);
     Route::post('/{id}/toggle-status', [SubcategoryController::class, 'toggleStatus']);
 });
 
-
+// ============================
+// TESTIMONIALS
+// ============================
 Route::prefix('testimonials')->group(function () {
-    // Admin routes (protected with auth middleware)
     Route::get('/', [TestimonialController::class, 'index']);
+});
+
+Route::middleware(['auth:sanctum', 'admin'])->prefix('testimonials')->group(function () {
     Route::post('/', [TestimonialController::class, 'store']);
-    // Route::post('/upload-video', [TestimonialController::class, 'uploadVideo']);
     Route::post('/{testimonial}', [TestimonialController::class, 'update']);
     Route::delete('/{testimonial}', [TestimonialController::class, 'destroy']);
     Route::patch('/{testimonial}/toggle-active', [TestimonialController::class, 'toggleActive']);
 });
 
+// ============================
+// CANCELLATION REQUESTS (ADMIN)
+// ============================
 Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
-    Route::get(
-        '/cancellation-requests',
-        [CancellationApprovalController::class, 'getPendingRequests']
-    );
-
-    Route::get(
-        '/cancellation-requests/{orderLineId}',
-        [CancellationApprovalController::class, 'getRequestDetails']
-    );
-
-    Route::post(
-        '/cancellation-requests/{orderLineId}/approve',
-        [CancellationApprovalController::class, 'approve']
-    );
-
-    Route::post(
-        '/cancellation-requests/{orderLineId}/reject',
-        [CancellationApprovalController::class, 'reject']
-    );
+    Route::get('/cancellation-requests', [CancellationApprovalController::class, 'getPendingRequests']);
+    Route::get('/cancellation-requests/{orderLineId}', [CancellationApprovalController::class, 'getRequestDetails']);
+    Route::post('/cancellation-requests/{orderLineId}/approve', [CancellationApprovalController::class, 'approve']);
+    Route::post('/cancellation-requests/{orderLineId}/reject', [CancellationApprovalController::class, 'reject']);
 });
 
-Route::post('/catalogues', [CatalogueController::class, 'store']);
+// ============================
+// CATALOGUES
+// ============================
 Route::get('/catalogues', [CatalogueController::class, 'index']);
-Route::post('/catalogues/{id}', [CatalogueController::class, 'replace']);
 
-// routes/api.php
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::post('/catalogues', [CatalogueController::class, 'store']);
+    Route::post('/catalogues/{id}', [CatalogueController::class, 'replace']);
+});
+
+// ============================
+// COMBO PRODUCTS
+// ============================
 Route::middleware('optional.auth:sanctum')->group(function () {
     Route::get('/combo/products', [ProductController::class, 'availableProducts']);
-    Route::post('/combo/create',  [ProductController::class, 'createCombo']);
-    Route::get('/combos',         [ProductController::class, 'listCombos']);
+    Route::get('/combos', [ProductController::class, 'listCombos']);
+});
+
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::post('/combo/create', [ProductController::class, 'createCombo']);
     Route::delete('/combo/{parentComboId}', [ProductController::class, 'deleteCombo']);
 });
 
-// routes/api.php
-Route::post('/order-lines/{orderLine}/undelivered', [OrderController::class, 'markUndelivered']);
-Route::post(
-    '/order-lines/{orderLine}/cancel-return',
-    [AdminUserController::class, 'updateCancelReturnAllowed']
-);
-Route::get('/csv-data', [ExportController::class, 'csvData'])
-    ->name('orders-full');
-
-Route::prefix('warehouses')->name('warehouses.')->group(function () {
-    Route::get('/', [WarehouseController::class, 'index'])
-        ->name('index');
-    Route::post('/', [WarehouseController::class, 'store'])
-        ->name('store');
-    Route::get('/{warehouse}', [WarehouseController::class, 'show'])
-        ->name('show');
-    Route::post('/{warehouse}', [WarehouseController::class, 'update'])
-        ->name('update');
+// ============================
+// ORDER LINES ACTIONS
+// ============================
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::post('/order-lines/{orderLine}/undelivered', [OrderController::class, 'markUndelivered']);
+    Route::post('/order-lines/{orderLine}/cancel-return', [AdminUserController::class, 'updateCancelReturnAllowed']);
 });
+
+// ============================
+// CSV EXPORT
+// ============================
+Route::get('/csv-data', [ExportController::class, 'csvData'])->name('orders-full');
+
+// ============================
+// WAREHOUSES
+// ============================
+Route::prefix('warehouses')->name('warehouses.')->group(function () {
+    Route::get('/', [WarehouseController::class, 'index'])->name('index');
+    Route::post('/', [WarehouseController::class, 'store'])->name('store');
+    Route::get('/{warehouse}', [WarehouseController::class, 'show'])->name('show');
+    Route::post('/{warehouse}', [WarehouseController::class, 'update'])->name('update');
+});
+
+// ============================
+// WAREHOUSE ASSIGNMENTS (ADMIN)
+// ============================
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
-    // Step 3: Warehouse ↔ Admin ↔ Role assignments
     Route::prefix('warehouse-assignments')->group(function () {
-        Route::get('/', [WarehouseAssignmentController::class, 'index'])
-            ->name('warehouse-assignments.index');
-        Route::post('/', [WarehouseAssignmentController::class, 'store'])
-            ->name('warehouse-assignments.store');
-        Route::get('/{id}', [WarehouseAssignmentController::class, 'show'])
-            ->name('warehouse-assignments.show');
-        Route::post('/{id}', [WarehouseAssignmentController::class, 'update'])
-            ->name('warehouse-assignments.update');
-        Route::delete('/{id}', [WarehouseAssignmentController::class, 'destroy'])
-            ->name('warehouse-assignments.destroy');
+        Route::get('/', [WarehouseAssignmentController::class, 'index']);
+        Route::post('/', [WarehouseAssignmentController::class, 'store']);
+        Route::get('/{id}', [WarehouseAssignmentController::class, 'show']);
+        Route::post('/{id}', [WarehouseAssignmentController::class, 'update']);
+        Route::delete('/{id}', [WarehouseAssignmentController::class, 'destroy']);
     });
 
     Route::get('warehouses/{id}/admins', [WarehouseAssignmentController::class, 'warehouseAdmins']);
     Route::get('admins/{id}/warehouses', [WarehouseAssignmentController::class, 'adminWarehouses']);
 });
 
+// ============================
+// WAREHOUSE STOCKS
+// ============================
 Route::prefix('warehouse-stocks')->group(function () {
-    Route::get('/{wareohuseId}',              [WarehouseStockController::class, 'index']);
-    Route::post('/',             [WarehouseStockController::class, 'store']);
-    Route::post('/{id}',          [WarehouseStockController::class, 'update']);
+    Route::get('/{warehouseId}', [WarehouseStockController::class, 'index']);
+    Route::post('/', [WarehouseStockController::class, 'store']);
+    Route::post('/{id}', [WarehouseStockController::class, 'update']);
 });
+
 Route::post(
     '/warehouses/{warehouseId}/update-stock',
     [WarehouseStockController::class, 'updateStock']
