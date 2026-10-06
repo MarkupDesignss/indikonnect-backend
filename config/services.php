@@ -41,4 +41,11 @@ return [
     'webhook_secret' => env('RAZORPAY_WEBHOOK_SECRET'),
     ],
 
+    'kyc' => [
+    'base_url'    => env('KYC_BASE_URL', 'https://test-api.sandbox.co.in'),
+    'api_key'     => env('KYC_API_KEY'),
+    'api_secret'  => env('KYC_API_SECRET'),
+    'environment' => env('KYC_ENV', 'sandbox'),
+     ],
+
 ];
