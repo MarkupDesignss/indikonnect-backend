@@ -6441,20 +6441,21 @@ class ProductController extends Controller
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | CSV Row 1 = Banner / Title
-    |--------------------------------------------------------------------------
-    */
-        fgetcsv($handle);
+        |--------------------------------------------------------------------------
+        | Detect CSV Header
+        |--------------------------------------------------------------------------
+        |
+        | Supports both:
+        |
+        | 1. Header directly in first row
+        | 2. Banner/title in first row + header in second row
+        |
+        |--------------------------------------------------------------------------
+        */
 
-        /*
-    |--------------------------------------------------------------------------
-    | CSV Row 2 = Actual Header
-    |--------------------------------------------------------------------------
-    */
-        $header = fgetcsv($handle);
+        $firstRow = fgetcsv($handle);
 
-        if (!$header) {
+        if (!$firstRow) {
             fclose($handle);
 
             return response()->json([
@@ -6462,21 +6463,67 @@ class ProductController extends Controller
             ], 422);
         }
 
+        $firstRowNormalized = array_map(function ($header) {
+            return $this->normalizeKey($header);
+        }, $firstRow);
+
         /*
-    |--------------------------------------------------------------------------
-    | Normalize Headers
-    |--------------------------------------------------------------------------
-    */
-        $header = array_map(function ($h) {
-            return $this->normalizeKey($h);
-        }, $header);
+        |--------------------------------------------------------------------------
+        | Check whether first row is actual header
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            in_array('product_code', $firstRowNormalized) &&
+            in_array('product_name', $firstRowNormalized)
+        ) {
+            // First row itself is the header
+            $header = $firstRowNormalized;
+
+            // Data starts from row 2
+            $rowNum = 1;
+        } else {
+
+            // First row was banner/title
+            $headerRow = fgetcsv($handle);
+
+            if (!$headerRow) {
+                fclose($handle);
+
+                return response()->json([
+                    'message' => 'CSV header row not found.'
+                ], 422);
+            }
+
+            $header = array_map(function ($header) {
+                return $this->normalizeKey($header);
+            }, $headerRow);
+
+            // Data starts from row 3
+            $rowNum = 2;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Validate Required Headers
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            !in_array('product_code', $header) ||
+            !in_array('product_name', $header)
+        ) {
+            fclose($handle);
+
+            return response()->json([
+                'message' => 'CSV must contain product_code and product_name columns.',
+                'headers' => $header,
+            ], 422);
+        }
 
         $inserted = 0;
         $updated = 0;
         $skipped = [];
-
-        // Actual CSV data starts from row 3
-        $rowNum = 2;
 
         DB::beginTransaction();
 
@@ -6488,9 +6535,10 @@ class ProductController extends Controller
 
                 /*
             |--------------------------------------------------------------------------
-            | Skip empty rows
+            | Skip completely empty rows
             |--------------------------------------------------------------------------
             */
+
                 if (
                     count(
                         array_filter(
@@ -6507,6 +6555,7 @@ class ProductController extends Controller
             | Create associative array
             |--------------------------------------------------------------------------
             */
+
                 $data = [];
 
                 foreach ($header as $i => $key) {
@@ -6520,14 +6569,22 @@ class ProductController extends Controller
             | Required Fields
             |--------------------------------------------------------------------------
             */
-                $productCode = trim((string) ($data['product_code'] ?? ''));
-                $name = trim((string) ($data['product_name'] ?? ''));
+
+                $productCode = trim(
+                    (string) ($data['product_code'] ?? '')
+                );
+
+                $name = trim(
+                    (string) ($data['product_name'] ?? '')
+                );
 
                 if ($productCode === '' || $name === '') {
 
                     $skipped[] = [
                         'row' => $rowNum,
-                        'reason' => 'Missing product code or product name'
+                        'reason' => 'Missing product code or product name',
+                        'product_code' => $productCode,
+                        'product_name' => $name,
                     ];
 
                     continue;
@@ -6538,9 +6595,12 @@ class ProductController extends Controller
             | Brand
             |--------------------------------------------------------------------------
             */
+
                 $brandId = null;
 
-                $brandName = trim((string) ($data['brand'] ?? ''));
+                $brandName = trim(
+                    (string) ($data['brand'] ?? '')
+                );
 
                 if ($brandName !== '') {
 
@@ -6562,9 +6622,12 @@ class ProductController extends Controller
             | Category
             |--------------------------------------------------------------------------
             */
+
                 $categoryId = null;
 
-                $categoryName = trim((string) ($data['category'] ?? ''));
+                $categoryName = trim(
+                    (string) ($data['category'] ?? '')
+                );
 
                 if ($categoryName !== '') {
 
@@ -6586,6 +6649,7 @@ class ProductController extends Controller
             | Prices
             |--------------------------------------------------------------------------
             */
+
                 $retailPrice = $this->parseMoney(
                     $data['selling_mrp_with_gst'] ?? null
                 );
@@ -6599,6 +6663,7 @@ class ProductController extends Controller
             | Shipping
             |--------------------------------------------------------------------------
             */
+
                 $shippingCharge = $this->parseMoney(
                     $data['sh'] ?? null
                 );
@@ -6608,6 +6673,7 @@ class ProductController extends Controller
             | GST
             |--------------------------------------------------------------------------
             */
+
                 $gst = $this->parsePercentage(
                     $data['gst'] ?? null
                 );
@@ -6617,6 +6683,7 @@ class ProductController extends Controller
             | Specification
             |--------------------------------------------------------------------------
             */
+
                 $specifications = [];
 
                 foreach (
@@ -6631,7 +6698,9 @@ class ProductController extends Controller
                         isset($data[$specKey]) &&
                         trim((string) $data[$specKey]) !== ''
                     ) {
-                        $specifications[] = trim($data[$specKey]);
+                        $specifications[] = trim(
+                            $data[$specKey]
+                        );
                     }
                 }
 
@@ -6644,32 +6713,43 @@ class ProductController extends Controller
             | Description
             |--------------------------------------------------------------------------
             */
+
                 $description = trim(
-                    (string) ($data['product_story_description'] ?? '')
+                    (string) (
+                        $data['product_story_description'] ?? ''
+                    )
                 );
 
                 /*
             |--------------------------------------------------------------------------
             | UOM
             |--------------------------------------------------------------------------
+            |
+            | CSV already contains safe values such as:
+            | Piece / Set / No.
+            |
+            | If you want fixed UOM = 1, keep this as 1.
+            |--------------------------------------------------------------------------
             */
+
                 $uom = '1';
-                // $uom = trim(
-                //     (string) ($data['net_quantity'] ?? '')
-                // );
 
                 /*
             |--------------------------------------------------------------------------
             | Slug
             |--------------------------------------------------------------------------
             */
-                $slug = Str::slug($name . '-' . $productCode);
+
+                $slug = Str::slug(
+                    $name . '-' . $productCode
+                );
 
                 /*
             |--------------------------------------------------------------------------
             | Product Data
             |--------------------------------------------------------------------------
             */
+
                 $productData = [
 
                     'product_code' => $productCode,
@@ -6678,7 +6758,7 @@ class ProductController extends Controller
 
                     'hsn_code' => null,
 
-                    'uom' => $uom ?: null,
+                    'uom' => $uom,
 
                     'name' => $name,
 
@@ -6705,6 +6785,7 @@ class ProductController extends Controller
                 | Retail
                 |--------------------------------------------------------------------------
                 */
+
                     'retail_price' => $retailPrice,
 
                     'retail_mrp' => $retailPrice,
@@ -6715,9 +6796,10 @@ class ProductController extends Controller
 
                     /*
                 |--------------------------------------------------------------------------
-                | Distributor / BA
+                | Distributor
                 |--------------------------------------------------------------------------
                 */
+
                     'distributor_price' => $distributorPrice,
 
                     'distributor_mrp' => $distributorPrice,
@@ -6731,6 +6813,7 @@ class ProductController extends Controller
                 | Stock
                 |--------------------------------------------------------------------------
                 */
+
                     'stock_quantity' => 0,
 
                     'shipping_charge' => $shippingCharge ?? 0,
@@ -6742,9 +6825,10 @@ class ProductController extends Controller
                 | Status
                 |--------------------------------------------------------------------------
                 */
+
                     'is_published' => 1,
 
-                    'sale_type' => "today_best",
+                    'sale_type' => 'today_best',
 
                     'is_trending' => 1,
 
@@ -6759,9 +6843,10 @@ class ProductController extends Controller
 
                 /*
             |--------------------------------------------------------------------------
-            | Insert or Update by Product Code
+            | Insert / Update
             |--------------------------------------------------------------------------
             */
+
                 $product = Product::where(
                     'product_code',
                     $productCode
@@ -6813,14 +6898,9 @@ class ProductController extends Controller
         ], 201);
     }
 
-
-    /**
-     * Normalize CSV header into a safe array key.
-     */
     private function normalizeKey(string $key): string
     {
         $key = trim($key);
-
         $key = strtolower($key);
 
         $key = preg_replace('/[^a-z0-9]+/', '_', $key);
