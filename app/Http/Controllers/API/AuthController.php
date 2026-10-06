@@ -28,18 +28,22 @@ use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Password;
 use App\Services\TwilioService;
 use App\Services\NotificationService;
+use App\Services\KycVerificationService;
 
 class AuthController extends Controller
 {
     protected $twilioService;
     protected NotificationService $notificationService;
+    protected KycVerificationService $kyc;
 
     public function __construct(
         TwilioService $twilioService,
-        NotificationService $notificationService
+        NotificationService $notificationService,
+        KycVerificationService $kyc
     ) {
         $this->twilioService = $twilioService;
         $this->notificationService = $notificationService;
+        $this->kyc = $kyc;
     }
     /**
      * Get role ID by account type from database
@@ -2409,19 +2413,111 @@ class AuthController extends Controller
     /**
      * DISTRIBUTOR: Step 3 - Aadhaar Verification
      */
+    // public function distributorStep3Aadhaar(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone' => 'required|min:10|max:15',
+    //             'encrypted_aadhaar' => 'required|string|size:12',
+    //             'aadhaar_consent' => 'required|in:0,1',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $user = User::where('phone', $request->phone)->first();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'User not found.'
+    //             ], 422);
+    //         }
+
+    //         // Check if step 2 is completed
+    //         if ($user->registration_step < 2) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please complete step 2 (Sponsor) first.'
+    //             ], 422);
+    //         }
+
+    //         // Check if email and mobile are verified
+    //         if (!$user->email_verified_at || !$user->phone_verified) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please verify your email and mobile first.'
+    //             ], 422);
+    //         }
+
+    //         // Store Aadhaar (encrypted)
+    //         $distributorProfile = DistributorProfile::updateOrCreate(
+    //             ['user_id' => $user->id],
+    //             [
+    //                 'encrypted_aadhaar' => encrypt($request->encrypted_aadhaar),
+    //                 'aadhaar_consent' => $request->aadhaar_consent,
+    //                 'aadhaar_verified' => 0,
+    //                 'kyc_status' => 'pending'
+    //             ]
+    //         );
+
+    //         $user->update([
+    //             'registration_step' => max($user->registration_step ?? 0, 3),
+    //             'aadhaar_last4' => substr($request->encrypted_aadhaar, -4)
+    //         ]);
+
+    //         // Simulate Aadhaar verification
+    //         $aadhaarVerified = true;
+
+    //         if ($aadhaarVerified) {
+    //             $distributorProfile->update([
+    //                 'aadhaar_verified' => 1,
+    //                 'aadhaar_verified_at' => now()
+    //             ]);
+    //         }
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Aadhaar verification ' . ($aadhaarVerified ? 'successful' : 'failed'),
+    //             'step' => 3,
+    //             'next_step' => 4,
+    //             'aadhaar_verified' => $aadhaarVerified,
+    //             'aadhaar_last4' => '****' . substr($request->encrypted_aadhaar, -4)
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Distributor step 3 Aadhaar error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+    /**
+     * DISTRIBUTOR: Step 3 - Aadhaar Verification (OTP based)
+     *
+     * Flow:
+     *   1. First call: send Aadhaar number  => returns reference_id
+     *   2. Second call: send reference_id + OTP => marks Aadhaar as verified
+     */
     public function distributorStep3Aadhaar(Request $request)
     {
         try {
             $validator = Validator::make($request->all(), [
-                'phone' => 'required|min:10|max:15',
+                'phone'             => 'required|min:10|max:15',
                 'encrypted_aadhaar' => 'required|string|size:12',
-                'aadhaar_consent' => 'required|in:0,1',
+                'aadhaar_consent'   => 'required|in:0,1',
+                'reference_id'      => 'nullable|string',
+                'otp'               => 'nullable|digits:6',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'status' => false,
-                    'errors' => $validator->errors()
+                    'errors' => $validator->errors(),
                 ], 422);
             }
 
@@ -2429,66 +2525,115 @@ class AuthController extends Controller
 
             if (!$user) {
                 return response()->json([
-                    'status' => false,
-                    'message' => 'User not found.'
+                    'status'  => false,
+                    'message' => 'User not found.',
                 ], 422);
             }
 
-            // Check if step 2 is completed
-            if ($user->registration_step < 2) {
+            if (($user->registration_step ?? 0) < 2) {
                 return response()->json([
-                    'status' => false,
-                    'message' => 'Please complete step 2 (Sponsor) first.'
+                    'status'  => false,
+                    'message' => 'Please complete step 2 (Sponsor) first.',
                 ], 422);
             }
 
-            // Check if email and mobile are verified
             if (!$user->email_verified_at || !$user->phone_verified) {
                 return response()->json([
-                    'status' => false,
-                    'message' => 'Please verify your email and mobile first.'
+                    'status'  => false,
+                    'message' => 'Please verify your email and mobile first.',
                 ], 422);
             }
 
-            // Store Aadhaar (encrypted)
-            $distributorProfile = DistributorProfile::updateOrCreate(
-                ['user_id' => $user->id],
-                [
-                    'encrypted_aadhaar' => encrypt($request->encrypted_aadhaar),
-                    'aadhaar_consent' => $request->aadhaar_consent,
-                    'aadhaar_verified' => 0,
-                    'kyc_status' => 'pending'
-                ]
-            );
+            $aadhaarNumber = $request->encrypted_aadhaar;
 
-            $user->update([
-                'registration_step' => max($user->registration_step ?? 0, 3),
-                'aadhaar_last4' => substr($request->encrypted_aadhaar, -4)
-            ]);
+            /*
+            |--------------------------------------------------------------------------
+            | CASE 1: reference_id + otp present => verify OTP
+            |--------------------------------------------------------------------------
+            */
+            if ($request->filled('reference_id') && $request->filled('otp')) {
 
-            // Simulate Aadhaar verification
-            $aadhaarVerified = true;
+                $result = $this->kyc->verifyAadhaarOtp(
+                    $request->reference_id,
+                    $request->otp
+                );
 
-            if ($aadhaarVerified) {
-                $distributorProfile->update([
-                    'aadhaar_verified' => 1,
-                    'aadhaar_verified_at' => now()
+                if (!$result['success']) {
+                    return response()->json([
+                        'status'  => false,
+                        'message' => $result['data']['message'] ?? 'Aadhaar OTP verification failed.',
+                        'errors'  => $result['data'] ?? null,
+                    ], 422);
+                }
+
+                $aadhaarData = $result['data']['data'] ?? [];
+
+                $distributorProfile = DistributorProfile::updateOrCreate(
+                    ['user_id' => $user->id],
+                    [
+                        'encrypted_aadhaar'   => encrypt($aadhaarNumber),
+                        'aadhaar_consent'     => $request->aadhaar_consent,
+                        'aadhaar_verified'    => 1,
+                        'aadhaar_verified_at' => now(),
+                        'kyc_status'          => 'pending',
+                    ]
+                );
+
+                $user->update([
+                    'registration_step' => max($user->registration_step ?? 0, 3),
+                    'aadhaar_last4'     => substr($aadhaarNumber, -4),
+                ]);
+
+                return response()->json([
+                    'status'           => true,
+                    'message'          => 'Aadhaar verified successfully.',
+                    'step'             => 3,
+                    'next_step'        => 4,
+                    'aadhaar_verified' => true,
+                    'aadhaar_last4'    => '****' . substr($aadhaarNumber, -4),
+                    'verified_name'    => $aadhaarData['name'] ?? null,
                 ]);
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | CASE 2: only Aadhaar number present => send OTP
+            |--------------------------------------------------------------------------
+            */
+            $result = $this->kyc->sendAadhaarOtp($aadhaarNumber);
+
+            if (!$result['success']) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => $result['data']['message'] ?? 'Failed to send Aadhaar OTP.',
+                    'errors'  => $result['data'] ?? null,
+                ], 422);
+            }
+
+            $referenceId = $result['data']['data']['reference_id'] ?? null;
+
+            // Store reference_id temporarily so it can be reused later (optional)
+            $distributorProfile = DistributorProfile::updateOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'encrypted_aadhaar' => encrypt($aadhaarNumber),
+                    'aadhaar_consent'   => $request->aadhaar_consent,
+                    'kyc_status'        => 'pending',
+                ]
+            );
+
             return response()->json([
-                'status' => true,
-                'message' => 'Aadhaar verification ' . ($aadhaarVerified ? 'successful' : 'failed'),
-                'step' => 3,
-                'next_step' => 4,
-                'aadhaar_verified' => $aadhaarVerified,
-                'aadhaar_last4' => '****' . substr($request->encrypted_aadhaar, -4)
+                'status'       => true,
+                'message'      => 'Aadhaar OTP sent successfully. Please verify.',
+                'step'         => 3,
+                'reference_id' => $referenceId,
             ]);
         } catch (\Exception $e) {
             Log::error('Distributor step 3 Aadhaar error: ' . $e->getMessage());
+
             return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
+                'status'  => false,
+                'message' => $e->getMessage(),
             ], 500);
         }
     }
@@ -2496,18 +2641,106 @@ class AuthController extends Controller
     /**
      * DISTRIBUTOR: Step 4 - PAN Verification
      */
+    // public function distributorStep4Pan(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone' => 'required|min:10|max:15',
+    //             'encrypted_pan' => 'required|string|size:10',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $user = User::where('phone', $request->phone)->first();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'User not found.'
+    //             ], 422);
+    //         }
+
+    //         // Check if step 3 is completed
+    //         if ($user->registration_step < 3) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please complete step 3 (Aadhaar) first.'
+    //             ], 422);
+    //         }
+
+    //         // Check if Aadhaar is verified
+    //         $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
+    //         if (!$distributorProfile || !$distributorProfile->aadhaar_verified) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Please complete Aadhaar verification first.'
+    //             ], 422);
+    //         }
+
+    //         // Store PAN (encrypted)
+    //         $distributorProfile->update([
+    //             'encrypted_pan' => encrypt($request->encrypted_pan),
+    //             'pan_verified' => 0
+    //         ]);
+
+    //         $user->update([
+    //             'registration_step' => max($user->registration_step ?? 0, 4),
+    //             'pan_last4' => substr($request->encrypted_pan, -4)
+    //         ]);
+
+    //         // Simulate PAN verification
+    //         $panVerified = true;
+
+    //         if ($panVerified) {
+    //             $distributorProfile->update([
+    //                 'pan_verified' => 1,
+    //                 'pan_verified_at' => now()
+    //             ]);
+    //         }
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'PAN verification ' . ($panVerified ? 'successful' : 'failed'),
+    //             'step' => 4,
+    //             'next_step' => 5,
+    //             'pan_verified' => $panVerified,
+    //             'pan_last4' => '****' . substr($request->encrypted_pan, -4)
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Distributor step 4 PAN error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+    /**
+     * DISTRIBUTOR: Step 4 - PAN Verification
+     *
+     * Uses KycVerificationService to:
+     *   1. Verify PAN details (name + DOB)
+     *   2. Check PAN-Aadhaar link status (KYC confirmation)
+     */
     public function distributorStep4Pan(Request $request)
     {
         try {
             $validator = Validator::make($request->all(), [
-                'phone' => 'required|min:10|max:15',
-                'encrypted_pan' => 'required|string|size:10',
+                'phone'           => 'required|min:10|max:15',
+                'encrypted_pan'   => 'required|string|size:10',
+                'name_as_per_pan' => 'required|string|max:255',
+                'date_of_birth'   => 'required|date_format:d/m/Y',
+                'aadhaar_number'  => 'required|digits:12',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'status' => false,
-                    'errors' => $validator->errors()
+                    'errors' => $validator->errors(),
                 ], 422);
             }
 
@@ -2515,62 +2748,107 @@ class AuthController extends Controller
 
             if (!$user) {
                 return response()->json([
-                    'status' => false,
-                    'message' => 'User not found.'
+                    'status'  => false,
+                    'message' => 'User not found.',
                 ], 422);
             }
 
-            // Check if step 3 is completed
-            if ($user->registration_step < 3) {
+            if (($user->registration_step ?? 0) < 3) {
                 return response()->json([
-                    'status' => false,
-                    'message' => 'Please complete step 3 (Aadhaar) first.'
+                    'status'  => false,
+                    'message' => 'Please complete step 3 (Aadhaar) first.',
                 ], 422);
             }
 
-            // Check if Aadhaar is verified
             $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
+
             if (!$distributorProfile || !$distributorProfile->aadhaar_verified) {
                 return response()->json([
-                    'status' => false,
-                    'message' => 'Please complete Aadhaar verification first.'
+                    'status'  => false,
+                    'message' => 'Please complete Aadhaar verification first.',
                 ], 422);
             }
 
-            // Store PAN (encrypted)
+            $pan = strtoupper($request->encrypted_pan);
+
+            /*
+            |--------------------------------------------------------------------------
+            | Step 1: PAN verification
+            |--------------------------------------------------------------------------
+            */
+            $panResult = $this->kyc->verifyPan(
+                $pan,
+                $request->name_as_per_pan,
+                $request->date_of_birth
+            );
+
+            if (!$panResult['success']) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => $panResult['data']['message'] ?? 'PAN verification failed.',
+                    'errors'  => $panResult['data'] ?? null,
+                ], 422);
+            }
+
+            $panData = $panResult['data']['data'] ?? [];
+
+            if (($panData['status'] ?? '') !== 'valid') {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Invalid PAN or name mismatch.',
+                    'data'    => $panData,
+                ], 422);
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Step 2: PAN-Aadhaar link status (KYC confirmation)
+            |--------------------------------------------------------------------------
+            */
+            $linkResult = $this->kyc->checkPanAadhaarLink($pan, $request->aadhaar_number);
+
+            $aadhaarLinked = false;
+
+            if ($linkResult['success']) {
+                $seedingStatus = $linkResult['data']['data']['aadhaar_seeding_status'] ?? 'n';
+                $aadhaarLinked = ($seedingStatus === 'y');
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Save to database
+            |--------------------------------------------------------------------------
+            */
             $distributorProfile->update([
-                'encrypted_pan' => encrypt($request->encrypted_pan),
-                'pan_verified' => 0
+                'encrypted_pan'   => encrypt($pan),
+                'pan_verified'    => 1,
+                'pan_verified_at' => now(),
+                'kyc_status'      => $aadhaarLinked ? 'verified' : 'pending',
             ]);
 
             $user->update([
                 'registration_step' => max($user->registration_step ?? 0, 4),
-                'pan_last4' => substr($request->encrypted_pan, -4)
+                'pan_last4'         => substr($pan, -4),
             ]);
 
-            // Simulate PAN verification
-            $panVerified = true;
-
-            if ($panVerified) {
-                $distributorProfile->update([
-                    'pan_verified' => 1,
-                    'pan_verified_at' => now()
-                ]);
-            }
-
             return response()->json([
-                'status' => true,
-                'message' => 'PAN verification ' . ($panVerified ? 'successful' : 'failed'),
-                'step' => 4,
-                'next_step' => 5,
-                'pan_verified' => $panVerified,
-                'pan_last4' => '****' . substr($request->encrypted_pan, -4)
+                'status'         => true,
+                'message'        => $aadhaarLinked
+                    ? 'PAN verified and KYC confirmed (Aadhaar linked).'
+                    : 'PAN verified but Aadhaar not linked. KYC pending.',
+                'step'           => 4,
+                'next_step'      => 5,
+                'pan_verified'   => true,
+                'aadhaar_linked' => $aadhaarLinked,
+                'pan_last4'      => '****' . substr($pan, -4),
+                'pan_name'       => $panData['name_as_per_pan'] ?? null,
             ]);
         } catch (\Exception $e) {
             Log::error('Distributor step 4 PAN error: ' . $e->getMessage());
+
             return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
+                'status'  => false,
+                'message' => $e->getMessage(),
             ], 500);
         }
     }
