@@ -809,6 +809,9 @@ class AuthController extends Controller
                         'email'         => $admin->email,
                         'profile_image' => $admin->profile_image
                             ? asset('storage/' . $admin->profile_image) : null,
+                        'warehouse_name' => $admin->primaryWarehouse?->warehouse?->name,
+                        'warehouse_code' => $admin->primaryWarehouse?->warehouse?->code,
+
 
                         'created_at' => $admin->created_at,
                         'updated_at' => $admin->updated_at,
@@ -819,7 +822,7 @@ class AuthController extends Controller
 
                     'roles'                 => $globalRoles,
 
-                    'warehouse_assignments' => $warehouseAssignments,
+                    // 'warehouse_assignments' => $warehouseAssignments,
                     // 'warehouses_by_role'    => $warehousesByRole,
 
                     // 'primary_warehouse'     => $primaryWarehouse,
