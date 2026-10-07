@@ -32,422 +32,422 @@ class AuthController extends Controller
     ) {
         $this->notificationService = $notificationService;
     }
-    // public function login(Request $request)
-    // {
-    //     // Validate input
-    //     $request->validate([
-    //         'email'    => 'required|email',
-    //         'password' => 'required|string',
-    //         'remember' => 'nullable|boolean',
-    //     ]);
-
-    //     $credentials = $request->only('email', 'password');
-    //     $remember = $request->boolean('remember');
-
-    //     // Attempt login with admin guard
-    //     if (Auth::guard('admin')->attempt($credentials, $remember)) {
-    //         $admin = Auth::guard('admin')->user();
-    //         // Load roles and permissions
-    //         $admin->load('roles.permissions');
-
-    //         // Get all permissions for the admin
-    //         $permissions = $this->getAdminPermissions($admin);
-
-    //         // Create token
-    //         $token = $admin->createToken('admin-auth-token', ['admin'])->plainTextToken;
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'message' => 'Login successful',
-    //             'data' => [
-    //                 'admin' => [
-    //                     'id' => $admin->id,
-    //                     'name' => $admin->name,
-    //                     'email' => $admin->email,
-    //                     'roles' => $admin->roles->map(function ($role) {
-    //                         return [
-    //                             'id' => $role->id,
-    //                             'name' => $role->name,
-    //                             'slug' => $role->slug,
-    //                         ];
-    //                     }),
-    //                     'created_at' => $admin->created_at,
-    //                     'updated_at' => $admin->updated_at,
-    //                 ],
-    //                 'token' => $token,
-    //                 'token_type' => 'Bearer',
-    //                 'permissions' => $permissions
-    //             ]
-    //         ], 200);
-    //     }
-
-    //     // Check if admin exists for better error messages
-    //     $admin = Admin::where('email', $request->email)->first();
-
-    //     if (!$admin) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Admin not found with this email address',
-    //             'errors' => [
-    //                 'email' => ['Admin not found with this email address']
-    //             ]
-    //         ], 404);
-    //     }
-
-    //     if (!Hash::check($request->password, $admin->password)) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Incorrect password provided',
-    //             'errors' => [
-    //                 'password' => ['Incorrect password provided']
-    //             ]
-    //         ], 422);
-    //     }
-
-    //     // Fallback
-    //     return response()->json([
-    //         'success' => false,
-    //         'message' => 'Invalid credentials provided',
-    //         'errors' => [
-    //             'email' => ['Invalid credentials provided']
-    //         ]
-    //     ], 422);
-    // }
     public function login(Request $request)
     {
-        try {
-            $request->validate([
-                'email'    => 'required|email',
-                'password' => 'required|string',
-                'remember' => 'nullable|boolean',
-            ]);
+        // Validate input
+        $request->validate([
+            'email'    => 'required|email',
+            'password' => 'required|string',
+            'remember' => 'nullable|boolean',
+        ]);
 
-            $credentials = $request->only('email', 'password');
-            $remember = $request->boolean('remember');
+        $credentials = $request->only('email', 'password');
+        $remember = $request->boolean('remember');
 
-            // Attempt login with admin guard
-            if (Auth::guard('admin')->attempt($credentials, $remember)) {
+        // Attempt login with admin guard
+        if (Auth::guard('admin')->attempt($credentials, $remember)) {
+            $admin = Auth::guard('admin')->user();
+            // Load roles and permissions
+            $admin->load('roles.permissions');
 
-                $admin = Auth::guard('admin')->user();
+            // Get all permissions for the admin
+            $permissions = $this->getAdminPermissions($admin);
 
-                // ============================================
-                // LOAD RELATIONSHIPS
-                // ============================================
-                $admin->load([
-                    'roles.permissions',
-                    'warehouseAssignments' => function ($query) {
-                        $query->with([
-                            'warehouse:id,name,code,city,state,is_active,is_default',
-                            'role:id,name,slug,description',
-                        ])
-                            ->orderByDesc('is_primary')
-                            ->orderBy('warehouse_id');
-                    },
-                    'primaryWarehouse.warehouse',
-                ]);
-
-                // ============================================
-                // CHECK: ROLE ASSIGNED HAI YA NAHI
-                // ============================================
-                if ($admin->roles->isEmpty()) {
-
-                    // Logout kar do kyunki role ke bina access nahi milega
-                    Auth::guard('admin')->logout();
-
-                    // Log failed login
-                    $this->logAudit(
-                        'login_failed',
-                        'auth',
-                        null,
-                        [
-                            'admin_id' => $admin->id,
-                            'email'    => $admin->email,
-                            'status'   => 'failed',
-                            'reason'   => 'no_role_assigned',
-                        ],
-                        $admin->id
-                    );
-
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'No role assigned to this admin. Please contact administrator.',
-                        'errors'  => [
-                            'role' => [
-                                'No role assigned to this admin account'
-                            ]
-                        ]
-                    ], 403);
-                }
-
-                // ============================================
-                // PERMISSIONS
-                // ============================================
-                $permissions         = $this->getAdminPermissions($admin);
-                $detailedPermissions = $this->getDetailedPermissions($admin);
-
-                // ============================================
-                // GLOBAL ROLES
-                // ============================================
-                $globalRoles = $admin->roles->map(function ($role) {
-                    return [
-                        'id'          => $role->id,
-                        'name'        => $role->name,
-                        'slug'        => $role->slug,
-                        'description' => $role->description,
-                    ];
-                })->values();
-
-                // ============================================
-                // WAREHOUSE ASSIGNMENTS
-                // ============================================
-                $warehouseAssignments = $admin->warehouseAssignments->map(function ($assignment) {
-                    return [
-                        'id' => $assignment->id,
-
-                        'warehouse' => $assignment->warehouse ? [
-                            'id'         => $assignment->warehouse->id,
-                            'name'       => $assignment->warehouse->name,
-                            'code'       => $assignment->warehouse->code,
-                            'city'       => $assignment->warehouse->city,
-                            'state'      => $assignment->warehouse->state,
-                            'is_active'  => $assignment->warehouse->is_active,
-                            'is_default' => $assignment->warehouse->is_default,
-                        ] : null,
-
-                        'role' => $assignment->role ? [
-                            'id'          => $assignment->role->id,
-                            'name'        => $assignment->role->name,
-                            'slug'        => $assignment->role->slug,
-                            'description' => $assignment->role->description,
-                        ] : null,
-
-                        'role_id'   => $assignment->role_id,
-                        'role_slug' => $assignment->role?->slug,
-
-                        'is_primary' => (bool) $assignment->is_primary,
-                        'is_active'  => (bool) $assignment->is_active,
-                        'is_current' => $assignment->is_current,
-
-                        'assigned_from'  => $assignment->assigned_from?->toDateString(),
-                        'assigned_until' => $assignment->assigned_until?->toDateString(),
-
-                        'notes'       => $assignment->notes,
-                        'assigned_by' => $assignment->assigned_by,
-                        'created_at'  => $assignment->created_at,
-                        'updated_at'  => $assignment->updated_at,
-                    ];
-                });
-
-                // ============================================
-                // GROUP BY ROLE SLUG (warehouse ke bina bhi roles dikhenge)
-                // ============================================
-                $warehousesByRole = $admin->roles->mapWithKeys(function ($role) use ($admin) {
-
-                    $assignments = $admin->warehouseAssignments
-                        ->where('is_active', true)
-                        ->where('role_id', $role->id)
-                        ->map(function ($assignment) {
-                            return [
-                                'id'             => $assignment->id,
-                                'warehouse_id'   => $assignment->warehouse_id,
-                                'warehouse_name' => $assignment->warehouse?->name,
-                                'warehouse_code' => $assignment->warehouse?->code,
-                                'role_id'        => $assignment->role_id,
-                                'role_name'      => $assignment->role?->name,
-                                'role_slug'      => $assignment->role?->slug,
-                                'is_primary'     => (bool) $assignment->is_primary,
-                                'assigned_from'  => $assignment->assigned_from?->toDateString(),
-                                'assigned_until' => $assignment->assigned_until?->toDateString(),
-                            ];
-                        })->values();
-
-                    return [
-                        $role->slug => [
-                            'role_id'              => $role->id,
-                            'role_name'            => $role->name,
-                            'role_slug'            => $role->slug,
-                            'description'          => $role->description,
-                            'warehouses'           => $assignments,
-                            'has_warehouse_access' => $assignments->isNotEmpty(),
-                        ]
-                    ];
-                });
-
-                // ============================================
-                // PRIMARY WAREHOUSE
-                // ============================================
-                $primaryWarehouse = $admin->primaryWarehouse?->warehouse
-                    ? [
-                        'id'        => $admin->primaryWarehouse->warehouse->id,
-                        'name'      => $admin->primaryWarehouse->warehouse->name,
-                        'code'      => $admin->primaryWarehouse->warehouse->code,
-                        'city'      => $admin->primaryWarehouse->warehouse->city,
-                        'role_id'   => $admin->primaryWarehouse->role_id,
-                        'role_name' => $admin->primaryWarehouse->role?->name,
-                        'role_slug' => $admin->primaryWarehouse->role?->slug,
-                    ]
-                    : null;
-
-                // ============================================
-                // QUICK CHECKS
-                // ============================================
-                $activeWarehouseIds = $admin->warehouseAssignments
-                    ->where('is_active', true)
-                    ->pluck('warehouse_id')->unique()->values();
-
-                // ============================================
-                // CREATE TOKEN
-                // ============================================
-                $token = $admin->createToken(
-                    'admin-auth-token',
-                    ['admin']
-                )->plainTextToken;
-
-                // ============================================
-                // LOG SUCCESSFUL LOGIN
-                // ============================================
-                $this->logAudit(
-                    'login',
-                    'auth',
-                    $admin->toArray(),
-                    [
-                        'admin_id'      => $admin->id,
-                        'email'         => $admin->email,
-                        'status'        => 'success',
-                        'login_method'  => 'email_password',
-                    ],
-                    $admin->id
-                );
-
-                // ============================================
-                // RESPONSE
-                // ============================================
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Login successful',
-                    'data' => [
-                        'admin' => [
-                            'id'            => $admin->id,
-                            'name'          => $admin->name,
-                            'email'         => $admin->email,
-                            'profile_image' => $admin->profile_image
-                                ? url('storage/' . $admin->profile_image)
-                                : null,
-                            'created_at'    => $admin->created_at,
-                            'updated_at'    => $admin->updated_at,
-                        ],
-
-                        'token'      => $token,
-                        'token_type' => 'Bearer',
-
-                        'roles'                 => $globalRoles,
-
-                        'permissions_details'   => $detailedPermissions,
-                        'permissions_grouped'   => $this->getGroupedPermissions($admin),
-
-                        'warehouse_assignments' => $warehouseAssignments,
-                        'warehouses_by_role'    => $warehousesByRole,
-
-                        'primary_warehouse'     => $primaryWarehouse,
-
-                        'has_warehouse_access'  => $activeWarehouseIds->isNotEmpty(),
-                    ]
-                ], 200);
-            }
-
-            // ============================================
-            // CHECK IF ADMIN EXISTS
-            // ============================================
-            $admin = Admin::where('email', $request->email)->first();
-
-            if (!$admin) {
-
-                $this->logAudit(
-                    'login_failed',
-                    'auth',
-                    null,
-                    [
-                        'email'  => $request->email,
-                        'status' => 'failed',
-                        'reason' => 'admin_not_found',
-                    ],
-                    null
-                );
-
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User not found with this email address',
-                    'errors'  => [
-                        'email' => [
-                            'User not found with this email address'
-                        ]
-                    ]
-                ], 404);
-            }
-
-            // ============================================
-            // CHECK PASSWORD
-            // ============================================
-            if (!Hash::check($request->password, $admin->password)) {
-
-                $this->logAudit(
-                    'login_failed',
-                    'auth',
-                    null,
-                    [
-                        'admin_id' => $admin->id,
-                        'email'    => $admin->email,
-                        'status'   => 'failed',
-                        'reason'   => 'incorrect_password',
-                    ],
-                    $admin->id
-                );
-
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Incorrect password provided',
-                    'errors'  => [
-                        'password' => [
-                            'Incorrect password provided'
-                        ]
-                    ]
-                ], 422);
-            }
-
-            // ============================================
-            // FALLBACK
-            // ============================================
-            $this->logAudit(
-                'login_failed',
-                'auth',
-                null,
-                [
-                    'admin_id' => $admin->id,
-                    'email'    => $admin->email,
-                    'status'   => 'failed',
-                    'reason'   => 'invalid_credentials',
-                ],
-                $admin->id
-            );
+            // Create token
+            $token = $admin->createToken('admin-auth-token', ['admin'])->plainTextToken;
 
             return response()->json([
+                'success' => true,
+                'message' => 'Login successful',
+                'data' => [
+                    'admin' => [
+                        'id' => $admin->id,
+                        'name' => $admin->name,
+                        'email' => $admin->email,
+                        'roles' => $admin->roles->map(function ($role) {
+                            return [
+                                'id' => $role->id,
+                                'name' => $role->name,
+                                'slug' => $role->slug,
+                            ];
+                        }),
+                        'created_at' => $admin->created_at,
+                        'updated_at' => $admin->updated_at,
+                    ],
+                    'token' => $token,
+                    'token_type' => 'Bearer',
+                    'permissions' => $permissions
+                ]
+            ], 200);
+        }
+
+        // Check if admin exists for better error messages
+        $admin = Admin::where('email', $request->email)->first();
+
+        if (!$admin) {
+            return response()->json([
                 'success' => false,
-                'message' => 'Invalid credentials provided',
-                'errors'  => [
-                    'email' => [
-                        'Invalid credentials provided'
-                    ]
+                'message' => 'Admin not found with this email address',
+                'errors' => [
+                    'email' => ['Admin not found with this email address']
+                ]
+            ], 404);
+        }
+
+        if (!Hash::check($request->password, $admin->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Incorrect password provided',
+                'errors' => [
+                    'password' => ['Incorrect password provided']
                 ]
             ], 422);
-        } catch (\Exception $e) {
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to login, please try again',
-                'error'   => $e->getMessage()
-            ], 500);
         }
+
+        // Fallback
+        return response()->json([
+            'success' => false,
+            'message' => 'Invalid credentials provided',
+            'errors' => [
+                'email' => ['Invalid credentials provided']
+            ]
+        ], 422);
     }
+    // public function login(Request $request)
+    // {
+    //     try {
+    //         $request->validate([
+    //             'email'    => 'required|email',
+    //             'password' => 'required|string',
+    //             'remember' => 'nullable|boolean',
+    //         ]);
+
+    //         $credentials = $request->only('email', 'password');
+    //         $remember = $request->boolean('remember');
+
+    //         // Attempt login with admin guard
+    //         if (Auth::guard('admin')->attempt($credentials, $remember)) {
+
+    //             $admin = Auth::guard('admin')->user();
+
+    //             // ============================================
+    //             // LOAD RELATIONSHIPS
+    //             // ============================================
+    //             $admin->load([
+    //                 'roles.permissions',
+    //                 'warehouseAssignments' => function ($query) {
+    //                     $query->with([
+    //                         'warehouse:id,name,code,city,state,is_active,is_default',
+    //                         'role:id,name,slug,description',
+    //                     ])
+    //                         ->orderByDesc('is_primary')
+    //                         ->orderBy('warehouse_id');
+    //                 },
+    //                 'primaryWarehouse.warehouse',
+    //             ]);
+
+    //             // ============================================
+    //             // CHECK: ROLE ASSIGNED HAI YA NAHI
+    //             // ============================================
+    //             if ($admin->roles->isEmpty()) {
+
+    //                 // Logout kar do kyunki role ke bina access nahi milega
+    //                 Auth::guard('admin')->logout();
+
+    //                 // Log failed login
+    //                 $this->logAudit(
+    //                     'login_failed',
+    //                     'auth',
+    //                     null,
+    //                     [
+    //                         'admin_id' => $admin->id,
+    //                         'email'    => $admin->email,
+    //                         'status'   => 'failed',
+    //                         'reason'   => 'no_role_assigned',
+    //                     ],
+    //                     $admin->id
+    //                 );
+
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => 'No role assigned to this admin. Please contact administrator.',
+    //                     'errors'  => [
+    //                         'role' => [
+    //                             'No role assigned to this admin account'
+    //                         ]
+    //                     ]
+    //                 ], 403);
+    //             }
+
+    //             // ============================================
+    //             // PERMISSIONS
+    //             // ============================================
+    //             $permissions         = $this->getAdminPermissions($admin);
+    //             $detailedPermissions = $this->getDetailedPermissions($admin);
+
+    //             // ============================================
+    //             // GLOBAL ROLES
+    //             // ============================================
+    //             $globalRoles = $admin->roles->map(function ($role) {
+    //                 return [
+    //                     'id'          => $role->id,
+    //                     'name'        => $role->name,
+    //                     'slug'        => $role->slug,
+    //                     'description' => $role->description,
+    //                 ];
+    //             })->values();
+
+    //             // ============================================
+    //             // WAREHOUSE ASSIGNMENTS
+    //             // ============================================
+    //             $warehouseAssignments = $admin->warehouseAssignments->map(function ($assignment) {
+    //                 return [
+    //                     'id' => $assignment->id,
+
+    //                     'warehouse' => $assignment->warehouse ? [
+    //                         'id'         => $assignment->warehouse->id,
+    //                         'name'       => $assignment->warehouse->name,
+    //                         'code'       => $assignment->warehouse->code,
+    //                         'city'       => $assignment->warehouse->city,
+    //                         'state'      => $assignment->warehouse->state,
+    //                         'is_active'  => $assignment->warehouse->is_active,
+    //                         'is_default' => $assignment->warehouse->is_default,
+    //                     ] : null,
+
+    //                     'role' => $assignment->role ? [
+    //                         'id'          => $assignment->role->id,
+    //                         'name'        => $assignment->role->name,
+    //                         'slug'        => $assignment->role->slug,
+    //                         'description' => $assignment->role->description,
+    //                     ] : null,
+
+    //                     'role_id'   => $assignment->role_id,
+    //                     'role_slug' => $assignment->role?->slug,
+
+    //                     'is_primary' => (bool) $assignment->is_primary,
+    //                     'is_active'  => (bool) $assignment->is_active,
+    //                     'is_current' => $assignment->is_current,
+
+    //                     'assigned_from'  => $assignment->assigned_from?->toDateString(),
+    //                     'assigned_until' => $assignment->assigned_until?->toDateString(),
+
+    //                     'notes'       => $assignment->notes,
+    //                     'assigned_by' => $assignment->assigned_by,
+    //                     'created_at'  => $assignment->created_at,
+    //                     'updated_at'  => $assignment->updated_at,
+    //                 ];
+    //             });
+
+    //             // ============================================
+    //             // GROUP BY ROLE SLUG (warehouse ke bina bhi roles dikhenge)
+    //             // ============================================
+    //             $warehousesByRole = $admin->roles->mapWithKeys(function ($role) use ($admin) {
+
+    //                 $assignments = $admin->warehouseAssignments
+    //                     ->where('is_active', true)
+    //                     ->where('role_id', $role->id)
+    //                     ->map(function ($assignment) {
+    //                         return [
+    //                             'id'             => $assignment->id,
+    //                             'warehouse_id'   => $assignment->warehouse_id,
+    //                             'warehouse_name' => $assignment->warehouse?->name,
+    //                             'warehouse_code' => $assignment->warehouse?->code,
+    //                             'role_id'        => $assignment->role_id,
+    //                             'role_name'      => $assignment->role?->name,
+    //                             'role_slug'      => $assignment->role?->slug,
+    //                             'is_primary'     => (bool) $assignment->is_primary,
+    //                             'assigned_from'  => $assignment->assigned_from?->toDateString(),
+    //                             'assigned_until' => $assignment->assigned_until?->toDateString(),
+    //                         ];
+    //                     })->values();
+
+    //                 return [
+    //                     $role->slug => [
+    //                         'role_id'              => $role->id,
+    //                         'role_name'            => $role->name,
+    //                         'role_slug'            => $role->slug,
+    //                         'description'          => $role->description,
+    //                         'warehouses'           => $assignments,
+    //                         'has_warehouse_access' => $assignments->isNotEmpty(),
+    //                     ]
+    //                 ];
+    //             });
+
+    //             // ============================================
+    //             // PRIMARY WAREHOUSE
+    //             // ============================================
+    //             $primaryWarehouse = $admin->primaryWarehouse?->warehouse
+    //                 ? [
+    //                     'id'        => $admin->primaryWarehouse->warehouse->id,
+    //                     'name'      => $admin->primaryWarehouse->warehouse->name,
+    //                     'code'      => $admin->primaryWarehouse->warehouse->code,
+    //                     'city'      => $admin->primaryWarehouse->warehouse->city,
+    //                     'role_id'   => $admin->primaryWarehouse->role_id,
+    //                     'role_name' => $admin->primaryWarehouse->role?->name,
+    //                     'role_slug' => $admin->primaryWarehouse->role?->slug,
+    //                 ]
+    //                 : null;
+
+    //             // ============================================
+    //             // QUICK CHECKS
+    //             // ============================================
+    //             $activeWarehouseIds = $admin->warehouseAssignments
+    //                 ->where('is_active', true)
+    //                 ->pluck('warehouse_id')->unique()->values();
+
+    //             // ============================================
+    //             // CREATE TOKEN
+    //             // ============================================
+    //             $token = $admin->createToken(
+    //                 'admin-auth-token',
+    //                 ['admin']
+    //             )->plainTextToken;
+
+    //             // ============================================
+    //             // LOG SUCCESSFUL LOGIN
+    //             // ============================================
+    //             $this->logAudit(
+    //                 'login',
+    //                 'auth',
+    //                 $admin->toArray(),
+    //                 [
+    //                     'admin_id'      => $admin->id,
+    //                     'email'         => $admin->email,
+    //                     'status'        => 'success',
+    //                     'login_method'  => 'email_password',
+    //                 ],
+    //                 $admin->id
+    //             );
+
+    //             // ============================================
+    //             // RESPONSE
+    //             // ============================================
+    //             return response()->json([
+    //                 'success' => true,
+    //                 'message' => 'Login successful',
+    //                 'data' => [
+    //                     'admin' => [
+    //                         'id'            => $admin->id,
+    //                         'name'          => $admin->name,
+    //                         'email'         => $admin->email,
+    //                         'profile_image' => $admin->profile_image
+    //                             ? url('storage/' . $admin->profile_image)
+    //                             : null,
+    //                         'created_at'    => $admin->created_at,
+    //                         'updated_at'    => $admin->updated_at,
+    //                     ],
+
+    //                     'token'      => $token,
+    //                     'token_type' => 'Bearer',
+
+    //                     'roles'                 => $globalRoles,
+
+    //                     'permissions_details'   => $detailedPermissions,
+    //                     'permissions_grouped'   => $this->getGroupedPermissions($admin),
+
+    //                     'warehouse_assignments' => $warehouseAssignments,
+    //                     'warehouses_by_role'    => $warehousesByRole,
+
+    //                     'primary_warehouse'     => $primaryWarehouse,
+
+    //                     'has_warehouse_access'  => $activeWarehouseIds->isNotEmpty(),
+    //                 ]
+    //             ], 200);
+    //         }
+
+    //         // ============================================
+    //         // CHECK IF ADMIN EXISTS
+    //         // ============================================
+    //         $admin = Admin::where('email', $request->email)->first();
+
+    //         if (!$admin) {
+
+    //             $this->logAudit(
+    //                 'login_failed',
+    //                 'auth',
+    //                 null,
+    //                 [
+    //                     'email'  => $request->email,
+    //                     'status' => 'failed',
+    //                     'reason' => 'admin_not_found',
+    //                 ],
+    //                 null
+    //             );
+
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'User not found with this email address',
+    //                 'errors'  => [
+    //                     'email' => [
+    //                         'User not found with this email address'
+    //                     ]
+    //                 ]
+    //             ], 404);
+    //         }
+
+    //         // ============================================
+    //         // CHECK PASSWORD
+    //         // ============================================
+    //         if (!Hash::check($request->password, $admin->password)) {
+
+    //             $this->logAudit(
+    //                 'login_failed',
+    //                 'auth',
+    //                 null,
+    //                 [
+    //                     'admin_id' => $admin->id,
+    //                     'email'    => $admin->email,
+    //                     'status'   => 'failed',
+    //                     'reason'   => 'incorrect_password',
+    //                 ],
+    //                 $admin->id
+    //             );
+
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Incorrect password provided',
+    //                 'errors'  => [
+    //                     'password' => [
+    //                         'Incorrect password provided'
+    //                     ]
+    //                 ]
+    //             ], 422);
+    //         }
+
+    //         // ============================================
+    //         // FALLBACK
+    //         // ============================================
+    //         $this->logAudit(
+    //             'login_failed',
+    //             'auth',
+    //             null,
+    //             [
+    //                 'admin_id' => $admin->id,
+    //                 'email'    => $admin->email,
+    //                 'status'   => 'failed',
+    //                 'reason'   => 'invalid_credentials',
+    //             ],
+    //             $admin->id
+    //         );
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Invalid credentials provided',
+    //             'errors'  => [
+    //                 'email' => [
+    //                     'Invalid credentials provided'
+    //                 ]
+    //             ]
+    //         ], 422);
+    //     } catch (\Exception $e) {
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to login, please try again',
+    //             'error'   => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
 
 
 
@@ -814,7 +814,7 @@ class AuthController extends Controller
                         'updated_at' => $admin->updated_at,
                     ],
 
-                    'permissions_details' => $detailedPermissions,
+                    // 'permissions_details' => $detailedPermissions,
                     'permissions_grouped' => $this->getGroupedPermissions($admin),
 
                     'roles'                 => $globalRoles,
