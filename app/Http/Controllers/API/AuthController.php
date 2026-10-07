@@ -3112,7 +3112,6 @@ class AuthController extends Controller
     //         ], 500);
     //     }
     // }
-    // App/Http/Controllers/API/AuthController.php
 
     public function distributorStep5Bank(Request $request)
     {
@@ -3180,44 +3179,64 @@ class AuthController extends Controller
                 'account' => substr($request->encrypted_bank_account, -4),
             ]);
 
-            $bankResult = $this->kyc->verifyBankAccountPennyLess(
-                $request->bank_ifsc,
-                $request->encrypted_bank_account
-            );
+            $bankVerified     = false;
+            $nameAtBank       = null;
+            $verificationNote = null;
 
-            Log::info('[Step5-Bank] Penny Less raw response', [
-                'user_id' => $user->id,
-                'success' => $bankResult['success'] ?? false,
-                'status'  => $bankResult['status'] ?? null,
-                'data'    => $bankResult['data'] ?? null,
-            ]);
+            try {
+                $bankResult = $this->kyc->verifyBankAccountPennyLess(
+                    $request->bank_ifsc,
+                    $request->encrypted_bank_account
+                );
 
-            if (!$bankResult['success']) {
-                Log::error('[Step5-Bank] Penny Less verification failed', [
+                Log::info('[Step5-Bank] Penny Less raw response', [
                     'user_id' => $user->id,
+                    'success' => $bankResult['success'] ?? false,
+                    'status'  => $bankResult['status'] ?? null,
                     'data'    => $bankResult['data'] ?? null,
                 ]);
 
-                return response()->json([
-                    'status'  => false,
-                    'message' => $bankResult['data']['message'] ?? 'Bank account verification failed. Please check your account number and IFSC code.',
-                    'errors'  => $bankResult['data'] ?? null,
-                ], 422);
+                if ($bankResult['success']) {
+                    $bankData      = $bankResult['data']['data'] ?? [];
+                    $accountExists = $bankData['account_exists'] ?? null;
+
+                    if ($accountExists === true || $accountExists === null) {
+                        // API ne success diya aur account exists
+                        $bankVerified = true;
+                        $nameAtBank   = $bankData['name_at_bank'] ?? null;
+                    } else {
+                        // API ne success diya lekin account_exists = false
+                        $verificationNote = 'API returned account_exists = false';
+
+                        Log::warning('[Step5-Bank] Account does not exist per API', [
+                            'user_id' => $user->id,
+                            'data'    => $bankData,
+                        ]);
+                    }
+                } else {
+                    // API call fail (403, 404, timeout, etc.)
+                    $verificationNote = $bankResult['data']['message']
+                        ?? $bankResult['data']['error']['message']
+                        ?? 'Bank API verification failed';
+
+                    Log::warning('[Step5-Bank] Penny Less API failed, saving with pending verification', [
+                        'user_id' => $user->id,
+                        'status'  => $bankResult['status'] ?? null,
+                        'note'    => $verificationNote,
+                        'data'    => $bankResult['data'] ?? null,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                // Koi bhi exception aaye toh bhi block nahi karenge
+                $verificationNote = 'Exception: ' . $e->getMessage();
+
+                Log::error('[Step5-Bank] Penny Less threw exception, saving with pending verification', [
+                    'user_id' => $user->id,
+                    'error'   => $e->getMessage(),
+                ]);
             }
 
-            // Check if account exists in API response
-            $bankData = $bankResult['data']['data'] ?? [];
-            $accountExists = $bankData['account_exists'] ?? null;
-            $nameAtBank    = $bankData['name_at_bank'] ?? null;
-
-            if ($accountExists === false) {
-                return response()->json([
-                    'status'  => false,
-                    'message' => 'Bank account does not exist or is invalid.',
-                ], 422);
-            }
-
-            // ============ Save Bank Details ============
+            // ============ Save Bank Details (Always) ============
             $distributorProfile->update([
                 'encrypted_bank_account' => encrypt($request->encrypted_bank_account),
                 'bank_ifsc'              => $request->bank_ifsc,
@@ -3229,7 +3248,7 @@ class AuthController extends Controller
                 'bank_name'              => $request->bank_name,
                 'branch_name'            => $request->branch_name,
                 'account_type'           => $request->account_type,
-                'bank_verified'          => 1,
+                'bank_verified'          => $bankVerified ? 1 : 0,
             ]);
 
             $user->update([
@@ -3238,17 +3257,26 @@ class AuthController extends Controller
             ]);
 
             Log::info('[Step5-Bank] Bank details saved', [
-                'user_id' => $user->id,
-                'ifsc'    => $request->bank_ifsc,
-                'last4'   => substr($request->encrypted_bank_account, -4),
+                'user_id'           => $user->id,
+                'ifsc'              => $request->bank_ifsc,
+                'last4'             => substr($request->encrypted_bank_account, -4),
+                'bank_verified'     => $bankVerified,
+                'verification_note' => $verificationNote,
             ]);
 
+            // ============ Response ============
+            $message = $bankVerified
+                ? 'Bank details verified and saved successfully'
+                : 'Bank details saved successfully. Verification will be completed shortly.';
+
             return response()->json([
-                'status'    => true,
-                'message'   => 'Bank details verified and saved successfully',
-                'step'      => 5,
-                'next_step' => 6,
-                'bank_details' => [
+                'status'            => true,
+                'message'           => $message,
+                'step'              => 5,
+                'next_step'         => 6,
+                'bank_verified'     => $bankVerified,
+                'verification_note' => $verificationNote,
+                'bank_details'      => [
                     'bank_name'        => $request->bank_name,
                     'title'            => $request->title,
                     'bank_holder_name' => $request->bank_holder_name,
