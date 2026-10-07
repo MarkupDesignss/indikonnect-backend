@@ -325,7 +325,7 @@ Route::prefix('wishlist')->middleware('auth:sanctum')->group(function () {
 // ============================
 // CART
 // ============================
-Route::prefix('cart')->group(function () {
+Route::prefix('cart')->middleware('auth:sanctum')->group(function () {
     Route::get('/', [CartController::class, 'index']);
     Route::get('/count', [CartController::class, 'count']);
     Route::post('/add', [CartController::class, 'add']);
