@@ -190,6 +190,31 @@ class KycVerificationService
         }
     }
 
+    /**
+     * Penny Less Bank Account Verification
+     * 
+     * GET /bank/{ifsc}/accounts/{account_number}/penniless-verify
+     *
+     */
+    public function verifyBankAccountPennyLess(string $ifsc, string $accountNumber): array
+    {
+        if (!$this->getAccessToken()) {
+            return $this->errorResponse('Authentication failed');
+        }
+
+        try {
+            $url = $this->baseUrl . '/bank/' . $ifsc . '/accounts/' . $accountNumber . '/penniless-verify';
+
+            $response = Http::withHeaders($this->headers())
+                ->timeout(30)
+                ->get($url);
+
+            return $this->handleResponse($response);
+        } catch (\Exception $e) {
+            return $this->exceptionResponse('Penny Less Bank verify', $e);
+        }
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Common Response Handlers
