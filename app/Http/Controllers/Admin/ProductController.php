@@ -3055,16 +3055,16 @@ class ProductController extends Controller
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Get all approved reviews
-    |--------------------------------------------------------------------------
-    |
-    | orderLine.order is loaded so we can get:
-    | - order_line_id
-    | - order_id
-    | - order_reference
-    |
-    */
+        |--------------------------------------------------------------------------
+        | Get all approved reviews
+        |--------------------------------------------------------------------------
+        |
+        | orderLine.order is loaded so we can get:
+        | - order_line_id
+        | - order_id
+        | - order_reference
+        |
+        */
         $reviews = ProductReview::with([
             'user' => function ($query) {
                 $query->select(
@@ -3090,10 +3090,10 @@ class ProductController extends Controller
             ->get();
 
         /*
-    |--------------------------------------------------------------------------
-    | Review Summary
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Review Summary
+        |--------------------------------------------------------------------------
+        */
         $averageRating = ProductReview::where('product_id', $product->id)
             ->where('status', 'approved')
             ->avg('rating');
@@ -3103,10 +3103,10 @@ class ProductController extends Controller
             ->count();
 
         /*
-    |--------------------------------------------------------------------------
-    | Rating Distribution
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Rating Distribution
+        |--------------------------------------------------------------------------
+        */
 
         $ratingDistribution = [
             1 => ProductReview::where('product_id', $product->id)
@@ -3136,18 +3136,18 @@ class ProductController extends Controller
         ];
 
         /*
-    |--------------------------------------------------------------------------
-    | Product Attributes
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Product Attributes
+        |--------------------------------------------------------------------------
+        */
 
         $productAttributes = $this->getProductAttributes($product->variants);
 
         /*
-    |--------------------------------------------------------------------------
-    | Selected Variant
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Selected Variant
+        |--------------------------------------------------------------------------
+        */
 
         if ($isVariantSelected && $selectedVariant) {
 
@@ -3448,10 +3448,10 @@ class ProductController extends Controller
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Add Reviews + Review Summary
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Add Reviews + Review Summary
+        |--------------------------------------------------------------------------
+        */
 
         $formattedProduct['reviews'] = [
 
@@ -3581,6 +3581,7 @@ class ProductController extends Controller
 
         return response()->json($formattedProduct);
     }
+
 
     // protected function getPriceRange()
     // {
