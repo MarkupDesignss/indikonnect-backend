@@ -37,7 +37,11 @@ use Illuminate\Support\Facades\File;
 class ProductController extends Controller
 {
     use AuditLogTrait;
+
     protected NotificationService $notificationService;
+
+    private ?ImageManager $imageManager = null;
+
     public function __construct(
         NotificationService $notificationService
     ) {
@@ -1478,12 +1482,8 @@ class ProductController extends Controller
         string $folder,
         int $quality = 95
     ): string {
-        $useImagick = extension_loaded('imagick');
-        $driver = $useImagick
-            ? new \Intervention\Image\Drivers\Imagick\Driver()
-            : new \Intervention\Image\Drivers\Gd\Driver();
 
-        $manager = new ImageManager($driver);
+        $manager = $this->getImageManager();
 
         $uploadDir = public_path("storage/{$folder}/");
         if (!File::exists($uploadDir)) {
@@ -1500,6 +1500,22 @@ class ProductController extends Controller
         $encoded->save($fullPath);
 
         return "{$folder}/{$fileName}";
+    }
+
+    /**
+     * Lazy singleton ImageManager
+     */
+    private function getImageManager(): ImageManager
+    {
+        if ($this->imageManager === null) {
+            $driver = extension_loaded('imagick')
+                ? new \Intervention\Image\Drivers\Imagick\Driver()
+                : new \Intervention\Image\Drivers\Gd\Driver();
+
+            $this->imageManager = new ImageManager($driver);
+        }
+
+        return $this->imageManager;
     }
 
     /**
