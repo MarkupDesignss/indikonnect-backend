@@ -42,10 +42,22 @@ return [
     ],
 
     'kyc' => [
-    'base_url'    => env('KYC_BASE_URL', 'https://test-api.sandbox.co.in'),
-    'api_key'     => env('KYC_API_KEY'),
-    'api_secret'  => env('KYC_API_SECRET'),
-    'environment' => env('KYC_ENV', 'sandbox'),
+        'base_url'    => env('KYC_BASE_URL', 'https://test-api.sandbox.co.in'),
+        'api_key'     => env('KYC_API_KEY'),
+        'api_secret'  => env('KYC_API_SECRET'),
+        'environment' => env('KYC_ENV', 'sandbox'),
      ],
+
+    'airtel_sms' => [
+        'enabled'         => env('AIRTEL_SMS_ENABLED', false),
+        'base_url'        => env('AIRTEL_SMS_BASE_URL', 'https://iqsms.airtel.in/api/v1'),
+        'client_id'       => env('AIRTEL_SMS_CLIENT_ID'),
+        'client_secret'   => env('AIRTEL_SMS_CLIENT_SECRET'),
+        'customer_id'     => env('AIRTEL_SMS_CUSTOMER_ID'),
+        'sender_id'       => env('AIRTEL_SMS_SENDER_ID'),
+        'dlt_entity_id'   => env('AIRTEL_SMS_DLT_ENTITY_ID'),
+        'dlt_template_id' => env('AIRTEL_SMS_DLT_TEMPLATE_ID'),
+        'timeout'         => 30,
+    ],
 
 ];
