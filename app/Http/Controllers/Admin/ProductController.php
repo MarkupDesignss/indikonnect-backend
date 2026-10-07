@@ -1523,7 +1523,7 @@ class ProductController extends Controller
                     // Add variant stock to total
                     $totalStock += $variantData['stock_quantity'] ?? 0;
 
-                    // ✅ Handle variant images with file uploads — pass $variantIndex
+                    //  Handle variant images with file uploads — pass $variantIndex
                     if (!empty($variantImages)) {
                         $this->handleVariantImages($request, $variant, $variantImages, $variantIndex);
                     }
@@ -1625,7 +1625,7 @@ class ProductController extends Controller
      */
     private function getImageQuality(bool $isPrimary = false): int
     {
-        return $isPrimary ? 100 : 95;
+        return $isPrimary ? 95 : 90;
     }
 
     /**
@@ -1641,6 +1641,19 @@ class ProductController extends Controller
         string $folder,
         int $quality = 95
     ): string {
+        Log::info('Image debug', [
+            'original_name'  => $imageFile->getClientOriginalName(),
+            'original_ext'   => $imageFile->getClientOriginalExtension(),
+            'mime_type'      => $imageFile->getMimeType(),
+            'size_bytes'     => $imageFile->getSize(),
+            'real_path'      => $imageFile->getRealPath(),
+            'path_exists'    => file_exists($imageFile->getRealPath()),
+            'is_valid'       => $imageFile->isValid(),
+            'error_code'     => $imageFile->getError(),
+            'error_message'  => $imageFile->getErrorMessage(),
+        ]);
+
+        gc_collect_cycles();
 
         $manager = $this->getImageManager();
 
@@ -1649,10 +1662,12 @@ class ProductController extends Controller
             File::makeDirectory($uploadDir, 0755, true);
         }
 
-        // Read original — no color profile touch, no resize
         $image = $manager->read($imageFile->getRealPath());
 
-        // Encode WebP with given quality
+        if ($image->width() > 2400 || $image->height() > 2400) {
+            $image->scaleDown(width: 2400, height: 2400);
+        }
+
         $encoded  = $image->toWebp($quality);
         $fileName = time() . '_' . uniqid() . '.webp';
         $fullPath = $uploadDir . $fileName;

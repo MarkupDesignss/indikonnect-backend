@@ -2503,69 +2503,155 @@ class AuthController extends Controller
      *   2. Second call: send reference_id + OTP => marks Aadhaar as verified
      */
     public function distributorStep3Aadhaar(Request $request)
-{
-    try {
-        $validator = Validator::make($request->all(), [
-            'phone'             => 'required|min:10|max:15',
-            'encrypted_aadhaar' => 'required|string|size:12',
-            'aadhaar_consent'   => 'required|in:0,1',
-            'reference_id'      => 'nullable|string',
-            'otp'               => 'nullable|digits:6',
-        ]);
-
-        if ($validator->fails()) {
-            Log::warning('[Step3-Aadhaar] Validation failed', [
-                'errors' => $validator->errors()->toArray(),
-                'phone'  => $request->phone,
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone'             => 'required|min:10|max:15',
+                'encrypted_aadhaar' => 'required|string|size:12',
+                'aadhaar_consent'   => 'required|in:0,1',
+                'reference_id'      => 'nullable|string',
+                'otp'               => 'nullable|digits:6',
             ]);
 
-            return response()->json([
-                'status' => false,
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+            if ($validator->fails()) {
+                Log::warning('[Step3-Aadhaar] Validation failed', [
+                    'errors' => $validator->errors()->toArray(),
+                    'phone'  => $request->phone,
+                ]);
 
-        $user = User::where('phone', $request->phone)->first();
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
 
-        if (!$user) {
-            Log::warning('[Step3-Aadhaar] User not found', ['phone' => $request->phone]);
+            $user = User::where('phone', $request->phone)->first();
 
-            return response()->json([
-                'status'  => false,
-                'message' => 'User not found.',
-            ], 422);
-        }
+            if (!$user) {
+                Log::warning('[Step3-Aadhaar] User not found', ['phone' => $request->phone]);
 
-        $aadhaarNumber = $request->encrypted_aadhaar;
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'User not found.',
+                ], 422);
+            }
 
-        Log::info('[Step3-Aadhaar] Request started', [
-            'user_id'        => $user->id,
-            'phone'          => $request->phone,
-            'aadhaar_masked' => substr($aadhaarNumber, 0, 4) . '********' . substr($aadhaarNumber, -2),
-            'action'         => ($request->filled('reference_id') && $request->filled('otp'))
-                                    ? 'verify_otp'
-                                    : 'send_otp',
-        ]);
+            $aadhaarNumber = $request->encrypted_aadhaar;
 
-        /*
+            Log::info('[Step3-Aadhaar] Request started', [
+                'user_id'        => $user->id,
+                'phone'          => $request->phone,
+                'aadhaar_masked' => substr($aadhaarNumber, 0, 4) . '********' . substr($aadhaarNumber, -2),
+                'action'         => ($request->filled('reference_id') && $request->filled('otp'))
+                    ? 'verify_otp'
+                    : 'send_otp',
+            ]);
+
+            /*
         |--------------------------------------------------------------------------
         | CASE 1: verify OTP
         |--------------------------------------------------------------------------
         */
-        if ($request->filled('reference_id') && $request->filled('otp')) {
+            if ($request->filled('reference_id') && $request->filled('otp')) {
 
-            Log::info('[Step3-Aadhaar] Calling verifyAadhaarOtp', [
-                'user_id'      => $user->id,
-                'reference_id' => $request->reference_id,
-                'otp_masked'   => substr($request->otp, 0, 2) . '****',
+                Log::info('[Step3-Aadhaar] Calling verifyAadhaarOtp', [
+                    'user_id'      => $user->id,
+                    'reference_id' => $request->reference_id,
+                    'otp_masked'   => substr($request->otp, 0, 2) . '****',
+                ]);
+
+                $result = $this->kyc->verifyAadhaarOtp(
+                    $request->reference_id,
+                    $request->otp
+                );
+
+                Log::info('[Step3-Aadhaar] verifyAadhaarOtp raw response', [
+                    'user_id' => $user->id,
+                    'success' => $result['success'] ?? false,
+                    'status'  => $result['status'] ?? null,
+                    'data'    => $result['data'] ?? null,
+                ]);
+
+                if (!$result['success']) {
+                    Log::error('[Step3-Aadhaar] OTP verify failed', [
+                        'user_id' => $user->id,
+                        'message' => $result['data']['message'] ?? null,
+                        'data'    => $result['data'] ?? null,
+                    ]);
+
+                    return response()->json([
+                        'status'  => false,
+                        'message' => $result['data']['message'] ?? 'Aadhaar OTP verification failed.',
+                        'errors'  => $result['data'] ?? null,
+                    ], 422);
+                }
+
+                $aadhaarData = $result['data']['data'] ?? [];
+
+                Log::info('[Step3-Aadhaar] Extracted aadhaarData', [
+                    'user_id'       => $user->id,
+                    'aadhaar_data'  => $aadhaarData,
+                    'verified_name' => $aadhaarData['name'] ?? null,
+                ]);
+
+                // Save to DB
+                $distributorProfile = DistributorProfile::updateOrCreate(
+                    ['user_id' => $user->id],
+                    [
+                        'encrypted_aadhaar'   => encrypt($aadhaarNumber),
+                        'aadhaar_consent'     => $request->aadhaar_consent,
+                        'aadhaar_verified'    => 1,
+                        'aadhaar_verified_at' => now(),
+                        'kyc_status'          => 'pending',
+                    ]
+                );
+
+                $user->update([
+                    'registration_step' => max($user->registration_step ?? 0, 3),
+                    'aadhaar_last4'     => substr($aadhaarNumber, -4),
+                ]);
+
+                // Confirm what was saved
+                $distributorProfile->refresh();
+                $user->refresh();
+
+                Log::info('[Step3-Aadhaar] Saved to DB', [
+                    'user_id' => $user->id,
+                    'distributor_profile' => [
+                        'id'                  => $distributorProfile->id,
+                        'aadhaar_verified'    => $distributorProfile->aadhaar_verified,
+                        'aadhaar_verified_at' => $distributorProfile->aadhaar_verified_at,
+                        'kyc_status'          => $distributorProfile->kyc_status,
+                    ],
+                    'user' => [
+                        'registration_step' => $user->registration_step,
+                        'aadhaar_last4'     => $user->aadhaar_last4,
+                    ],
+                ]);
+
+                return response()->json([
+                    'status'           => true,
+                    'message'          => 'Aadhaar verified successfully.',
+                    'step'             => 3,
+                    'next_step'        => 4,
+                    'aadhaar_verified' => true,
+                    'aadhaar_last4'    => '****' . substr($aadhaarNumber, -4),
+                    'verified_name'    => $aadhaarData['name'] ?? null,
+                ]);
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | CASE 2: send OTP
+        |--------------------------------------------------------------------------
+        */
+            Log::info('[Step3-Aadhaar] Calling sendAadhaarOtp', [
+                'user_id' => $user->id,
             ]);
 
-            $result = $this->kyc->verifyAadhaarOtp(
-                $request->reference_id,
-                $request->otp
-            );
+            $result = $this->kyc->sendAadhaarOtp($aadhaarNumber);
 
-            Log::info('[Step3-Aadhaar] verifyAadhaarOtp raw response', [
+            Log::info('[Step3-Aadhaar] sendAadhaarOtp raw response', [
                 'user_id' => $user->id,
                 'success' => $result['success'] ?? false,
                 'status'  => $result['status'] ?? null,
@@ -2573,7 +2659,7 @@ class AuthController extends Controller
             ]);
 
             if (!$result['success']) {
-                Log::error('[Step3-Aadhaar] OTP verify failed', [
+                Log::error('[Step3-Aadhaar] OTP send failed', [
                     'user_id' => $user->id,
                     'message' => $result['data']['message'] ?? null,
                     'data'    => $result['data'] ?? null,
@@ -2581,137 +2667,51 @@ class AuthController extends Controller
 
                 return response()->json([
                     'status'  => false,
-                    'message' => $result['data']['message'] ?? 'Aadhaar OTP verification failed.',
+                    'message' => $result['data']['message'] ?? 'Failed to send Aadhaar OTP.',
                     'errors'  => $result['data'] ?? null,
                 ], 422);
             }
 
-            $aadhaarData = $result['data']['data'] ?? [];
+            $referenceId = $result['data']['data']['reference_id'] ?? null;
 
-            Log::info('[Step3-Aadhaar] Extracted aadhaarData', [
-                'user_id'       => $user->id,
-                'aadhaar_data'  => $aadhaarData,
-                'verified_name' => $aadhaarData['name'] ?? null,
+            Log::info('[Step3-Aadhaar] OTP sent, reference_id extracted', [
+                'user_id'      => $user->id,
+                'reference_id' => $referenceId,
             ]);
 
-            // Save to DB
-            $distributorProfile = DistributorProfile::updateOrCreate(
+            DistributorProfile::updateOrCreate(
                 ['user_id' => $user->id],
                 [
-                    'encrypted_aadhaar'   => encrypt($aadhaarNumber),
-                    'aadhaar_consent'     => $request->aadhaar_consent,
-                    'aadhaar_verified'    => 1,
-                    'aadhaar_verified_at' => now(),
-                    'kyc_status'          => 'pending',
+                    'encrypted_aadhaar' => encrypt($aadhaarNumber),
+                    'aadhaar_consent'   => $request->aadhaar_consent,
+                    'kyc_status'        => 'pending',
                 ]
             );
 
-            $user->update([
-                'registration_step' => max($user->registration_step ?? 0, 3),
-                'aadhaar_last4'     => substr($aadhaarNumber, -4),
-            ]);
-
-            // Confirm what was saved
-            $distributorProfile->refresh();
-            $user->refresh();
-
-            Log::info('[Step3-Aadhaar] Saved to DB', [
+            Log::info('[Step3-Aadhaar] Profile staged for OTP verify', [
                 'user_id' => $user->id,
-                'distributor_profile' => [
-                    'id'                  => $distributorProfile->id,
-                    'aadhaar_verified'    => $distributorProfile->aadhaar_verified,
-                    'aadhaar_verified_at' => $distributorProfile->aadhaar_verified_at,
-                    'kyc_status'          => $distributorProfile->kyc_status,
-                ],
-                'user' => [
-                    'registration_step' => $user->registration_step,
-                    'aadhaar_last4'     => $user->aadhaar_last4,
-                ],
             ]);
 
             return response()->json([
-                'status'           => true,
-                'message'          => 'Aadhaar verified successfully.',
-                'step'             => 3,
-                'next_step'        => 4,
-                'aadhaar_verified' => true,
-                'aadhaar_last4'    => '****' . substr($aadhaarNumber, -4),
-                'verified_name'    => $aadhaarData['name'] ?? null,
+                'status'       => true,
+                'message'      => 'Aadhaar OTP sent successfully. Please verify.',
+                'step'         => 3,
+                'reference_id' => $referenceId,
             ]);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | CASE 2: send OTP
-        |--------------------------------------------------------------------------
-        */
-        Log::info('[Step3-Aadhaar] Calling sendAadhaarOtp', [
-            'user_id' => $user->id,
-        ]);
-
-        $result = $this->kyc->sendAadhaarOtp($aadhaarNumber);
-
-        Log::info('[Step3-Aadhaar] sendAadhaarOtp raw response', [
-            'user_id' => $user->id,
-            'success' => $result['success'] ?? false,
-            'status'  => $result['status'] ?? null,
-            'data'    => $result['data'] ?? null,
-        ]);
-
-        if (!$result['success']) {
-            Log::error('[Step3-Aadhaar] OTP send failed', [
-                'user_id' => $user->id,
-                'message' => $result['data']['message'] ?? null,
-                'data'    => $result['data'] ?? null,
+        } catch (\Exception $e) {
+            Log::error('[Step3-Aadhaar] Exception', [
+                'message' => $e->getMessage(),
+                'line'    => $e->getLine(),
+                'file'    => $e->getFile(),
+                'trace'   => $e->getTraceAsString(),
             ]);
 
             return response()->json([
                 'status'  => false,
-                'message' => $result['data']['message'] ?? 'Failed to send Aadhaar OTP.',
-                'errors'  => $result['data'] ?? null,
-            ], 422);
+                'message' => $e->getMessage(),
+            ], 500);
         }
-
-        $referenceId = $result['data']['data']['reference_id'] ?? null;
-
-        Log::info('[Step3-Aadhaar] OTP sent, reference_id extracted', [
-            'user_id'      => $user->id,
-            'reference_id' => $referenceId,
-        ]);
-
-        DistributorProfile::updateOrCreate(
-            ['user_id' => $user->id],
-            [
-                'encrypted_aadhaar' => encrypt($aadhaarNumber),
-                'aadhaar_consent'   => $request->aadhaar_consent,
-                'kyc_status'        => 'pending',
-            ]
-        );
-
-        Log::info('[Step3-Aadhaar] Profile staged for OTP verify', [
-            'user_id' => $user->id,
-        ]);
-
-        return response()->json([
-            'status'       => true,
-            'message'      => 'Aadhaar OTP sent successfully. Please verify.',
-            'step'         => 3,
-            'reference_id' => $referenceId,
-        ]);
-    } catch (\Exception $e) {
-        Log::error('[Step3-Aadhaar] Exception', [
-            'message' => $e->getMessage(),
-            'line'    => $e->getLine(),
-            'file'    => $e->getFile(),
-            'trace'   => $e->getTraceAsString(),
-        ]);
-
-        return response()->json([
-            'status'  => false,
-            'message' => $e->getMessage(),
-        ], 500);
     }
-}
 
     /**
      * DISTRIBUTOR: Step 4 - PAN Verification
@@ -2802,212 +2802,212 @@ class AuthController extends Controller
      *   2. Check PAN-Aadhaar link status (KYC confirmation)
      */
     public function distributorStep4Pan(Request $request)
-{
-    try {
-        $validator = Validator::make($request->all(), [
-            'phone'           => 'required|min:10|max:15',
-            'encrypted_pan'   => 'required|string|size:10',
-            'name_as_per_pan' => 'required|string|max:255',
-            'date_of_birth'   => 'required|date_format:d/m/Y',
-            'aadhaar_number'  => 'required|digits:12',
-        ]);
-
-        if ($validator->fails()) {
-            Log::warning('[Step4-PAN] Validation failed', [
-                'errors' => $validator->errors()->toArray(),
-                'phone'  => $request->phone,
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone'           => 'required|min:10|max:15',
+                'encrypted_pan'   => 'required|string|size:10',
+                'name_as_per_pan' => 'required|string|max:255',
+                'date_of_birth'   => 'required|date_format:d/m/Y',
+                'aadhaar_number'  => 'required|digits:12',
             ]);
 
-            return response()->json([
-                'status' => false,
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+            if ($validator->fails()) {
+                Log::warning('[Step4-PAN] Validation failed', [
+                    'errors' => $validator->errors()->toArray(),
+                    'phone'  => $request->phone,
+                ]);
 
-        $user = User::where('phone', $request->phone)->first();
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
 
-        if (!$user) {
-            Log::warning('[Step4-PAN] User not found', ['phone' => $request->phone]);
+            $user = User::where('phone', $request->phone)->first();
 
-            return response()->json([
-                'status'  => false,
-                'message' => 'User not found.',
-            ], 422);
-        }
+            if (!$user) {
+                Log::warning('[Step4-PAN] User not found', ['phone' => $request->phone]);
 
-        $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'User not found.',
+                ], 422);
+            }
 
-        if (!$distributorProfile || !$distributorProfile->aadhaar_verified) {
-            Log::warning('[Step4-PAN] Aadhaar not verified', [
-                'user_id'           => $user->id,
-                'profile_exists'    => (bool) $distributorProfile,
-                'aadhaar_verified'  => $distributorProfile->aadhaar_verified ?? null,
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
+
+            if (!$distributorProfile || !$distributorProfile->aadhaar_verified) {
+                Log::warning('[Step4-PAN] Aadhaar not verified', [
+                    'user_id'           => $user->id,
+                    'profile_exists'    => (bool) $distributorProfile,
+                    'aadhaar_verified'  => $distributorProfile->aadhaar_verified ?? null,
+                ]);
+
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Please complete Aadhaar verification first.',
+                ], 422);
+            }
+
+            $pan = strtoupper($request->encrypted_pan);
+
+            Log::info('[Step4-PAN] Request started', [
+                'user_id'        => $user->id,
+                'pan_masked'     => substr($pan, 0, 3) . '****' . substr($pan, -3),
+                'name'           => $request->name_as_per_pan,
+                'dob'            => $request->date_of_birth,
+                'aadhaar_masked' => substr($request->aadhaar_number, 0, 4) . '********',
             ]);
 
-            return response()->json([
-                'status'  => false,
-                'message' => 'Please complete Aadhaar verification first.',
-            ], 422);
-        }
-
-        $pan = strtoupper($request->encrypted_pan);
-
-        Log::info('[Step4-PAN] Request started', [
-            'user_id'        => $user->id,
-            'pan_masked'     => substr($pan, 0, 3) . '****' . substr($pan, -3),
-            'name'           => $request->name_as_per_pan,
-            'dob'            => $request->date_of_birth,
-            'aadhaar_masked' => substr($request->aadhaar_number, 0, 4) . '********',
-        ]);
-
-        /*
+            /*
         |--------------------------------------------------------------------------
         | Step 1: PAN verify
         |--------------------------------------------------------------------------
         */
-        Log::info('[Step4-PAN] Calling verifyPan', ['user_id' => $user->id]);
+            Log::info('[Step4-PAN] Calling verifyPan', ['user_id' => $user->id]);
 
-        $panResult = $this->kyc->verifyPan(
-            $pan,
-            $request->name_as_per_pan,
-            $request->date_of_birth
-        );
+            $panResult = $this->kyc->verifyPan(
+                $pan,
+                $request->name_as_per_pan,
+                $request->date_of_birth
+            );
 
-        Log::info('[Step4-PAN] verifyPan raw response', [
-            'user_id' => $user->id,
-            'success' => $panResult['success'] ?? false,
-            'status'  => $panResult['status'] ?? null,
-            'data'    => $panResult['data'] ?? null,
-        ]);
-
-        if (!$panResult['success']) {
-            Log::error('[Step4-PAN] PAN verify failed', [
+            Log::info('[Step4-PAN] verifyPan raw response', [
                 'user_id' => $user->id,
-                'message' => $panResult['data']['message'] ?? null,
+                'success' => $panResult['success'] ?? false,
+                'status'  => $panResult['status'] ?? null,
                 'data'    => $panResult['data'] ?? null,
             ]);
 
-            return response()->json([
-                'status'  => false,
-                'message' => $panResult['data']['message'] ?? 'PAN verification failed.',
-                'errors'  => $panResult['data'] ?? null,
-            ], 422);
-        }
+            if (!$panResult['success']) {
+                Log::error('[Step4-PAN] PAN verify failed', [
+                    'user_id' => $user->id,
+                    'message' => $panResult['data']['message'] ?? null,
+                    'data'    => $panResult['data'] ?? null,
+                ]);
 
-        $panData = $panResult['data']['data'] ?? [];
+                return response()->json([
+                    'status'  => false,
+                    'message' => $panResult['data']['message'] ?? 'PAN verification failed.',
+                    'errors'  => $panResult['data'] ?? null,
+                ], 422);
+            }
 
-        Log::info('[Step4-PAN] Extracted panData', [
-            'user_id'     => $user->id,
-            'pan_data'    => $panData,
-            'pan_status'  => $panData['status'] ?? null,
-        ]);
+            $panData = $panResult['data']['data'] ?? [];
 
-        if (($panData['status'] ?? '') !== 'valid') {
-            Log::warning('[Step4-PAN] Invalid PAN or name mismatch', [
-                'user_id'  => $user->id,
-                'response' => $panData,
+            Log::info('[Step4-PAN] Extracted panData', [
+                'user_id'     => $user->id,
+                'pan_data'    => $panData,
+                'pan_status'  => $panData['status'] ?? null,
             ]);
 
-            return response()->json([
-                'status'  => false,
-                'message' => 'Invalid PAN or name mismatch.',
-                'data'    => $panData,
-            ], 422);
-        }
+            if (($panData['status'] ?? '') !== 'valid') {
+                Log::warning('[Step4-PAN] Invalid PAN or name mismatch', [
+                    'user_id'  => $user->id,
+                    'response' => $panData,
+                ]);
 
-        /*
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Invalid PAN or name mismatch.',
+                    'data'    => $panData,
+                ], 422);
+            }
+
+            /*
         |--------------------------------------------------------------------------
         | Step 2: PAN-Aadhaar link check
         |--------------------------------------------------------------------------
         */
-        Log::info('[Step4-PAN] Calling checkPanAadhaarLink', ['user_id' => $user->id]);
+            Log::info('[Step4-PAN] Calling checkPanAadhaarLink', ['user_id' => $user->id]);
 
-        $linkResult = $this->kyc->checkPanAadhaarLink($pan, $request->aadhaar_number);
+            $linkResult = $this->kyc->checkPanAadhaarLink($pan, $request->aadhaar_number);
 
-        Log::info('[Step4-PAN] checkPanAadhaarLink raw response', [
-            'user_id' => $user->id,
-            'success' => $linkResult['success'] ?? false,
-            'status'  => $linkResult['status'] ?? null,
-            'data'    => $linkResult['data'] ?? null,
-        ]);
-
-        $aadhaarLinked = false;
-
-        if ($linkResult['success']) {
-            $seedingStatus = $linkResult['data']['data']['aadhaar_seeding_status'] ?? 'n';
-            $aadhaarLinked = ($seedingStatus === 'y');
-
-            Log::info('[Step4-PAN] Link status extracted', [
-                'user_id'        => $user->id,
-                'seeding_status' => $seedingStatus,
-                'aadhaar_linked' => $aadhaarLinked,
-            ]);
-        } else {
-            Log::warning('[Step4-PAN] Link check failed, defaulting to false', [
+            Log::info('[Step4-PAN] checkPanAadhaarLink raw response', [
                 'user_id' => $user->id,
+                'success' => $linkResult['success'] ?? false,
+                'status'  => $linkResult['status'] ?? null,
                 'data'    => $linkResult['data'] ?? null,
             ]);
-        }
 
-        /*
+            $aadhaarLinked = false;
+
+            if ($linkResult['success']) {
+                $seedingStatus = $linkResult['data']['data']['aadhaar_seeding_status'] ?? 'n';
+                $aadhaarLinked = ($seedingStatus === 'y');
+
+                Log::info('[Step4-PAN] Link status extracted', [
+                    'user_id'        => $user->id,
+                    'seeding_status' => $seedingStatus,
+                    'aadhaar_linked' => $aadhaarLinked,
+                ]);
+            } else {
+                Log::warning('[Step4-PAN] Link check failed, defaulting to false', [
+                    'user_id' => $user->id,
+                    'data'    => $linkResult['data'] ?? null,
+                ]);
+            }
+
+            /*
         |--------------------------------------------------------------------------
         | Save to DB
         |--------------------------------------------------------------------------
         */
-        $distributorProfile->update([
-            'encrypted_pan'   => encrypt($pan),
-            'pan_verified'    => 1,
-            'pan_verified_at' => now(),
-            'kyc_status'      => $aadhaarLinked ? 'verified' : 'pending',
-        ]);
+            $distributorProfile->update([
+                'encrypted_pan'   => encrypt($pan),
+                'pan_verified'    => 1,
+                'pan_verified_at' => now(),
+                'kyc_status'      => $aadhaarLinked ? 'verified' : 'pending',
+            ]);
 
-        $user->update([
-            'registration_step' => max($user->registration_step ?? 0, 4),
-            'pan_last4'         => substr($pan, -4),
-        ]);
+            $user->update([
+                'registration_step' => max($user->registration_step ?? 0, 4),
+                'pan_last4'         => substr($pan, -4),
+            ]);
 
-        $distributorProfile->refresh();
-        $user->refresh();
+            $distributorProfile->refresh();
+            $user->refresh();
 
-        Log::info('[Step4-PAN] Saved to DB', [
-            'user_id' => $user->id,
-            'distributor_profile' => [
-                'pan_verified'    => $distributorProfile->pan_verified,
-                'pan_verified_at' => $distributorProfile->pan_verified_at,
-                'kyc_status'      => $distributorProfile->kyc_status,
-            ],
-            'user' => [
-                'registration_step' => $user->registration_step,
-                'pan_last4'         => $user->pan_last4,
-            ],
-        ]);
+            Log::info('[Step4-PAN] Saved to DB', [
+                'user_id' => $user->id,
+                'distributor_profile' => [
+                    'pan_verified'    => $distributorProfile->pan_verified,
+                    'pan_verified_at' => $distributorProfile->pan_verified_at,
+                    'kyc_status'      => $distributorProfile->kyc_status,
+                ],
+                'user' => [
+                    'registration_step' => $user->registration_step,
+                    'pan_last4'         => $user->pan_last4,
+                ],
+            ]);
 
-        return response()->json([
-            'status'         => true,
-            'message'        => $aadhaarLinked
-                ? 'PAN verified and KYC confirmed (Aadhaar linked).'
-                : 'PAN verified but Aadhaar not linked. KYC pending.',
-            'step'           => 4,
-            'next_step'      => 5,
-            'pan_verified'   => true,
-            'aadhaar_linked' => $aadhaarLinked,
-            'pan_last4'      => '****' . substr($pan, -4),
-            'pan_name'       => $panData['name_as_per_pan'] ?? null,
-        ]);
-    } catch (\Exception $e) {
-        Log::error('[Step4-PAN] Exception', [
-            'message' => $e->getMessage(),
-            'line'    => $e->getLine(),
-            'file'    => $e->getFile(),
-            'trace'   => $e->getTraceAsString(),
-        ]);
+            return response()->json([
+                'status'         => true,
+                'message'        => $aadhaarLinked
+                    ? 'PAN verified and KYC confirmed (Aadhaar linked).'
+                    : 'PAN verified but Aadhaar not linked. KYC pending.',
+                'step'           => 4,
+                'next_step'      => 5,
+                'pan_verified'   => true,
+                'aadhaar_linked' => $aadhaarLinked,
+                'pan_last4'      => '****' . substr($pan, -4),
+                'pan_name'       => $panData['name_as_per_pan'] ?? null,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('[Step4-PAN] Exception', [
+                'message' => $e->getMessage(),
+                'line'    => $e->getLine(),
+                'file'    => $e->getFile(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
 
-        return response()->json([
-            'status'  => false,
-            'message' => $e->getMessage(),
-        ], 500);
+            return response()->json([
+                'status'  => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
     }
-}
 
     /**
      * DISTRIBUTOR: Step 5 - Bank Account Details
@@ -3112,7 +3112,6 @@ class AuthController extends Controller
     //         ], 500);
     //     }
     // }
-    // App/Http/Controllers/API/AuthController.php
 
     public function distributorStep5Bank(Request $request)
     {
@@ -3180,44 +3179,64 @@ class AuthController extends Controller
                 'account' => substr($request->encrypted_bank_account, -4),
             ]);
 
-            $bankResult = $this->kyc->verifyBankAccountPennyLess(
-                $request->bank_ifsc,
-                $request->encrypted_bank_account
-            );
+            $bankVerified     = false;
+            $nameAtBank       = null;
+            $verificationNote = null;
 
-            Log::info('[Step5-Bank] Penny Less raw response', [
-                'user_id' => $user->id,
-                'success' => $bankResult['success'] ?? false,
-                'status'  => $bankResult['status'] ?? null,
-                'data'    => $bankResult['data'] ?? null,
-            ]);
+            try {
+                $bankResult = $this->kyc->verifyBankAccountPennyLess(
+                    $request->bank_ifsc,
+                    $request->encrypted_bank_account
+                );
 
-            if (!$bankResult['success']) {
-                Log::error('[Step5-Bank] Penny Less verification failed', [
+                Log::info('[Step5-Bank] Penny Less raw response', [
                     'user_id' => $user->id,
+                    'success' => $bankResult['success'] ?? false,
+                    'status'  => $bankResult['status'] ?? null,
                     'data'    => $bankResult['data'] ?? null,
                 ]);
 
-                return response()->json([
-                    'status'  => false,
-                    'message' => $bankResult['data']['message'] ?? 'Bank account verification failed. Please check your account number and IFSC code.',
-                    'errors'  => $bankResult['data'] ?? null,
-                ], 422);
+                if ($bankResult['success']) {
+                    $bankData      = $bankResult['data']['data'] ?? [];
+                    $accountExists = $bankData['account_exists'] ?? null;
+
+                    if ($accountExists === true || $accountExists === null) {
+                        // API ne success diya aur account exists
+                        $bankVerified = true;
+                        $nameAtBank   = $bankData['name_at_bank'] ?? null;
+                    } else {
+                        // API ne success diya lekin account_exists = false
+                        $verificationNote = 'API returned account_exists = false';
+
+                        Log::warning('[Step5-Bank] Account does not exist per API', [
+                            'user_id' => $user->id,
+                            'data'    => $bankData,
+                        ]);
+                    }
+                } else {
+                    // API call fail (403, 404, timeout, etc.)
+                    $verificationNote = $bankResult['data']['message']
+                        ?? $bankResult['data']['error']['message']
+                        ?? 'Bank API verification failed';
+
+                    Log::warning('[Step5-Bank] Penny Less API failed, saving with pending verification', [
+                        'user_id' => $user->id,
+                        'status'  => $bankResult['status'] ?? null,
+                        'note'    => $verificationNote,
+                        'data'    => $bankResult['data'] ?? null,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                // Koi bhi exception aaye toh bhi block nahi karenge
+                $verificationNote = 'Exception: ' . $e->getMessage();
+
+                Log::error('[Step5-Bank] Penny Less threw exception, saving with pending verification', [
+                    'user_id' => $user->id,
+                    'error'   => $e->getMessage(),
+                ]);
             }
 
-            // Check if account exists in API response
-            $bankData = $bankResult['data']['data'] ?? [];
-            $accountExists = $bankData['account_exists'] ?? null;
-            $nameAtBank    = $bankData['name_at_bank'] ?? null;
-
-            if ($accountExists === false) {
-                return response()->json([
-                    'status'  => false,
-                    'message' => 'Bank account does not exist or is invalid.',
-                ], 422);
-            }
-
-            // ============ Save Bank Details ============
+            // ============ Save Bank Details (Always) ============
             $distributorProfile->update([
                 'encrypted_bank_account' => encrypt($request->encrypted_bank_account),
                 'bank_ifsc'              => $request->bank_ifsc,
@@ -3229,7 +3248,7 @@ class AuthController extends Controller
                 'bank_name'              => $request->bank_name,
                 'branch_name'            => $request->branch_name,
                 'account_type'           => $request->account_type,
-                'bank_verified'          => 1,
+                'bank_verified'          => $bankVerified ? 1 : 0,
             ]);
 
             $user->update([
@@ -3238,17 +3257,26 @@ class AuthController extends Controller
             ]);
 
             Log::info('[Step5-Bank] Bank details saved', [
-                'user_id' => $user->id,
-                'ifsc'    => $request->bank_ifsc,
-                'last4'   => substr($request->encrypted_bank_account, -4),
+                'user_id'           => $user->id,
+                'ifsc'              => $request->bank_ifsc,
+                'last4'             => substr($request->encrypted_bank_account, -4),
+                'bank_verified'     => $bankVerified,
+                'verification_note' => $verificationNote,
             ]);
 
+            // ============ Response ============
+            $message = $bankVerified
+                ? 'Bank details verified and saved successfully'
+                : 'Bank details saved successfully. Verification will be completed shortly.';
+
             return response()->json([
-                'status'    => true,
-                'message'   => 'Bank details verified and saved successfully',
-                'step'      => 5,
-                'next_step' => 6,
-                'bank_details' => [
+                'status'            => true,
+                'message'           => $message,
+                'step'              => 5,
+                'next_step'         => 6,
+                'bank_verified'     => $bankVerified,
+                'verification_note' => $verificationNote,
+                'bank_details'      => [
                     'bank_name'        => $request->bank_name,
                     'title'            => $request->title,
                     'bank_holder_name' => $request->bank_holder_name,
