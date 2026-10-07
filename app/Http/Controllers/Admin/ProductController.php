@@ -66,14 +66,118 @@ class ProductController extends Controller
     /**
      * Format a single product with variants
      */
+    // protected function formatProduct($product, $wishlistIds = [])
+    // {
+    //     $isWishlisted = in_array($product->id, $wishlistIds);
+    //     $isActiveDeal = $product->isActiveDealOfTheDay();
+
+    //     $primaryImage = $product->images->where('is_primary', true)->first()
+    //         ?? $product->images->first();
+
+
+    //     return [
+    //         'id' => $product->id,
+    //         'product_code' => $product->product_code,
+    //         'name' => $product->name,
+    //         'slug' => $product->slug,
+    //         'commission_value' => $product->commission_value,
+    //         'description' => $product->description,
+    //         'specification' => $product->specification,
+    //         'shipping_charge' => $product->shipping_charge,
+    //         'hsn_code' => $product->hsn_code,
+    //         'uom' => $product->uom,
+    //         'category_id' => $product->category_id,
+    //         'category' => $product->category ? [
+    //             'id' => $product->category->id,
+    //             'name' => $product->category->title,
+    //             'slug' => $product->category->slug,
+    //             'description' => $product->category->description,
+    //         ] : null,
+    //         'brand_id' => $product->brand_id,
+    //         'brand' => $product->brand ? [
+    //             'id' => $product->brand->id,
+    //             'name' => $product->brand->title,
+    //             'slug' => $product->brand->discount_percentage,
+    //         ] : null,
+    //         'tax_category_id' => $product->tax_category_id,
+    //         'tax_category' => $product->taxCategory ? [
+    //             'id' => $product->taxCategory->id,
+    //             'name' => $product->taxCategory->name,
+    //             'rate' => $product->taxCategory->rate,
+    //         ] : null,
+    //         'subcategory_id ' => $product->subcategory_id ?? null,
+    //         'subcategory' => $product->subcategory ? [
+    //             'id' => $product->subcategory->id,
+    //             'category_id' => $product->subcategory->category_id,
+    //             'name' => $product->subcategory->name,
+    //             'slug' => $product->subcategory->slug,
+    //         ] : null,
+
+    //         // Retail pricing
+    //         'retail_mrp' => $product->retail_mrp,
+    //         'retail_price' => $product->retail_price,
+    //         'retail_discount_type' => $product->retail_discount_type,
+    //         'retail_discount_value' => $product->retail_discount_value,
+    //         'retail_discount_amount' => $product->retail_mrp - $product->retail_price,
+    //         'retail_discount_percentage' => $product->retail_mrp > 0
+    //             ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
+    //             : 0,
+
+    //         // Distributor pricing
+    //         'distributor_mrp' => $product->distributor_mrp,
+    //         'distributor_price' => $product->distributor_price,
+    //         'distributor_discount_type' => $product->distributor_discount_type,
+    //         'distributor_discount_value' => $product->distributor_discount_value,
+    //         'distributor_discount_amount' => $product->distributor_mrp && $product->distributor_price
+    //             ? $product->distributor_mrp - $product->distributor_price
+    //             : null,
+    //         'distributor_discount_percentage' => $product->distributor_mrp && $product->distributor_price && $product->distributor_mrp > 0
+    //             ? round((($product->distributor_mrp - $product->distributor_price) / $product->distributor_mrp) * 100, 2)
+    //             : null,
+
+    //         'stock_quantity' => (int) $product->stock_quantity,
+    //         'low_stock_threshold' => (int) $product->low_stock_threshold,
+    //         'is_published' => (bool) $product->is_published,
+    //         'is_trending' => (bool) $product->is_trending,
+    //         'trending_sort_order' => (int) $product->trending_sort_order,
+    //         'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+    //         'is_active_deal' => $isActiveDeal,
+    //         'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+    //         'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+    //         'sale_type' => $product->sale_type,
+    //         'status' => $this->getProductStatus($product),
+    //         'is_wishlisted' => $isWishlisted,
+
+    //         // Product Images
+    //         'images' => $product->images->map(function ($image) {
+    //             return [
+    //                 'id' => $image->id,
+    //                 'image' => $image->image,
+    //                 'image_url' => asset('storage/' . $image->image),
+    //                 'sort_order' => $image->sort_order,
+    //                 'is_primary' => (bool) $image->is_primary,
+    //             ];
+    //         })->values()->toArray(),
+    //         'primary_image' => $primaryImage ? $primaryImage->image : null,
+    //         'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+
+    //         // Product Variants
+    //         'variants' => $this->formatVariants($product->variants, $product->id, $wishlistIds),
+
+    //         'created_at' => $product->created_at?->toISOString(),
+    //         'updated_at' => $product->updated_at?->toISOString(),
+    //     ];
+    // }
     protected function formatProduct($product, $wishlistIds = [])
     {
         $isWishlisted = in_array($product->id, $wishlistIds);
         $isActiveDeal = $product->isActiveDealOfTheDay();
 
-        $primaryImage = $product->images->where('is_primary', true)->first()
-            ?? $product->images->first();
+        // Sort images by sort_order
+        $sortedImages = $product->images->sortBy('sort_order');
 
+        $primaryImage = $sortedImages->where('is_primary', true)->first()
+            ?? $sortedImages->first();
 
         return [
             'id' => $product->id,
@@ -148,14 +252,17 @@ class ProductController extends Controller
             'status' => $this->getProductStatus($product),
             'is_wishlisted' => $isWishlisted,
 
-            // Product Images
-            'images' => $product->images->map(function ($image) {
+            // Product Images - SORTED BY sort_order
+            'images' => $sortedImages->map(function ($image) {
                 return [
                     'id' => $image->id,
+                    'product_id' => $image->product_id,
                     'image' => $image->image,
                     'image_url' => asset('storage/' . $image->image),
-                    'sort_order' => $image->sort_order,
+                    'sort_order' => (int) $image->sort_order,
                     'is_primary' => (bool) $image->is_primary,
+                    'created_at' => $image->created_at?->toISOString(),
+                    'updated_at' => $image->updated_at?->toISOString(),
                 ];
             })->values()->toArray(),
             'primary_image' => $primaryImage ? $primaryImage->image : null,
@@ -174,6 +281,58 @@ class ProductController extends Controller
         if ($variant->stock_quantity <= 0) return 'out_of_stock';
         if ($variant->stock_quantity <= $variant->low_stock_threshold) return 'low_stock';
         return 'active';
+    }
+
+    public function swapImageOrder(Request $request, Product $product)
+    {
+        $request->validate([
+            'image_id_1' => 'required|exists:product_images,id',
+            'image_id_2' => 'required|exists:product_images,id',
+        ]);
+
+        if ($request->image_id_1 == $request->image_id_2) {
+            return response()->json([
+                'message' => 'Both image ids are same.',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Both images must belong to this product
+            $image1 = $product->images()->where('id', $request->image_id_1)->first();
+            $image2 = $product->images()->where('id', $request->image_id_2)->first();
+
+            if (!$image1 || !$image2) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'One or both images do not belong to this product.',
+                ], 422);
+            }
+
+            // Swap their sort_order
+            $temp = $image1->sort_order;
+            $image1->update(['sort_order' => $image2->sort_order]);
+            $image2->update(['sort_order' => $temp]);
+
+            DB::commit();
+
+            // Reload with sorted images
+            $product->load(['category', 'subcategory', 'taxCategory', 'images', 'variants.images']);
+
+            $userId      = $request->query('user_id');
+            $wishlistIds = $this->getUserWishlistIds($userId);
+
+            return response()->json([
+                'message' => 'Image order swapped successfully.',
+                'data'    => $this->formatProduct($product, $wishlistIds),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to swap image order.',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
     }
 
     protected function getProductImageUrl($product)
