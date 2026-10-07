@@ -2271,7 +2271,6 @@ class AuthController extends Controller
     /**
      * DISTRIBUTOR: Step 2 - Sponsor & Placement
      */
-
     public function distributorStep2Sponsor(Request $request)
     {
         try {

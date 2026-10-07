@@ -1822,7 +1822,7 @@ class ProductController extends Controller
             // Stock
             'stock_quantity' => ['nullable', 'integer', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
-            'shipping_charge' => ['nullable', 'integer', 'min:0'],
+            'shipping_charge' => ['nullable', 'min:0'],
             'commission_value' => ['nullable', 'min:0'],
 
             // Status - FIXED: Use 'sometimes' instead of 'nullable' for better boolean handling
