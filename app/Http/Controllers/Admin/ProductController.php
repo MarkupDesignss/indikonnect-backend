@@ -1641,6 +1641,20 @@ class ProductController extends Controller
         string $folder,
         int $quality = 95
     ): string {
+            Log::info('Image debug', [
+            'original_name'  => $imageFile->getClientOriginalName(),
+            'original_ext'   => $imageFile->getClientOriginalExtension(),
+            'mime_type'      => $imageFile->getMimeType(),
+            'size_bytes'     => $imageFile->getSize(),
+            'real_path'      => $imageFile->getRealPath(),
+            'path_exists'    => file_exists($imageFile->getRealPath()),
+            'is_valid'       => $imageFile->isValid(),
+            'error_code'     => $imageFile->getError(),
+            'error_message'  => $imageFile->getErrorMessage(),
+        ]);
+
+        gc_collect_cycles();
+        
         $manager = $this->getImageManager();
 
         $uploadDir = public_path("storage/{$folder}/");
