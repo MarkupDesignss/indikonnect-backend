@@ -1523,7 +1523,7 @@ class ProductController extends Controller
                     // Add variant stock to total
                     $totalStock += $variantData['stock_quantity'] ?? 0;
 
-                    // ✅ Handle variant images with file uploads — pass $variantIndex
+                    //  Handle variant images with file uploads — pass $variantIndex
                     if (!empty($variantImages)) {
                         $this->handleVariantImages($request, $variant, $variantImages, $variantIndex);
                     }
@@ -1641,7 +1641,7 @@ class ProductController extends Controller
         string $folder,
         int $quality = 95
     ): string {
-            Log::info('Image debug', [
+        Log::info('Image debug', [
             'original_name'  => $imageFile->getClientOriginalName(),
             'original_ext'   => $imageFile->getClientOriginalExtension(),
             'mime_type'      => $imageFile->getMimeType(),
@@ -1654,7 +1654,7 @@ class ProductController extends Controller
         ]);
 
         gc_collect_cycles();
-        
+
         $manager = $this->getImageManager();
 
         $uploadDir = public_path("storage/{$folder}/");

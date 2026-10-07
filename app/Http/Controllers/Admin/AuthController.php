@@ -493,302 +493,6 @@ class AuthController extends Controller
      * @return \Illuminate\Http\JsonResponse
      */
 
-    // public function me(Request $request)
-    // {
-    //     try {
-    //         $admin = $request->user();
-
-    //         if (!$admin || !$admin instanceof \App\Models\Admin) {
-    //             return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
-    //         }
-
-    //         // ============================================
-    //         // LOAD RELATIONSHIPS
-    //         // ============================================
-    //         $admin->load([
-    //             'roles.permissions',
-    //             'warehouseAssignments' => function ($query) {
-    //                 $query->with([
-    //                     'warehouse:id,name,code,city,state,is_active,is_default',
-    //                     'role:id,name,slug,description',
-    //                 ])
-    //                     ->orderByDesc('is_primary')
-    //                     ->orderBy('warehouse_id');
-    //             },
-    //             'primaryWarehouse.warehouse',
-    //         ]);
-
-    //         $permissions         = $this->getAdminPermissions($admin);
-    //         $detailedPermissions = $this->getDetailedPermissions($admin);
-
-    //         // ============================================
-    //         // WAREHOUSE ASSIGNMENTS
-    //         // ============================================
-    //         $warehouseAssignments = $admin->warehouseAssignments->map(function ($assignment) {
-    //             return [
-    //                 'id' => $assignment->id,
-
-    //                 'warehouse' => $assignment->warehouse ? [
-    //                     'id'         => $assignment->warehouse->id,
-    //                     'name'       => $assignment->warehouse->name,
-    //                     'code'       => $assignment->warehouse->code,
-    //                     'city'       => $assignment->warehouse->city,
-    //                     'state'      => $assignment->warehouse->state,
-    //                     'is_active'  => $assignment->warehouse->is_active,
-    //                     'is_default' => $assignment->warehouse->is_default,
-    //                 ] : null,
-
-    //                 'role' => $assignment->role ? [
-    //                     'id'          => $assignment->role->id,
-    //                     'name'        => $assignment->role->name,
-    //                     'slug'        => $assignment->role->slug,
-    //                     'description' => $assignment->role->description,
-    //                 ] : null,
-
-    //                 // Keep role_id + slug for quick checks
-    //                 'role_id'   => $assignment->role_id,
-    //                 'role_slug' => $assignment->role?->slug,
-
-    //                 'is_primary' => (bool) $assignment->is_primary,
-    //                 'is_active'  => (bool) $assignment->is_active,
-    //                 'is_current' => $assignment->is_current,
-
-    //                 'assigned_from'  => $assignment->assigned_from?->toDateString(),
-    //                 'assigned_until' => $assignment->assigned_until?->toDateString(),
-
-    //                 'notes'       => $assignment->notes,
-    //                 'assigned_by' => $assignment->assigned_by,
-    //                 'created_at'  => $assignment->created_at,
-    //                 'updated_at'  => $assignment->updated_at,
-    //             ];
-    //         });
-
-    //         // ============================================
-    //         // GLOBAL ROLES (always present, even without warehouse)
-    //         // ============================================
-    //         $globalRoles = $admin->roles->map(function ($role) {
-    //             return [
-    //                 'id'          => $role->id,
-    //                 'name'        => $role->name,
-    //                 'slug'        => $role->slug,
-    //                 'description' => $role->description,
-    //             ];
-    //         })->values();
-
-    //         // ============================================
-    //         // GROUP BY ROLE SLUG
-    //         // Har global role ke saath uske warehouses (empty bhi ho sakte hain)
-    //         // ============================================
-    //         $warehousesByRole = $admin->roles->mapWithKeys(function ($role) use ($admin) {
-
-    //             $assignments = $admin->warehouseAssignments
-    //                 ->where('is_active', true)
-    //                 ->where('role_id', $role->id)
-    //                 ->map(function ($assignment) {
-    //                     return [
-    //                         'id'             => $assignment->id,
-    //                         'warehouse_id'   => $assignment->warehouse_id,
-    //                         'warehouse_name' => $assignment->warehouse?->name,
-    //                         'warehouse_code' => $assignment->warehouse?->code,
-    //                         'role_id'        => $assignment->role_id,
-    //                         'role_name'      => $assignment->role?->name,
-    //                         'role_slug'      => $assignment->role?->slug,
-    //                         'is_primary'     => (bool) $assignment->is_primary,
-    //                         'assigned_from'  => $assignment->assigned_from?->toDateString(),
-    //                         'assigned_until' => $assignment->assigned_until?->toDateString(),
-    //                     ];
-    //                 })->values();
-
-    //             return [
-    //                 $role->slug => [
-    //                     'role_id'     => $role->id,
-    //                     'role_name'   => $role->name,
-    //                     'role_slug'   => $role->slug,
-    //                     'description' => $role->description,
-    //                     'warehouses'  => $assignments,
-    //                     'has_warehouse_access' => $assignments->isNotEmpty(),
-    //                 ]
-    //             ];
-    //         });
-
-    //         // ============================================
-    //         // PRIMARY WAREHOUSE
-    //         // ============================================
-    //         $primaryWarehouse = $admin->primaryWarehouse?->warehouse
-    //             ? [
-    //                 'id'        => $admin->primaryWarehouse->warehouse->id,
-    //                 'name'      => $admin->primaryWarehouse->warehouse->name,
-    //                 'code'      => $admin->primaryWarehouse->warehouse->code,
-    //                 'city'      => $admin->primaryWarehouse->warehouse->city,
-    //                 'role_id'   => $admin->primaryWarehouse->role_id,
-    //                 'role_name' => $admin->primaryWarehouse->role?->name,
-    //                 'role_slug' => $admin->primaryWarehouse->role?->slug,
-    //             ]
-    //             : null;
-
-    //         // ============================================
-    //         // QUICK CHECKS
-    //         // ============================================
-    //         $activeWarehouseIds = $admin->warehouseAssignments
-    //             ->where('is_active', true)
-    //             ->pluck('warehouse_id')->unique()->values();
-
-    //         $activeWarehouseRoles = $admin->warehouseAssignments
-    //             ->where('is_active', true)
-    //             ->pluck('role.slug')
-    //             ->filter()->unique()->values();
-
-    //         // ============================================
-    //         // RESPONSE
-    //         // ============================================
-    //         return response()->json([
-    //             'success' => true,
-    //             'data' => [
-    //                 'admin' => [
-    //                     'id'            => $admin->id,
-    //                     'name'          => $admin->name,
-    //                     'email'         => $admin->email,
-    //                     'profile_image' => $admin->profile_image
-    //                         ? asset('storage/' . $admin->profile_image) : null,
-    //                     'warehouse_name' => $admin->primaryWarehouse?->warehouse?->name,
-    //                     'warehouse_code' => $admin->primaryWarehouse?->warehouse?->code,
-
-
-    //                     'created_at' => $admin->created_at,
-    //                     'updated_at' => $admin->updated_at,
-    //                 ],
-
-    //                 // 'permissions_details' => $detailedPermissions,
-    //                 'permissions_grouped' => $this->getGroupedPermissions($admin),
-
-    //                 'roles'                 => $globalRoles,
-
-    //                 // 'warehouse_assignments' => $warehouseAssignments,
-    //                 // 'warehouses_by_role'    => $warehousesByRole,
-
-    //                 // 'primary_warehouse'     => $primaryWarehouse,
-
-    //                 'has_warehouse_access'  => $activeWarehouseIds->isNotEmpty(),
-    //             ]
-    //         ], 200);
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Failed to get admin data',
-    //             'error'   => $e->getMessage()
-    //         ], 422);
-    //     }
-    // }
-
-    // private function getAdminPermissions($admin): array
-    // {
-    //     $permissions = [];
-
-    //     // Global role permissions
-    //     foreach ($admin->roles as $role) {
-    //         foreach ($role->permissions as $permission) {
-    //             $permissions[] = $permission->slug;
-    //         }
-    //     }
-
-    //     // Warehouse-specific role permissions
-    //     foreach ($admin->warehouseAssignments as $assignment) {
-    //         if (!$assignment->is_active || !$assignment->role) {
-    //             continue;
-    //         }
-
-    //         foreach ($assignment->role->permissions as $permission) {
-    //             $permissions[] = $permission->slug;
-    //         }
-    //     }
-
-    //     return array_values(array_unique($permissions));
-    // }
-
-    // private function getDetailedPermissions($admin): array
-    // {
-    //     $permissions = [];
-    //     $seen = [];
-
-    //     // Global role permissions
-    //     foreach ($admin->roles as $role) {
-    //         foreach ($role->permissions as $permission) {
-    //             if (in_array($permission->id, $seen)) {
-    //                 continue;
-    //             }
-
-    //             $permissions[] = [
-    //                 'id'         => $permission->id,
-    //                 'name'       => $permission->name,
-    //                 'slug'       => $permission->slug,
-    //                 'module'     => $permission->module,
-    //                 'action'     => $permission->action,
-    //                 'source'     => 'global_role',
-    //                 'created_at' => $permission->created_at,
-    //                 'updated_at' => $permission->updated_at,
-    //             ];
-
-    //             $seen[] = $permission->id;
-    //         }
-    //     }
-
-    //     // Warehouse-specific role permissions
-    //     foreach ($admin->warehouseAssignments as $assignment) {
-    //         if (!$assignment->is_active || !$assignment->role) {
-    //             continue;
-    //         }
-
-    //         foreach ($assignment->role->permissions as $permission) {
-    //             if (in_array($permission->id, $seen)) {
-    //                 continue;
-    //             }
-
-    //             $permissions[] = [
-    //                 'id'         => $permission->id,
-    //                 'name'       => $permission->name,
-    //                 'slug'       => $permission->slug,
-    //                 'module'     => $permission->module,
-    //                 'action'     => $permission->action,
-    //                 'source'     => 'warehouse_role',
-    //                 'created_at' => $permission->created_at,
-    //                 'updated_at' => $permission->updated_at,
-    //             ];
-
-    //             $seen[] = $permission->id;
-    //         }
-    //     }
-
-    //     return $permissions;
-    // }
-    // private function getGroupedPermissions($admin): array
-    // {
-    //     $grouped = [];
-
-    //     // Global role permissions
-    //     foreach ($admin->roles as $role) {
-    //         foreach ($role->permissions as $permission) {
-    //             $grouped[$permission->module][] = $permission->action;
-    //         }
-    //     }
-
-    //     // Warehouse-specific role permissions
-    //     foreach ($admin->warehouseAssignments as $assignment) {
-    //         if (!$assignment->is_active || !$assignment->role) {
-    //             continue;
-    //         }
-
-    //         foreach ($assignment->role->permissions as $permission) {
-    //             $grouped[$permission->module][] = $permission->action;
-    //         }
-    //     }
-
-    //     // Deduplicate actions per module
-    //     return array_map(
-    //         fn($actions) => array_values(array_unique($actions)),
-    //         $grouped
-    //     );
-    // }
-
     public function me(Request $request)
     {
         try {
@@ -807,7 +511,6 @@ class AuthController extends Controller
                     $query->with([
                         'warehouse:id,name,code,city,state,is_active,is_default',
                         'role:id,name,slug,description',
-                        'role.permissions', //  IMPORTANT: warehouse role ki permissions load karo
                     ])
                         ->orderByDesc('is_primary')
                         ->orderBy('warehouse_id');
@@ -842,6 +545,7 @@ class AuthController extends Controller
                         'description' => $assignment->role->description,
                     ] : null,
 
+                    // Keep role_id + slug for quick checks
                     'role_id'   => $assignment->role_id,
                     'role_slug' => $assignment->role?->slug,
 
@@ -860,27 +564,52 @@ class AuthController extends Controller
             });
 
             // ============================================
-            // GLOBAL ROLES (deduplicated with permissions)
+            // GLOBAL ROLES (always present, even without warehouse)
             // ============================================
-            $globalRoles = $admin->roles
-                ->unique('id')
-                ->map(function ($role) {
-                    return [
-                        'id'          => $role->id,
-                        'name'        => $role->name,
-                        'slug'        => $role->slug,
+            $globalRoles = $admin->roles->map(function ($role) {
+                return [
+                    'id'          => $role->id,
+                    'name'        => $role->name,
+                    'slug'        => $role->slug,
+                    'description' => $role->description,
+                ];
+            })->values();
+
+            // ============================================
+            // GROUP BY ROLE SLUG
+            // Har global role ke saath uske warehouses (empty bhi ho sakte hain)
+            // ============================================
+            $warehousesByRole = $admin->roles->mapWithKeys(function ($role) use ($admin) {
+
+                $assignments = $admin->warehouseAssignments
+                    ->where('is_active', true)
+                    ->where('role_id', $role->id)
+                    ->map(function ($assignment) {
+                        return [
+                            'id'             => $assignment->id,
+                            'warehouse_id'   => $assignment->warehouse_id,
+                            'warehouse_name' => $assignment->warehouse?->name,
+                            'warehouse_code' => $assignment->warehouse?->code,
+                            'role_id'        => $assignment->role_id,
+                            'role_name'      => $assignment->role?->name,
+                            'role_slug'      => $assignment->role?->slug,
+                            'is_primary'     => (bool) $assignment->is_primary,
+                            'assigned_from'  => $assignment->assigned_from?->toDateString(),
+                            'assigned_until' => $assignment->assigned_until?->toDateString(),
+                        ];
+                    })->values();
+
+                return [
+                    $role->slug => [
+                        'role_id'     => $role->id,
+                        'role_name'   => $role->name,
+                        'role_slug'   => $role->slug,
                         'description' => $role->description,
-
-                        // 👇 Har role ki apni grouped permissions
-                        'permissions' => $role->permissions
-                            ->groupBy(fn($p) => $p->module ?? 'general')
-                            ->map(fn($group) => $group->pluck('action')->unique()->values())
-                            ->toArray(),
-
-                        'permissions_count' => $role->permissions->count(),
-                    ];
-                })
-                ->values();
+                        'warehouses'  => $assignments,
+                        'has_warehouse_access' => $assignments->isNotEmpty(),
+                    ]
+                ];
+            });
 
             // ============================================
             // PRIMARY WAREHOUSE
@@ -904,6 +633,11 @@ class AuthController extends Controller
                 ->where('is_active', true)
                 ->pluck('warehouse_id')->unique()->values();
 
+            $activeWarehouseRoles = $admin->warehouseAssignments
+                ->where('is_active', true)
+                ->pluck('role.slug')
+                ->filter()->unique()->values();
+
             // ============================================
             // RESPONSE
             // ============================================
@@ -916,19 +650,25 @@ class AuthController extends Controller
                         'email'         => $admin->email,
                         'profile_image' => $admin->profile_image
                             ? asset('storage/' . $admin->profile_image) : null,
-
                         'warehouse_name' => $admin->primaryWarehouse?->warehouse?->name,
                         'warehouse_code' => $admin->primaryWarehouse?->warehouse?->code,
+
 
                         'created_at' => $admin->created_at,
                         'updated_at' => $admin->updated_at,
                     ],
 
+                    // 'permissions_details' => $detailedPermissions,
                     'permissions_grouped' => $this->getGroupedPermissions($admin),
 
-                    'roles' => $globalRoles,
+                    'roles'                 => $globalRoles,
 
-                    'has_warehouse_access' => $activeWarehouseIds->isNotEmpty(),
+                    // 'warehouse_assignments' => $warehouseAssignments,
+                    // 'warehouses_by_role'    => $warehousesByRole,
+
+                    // 'primary_warehouse'     => $primaryWarehouse,
+
+                    'has_warehouse_access'  => $activeWarehouseIds->isNotEmpty(),
                 ]
             ], 200);
         } catch (\Exception $e) {
@@ -940,12 +680,6 @@ class AuthController extends Controller
         }
     }
 
-    /**
-     * Get flat array of permission slugs for an admin.
-     * Includes both:
-     *   - Global role permissions
-     *   - Warehouse-specific role permissions
-     */
     private function getAdminPermissions($admin): array
     {
         $permissions = [];
@@ -971,12 +705,6 @@ class AuthController extends Controller
         return array_values(array_unique($permissions));
     }
 
-    /**
-     * Get detailed permission objects for an admin.
-     * Includes both:
-     *   - Global role permissions
-     *   - Warehouse-specific role permissions
-     */
     private function getDetailedPermissions($admin): array
     {
         $permissions = [];
@@ -1032,26 +760,25 @@ class AuthController extends Controller
 
         return $permissions;
     }
-
-    /**
-     * Get permissions grouped by module.
-     */
     private function getGroupedPermissions($admin): array
     {
         $grouped = [];
+        // dd($admin);
+        // Global role permissions
+        foreach ($admin->roles as $role) {
+            foreach ($role->permissions as $permission) {
+                $grouped[$permission->module][] = $permission->action;
+            }
+        }
 
-        // ============================================
-        // SIRF WAREHOUSE-SPECIFIC ROLE PERMISSIONS
-        // (Global roles ki permissions NOT included)
-        // ============================================
+        // Warehouse-specific role permissions
         foreach ($admin->warehouseAssignments as $assignment) {
             if (!$assignment->is_active || !$assignment->role) {
                 continue;
             }
 
             foreach ($assignment->role->permissions as $permission) {
-                $module = $permission->module ?? 'general';
-                $grouped[$module][] = $permission->action;
+                $grouped[$permission->module][] = $permission->action;
             }
         }
 
@@ -1061,6 +788,279 @@ class AuthController extends Controller
             $grouped
         );
     }
+
+    // public function me(Request $request)
+    // {
+    //     try {
+    //         $admin = $request->user();
+
+    //         if (!$admin || !$admin instanceof \App\Models\Admin) {
+    //             return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+    //         }
+
+    //         // ============================================
+    //         // LOAD RELATIONSHIPS
+    //         // ============================================
+    //         $admin->load([
+    //             'roles.permissions',
+    //             'warehouseAssignments' => function ($query) {
+    //                 $query->with([
+    //                     'warehouse:id,name,code,city,state,is_active,is_default',
+    //                     'role:id,name,slug,description',
+    //                     'role.permissions', //  IMPORTANT: warehouse role ki permissions load karo
+    //                 ])
+    //                     ->orderByDesc('is_primary')
+    //                     ->orderBy('warehouse_id');
+    //             },
+    //             'primaryWarehouse.warehouse',
+    //         ]);
+
+    //         $permissions         = $this->getAdminPermissions($admin);
+    //         $detailedPermissions = $this->getDetailedPermissions($admin);
+
+    //         // ============================================
+    //         // WAREHOUSE ASSIGNMENTS
+    //         // ============================================
+    //         $warehouseAssignments = $admin->warehouseAssignments->map(function ($assignment) {
+    //             return [
+    //                 'id' => $assignment->id,
+
+    //                 'warehouse' => $assignment->warehouse ? [
+    //                     'id'         => $assignment->warehouse->id,
+    //                     'name'       => $assignment->warehouse->name,
+    //                     'code'       => $assignment->warehouse->code,
+    //                     'city'       => $assignment->warehouse->city,
+    //                     'state'      => $assignment->warehouse->state,
+    //                     'is_active'  => $assignment->warehouse->is_active,
+    //                     'is_default' => $assignment->warehouse->is_default,
+    //                 ] : null,
+
+    //                 'role' => $assignment->role ? [
+    //                     'id'          => $assignment->role->id,
+    //                     'name'        => $assignment->role->name,
+    //                     'slug'        => $assignment->role->slug,
+    //                     'description' => $assignment->role->description,
+    //                 ] : null,
+
+    //                 'role_id'   => $assignment->role_id,
+    //                 'role_slug' => $assignment->role?->slug,
+
+    //                 'is_primary' => (bool) $assignment->is_primary,
+    //                 'is_active'  => (bool) $assignment->is_active,
+    //                 'is_current' => $assignment->is_current,
+
+    //                 'assigned_from'  => $assignment->assigned_from?->toDateString(),
+    //                 'assigned_until' => $assignment->assigned_until?->toDateString(),
+
+    //                 'notes'       => $assignment->notes,
+    //                 'assigned_by' => $assignment->assigned_by,
+    //                 'created_at'  => $assignment->created_at,
+    //                 'updated_at'  => $assignment->updated_at,
+    //             ];
+    //         });
+
+    //         // ============================================
+    //         // GLOBAL ROLES (deduplicated with permissions)
+    //         // ============================================
+    //         $globalRoles = $admin->roles
+    //             ->unique('id')
+    //             ->map(function ($role) {
+    //                 return [
+    //                     'id'          => $role->id,
+    //                     'name'        => $role->name,
+    //                     'slug'        => $role->slug,
+    //                     'description' => $role->description,
+
+    //                     // ðŸ‘‡ Har role ki apni grouped permissions
+    //                     'permissions' => $role->permissions
+    //                         ->groupBy(fn($p) => $p->module ?? 'general')
+    //                         ->map(fn($group) => $group->pluck('action')->unique()->values())
+    //                         ->toArray(),
+
+    //                     'permissions_count' => $role->permissions->count(),
+    //                 ];
+    //             })
+    //             ->values();
+
+    //         // ============================================
+    //         // PRIMARY WAREHOUSE
+    //         // ============================================
+    //         $primaryWarehouse = $admin->primaryWarehouse?->warehouse
+    //             ? [
+    //                 'id'        => $admin->primaryWarehouse->warehouse->id,
+    //                 'name'      => $admin->primaryWarehouse->warehouse->name,
+    //                 'code'      => $admin->primaryWarehouse->warehouse->code,
+    //                 'city'      => $admin->primaryWarehouse->warehouse->city,
+    //                 'role_id'   => $admin->primaryWarehouse->role_id,
+    //                 'role_name' => $admin->primaryWarehouse->role?->name,
+    //                 'role_slug' => $admin->primaryWarehouse->role?->slug,
+    //             ]
+    //             : null;
+
+    //         // ============================================
+    //         // QUICK CHECKS
+    //         // ============================================
+    //         $activeWarehouseIds = $admin->warehouseAssignments
+    //             ->where('is_active', true)
+    //             ->pluck('warehouse_id')->unique()->values();
+
+    //         // ============================================
+    //         // RESPONSE
+    //         // ============================================
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => [
+    //                 'admin' => [
+    //                     'id'            => $admin->id,
+    //                     'name'          => $admin->name,
+    //                     'email'         => $admin->email,
+    //                     'profile_image' => $admin->profile_image
+    //                         ? asset('storage/' . $admin->profile_image) : null,
+
+    //                     'warehouse_name' => $admin->primaryWarehouse?->warehouse?->name,
+    //                     'warehouse_code' => $admin->primaryWarehouse?->warehouse?->code,
+
+    //                     'created_at' => $admin->created_at,
+    //                     'updated_at' => $admin->updated_at,
+    //                 ],
+
+    //                 'permissions_grouped' => $this->getGroupedPermissions($admin),
+
+    //                 'roles' => $globalRoles,
+
+    //                 'has_warehouse_access' => $activeWarehouseIds->isNotEmpty(),
+    //             ]
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to get admin data',
+    //             'error'   => $e->getMessage()
+    //         ], 422);
+    //     }
+    // }
+
+    // /**
+    //  * Get flat array of permission slugs for an admin.
+    //  * Includes both:
+    //  *   - Global role permissions
+    //  *   - Warehouse-specific role permissions
+    //  */
+    // private function getAdminPermissions($admin): array
+    // {
+    //     $permissions = [];
+
+    //     // Global role permissions
+    //     foreach ($admin->roles as $role) {
+    //         foreach ($role->permissions as $permission) {
+    //             $permissions[] = $permission->slug;
+    //         }
+    //     }
+
+    //     // Warehouse-specific role permissions
+    //     foreach ($admin->warehouseAssignments as $assignment) {
+    //         if (!$assignment->is_active || !$assignment->role) {
+    //             continue;
+    //         }
+
+    //         foreach ($assignment->role->permissions as $permission) {
+    //             $permissions[] = $permission->slug;
+    //         }
+    //     }
+
+    //     return array_values(array_unique($permissions));
+    // }
+
+    // /**
+    //  * Get detailed permission objects for an admin.
+    //  * Includes both:
+    //  *   - Global role permissions
+    //  *   - Warehouse-specific role permissions
+    //  */
+    // private function getDetailedPermissions($admin): array
+    // {
+    //     $permissions = [];
+    //     $seen = [];
+
+    //     // Global role permissions
+    //     foreach ($admin->roles as $role) {
+    //         foreach ($role->permissions as $permission) {
+    //             if (in_array($permission->id, $seen)) {
+    //                 continue;
+    //             }
+
+    //             $permissions[] = [
+    //                 'id'         => $permission->id,
+    //                 'name'       => $permission->name,
+    //                 'slug'       => $permission->slug,
+    //                 'module'     => $permission->module,
+    //                 'action'     => $permission->action,
+    //                 'source'     => 'global_role',
+    //                 'created_at' => $permission->created_at,
+    //                 'updated_at' => $permission->updated_at,
+    //             ];
+
+    //             $seen[] = $permission->id;
+    //         }
+    //     }
+
+    //     // Warehouse-specific role permissions
+    //     foreach ($admin->warehouseAssignments as $assignment) {
+    //         if (!$assignment->is_active || !$assignment->role) {
+    //             continue;
+    //         }
+
+    //         foreach ($assignment->role->permissions as $permission) {
+    //             if (in_array($permission->id, $seen)) {
+    //                 continue;
+    //             }
+
+    //             $permissions[] = [
+    //                 'id'         => $permission->id,
+    //                 'name'       => $permission->name,
+    //                 'slug'       => $permission->slug,
+    //                 'module'     => $permission->module,
+    //                 'action'     => $permission->action,
+    //                 'source'     => 'warehouse_role',
+    //                 'created_at' => $permission->created_at,
+    //                 'updated_at' => $permission->updated_at,
+    //             ];
+
+    //             $seen[] = $permission->id;
+    //         }
+    //     }
+
+    //     return $permissions;
+    // }
+
+    // /**
+    //  * Get permissions grouped by module.
+    //  */
+    // private function getGroupedPermissions($admin): array
+    // {
+    //     $grouped = [];
+
+    //     // ============================================
+    //     // SIRF WAREHOUSE-SPECIFIC ROLE PERMISSIONS
+    //     // (Global roles ki permissions NOT included)
+    //     // ============================================
+    //     foreach ($admin->warehouseAssignments as $assignment) {
+    //         if (!$assignment->is_active || !$assignment->role) {
+    //             continue;
+    //         }
+
+    //         foreach ($assignment->role->permissions as $permission) {
+    //             $module = $permission->module ?? 'general';
+    //             $grouped[$module][] = $permission->action;
+    //         }
+    //     }
+
+    //     // Deduplicate actions per module
+    //     return array_map(
+    //         fn($actions) => array_values(array_unique($actions)),
+    //         $grouped
+    //     );
+    // }
 
 
     // private function getAdminPermissions($admin)
