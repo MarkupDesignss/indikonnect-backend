@@ -1466,7 +1466,7 @@ class ProductController extends Controller
      */
     private function getImageQuality(bool $isPrimary = false): int
     {
-        return $isPrimary ? 100 : 95;
+        return $isPrimary ? 95 : 90;
     }
 
     /**
@@ -1482,7 +1482,6 @@ class ProductController extends Controller
         string $folder,
         int $quality = 95
     ): string {
-
         $manager = $this->getImageManager();
 
         $uploadDir = public_path("storage/{$folder}/");
@@ -1490,10 +1489,12 @@ class ProductController extends Controller
             File::makeDirectory($uploadDir, 0755, true);
         }
 
-        // Read original — no color profile touch, no resize
         $image = $manager->read($imageFile->getRealPath());
 
-        // Encode WebP with given quality
+        if ($image->width() > 2400 || $image->height() > 2400) {
+            $image->scaleDown(width: 2400, height: 2400);
+        }
+
         $encoded  = $image->toWebp($quality);
         $fileName = time() . '_' . uniqid() . '.webp';
         $fullPath = $uploadDir . $fileName;
