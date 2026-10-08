@@ -131,6 +131,7 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
 // ============================
 // HEADER MENU
 // ============================
+Route::get('/logo', [MenuController::class, 'logo']);
 Route::prefix('header')->group(function () {
     Route::get('/', [MenuController::class, 'index']);
 
