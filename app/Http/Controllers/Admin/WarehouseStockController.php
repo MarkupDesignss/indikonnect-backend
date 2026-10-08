@@ -1522,7 +1522,7 @@ class WarehouseStockController extends Controller
             }
 
             // ================================================
-            // ✅ TOTAL_ADDED_QUANTITY LOGIC (PRODUCT)
+            // TOTAL_ADDED_QUANTITY LOGIC (PRODUCT)
             // ================================================
             $totalAddedDelta = $this->calculateTotalAddedDelta(
                 $oldProductQty,
