@@ -49,6 +49,25 @@ class MenuController extends Controller
             ], 500);
         }
     }
+    public function logo()
+    {
+        try {
+            $logo = Menu::where('type', 'logo')->first();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'logo' => $logo->logo_url,
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch header data',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
 
     /**
      * Add a new menu item
