@@ -245,6 +245,7 @@ class ProductController extends Controller
                 : null,
 
             'stock_quantity' => (int) $product->stock_quantity,
+            'total_added_quantity' => (int) $product->total_added_quantity,
             'low_stock_threshold' => (int) $product->low_stock_threshold,
             'is_published' => (bool) $product->is_published,
             'is_trending' => (bool) $product->is_trending,
@@ -1245,6 +1246,7 @@ class ProductController extends Controller
                 'sale_type' => $product->sale_type,
 
                 'stock_quantity' => (int) $product->stock_quantity,
+                'total_added_quantity' => (int) $product->total_added_quantity,
                 'low_stock_threshold' => (int) $product->low_stock_threshold,
                 'stock_status' => $this->getProductStatus($product),
                 'is_published' => (bool) $product->is_published,
@@ -1261,11 +1263,11 @@ class ProductController extends Controller
                     return [
                         'id' => $image->id,
                         'image_url' => asset('storage/' . $image->image),
-                        'is_primary' => (bool) $image->is_primary,
+                        // 'is_primary' => (bool) $image->is_primary,
                         'sort_order' => $image->sort_order,
                     ];
                 })->values()->toArray(),
-                'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+                // 'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
 
                 'variants' => $product->variants->map(function ($variant) use ($isDistributor) {
                     $primaryVariantImage = $variant->images->where('is_primary', true)->first()
@@ -1411,6 +1413,7 @@ class ProductController extends Controller
             'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
             'stock_quantity' => ['required_if:variants,null', 'nullable', 'integer', 'min:0'],
             'shipping_charge' => ['required', 'min:0'],
+            'total_added_quantity' => ['nullable', 'min:0'],
             'commission_value' => ['required', 'integer', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'is_published' => ['nullable', 'boolean'],
@@ -1484,6 +1487,7 @@ class ProductController extends Controller
             $productData['slug'] = $this->generateUniqueSlug($productData['slug']);
             $productData['is_published'] = $productData['is_published'] ?? false;
             $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
+            $productData['total_added_quantity'] = $productData['stock_quantity'] ?? 0;
             $productData['shipping_charge'] = $productData['shipping_charge'] ?? 0;
             $productData['commission_value'] = $productData['commission_value'] ?? 0;
 
@@ -2012,6 +2016,7 @@ class ProductController extends Controller
 
             // Stock
             'stock_quantity' => ['nullable', 'integer', 'min:0'],
+            'total_added_quantity' => ['nullable', 'integer', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'shipping_charge' => ['nullable', 'min:0'],
             'commission_value' => ['nullable', 'min:0'],
@@ -2155,6 +2160,7 @@ class ProductController extends Controller
                 'distributor_discount_value' => $product->distributor_discount_value,
 
                 'stock_quantity' => $product->stock_quantity,
+                'total_added_quantity' => $product->stock_quantity,
                 'low_stock_threshold' => $product->low_stock_threshold,
                 'shipping_charge' => $product->shipping_charge,
                 'commission_value' => $product->commission_value,
@@ -2497,6 +2503,7 @@ class ProductController extends Controller
                 'distributor_discount_value' => $product->distributor_discount_value,
 
                 'stock_quantity' => $product->stock_quantity,
+                'total_added_quantity' => $product->stock_quantity,
                 'low_stock_threshold' => $product->low_stock_threshold,
                 'shipping_charge' => $product->shipping_charge,
                 'commission_value' => $product->commission_value,
@@ -5477,14 +5484,246 @@ class ProductController extends Controller
         }
     }
 
+    // public function updateStock(Request $request)
+    // {
+    //     try {
+    //         // ============ VALIDATION ============
+    //         $validator = \Illuminate\Support\Facades\Validator::make(
+    //             $request->all(),
+    //             [
+    //                 'product_id' => 'required|exists:products,id',
+
+    //                 // Variants array (optional - only when updating variants)
+    //                 'variants' => 'nullable|array',
+    //                 'variants.*.id' => 'required_with:variants|exists:product_variants,id',
+    //                 'variants.*.stock_quantity' => 'required_with:variants|integer|min:0',
+
+    //                 // Direct stock update (optional - can update parent product directly)
+    //                 'stock_quantity' => 'nullable|integer|min:0',
+
+    //                 // Operation type (set, add, subtract)
+    //                 'operation' => 'nullable|in:set,add,subtract',
+    //             ],
+    //             [
+    //                 'product_id.required' => 'Product ID is required',
+    //                 'product_id.exists' => 'Product not found',
+    //                 'variants.*.id.exists' => 'One or more variants not found',
+    //                 'variants.*.stock_quantity.min' => 'Variant stock cannot be negative',
+    //                 'stock_quantity.min' => 'Stock quantity cannot be negative',
+    //                 'operation.in' => 'Operation must be set, add, or subtract',
+    //             ]
+    //         );
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Validation failed',
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $validated = $validator->validated();
+    //         $productId = $validated['product_id'];
+    //         $product = Product::findOrFail($productId);
+
+    //         DB::beginTransaction();
+
+    //         // ============ CASE: UPDATE VARIANTS ============
+    //         if (isset($validated['variants']) && !empty($validated['variants'])) {
+    //             // Check operation for variants
+    //             if (!isset($validated['operation'])) {
+    //                 DB::rollBack();
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => 'Operation is required when updating variants'
+    //                 ], 400);
+    //             }
+
+    //             $operation = $validated['operation'];
+    //             $variantsData = $validated['variants'];
+    //             $updatedVariants = [];
+    //             $totalVariants = count($variantsData);
+
+    //             // Verify all variants belong to this product
+    //             $variantIds = collect($variantsData)->pluck('id')->toArray();
+    //             $existingVariants = ProductVariant::whereIn('id', $variantIds)
+    //                 ->where('product_id', $productId)
+    //                 ->get()
+    //                 ->keyBy('id');
+
+    //             if ($existingVariants->count() != $totalVariants) {
+    //                 DB::rollBack();
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => 'One or more variants do not belong to this product'
+    //                 ], 400);
+    //             }
+
+    //             // Update each variant
+    //             foreach ($variantsData as $variantData) {
+    //                 $variant = $existingVariants[$variantData['id']];
+    //                 $oldStock = $variant->stock_quantity;
+    //                 $quantity = $variantData['stock_quantity'];
+
+    //                 // Apply operation
+    //                 switch ($operation) {
+    //                     case 'set':
+    //                         $newStock = $quantity;
+    //                         break;
+    //                     case 'add':
+    //                         $newStock = $oldStock + $quantity;
+    //                         break;
+    //                     case 'subtract':
+    //                         $newStock = $oldStock - $quantity;
+    //                         break;
+    //                     default:
+    //                         DB::rollBack();
+    //                         return response()->json([
+    //                             'success' => false,
+    //                             'message' => 'Invalid operation type'
+    //                         ], 400);
+    //                 }
+
+    //                 // Validate stock is not negative
+    //                 if ($newStock < 0) {
+    //                     DB::rollBack();
+    //                     return response()->json([
+    //                         'success' => false,
+    //                         'message' => "Stock cannot be negative for variant ID {$variantData['id']}. Current: {$oldStock}, Operation: {$operation}, Quantity: {$quantity}"
+    //                     ], 400);
+    //                 }
+
+    //                 $variant->stock_quantity = $newStock;
+    //                 $variant->save();
+
+    //                 $updatedVariants[] = [
+    //                     'id' => $variant->id,
+    //                     'sku' => $variant->sku,
+    //                     'attributes' => $variant->attributes,
+    //                     'old_stock' => $oldStock,
+    //                     'operation' => $operation,
+    //                     'quantity' => $quantity,
+    //                     'new_stock' => $newStock,
+    //                 ];
+    //             }
+
+    //             // Update parent product total stock (sum of all variants)
+    //             $totalStock = $this->updateProductStock($productId);
+    //             $product->refresh();
+    //             $result = $this->bulkUpdateVariantsWithOperation($variantsData, $operation);
+    //             DB::commit();
+
+    //             return response()->json([
+    //                 'success' => true,
+    //                 'message' => 'Variant stocks updated successfully',
+    //                 'data' => [
+    //                     'product' => [
+    //                         'id' => $product->id,
+    //                         'name' => $product->name,
+    //                         'total_stock' => $totalStock,
+    //                         'has_variants' => true,
+    //                     ],
+    //                     'total_updated' => $totalVariants,
+    //                     'operation' => $operation,
+    //                     'updated_variants' => $updatedVariants,
+    //                 ],
+    //                 'timestamp' => now()->toISOString()
+    //             ]);
+    //         }
+
+    //         // ============ CASE: UPDATE PARENT PRODUCT STOCK ============
+    //         // This runs whether product has variants or not
+    //         if (!isset($validated['stock_quantity'])) {
+    //             DB::rollBack();
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Stock quantity is required when not updating variants'
+    //             ], 400);
+    //         }
+
+    //         $oldStock = $product->stock_quantity;
+    //         $newStock = $validated['stock_quantity'];
+
+    //         // Apply operation if provided
+    //         if (isset($validated['operation'])) {
+    //             switch ($validated['operation']) {
+    //                 case 'add':
+    //                     $newStock = $oldStock + $validated['stock_quantity'];
+    //                     break;
+    //                 case 'subtract':
+    //                     $newStock = $oldStock - $validated['stock_quantity'];
+    //                     break;
+    //                 case 'set':
+    //                 default:
+    //                     $newStock = $validated['stock_quantity'];
+    //                     break;
+    //             }
+    //         }
+
+    //         // Validate negative stock
+    //         if ($newStock < 0) {
+    //             DB::rollBack();
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => "Stock cannot be negative. Current: {$oldStock}, New: {$newStock}"
+    //             ], 400);
+    //         }
+
+    //         $product->stock_quantity = $newStock;
+    //         $product->save();
+
+    //         if ($oldStock == 0 && $newStock > 0) {
+    //             $this->sendBackInStockNotifications($productId, null);
+    //         }
+
+    //         // If product has variants, you might want to update each variant's stock too
+    //         if ($product->variants()->count() > 0) {
+    //             // Option 1: Don't update variants (keep them as they are)
+    //             // Option 2: Update all variants with the same value
+    //             // Option 3: Distribute the stock among variants
+
+    //             // For now, we'll just update the parent product
+    //             // You can add logic here to handle variants if needed
+    //         }
+
+    //         DB::commit();
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Product stock updated successfully',
+    //             'data' => [
+    //                 'product' => [
+    //                     'id' => $product->id,
+    //                     'name' => $product->name,
+    //                     'old_stock' => $oldStock,
+    //                     'new_stock' => $newStock,
+    //                     'operation' => $validated['operation'] ?? 'set',
+    //                     'has_variants' => $product->variants()->count() > 0,
+    //                 ]
+    //             ],
+    //             'timestamp' => now()->toISOString()
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         Log::error('Stock update failed: ' . $e->getMessage(), [
+    //             'trace' => $e->getTraceAsString(),
+    //             'request' => $request->all()
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to update stock',
+    //             'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+    //         ], 500);
+    //     }
+    // }
+
     public function updateStock(Request $request)
     {
         try {
-            // ============ VALIDATION ============
             $validator = \Illuminate\Support\Facades\Validator::make(
                 $request->all(),
                 [
-                    // Product ID is required
                     'product_id' => 'required|exists:products,id',
 
                     // Variants array (optional - only when updating variants)
@@ -5495,7 +5734,7 @@ class ProductController extends Controller
                     // Direct stock update (optional - can update parent product directly)
                     'stock_quantity' => 'nullable|integer|min:0',
 
-                    // Operation type (set, add, subtract)
+                    // Operation type
                     'operation' => 'nullable|in:set,add,subtract',
                 ],
                 [
@@ -5517,16 +5756,23 @@ class ProductController extends Controller
             }
 
             $validated = $validator->validated();
+
             $productId = $validated['product_id'];
+
             $product = Product::findOrFail($productId);
 
             DB::beginTransaction();
 
-            // ============ CASE: UPDATE VARIANTS ============
+            // ============================================================
+            // CASE 1: UPDATE VARIANTS
+            // ============================================================
+
             if (isset($validated['variants']) && !empty($validated['variants'])) {
-                // Check operation for variants
+
+                // Operation is required for variants
                 if (!isset($validated['operation'])) {
                     DB::rollBack();
+
                     return response()->json([
                         'success' => false,
                         'message' => 'Operation is required when updating variants'
@@ -5534,12 +5780,18 @@ class ProductController extends Controller
                 }
 
                 $operation = $validated['operation'];
+
                 $variantsData = $validated['variants'];
+
                 $updatedVariants = [];
+
                 $totalVariants = count($variantsData);
 
                 // Verify all variants belong to this product
-                $variantIds = collect($variantsData)->pluck('id')->toArray();
+                $variantIds = collect($variantsData)
+                    ->pluck('id')
+                    ->toArray();
+
                 $existingVariants = ProductVariant::whereIn('id', $variantIds)
                     ->where('product_id', $productId)
                     ->get()
@@ -5547,31 +5799,61 @@ class ProductController extends Controller
 
                 if ($existingVariants->count() != $totalVariants) {
                     DB::rollBack();
+
                     return response()->json([
                         'success' => false,
                         'message' => 'One or more variants do not belong to this product'
                     ], 400);
                 }
 
+                /*
+             * Keep track of how much stock was actually added.
+             *
+             * Example:
+             * Variant 1 -> add 10
+             * Variant 2 -> add 20
+             *
+             * totalAddedQuantity = 30
+             */
+                $totalAddedQuantity = 0;
+
                 // Update each variant
                 foreach ($variantsData as $variantData) {
+
                     $variant = $existingVariants[$variantData['id']];
+
                     $oldStock = $variant->stock_quantity;
+
                     $quantity = $variantData['stock_quantity'];
 
                     // Apply operation
                     switch ($operation) {
+
                         case 'set':
+
                             $newStock = $quantity;
+
                             break;
+
                         case 'add':
+
                             $newStock = $oldStock + $quantity;
+
+                            // Track only added quantity
+                            $totalAddedQuantity += $quantity;
+
                             break;
+
                         case 'subtract':
+
                             $newStock = $oldStock - $quantity;
+
                             break;
+
                         default:
+
                             DB::rollBack();
+
                             return response()->json([
                                 'success' => false,
                                 'message' => 'Invalid operation type'
@@ -5580,14 +5862,18 @@ class ProductController extends Controller
 
                     // Validate stock is not negative
                     if ($newStock < 0) {
+
                         DB::rollBack();
+
                         return response()->json([
                             'success' => false,
                             'message' => "Stock cannot be negative for variant ID {$variantData['id']}. Current: {$oldStock}, Operation: {$operation}, Quantity: {$quantity}"
                         ], 400);
                     }
 
+                    // Update variant stock
                     $variant->stock_quantity = $newStock;
+
                     $variant->save();
 
                     $updatedVariants[] = [
@@ -5601,34 +5887,68 @@ class ProductController extends Controller
                     ];
                 }
 
-                // Update parent product total stock (sum of all variants)
+                // ============================================================
+                // UPDATE PARENT PRODUCT STOCK
+                // ============================================================
+
+                // Existing function updates product stock based on variants
                 $totalStock = $this->updateProductStock($productId);
+
                 $product->refresh();
-                $result = $this->bulkUpdateVariantsWithOperation($variantsData, $operation);
+
+                // ============================================================
+                // UPDATE TOTAL ADDED QUANTITY
+                // ============================================================
+
+                if ($operation === 'add' && $totalAddedQuantity > 0) {
+
+                    $product->total_added_quantity =
+                        ($product->total_added_quantity ?? 0) + $totalAddedQuantity;
+
+                    $product->save();
+                }
+
+                $product->refresh();
+
+                $result = $this->bulkUpdateVariantsWithOperation(
+                    $variantsData,
+                    $operation
+                );
+
                 DB::commit();
 
                 return response()->json([
                     'success' => true,
                     'message' => 'Variant stocks updated successfully',
+
                     'data' => [
                         'product' => [
                             'id' => $product->id,
                             'name' => $product->name,
                             'total_stock' => $totalStock,
+                            'total_added_quantity' => $product->total_added_quantity,
                             'has_variants' => true,
                         ],
+
                         'total_updated' => $totalVariants,
+
                         'operation' => $operation,
+
                         'updated_variants' => $updatedVariants,
                     ],
+
                     'timestamp' => now()->toISOString()
                 ]);
             }
 
-            // ============ CASE: UPDATE PARENT PRODUCT STOCK ============
-            // This runs whether product has variants or not
+            // ============================================================
+            // CASE 2: UPDATE PARENT PRODUCT STOCK
+            // ============================================================
+
             if (!isset($validated['stock_quantity'])) {
+
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Stock quantity is required when not updating variants'
@@ -5636,69 +5956,117 @@ class ProductController extends Controller
             }
 
             $oldStock = $product->stock_quantity;
-            $newStock = $validated['stock_quantity'];
 
-            // Apply operation if provided
-            if (isset($validated['operation'])) {
-                switch ($validated['operation']) {
-                    case 'add':
-                        $newStock = $oldStock + $validated['stock_quantity'];
-                        break;
-                    case 'subtract':
-                        $newStock = $oldStock - $validated['stock_quantity'];
-                        break;
-                    case 'set':
-                    default:
-                        $newStock = $validated['stock_quantity'];
-                        break;
-                }
+            $quantity = $validated['stock_quantity'];
+
+            $operation = $validated['operation'] ?? 'set';
+
+            // Apply operation
+            switch ($operation) {
+
+                case 'add':
+
+                    $newStock = $oldStock + $quantity;
+
+                    break;
+
+                case 'subtract':
+
+                    $newStock = $oldStock - $quantity;
+
+                    break;
+
+                case 'set':
+
+                default:
+
+                    $newStock = $quantity;
+
+                    break;
             }
 
             // Validate negative stock
             if ($newStock < 0) {
+
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => "Stock cannot be negative. Current: {$oldStock}, New: {$newStock}"
                 ], 400);
             }
 
+            // ============================================================
+            // UPDATE PRODUCT STOCK
+            // ============================================================
+
             $product->stock_quantity = $newStock;
+
+            // ============================================================
+            // UPDATE TOTAL ADDED QUANTITY
+            // ============================================================
+
+            /*
+         * Only "add" operation increases total_added_quantity.
+         *
+         * Example:
+         * Current stock = 100
+         * Add 20
+         *
+         * stock_quantity = 120
+         * total_added_quantity = previous total + 20
+         */
+            if ($operation === 'add') {
+
+                $product->total_added_quantity =
+                    ($product->total_added_quantity ?? 0) + $quantity;
+            }
+
             $product->save();
 
+            // Back in stock notification
             if ($oldStock == 0 && $newStock > 0) {
                 $this->sendBackInStockNotifications($productId, null);
             }
 
-            // If product has variants, you might want to update each variant's stock too
+            // If product has variants
             if ($product->variants()->count() > 0) {
-                // Option 1: Don't update variants (keep them as they are)
-                // Option 2: Update all variants with the same value
-                // Option 3: Distribute the stock among variants
 
-                // For now, we'll just update the parent product
-                // You can add logic here to handle variants if needed
+                // For now, parent product stock is updated independently.
+                // Variants remain unchanged.
             }
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
+
                 'message' => 'Product stock updated successfully',
+
                 'data' => [
                     'product' => [
                         'id' => $product->id,
+
                         'name' => $product->name,
+
                         'old_stock' => $oldStock,
+
                         'new_stock' => $newStock,
-                        'operation' => $validated['operation'] ?? 'set',
+
+                        'total_added_quantity' => $product->total_added_quantity,
+
+                        'operation' => $operation,
+
                         'has_variants' => $product->variants()->count() > 0,
                     ]
                 ],
+
                 'timestamp' => now()->toISOString()
             ]);
         } catch (\Exception $e) {
+
             DB::rollBack();
+
             Log::error('Stock update failed: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
                 'request' => $request->all()
@@ -5707,7 +6075,9 @@ class ProductController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update stock',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug')
+                    ? $e->getMessage()
+                    : 'Internal server error'
             ], 500);
         }
     }
