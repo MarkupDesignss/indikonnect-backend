@@ -1979,7 +1979,6 @@ class ProductController extends Controller
      */
     public function update(Request $request, $id)
     {
-
         $product = Product::where('id', $id)->first();
         if (!$product) {
             return response()->json([
@@ -2021,7 +2020,7 @@ class ProductController extends Controller
             'shipping_charge' => ['nullable', 'min:0'],
             'commission_value' => ['nullable', 'min:0'],
 
-            // Status - FIXED: Use 'sometimes' instead of 'nullable' for better boolean handling
+            // Status
             'is_published' => ['sometimes', 'boolean'],
             'is_trending' => ['sometimes', 'boolean'],
             'trending_sort_order' => ['nullable', 'integer', 'min:0'],
@@ -2134,10 +2133,10 @@ class ProductController extends Controller
             $validated = $validator->validated();
 
             /*
-            |--------------------------------------------------------------------------
-            | OLD VALUES
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | OLD VALUES
+        |--------------------------------------------------------------------------
+        */
 
             $oldValues = [
                 'product_id' => $product->id,
@@ -2160,7 +2159,7 @@ class ProductController extends Controller
                 'distributor_discount_value' => $product->distributor_discount_value,
 
                 'stock_quantity' => $product->stock_quantity,
-                'total_added_quantity' => $product->stock_quantity,
+                'total_added_quantity' => $product->total_added_quantity,
                 'low_stock_threshold' => $product->low_stock_threshold,
                 'shipping_charge' => $product->shipping_charge,
                 'commission_value' => $product->commission_value,
@@ -2176,24 +2175,24 @@ class ProductController extends Controller
             ];
 
             /*
-            |--------------------------------------------------------------------------
-            | UPDATE PRODUCT
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | UPDATE PRODUCT DATA
+        |--------------------------------------------------------------------------
+        */
 
             $productData = collect($validated)
                 ->except([
                     'product_images',
                     'variants',
                     'remove_images',
-                    'remove_variants'
+                    'remove_variants',
+                    'total_added_quantity', // handled separately below
                 ])
                 ->toArray();
 
             if ($request->has('is_trending')) {
                 $isTrending = $request->input('is_trending');
 
-                // If frontend sends 0/false unintentionally, preserve existing value
                 if (
                     $isTrending === '0' ||
                     $isTrending === 0 ||
@@ -2205,12 +2204,11 @@ class ProductController extends Controller
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | CAST BOOLEAN VALUES PROPERLY
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | CAST BOOLEAN VALUES PROPERLY
+        |--------------------------------------------------------------------------
+        */
 
-            // Ensure boolean fields are properly cast
             if (array_key_exists('is_published', $productData)) {
                 $productData['is_published'] = filter_var($productData['is_published'], FILTER_VALIDATE_BOOLEAN);
             }
@@ -2219,7 +2217,6 @@ class ProductController extends Controller
                 $productData['is_trending'] = filter_var($productData['is_trending'], FILTER_VALIDATE_BOOLEAN);
             }
 
-            // Also handle variant is_active boolean
             if (array_key_exists('variants', $validated)) {
                 foreach ($validated['variants'] as $key => $variant) {
                     if (array_key_exists('is_active', $variant)) {
@@ -2229,10 +2226,10 @@ class ProductController extends Controller
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | SET DEFAULT BRAND ID
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | SET DEFAULT BRAND ID
+        |--------------------------------------------------------------------------
+        */
 
             if (array_key_exists('brand_id', $productData)) {
                 if (empty($productData['brand_id'])) {
@@ -2241,10 +2238,10 @@ class ProductController extends Controller
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | RETAIL PRICE
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | RETAIL PRICE
+        |--------------------------------------------------------------------------
+        */
 
             if (array_key_exists('retail_mrp', $productData)) {
                 $productData['retail_price'] = $this->calculatePrice(
@@ -2255,10 +2252,10 @@ class ProductController extends Controller
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | DISTRIBUTOR PRICE
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | DISTRIBUTOR PRICE
+        |--------------------------------------------------------------------------
+        */
 
             if (
                 array_key_exists('distributor_mrp', $productData)
@@ -2284,10 +2281,10 @@ class ProductController extends Controller
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | SLUG
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | SLUG
+        |--------------------------------------------------------------------------
+        */
 
             if (
                 array_key_exists('slug', $productData)
@@ -2312,10 +2309,10 @@ class ProductController extends Controller
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | VARIANTS EXIST?
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | VARIANTS EXIST?
+        |--------------------------------------------------------------------------
+        */
 
             $hasVariants = array_key_exists('variants', $validated)
                 && is_array($validated['variants'])
@@ -2330,34 +2327,57 @@ class ProductController extends Controller
                     ->toArray();
             }
 
-
             /*
-            |--------------------------------------------------------------------------
-            | IF VARIANTS EXIST
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | STOCK + TOTAL_ADDED_QUANTITY HANDLING (PRODUCT LEVEL)
+        |--------------------------------------------------------------------------
+        | Logic:
+        |   - Agar product-level stock_quantity bheji gayi hai aur product ke
+        |     variants nahi hain, to:
+        |        diff = new_stock - old_stock
+        |        - diff > 0  → total_added_quantity += diff (naya stock add hua)
+        |        - diff < 0  → total_added_quantity same (sale/adjustment)
+        |        - diff = 0  → kuch change nahi
+        |   - Agar variants hain, to stock variants me handle hoga
+        */
 
             if ($hasVariants) {
+                // Variants ke case me product-level stock_quantity skip karo
                 if (array_key_exists('stock_quantity', $productData)) {
                     unset($productData['stock_quantity']);
+                }
+            } else {
+                if (array_key_exists('stock_quantity', $validated)) {
+                    $newStock = (int) $validated['stock_quantity'];
+                    $oldStock = (int) $product->stock_quantity;
+                    $diff = $newStock - $oldStock;
+
+                    if ($diff > 0) {
+                        // Naya stock add hua → total_added_quantity bhi badhao
+                        $productData['total_added_quantity'] =
+                            (int) $product->total_added_quantity + $diff;
+                    }
+                    // diff <= 0 → total_added_quantity ko touch mat karo
+
+                    $productData['stock_quantity'] = $newStock;
                 }
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | UPDATE PRODUCT
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | UPDATE PRODUCT
+        |--------------------------------------------------------------------------
+        */
 
             if (!empty($productData)) {
                 $product->update($productData);
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | PRODUCT IMAGES
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | PRODUCT IMAGES
+        |--------------------------------------------------------------------------
+        */
 
             $this->handleProductImageUpdates(
                 $request,
@@ -2367,10 +2387,10 @@ class ProductController extends Controller
             $variantUpdateDetails = [];
 
             /*
-            |--------------------------------------------------------------------------
-            | REMOVE VARIANTS
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | REMOVE VARIANTS
+        |--------------------------------------------------------------------------
+        */
 
             if (
                 array_key_exists('remove_variants', $validated)
@@ -2382,10 +2402,10 @@ class ProductController extends Controller
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | HANDLE VARIANTS
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | HANDLE VARIANTS
+        |--------------------------------------------------------------------------
+        */
 
             if ($hasVariants) {
                 $totalStock = $this->handleVariantUpdates(
@@ -2404,7 +2424,6 @@ class ProductController extends Controller
                     $oldStock = $oldVariantStocks[$variant->id] ?? 0;
                     $newStock = $variant->stock_quantity;
 
-                    // If stock was 0 and now > 0, send notification
                     if ($oldStock == 0 && $newStock > 0) {
                         $this->sendBackInStockNotifications(null, $variant->id);
                     }
@@ -2426,6 +2445,7 @@ class ProductController extends Controller
                         'distributor_discount_value' => $variant->distributor_discount_value,
 
                         'stock_quantity' => $variant->stock_quantity,
+                        'total_added_quantity' => $variant->total_added_quantity,
                         'low_stock_threshold' => $variant->low_stock_threshold,
                         'sort_order' => $variant->sort_order,
                         'is_active' => $variant->is_active,
@@ -2441,11 +2461,8 @@ class ProductController extends Controller
                     ];
                 }
             } else {
+                // Product-level restock notification
                 if (array_key_exists('stock_quantity', $validated)) {
-                    $product->update([
-                        'stock_quantity' => $validated['stock_quantity']
-                    ]);
-                    // === CHECK IF PRODUCT RESTOCKED ===
                     if ($oldProductStock == 0 && $product->stock_quantity > 0) {
                         $this->sendBackInStockNotifications($product->id, null);
                     }
@@ -2453,18 +2470,18 @@ class ProductController extends Controller
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | COMMIT
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | COMMIT
+        |--------------------------------------------------------------------------
+        */
 
             DB::commit();
 
             /*
-            |--------------------------------------------------------------------------
-            | LOAD RELATIONS
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | LOAD RELATIONS
+        |--------------------------------------------------------------------------
+        */
 
             $product->load([
                 'category',
@@ -2474,10 +2491,10 @@ class ProductController extends Controller
             ]);
 
             /*
-            |--------------------------------------------------------------------------
-            | NEW VALUES / AUDIT
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | NEW VALUES / AUDIT
+        |--------------------------------------------------------------------------
+        */
 
             $newValues = [
                 'product_id' => $product->id,
@@ -2503,7 +2520,7 @@ class ProductController extends Controller
                 'distributor_discount_value' => $product->distributor_discount_value,
 
                 'stock_quantity' => $product->stock_quantity,
-                'total_added_quantity' => $product->stock_quantity,
+                'total_added_quantity' => $product->total_added_quantity,
                 'low_stock_threshold' => $product->low_stock_threshold,
                 'shipping_charge' => $product->shipping_charge,
                 'commission_value' => $product->commission_value,
@@ -2535,10 +2552,10 @@ class ProductController extends Controller
             );
 
             /*
-            |--------------------------------------------------------------------------
-            | RESPONSE
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | RESPONSE
+        |--------------------------------------------------------------------------
+        */
 
             return response()->json(
                 $this->formatProduct($product)
