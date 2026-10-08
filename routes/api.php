@@ -237,10 +237,10 @@ Route::prefix('products')->group(function () {
         Route::post('/{product}/stock', [ProductController::class, 'updateStock']);
         Route::post('/{product}/toggle-publish', [ProductController::class, 'togglePublish']);
         Route::post('/publish/{product}/product', [ProductController::class, 'togglePublished']);
-        Route::post('/stock/update', [ProductController::class, 'updateStock']);
     });
 });
 
+Route::post('/stock/update', [ProductController::class, 'updateStock']);
 // Product extra routes
 Route::post('/global-search', [ProductController::class, 'globalSearch']);
 Route::get('/products-deal-of-the-day', [ProductController::class, 'getDealOfTheDayProducts']);
