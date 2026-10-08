@@ -303,29 +303,54 @@ class NotificationService
     /**
      * Send mail notification using blade template.
      */
+    // protected function sendMailNotification(
+    //     User $user,
+    //     NotificationTemplate $template,
+    //     array $rendered
+    // ): void {
+    //     try {
+    //         Mail::send('emails.notification', [
+    //             'user'     => $user,
+    //             'subject'  => $rendered['subject'],
+    //             'body'     => $rendered['body'],
+    //             'template' => $template,
+    //             'data'     => $template->placeholders ?? [],
+    //         ], function ($message) use ($user, $rendered) {
+    //             $message->to($user->email)
+    //                 ->subject($rendered['subject']);
+    //         });
+
+    //         Log::info('Email notification sent to user', [
+    //             'user_id'    => $user->id,
+    //             'event_type' => $template->event_type,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Failed to send email notification: ' . $e->getMessage(), [
+    //             'user_id'    => $user->id,
+    //             'event_type' => $template->event_type,
+    //         ]);
+    //     }
+    // }
     protected function sendMailNotification(
         User $user,
         NotificationTemplate $template,
         array $rendered
     ): void {
         try {
-            Mail::send('emails.notification', [
-                'user'     => $user,
-                'subject'  => $rendered['subject'],
-                'body'     => $rendered['body'],
-                'template' => $template,
-                'data'     => $template->placeholders ?? [],
-            ], function ($message) use ($user, $rendered) {
-                $message->to($user->email)
-                    ->subject($rendered['subject']);
-            });
+            Mail::to($user->email)
+                ->queue(new \App\Mail\NotificationMail(
+                    user: $user,
+                    emailSubject: $rendered['subject'],
+                    body: $rendered['body'],
+                    template: $template,
+                ));
 
-            Log::info('Email notification sent to user', [
+            Log::info('Email notification queued for user', [
                 'user_id'    => $user->id,
                 'event_type' => $template->event_type,
             ]);
-        } catch (\Exception $e) {
-            Log::error('Failed to send email notification: ' . $e->getMessage(), [
+        } catch (\Throwable $e) {
+            Log::error('Failed to queue email notification: ' . $e->getMessage(), [
                 'user_id'    => $user->id,
                 'event_type' => $template->event_type,
             ]);

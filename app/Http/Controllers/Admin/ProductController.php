@@ -988,9 +988,9 @@ class ProductController extends Controller
         // This is applied BEFORE any other sort so that it works
         // with EVERY filter and EVERY sort option.
         // ------------------------------------------------------------
-        $query->orderByRaw(
-            'CASE WHEN stock_quantity = 0 THEN 1 ELSE 0 END ASC'
-        );
+        // $query->orderByRaw(
+        //     'CASE WHEN stock_quantity = 0 THEN 1 ELSE 0 END ASC'
+        // );
 
 
         // ------------------------------------------------------------
