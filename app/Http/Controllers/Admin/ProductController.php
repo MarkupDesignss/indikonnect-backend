@@ -4787,11 +4787,11 @@ class ProductController extends Controller
                     return [
                         'id' => $image->id,
                         'image_url' => asset('storage/' . $image->image),
-                        'is_primary' => (bool) $image->is_primary,
+                        // 'is_primary' => (bool) $image->is_primary,
                         'sort_order' => $image->sort_order,
                     ];
                 })->values()->toArray(),
-                'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+                // 'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
 
                 // All variants
                 'variants' => $this->formatVariants($product->variants, $product->id, $wishlistIds),

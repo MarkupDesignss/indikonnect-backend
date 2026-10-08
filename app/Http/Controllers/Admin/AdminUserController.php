@@ -419,7 +419,7 @@ class AdminUserController extends Controller
             'is_cancel_return_allowed' => 'required|boolean',
         ]);
 
-        if ($validator->fails()) {  
+        if ($validator->fails()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed.',
