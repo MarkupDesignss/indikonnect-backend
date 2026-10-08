@@ -14,6 +14,7 @@ use App\Models\ProductImage;
 use App\Models\ProductReview;
 use App\Models\ProductVariant;
 use App\Models\User;
+use Carbon\Carbon;
 use App\Models\VariantImage;
 use App\Models\Wishlist;
 use Illuminate\Http\Request;
@@ -7169,19 +7170,468 @@ class ProductController extends Controller
             ? null
             : (float) $clean;
     }
+
+    // ----------------------Sales report-----------------------
+    public function salesReport(Request $request)
+    {
+        // Default period = weekly (last 7 days)
+        $period = $request->input('period', 'weekly');
+
+        // Validate only if provided
+        if (!in_array($period, ['weekly', 'monthly', 'six_months', 'yearly'])) {
+            $period = 'weekly';
+        }
+
+        [$startDate, $endDate, $groupBy, $labelFormat] = $this->resolvePeriod($period, $request);
+
+        $data = [
+            'period'    => $period,
+            'from_date' => $startDate->toDateString(),
+            'to_date'   => $endDate->toDateString(),
+            'summary'                => $this->getSummary($startDate, $endDate),
+            'chart'                  => $this->getChartData($startDate, $endDate, $groupBy, $labelFormat),
+            'top_products'           => $this->getTopProducts($startDate, $endDate),
+            'order_status_breakdown' => $this->getOrderStatusBreakdown($startDate, $endDate),
+            'top_distributors'       => $this->getTopDistributors($startDate, $endDate),
+            'payment_breakdown'      => $this->getPaymentBreakdown($startDate, $endDate),
+            'return_refund_summary'  => $this->getReturnRefundSummary($startDate, $endDate),
+        ];
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Sales report fetched successfully',
+            'data'    => $data,
+        ]);
+    }
+
     /**
-     * Ensure slug uniqueness.
+     * Resolve period -> [start, end, groupBy, labelFormat]
      */
-    // private function generateUniqueSlug(string $slug): string
-    // {
-    //     $original = $slug ?: 'product';
-    //     $slug     = $original;
-    //     $i        = 1;
+    private function resolvePeriod(string $period, Request $request): array
+    {
+        $now = Carbon::now();
 
-    //     while (Product::where('slug', $slug)->exists()) {
-    //         $slug = $original . '-' . $i++;
-    //     }
+        // Custom range if provided
+        if ($request->filled('from_date') && $request->filled('to_date')) {
+            $start = Carbon::parse($request->from_date)->startOfDay();
+            $end   = Carbon::parse($request->to_date)->endOfDay();
+        } else {
+            switch ($period) {
+                case 'weekly': // last 7 days (DEFAULT)
+                    $start = $now->copy()->subDays(6)->startOfDay();
+                    $end   = $now->copy()->endOfDay();
+                    break;
 
-    //     return $slug;
-    // }
+                case 'monthly': // current month (4 weeks)
+                    $start = $now->copy()->startOfMonth()->startOfDay();
+                    $end   = $now->copy()->endOfMonth()->endOfDay();
+                    break;
+
+                case 'six_months': // last 6 months
+                    $start = $now->copy()->subMonths(5)->startOfMonth()->startOfDay();
+                    $end   = $now->copy()->endOfMonth()->endOfDay();
+                    break;
+
+                case 'yearly': // current year
+                    $start = $now->copy()->startOfYear()->startOfDay();
+                    $end   = $now->copy()->endOfYear()->endOfDay();
+                    break;
+
+                default: // fallback = last 7 days
+                    $start = $now->copy()->subDays(6)->startOfDay();
+                    $end   = $now->copy()->endOfDay();
+                    $period = 'weekly';
+            }
+        }
+
+        // Grouping strategy
+        switch ($period) {
+            case 'weekly':
+                $groupBy     = 'date';
+                $labelFormat = 'D'; // Mon, Tue...
+                break;
+
+            case 'monthly':
+                $groupBy     = 'week';
+                $labelFormat = 'Week';
+                break;
+
+            case 'six_months':
+                $groupBy     = 'month';
+                $labelFormat = 'M Y'; // Jan 2025
+                break;
+
+            case 'yearly':
+                $groupBy     = 'month';
+                $labelFormat = 'M'; // Jan..Dec
+                break;
+
+            default:
+                $groupBy     = 'date';
+                $labelFormat = 'Y-m-d';
+        }
+
+        return [$start, $end, $groupBy, $labelFormat];
+    }
+
+    /**
+     * Overall summary
+     */
+    private function getSummary(Carbon $start, Carbon $end): array
+    {
+        $orderQuery = Order::whereBetween('created_at', [$start, $end])
+            ->whereNull('deleted_at');
+
+        $validOrders = (clone $orderQuery)->whereNotIn('status', ['cancelled', 'failed']);
+
+        $totalOrders     = (clone $orderQuery)->count();
+        $totalRevenue    = (clone $validOrders)->sum('total_payable');
+        $totalGst        = (clone $validOrders)->sum('total_gst');
+        $totalShipping   = (clone $validOrders)->sum('shipping_charge');
+        $totalCouponDisc = (clone $validOrders)->sum('coupon_discount');
+        $totalCommission = (clone $validOrders)->sum('commissionable_volume');
+
+        $totalItems = OrderLine::whereHas('order', function ($q) use ($start, $end) {
+            $q->whereBetween('created_at', [$start, $end])
+                ->whereNotIn('status', ['cancelled', 'failed']);
+        })
+            ->sum('quantity');
+
+        $aov = $totalOrders > 0 ? round($totalRevenue / max($totalOrders, 1), 2) : 0;
+
+        return [
+            'total_orders'                => $totalOrders,
+            'total_items_sold'            => (int) $totalItems,
+            'total_revenue'               => round($totalRevenue ?? 0, 2),
+            'total_gst_collected'         => round($totalGst ?? 0, 2),
+            'total_shipping_charge'       => round($totalShipping ?? 0, 2),
+            'total_coupon_discount'       => round($totalCouponDisc ?? 0, 2),
+            'total_commissionable_volume' => round($totalCommission ?? 0, 2),
+            'average_order_value'         => $aov,
+        ];
+    }
+
+    /**
+     * Chart data (time series)
+     */
+    private function getChartData(Carbon $start, Carbon $end, string $groupBy, string $labelFormat): array
+    {
+        $orders = Order::whereBetween('created_at', [$start, $end])
+            ->whereNull('deleted_at')
+            ->whereNotIn('status', ['cancelled', 'failed'])
+            ->select('id', 'created_at', 'total_payable', 'total_gst')
+            ->get();
+
+        $lines = OrderLine::whereHas('order', function ($q) use ($start, $end) {
+            $q->whereBetween('created_at', [$start, $end])
+                ->whereNotIn('status', ['cancelled', 'failed']);
+        })
+            ->select('id', 'order_id', 'quantity')
+            ->get();
+
+        $buckets = [];
+        $orderBucketMap = [];
+
+        foreach ($orders as $order) {
+            $key = $this->bucketKey($order->created_at, $groupBy, $labelFormat);
+            $orderBucketMap[$order->id] = $key;
+
+            if (!isset($buckets[$key])) {
+                $buckets[$key] = [
+                    'label'    => $key,
+                    'orders'   => 0,
+                    'revenue'  => 0,
+                    'gst'      => 0,
+                    'items'    => 0,
+                    'sort_key' => $this->bucketSortKey($order->created_at, $groupBy),
+                ];
+            }
+            $buckets[$key]['orders']++;
+            $buckets[$key]['revenue'] += $order->total_payable;
+            $buckets[$key]['gst']     += $order->total_gst;
+        }
+
+        foreach ($lines as $line) {
+            if (!isset($orderBucketMap[$line->order_id])) continue;
+            $key = $orderBucketMap[$line->order_id];
+            if (isset($buckets[$key])) {
+                $buckets[$key]['items'] += $line->quantity;
+            }
+        }
+
+        $buckets = $this->fillEmptyBuckets($buckets, $start, $end, $groupBy, $labelFormat);
+
+        uasort($buckets, fn($a, $b) => $a['sort_key'] <=> $b['sort_key']);
+
+        return array_values(array_map(function ($b) {
+            unset($b['sort_key']);
+            $b['revenue'] = round($b['revenue'], 2);
+            $b['gst']     = round($b['gst'], 2);
+            return $b;
+        }, $buckets));
+    }
+
+    private function bucketKey(Carbon $date, string $groupBy, string $labelFormat): string
+    {
+        switch ($groupBy) {
+            case 'date':
+                return $date->format('D');
+            case 'week':
+                return 'Week ' . ceil($date->day / 7);
+            case 'month':
+                return $date->format($labelFormat);
+            default:
+                return $date->format('Y-m-d');
+        }
+    }
+
+    private function bucketSortKey(Carbon $date, string $groupBy): string
+    {
+        switch ($groupBy) {
+            case 'date':
+                return $date->format('Y-m-d');
+            case 'week':
+                return $date->format('Y-m') . '-' . str_pad(ceil($date->day / 7), 2, '0', STR_PAD_LEFT);
+            case 'month':
+                return $date->format('Y-m');
+            default:
+                return $date->format('Y-m-d');
+        }
+    }
+
+    private function fillEmptyBuckets(array $buckets, Carbon $start, Carbon $end, string $groupBy, string $labelFormat): array
+    {
+        if ($groupBy === 'date') {
+            $cursor = $start->copy();
+            while ($cursor->lte($end)) {
+                $key = $cursor->format('D');
+                if (!isset($buckets[$key])) {
+                    $buckets[$key] = [
+                        'label' => $key,
+                        'orders' => 0,
+                        'revenue' => 0,
+                        'gst' => 0,
+                        'items' => 0,
+                        'sort_key' => $cursor->format('Y-m-d'),
+                    ];
+                }
+                $cursor->addDay();
+            }
+        } elseif ($groupBy === 'week') {
+            $temp = $start->copy()->startOfMonth();
+            $weekNo = 1;
+            while ($temp->lte($end)) {
+                $key = 'Week ' . $weekNo;
+                if (!isset($buckets[$key])) {
+                    $buckets[$key] = [
+                        'label' => $key,
+                        'orders' => 0,
+                        'revenue' => 0,
+                        'gst' => 0,
+                        'items' => 0,
+                        'sort_key' => $temp->format('Y-m') . '-' . str_pad($weekNo, 2, '0', STR_PAD_LEFT),
+                    ];
+                }
+                $temp->addDays(7);
+                $weekNo++;
+            }
+        } elseif ($groupBy === 'month') {
+            $temp = $start->copy()->startOfMonth();
+            while ($temp->lte($end)) {
+                $key = $temp->format($labelFormat);
+                if (!isset($buckets[$key])) {
+                    $buckets[$key] = [
+                        'label' => $key,
+                        'orders' => 0,
+                        'revenue' => 0,
+                        'gst' => 0,
+                        'items' => 0,
+                        'sort_key' => $temp->format('Y-m'),
+                    ];
+                }
+                $temp->addMonth();
+            }
+        }
+
+        return $buckets;
+    }
+
+    private function getTopProducts(Carbon $start, Carbon $end, int $limit = 10): array
+    {
+        return OrderLine::whereHas('order', function ($q) use ($start, $end) {
+            $q->whereBetween('created_at', [$start, $end])
+                ->whereNotIn('status', ['cancelled', 'failed']);
+        })
+            ->select(
+                'product_id',
+                DB::raw('SUM(quantity) as total_qty'),
+                DB::raw('SUM(line_total) as total_revenue')
+            )
+            ->groupBy('product_id')
+            ->orderByDesc('total_qty')
+            ->limit($limit)
+            ->with('product:id,name,product_code,slug,retail_price')
+            ->get()
+            ->map(fn($row) => [
+                'product_id'    => $row->product_id,
+                'name'          => $row->product->name ?? 'N/A',
+                'product_code'  => $row->product->product_code ?? null,
+                'slug'          => $row->product->slug ?? null,
+                'total_qty'     => (int) $row->total_qty,
+                'total_revenue' => round($row->total_revenue, 2),
+            ])
+            ->toArray();
+    }
+
+    private function getOrderStatusBreakdown(Carbon $start, Carbon $end): array
+    {
+        // Order-line level breakdown (delivery_status based)
+        $deliveryBreakdown = OrderLine::whereHas('order', function ($q) use ($start, $end) {
+            $q->whereBetween('created_at', [$start, $end])
+                ->whereNull('deleted_at');
+        })
+            ->select(
+                'delivery_status',
+                DB::raw('COUNT(*) as line_count'),
+                DB::raw('SUM(quantity) as total_qty'),
+                DB::raw('SUM(line_total) as total_amount')
+            )
+            ->groupBy('delivery_status')
+            ->get()
+            ->map(fn($row) => [
+                'delivery_status' => $row->delivery_status ?? 'pending',
+                'line_count'      => (int) $row->line_count,
+                'total_qty'       => (int) $row->total_qty,
+                'total_amount'    => round($row->total_amount ?? 0, 2),
+            ])
+            ->toArray();
+
+        // Order-line level breakdown (return_status based)
+        $returnBreakdown = OrderLine::whereHas('order', function ($q) use ($start, $end) {
+            $q->whereBetween('created_at', [$start, $end])
+                ->whereNull('deleted_at');
+        })
+            ->select(
+                'return_status',
+                DB::raw('COUNT(*) as line_count'),
+                DB::raw('SUM(quantity) as total_qty'),
+                DB::raw('SUM(line_total) as total_amount')
+            )
+            ->groupBy('return_status')
+            ->get()
+            ->map(fn($row) => [
+                'return_status' => $row->return_status ?? 'none',
+                'line_count'    => (int) $row->line_count,
+                'total_qty'     => (int) $row->total_qty,
+                'total_amount'  => round($row->total_amount ?? 0, 2),
+            ])
+            ->toArray();
+
+        // Order-line level breakdown (cancellation based)
+        $cancelBreakdown = OrderLine::whereHas('order', function ($q) use ($start, $end) {
+            $q->whereBetween('created_at', [$start, $end])
+                ->whereNull('deleted_at');
+        })
+            ->select(
+                DB::raw("CASE
+                WHEN cancelled_at IS NOT NULL THEN 'cancelled'
+                ELSE 'active'
+            END as cancel_state"),
+                DB::raw('COUNT(*) as line_count'),
+                DB::raw('SUM(quantity) as total_qty'),
+                DB::raw('SUM(line_total) as total_amount')
+            )
+            ->groupBy('cancel_state')
+            ->get()
+            ->map(fn($row) => [
+                'cancel_state' => $row->cancel_state,
+                'line_count'   => (int) $row->line_count,
+                'total_qty'    => (int) $row->total_qty,
+                'total_amount' => round($row->total_amount ?? 0, 2),
+            ])
+            ->toArray();
+
+        return [
+            'by_delivery_status' => $deliveryBreakdown,
+            'by_return_status'   => $returnBreakdown,
+            'by_cancellation'    => $cancelBreakdown,
+        ];
+    }
+
+    private function getTopDistributors(Carbon $start, Carbon $end, int $limit = 10): array
+    {
+        return Order::whereBetween('orders.created_at', [$start, $end])
+            ->whereNull('orders.deleted_at')
+            ->whereNotIn('orders.status', ['cancelled', 'failed'])
+            ->join('users', 'users.id', '=', 'orders.user_id')
+            ->select(
+                'orders.user_id',
+                'users.full_name',
+                'users.email',
+                DB::raw('COUNT(orders.id) as total_orders'),
+                DB::raw('SUM(orders.total_payable) as total_revenue')
+            )
+            ->groupBy('orders.user_id', 'users.full_name', 'users.email')
+            ->orderByDesc('total_revenue')
+            ->limit($limit)
+            ->get()
+            ->map(fn($row) => [
+                'user_id'       => $row->user_id,
+                'name'          => $row->full_name,
+                'email'         => $row->email,
+                'total_orders'  => (int) $row->total_orders,
+                'total_revenue' => round($row->total_revenue, 2),
+            ])
+            ->toArray();
+    }
+
+    private function getPaymentBreakdown(Carbon $start, Carbon $end): array
+    {
+        return Order::whereBetween('created_at', [$start, $end])
+            ->whereNotIn('status', ['cancelled', 'failed'])
+            ->select(
+                'payment_gateway',
+                DB::raw('COUNT(*) as count'),
+                DB::raw('SUM(amount_paid) as amount')
+            )
+            ->groupBy('payment_gateway')
+            ->get()
+            ->map(fn($row) => [
+                'payment_gateway' => $row->payment_gateway ?? 'unknown',
+                'count'           => (int) $row->count,
+                'amount'          => round($row->amount ?? 0, 2),
+            ])
+            ->toArray();
+    }
+
+    private function getReturnRefundSummary(Carbon $start, Carbon $end): array
+    {
+        $totalReturns = DB::table('returns')
+            ->whereBetween('created_at', [$start, $end])
+            ->whereNull('deleted_at')
+            ->count();
+
+        $approvedReturns = DB::table('returns')
+            ->whereBetween('created_at', [$start, $end])
+            ->whereNull('deleted_at')
+            ->whereIn('status', ['approved', 'completed'])
+            ->count();
+
+        $totalRefundAmount = DB::table('refunds')
+            ->whereBetween('created_at', [$start, $end])
+            ->whereIn('status', ['completed', 'success'])
+            ->sum('amount');
+
+        $reversedCv = DB::table('returns')
+            ->whereBetween('created_at', [$start, $end])
+            ->whereNull('deleted_at')
+            ->sum('total_cv_reversed');
+
+        return [
+            'total_return_requests' => $totalReturns,
+            'approved_returns'      => $approvedReturns,
+            'total_refund_amount'   => round($totalRefundAmount ?? 0, 2),
+            'total_cv_reversed'     => round($reversedCv ?? 0, 2),
+        ];
+    }
 }

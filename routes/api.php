@@ -890,3 +890,4 @@ Route::post(
 );
 
 Route::post('/upload-products/csv', [ProductController::class, 'upload']);
+Route::get('/reports/sales', [ProductController::class, 'salesReport']);
