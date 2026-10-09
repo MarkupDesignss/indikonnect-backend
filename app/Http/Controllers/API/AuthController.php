@@ -2507,7 +2507,7 @@ class AuthController extends Controller
 {
     try {
         $validator = Validator::make($request->all(), [
-            'phone'             => 'nullable|min:10|max:15',
+            'phone'             => 'required|min:10|max:15',
             'encrypted_aadhaar' => 'required|string|size:12',
             'aadhaar_consent'   => 'required|in:0,1',
             'reference_id'      => 'nullable|string',
@@ -2813,7 +2813,7 @@ class AuthController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'phone'           => 'nullable|min:10|max:15',
+                'phone'           => 'required|min:10|max:15',
                 'encrypted_pan'   => 'required|string|size:10',
                 'name_as_per_pan' => 'required|string|max:255',
                 'date_of_birth'   => 'required|date_format:d/m/Y',
