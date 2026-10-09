@@ -1744,6 +1744,8 @@ class ProductController extends Controller
         ]);
     }
 
+
+
     protected function buildStockMovementBreakdown(array $productIds): array
     {
         if (empty($productIds)) {
@@ -1752,7 +1754,7 @@ class ProductController extends Controller
 
         // ------------------------------------------------------------
         // STOCK SOLD
-        // Delivered / shipped / processing / confirmed order lines
+        // Exclude delivery_status: pending, cancelled
         // Exclude: cancelled lines, soft-deleted orders, replacements
         // ------------------------------------------------------------
         $soldRows = DB::table('order_lines')
@@ -1761,12 +1763,7 @@ class ProductController extends Controller
             ->whereNull('orders.deleted_at')
             ->whereNull('order_lines.cancelled_at')
             ->where('order_lines.is_replacement', false)
-            ->whereIn('orders.status', [
-                'confirmed',
-                'processing',
-                'shipped',
-                'delivered',
-            ])
+            ->whereNotIn('order_lines.delivery_status', ['pending', 'cancelled'])
             ->groupBy('order_lines.product_id')
             ->selectRaw('order_lines.product_id, COALESCE(SUM(order_lines.quantity), 0) as total_sold')
             ->pluck('total_sold', 'product_id')
@@ -1774,17 +1771,32 @@ class ProductController extends Controller
 
         // ------------------------------------------------------------
         // CUSTOMER RETURNS
-        // Sum returned_quantity from order_lines
-        // (already maintained, no need to join returns table)
+        // Exclude delivery_status: pending, cancelled, rejected
         // ------------------------------------------------------------
         $returnRows = DB::table('order_lines')
             ->join('orders', 'order_lines.order_id', '=', 'orders.id')
             ->whereIn('order_lines.product_id', $productIds)
             ->whereNull('orders.deleted_at')
             ->where('order_lines.is_replacement', false)
+            ->whereNotIn('order_lines.delivery_status', ['pending', 'cancelled', 'rejected'])
             ->groupBy('order_lines.product_id')
             ->selectRaw('order_lines.product_id, COALESCE(SUM(order_lines.returned_quantity), 0) as total_returned')
             ->pluck('total_returned', 'product_id')
+            ->toArray();
+
+        // ------------------------------------------------------------
+        // CANCELLED ORDERS
+        // Sirf wahi order_lines jinki delivery_status = 'cancelled'
+        // ------------------------------------------------------------
+        $cancelledRows = DB::table('order_lines')
+            ->join('orders', 'order_lines.order_id', '=', 'orders.id')
+            ->whereIn('order_lines.product_id', $productIds)
+            ->whereNull('orders.deleted_at')
+            ->where('order_lines.is_replacement', false)
+            ->where('order_lines.delivery_status', 'cancelled')
+            ->groupBy('order_lines.product_id')
+            ->selectRaw('order_lines.product_id, COALESCE(SUM(order_lines.quantity), 0) as total_cancelled')
+            ->pluck('total_cancelled', 'product_id')
             ->toArray();
 
         // ------------------------------------------------------------
@@ -1796,6 +1808,7 @@ class ProductController extends Controller
             $result[$id] = [
                 'stock_sold'       => (int) ($soldRows[$id] ?? 0),
                 'customer_returns' => (int) ($returnRows[$id] ?? 0),
+                'cancelled_orders' => (int) ($cancelledRows[$id] ?? 0),
             ];
         }
 
@@ -1829,24 +1842,25 @@ class ProductController extends Controller
                 : $product->retail_mrp;
 
             // ============================================================
-            // STOCK MOVEMENT BREAKDOWN (NEW — ADDITIVE)
+            // STOCK MOVEMENT BREAKDOWN
             // ============================================================
-            $sold          = (int) ($stockMovement[$product->id]['stock_sold'] ?? 0);
-            $returned      = (int) ($stockMovement[$product->id]['customer_returns'] ?? 0);
-            $restock       = (int) ($product->total_added_quantity ?? 0);
+            // initial_stock    -> products.initial_stock (direct column)
+            // restock          -> products.total_added_quantity
+            // stock_sold       -> order_lines (delivery_status NOT IN pending, cancelled)
+            // customer_returns -> order_lines (delivery_status NOT IN pending, cancelled, rejected)
+            // cancelled_orders -> order_lines (delivery_status = cancelled)
+            // available_stock  -> products.stock_quantity (already stored)
+            // ============================================================
+            $initialStock   = (int) ($product->initial_stock ?? 0);
+            $restock        = (int) ($product->total_added_quantity ?? 0);
+            $sold           = (int) ($stockMovement[$product->id]['stock_sold'] ?? 0);
+            $returned       = (int) ($stockMovement[$product->id]['customer_returns'] ?? 0);
+            $cancelled      = (int) ($stockMovement[$product->id]['cancelled_orders'] ?? 0);
             $availableStock = (int) $product->stock_quantity;
 
-            // Reverse calculate initial stock:
+            // Verify formula:
             //   available = initial + restock - sold + returned
-            //   => initial = available - restock + sold - returned
-            $initialStock = $product->initial_stock;
-
-            // Safety: initial stock negative na ho
-            if ($initialStock < 0) {
-                $initialStock = 0;
-            }
-
-            // Verify calculation
+            // (cancelled sold mein count nahi hota, isliye formula mein nahi)
             $calculatedAvailable = $initialStock + $restock - $sold + $returned;
 
             return [
@@ -1909,8 +1923,6 @@ class ProductController extends Controller
                 'sale_type' => $product->sale_type,
 
                 'stock_quantity' => (int) $product->stock_quantity,
-                'manual_stock_adjustment' => (int) $product->manual_stock_adjustment,
-                'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
                 'initial_stock' => (int) $product->initial_stock,
                 'restock' => (int) $product->total_added_quantity,
                 'low_stock_threshold' => (int) $product->low_stock_threshold,
@@ -1921,27 +1933,16 @@ class ProductController extends Controller
                 'is_wishlisted' => $isWishlisted,
 
                 // ============================================================
-                // NEW: STOCK MOVEMENT BREAKDOWN (additive — existing keys untouched)
+                // STOCK MOVEMENT BREAKDOWN (additive — existing keys untouched)
                 // ============================================================
                 'stock_movement' => [
-                    'initial_stock'    => (int) $initialStock,
-                    'restock'          => (int) $restock,
-                    'stock_sold'       => (int) $sold,
-                    'customer_returns' => (int) $returned,
-                    'available_stock'  => (int) $availableStock,
-                    'breakdown'        => sprintf(
-                        'Initial Stock: %d | Restock: +%d | Stock Sold: −%d | Customer Returns: +%d | Available Stock = %d + %d − %d + %d = %d units',
-                        $initialStock,
-                        $restock,
-                        $sold,
-                        $returned,
-                        $initialStock,
-                        $restock,
-                        $sold,
-                        $returned,
-                        $calculatedAvailable
-                    ),
-                    'is_matched'       => $availableStock === $calculatedAvailable,
+                    'initial_stock'    => $initialStock,
+                    'restock'          => $restock,
+                    'stock_sold'       => $sold,
+                    'customer_returns' => $returned,
+                    'cancelled_orders' => $cancelled,
+                    'available_stock'  => $availableStock,
+
                 ],
                 // ============================================================
 
