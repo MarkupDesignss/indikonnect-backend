@@ -2507,7 +2507,7 @@ class AuthController extends Controller
 {
     try {
         $validator = Validator::make($request->all(), [
-            'phone'             => 'required|min:10|max:15',
+            'phone'             => 'nullable|min:10|max:15',
             'encrypted_aadhaar' => 'required|string|size:12',
             'aadhaar_consent'   => 'required|in:0,1',
             'reference_id'      => 'nullable|string',
@@ -2802,213 +2802,181 @@ class AuthController extends Controller
      *   1. Verify PAN details (name + DOB)
      *   2. Check PAN-Aadhaar link status (KYC confirmation)
      */
+     /**
+     * DISTRIBUTOR: Step 4 - PAN Verification
+     *
+     * Uses KycVerificationService to verify PAN details (name + DOB).
+     * Note: Aadhaar-PAN link check is NOT performed here because Aadhaar
+     * is already verified via OTP in Step 3.
+     */
     public function distributorStep4Pan(Request $request)
-{
-    try {
-        $validator = Validator::make($request->all(), [
-            'phone'           => 'required|min:10|max:15',
-            'encrypted_pan'   => 'required|string|size:10',
-            'name_as_per_pan' => 'required|string|max:255',
-            'date_of_birth'   => 'required|date_format:d/m/Y',
-            'aadhaar_number'  => 'required|digits:12',
-        ]);
-
-        if ($validator->fails()) {
-            Log::warning('[Step4-PAN] Validation failed', [
-                'errors' => $validator->errors()->toArray(),
-                'phone'  => $request->phone,
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone'           => 'nullable|min:10|max:15',
+                'encrypted_pan'   => 'required|string|size:10',
+                'name_as_per_pan' => 'required|string|max:255',
+                'date_of_birth'   => 'required|date_format:d/m/Y',
             ]);
 
-            return response()->json([
-                'status' => false,
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+            if ($validator->fails()) {
+                Log::warning('[Step4-PAN] Validation failed', [
+                    'errors' => $validator->errors()->toArray(),
+                    'phone'  => $request->phone,
+                ]);
 
-        $user = User::where('phone', $request->phone)->first();
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
 
-        if (!$user) {
-            Log::warning('[Step4-PAN] User not found', ['phone' => $request->phone]);
+            $user = User::where('phone', $request->phone)->first();
 
-            return response()->json([
-                'status'  => false,
-                'message' => 'User not found.',
-            ], 422);
-        }
+            if (!$user) {
+                Log::warning('[Step4-PAN] User not found', ['phone' => $request->phone]);
 
-        $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'User not found.',
+                ], 422);
+            }
 
-        if (!$distributorProfile || !$distributorProfile->aadhaar_verified) {
-            Log::warning('[Step4-PAN] Aadhaar not verified', [
-                'user_id'           => $user->id,
-                'profile_exists'    => (bool) $distributorProfile,
-                'aadhaar_verified'  => $distributorProfile->aadhaar_verified ?? null,
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
+
+            if (!$distributorProfile || !$distributorProfile->aadhaar_verified) {
+                Log::warning('[Step4-PAN] Aadhaar not verified', [
+                    'user_id'          => $user->id,
+                    'profile_exists'   => (bool) $distributorProfile,
+                    'aadhaar_verified' => $distributorProfile->aadhaar_verified ?? null,
+                ]);
+
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Please complete Aadhaar verification first.',
+                ], 422);
+            }
+
+            $pan = strtoupper($request->encrypted_pan);
+
+            Log::info('[Step4-PAN] Request started', [
+                'user_id'    => $user->id,
+                'pan_masked' => substr($pan, 0, 3) . '****' . substr($pan, -3),
+                'name'       => $request->name_as_per_pan,
+                'dob'        => $request->date_of_birth,
             ]);
 
-            return response()->json([
-                'status'  => false,
-                'message' => 'Please complete Aadhaar verification first.',
-            ], 422);
-        }
+            /*
+            |--------------------------------------------------------------------------
+            | PAN verify
+            |--------------------------------------------------------------------------
+            */
+            Log::info('[Step4-PAN] Calling verifyPan', ['user_id' => $user->id]);
 
-        $pan = strtoupper($request->encrypted_pan);
+            $panResult = $this->kyc->verifyPan(
+                $pan,
+                $request->name_as_per_pan,
+                $request->date_of_birth
+            );
 
-        Log::info('[Step4-PAN] Request started', [
-            'user_id'        => $user->id,
-            'pan_masked'     => substr($pan, 0, 3) . '****' . substr($pan, -3),
-            'name'           => $request->name_as_per_pan,
-            'dob'            => $request->date_of_birth,
-            'aadhaar_masked' => substr($request->aadhaar_number, 0, 4) . '********',
-        ]);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Step 1: PAN verify
-        |--------------------------------------------------------------------------
-        */
-        Log::info('[Step4-PAN] Calling verifyPan', ['user_id' => $user->id]);
-
-        $panResult = $this->kyc->verifyPan(
-            $pan,
-            $request->name_as_per_pan,
-            $request->date_of_birth
-        );
-
-        Log::info('[Step4-PAN] verifyPan raw response', [
-            'user_id' => $user->id,
-            'success' => $panResult['success'] ?? false,
-            'status'  => $panResult['status'] ?? null,
-            'data'    => $panResult['data'] ?? null,
-        ]);
-
-        if (!$panResult['success']) {
-            Log::error('[Step4-PAN] PAN verify failed', [
+            Log::info('[Step4-PAN] verifyPan raw response', [
                 'user_id' => $user->id,
-                'message' => $panResult['data']['message'] ?? null,
+                'success' => $panResult['success'] ?? false,
+                'status'  => $panResult['status'] ?? null,
                 'data'    => $panResult['data'] ?? null,
             ]);
 
-            return response()->json([
-                'status'  => false,
-                'message' => $panResult['data']['message'] ?? 'PAN verification failed.',
-                'errors'  => $panResult['data'] ?? null,
-            ], 422);
-        }
+            if (!$panResult['success']) {
+                Log::error('[Step4-PAN] PAN verify failed', [
+                    'user_id' => $user->id,
+                    'message' => $panResult['data']['message'] ?? null,
+                    'data'    => $panResult['data'] ?? null,
+                ]);
 
-        $panData = $panResult['data']['data'] ?? [];
+                return response()->json([
+                    'status'  => false,
+                    'message' => $panResult['data']['message'] ?? 'PAN verification failed.',
+                    'errors'  => $panResult['data'] ?? null,
+                ], 422);
+            }
 
-        Log::info('[Step4-PAN] Extracted panData', [
-            'user_id'     => $user->id,
-            'pan_data'    => $panData,
-            'pan_status'  => $panData['status'] ?? null,
-        ]);
+            $panData = $panResult['data']['data'] ?? [];
 
-        if (($panData['status'] ?? '') !== 'valid') {
-            Log::warning('[Step4-PAN] Invalid PAN or name mismatch', [
-                'user_id'  => $user->id,
-                'response' => $panData,
+            Log::info('[Step4-PAN] Extracted panData', [
+                'user_id'    => $user->id,
+                'pan_data'   => $panData,
+                'pan_status' => $panData['status'] ?? null,
             ]);
 
-            return response()->json([
-                'status'  => false,
-                'message' => 'Invalid PAN or name mismatch.',
-                'data'    => $panData,
-            ], 422);
-        }
+            if (($panData['status'] ?? '') !== 'valid') {
+                Log::warning('[Step4-PAN] Invalid PAN or name mismatch', [
+                    'user_id'  => $user->id,
+                    'response' => $panData,
+                ]);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Step 2: PAN-Aadhaar link check
-        |--------------------------------------------------------------------------
-        */
-        Log::info('[Step4-PAN] Calling checkPanAadhaarLink', ['user_id' => $user->id]);
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Invalid PAN or name mismatch.',
+                    'data'    => $panData,
+                ], 422);
+            }
 
-        $linkResult = $this->kyc->checkPanAadhaarLink($pan, $request->aadhaar_number);
-
-        Log::info('[Step4-PAN] checkPanAadhaarLink raw response', [
-            'user_id' => $user->id,
-            'success' => $linkResult['success'] ?? false,
-            'status'  => $linkResult['status'] ?? null,
-            'data'    => $linkResult['data'] ?? null,
-        ]);
-
-        $aadhaarLinked = false;
-
-        if ($linkResult['success']) {
-            $seedingStatus = $linkResult['data']['data']['aadhaar_seeding_status'] ?? 'n';
-            $aadhaarLinked = ($seedingStatus === 'y');
-
-            Log::info('[Step4-PAN] Link status extracted', [
-                'user_id'        => $user->id,
-                'seeding_status' => $seedingStatus,
-                'aadhaar_linked' => $aadhaarLinked,
+            /*
+            |--------------------------------------------------------------------------
+            | Save to DB
+            |--------------------------------------------------------------------------
+            */
+            $distributorProfile->update([
+                'encrypted_pan'   => encrypt($pan),
+                'pan_verified'    => 1,
+                'pan_verified_at' => now(),
+                'kyc_status'      => 'pending',
             ]);
-        } else {
-            Log::warning('[Step4-PAN] Link check failed, defaulting to false', [
+
+            $user->update([
+                'registration_step' => max($user->registration_step ?? 0, 4),
+                'pan_last4'         => substr($pan, -4),
+            ]);
+
+            $distributorProfile->refresh();
+            $user->refresh();
+
+            Log::info('[Step4-PAN] Saved to DB', [
                 'user_id' => $user->id,
-                'data'    => $linkResult['data'] ?? null,
+                'distributor_profile' => [
+                    'pan_verified'    => $distributorProfile->pan_verified,
+                    'pan_verified_at' => $distributorProfile->pan_verified_at,
+                    'kyc_status'      => $distributorProfile->kyc_status,
+                ],
+                'user' => [
+                    'registration_step' => $user->registration_step,
+                    'pan_last4'         => $user->pan_last4,
+                ],
             ]);
+
+            return response()->json([
+                'status'       => true,
+                'message'      => 'PAN verified successfully.',
+                'step'         => 4,
+                'next_step'    => 5,
+                'pan_verified' => true,
+                'pan_last4'    => '****' . substr($pan, -4),
+                'pan_name'     => $panData['name_as_per_pan'] ?? null,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('[Step4-PAN] Exception', [
+                'message' => $e->getMessage(),
+                'line'    => $e->getLine(),
+                'file'    => $e->getFile(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'status'  => false,
+                'message' => $e->getMessage(),
+            ], 500);
         }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Save to DB
-        |--------------------------------------------------------------------------
-        */
-        $distributorProfile->update([
-            'encrypted_pan'   => encrypt($pan),
-            'pan_verified'    => 1,
-            'pan_verified_at' => now(),
-            'kyc_status'      => $aadhaarLinked ? 'verified' : 'pending',
-        ]);
-
-        $user->update([
-            'registration_step' => max($user->registration_step ?? 0, 4),
-            'pan_last4'         => substr($pan, -4),
-        ]);
-
-        $distributorProfile->refresh();
-        $user->refresh();
-
-        Log::info('[Step4-PAN] Saved to DB', [
-            'user_id' => $user->id,
-            'distributor_profile' => [
-                'pan_verified'    => $distributorProfile->pan_verified,
-                'pan_verified_at' => $distributorProfile->pan_verified_at,
-                'kyc_status'      => $distributorProfile->kyc_status,
-            ],
-            'user' => [
-                'registration_step' => $user->registration_step,
-                'pan_last4'         => $user->pan_last4,
-            ],
-        ]);
-
-        return response()->json([
-            'status'         => true,
-            'message'        => $aadhaarLinked
-                ? 'PAN verified and KYC confirmed (Aadhaar linked).'
-                : 'PAN verified but Aadhaar not linked. KYC pending.',
-            'step'           => 4,
-            'next_step'      => 5,
-            'pan_verified'   => true,
-            'aadhaar_linked' => $aadhaarLinked,
-            'pan_last4'      => '****' . substr($pan, -4),
-            'pan_name'       => $panData['name_as_per_pan'] ?? null,
-        ]);
-    } catch (\Exception $e) {
-        Log::error('[Step4-PAN] Exception', [
-            'message' => $e->getMessage(),
-            'line'    => $e->getLine(),
-            'file'    => $e->getFile(),
-            'trace'   => $e->getTraceAsString(),
-        ]);
-
-        return response()->json([
-            'status'  => false,
-            'message' => $e->getMessage(),
-        ], 500);
     }
-}
 
     /**
      * DISTRIBUTOR: Step 5 - Bank Account Details
