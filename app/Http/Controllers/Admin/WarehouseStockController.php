@@ -1006,6 +1006,7 @@ class WarehouseStockController extends Controller
         ];
     }
 
+
     // public function updateStock(Request $request, int $warehouseId)
     // {
     //     try {
@@ -1324,10 +1325,18 @@ class WarehouseStockController extends Controller
                     'variants.*.id' => 'required_with:variants|exists:product_variants,id',
                     'variants.*.quantity' => 'required_with:variants|integer|min:0',
 
-                    // Optional: direct product (non-variant) update                'quantity' => 'nullable|integer|min:0',
+                    // Optional: direct product (non-variant) update
+                    'quantity' => 'nullable|integer|min:0',
 
                     // Operation type
                     'operation' => 'required|in:set,add,subtract',
+
+                    // ============================================================
+                    // MANUAL STOCK ADJUSTMENT (operation-based)
+                    // ============================================================
+                    'manual_stock_adjustment' => 'nullable|integer|min:0',
+                    'manual_stock_adjustment_operation' => 'nullable|in:add,subtract|required_with:manual_stock_adjustment',
+                    'reason_for_stock_adjustment' => 'nullable|string|max:2000',
                 ],
                 [
                     'product_id.required' => 'Product ID is required',
@@ -1337,6 +1346,8 @@ class WarehouseStockController extends Controller
                     'quantity.min' => 'Quantity cannot be negative',
                     'operation.required' => 'Operation is required',
                     'operation.in' => 'Operation must be set, add, or subtract',
+                    'manual_stock_adjustment_operation.in' => 'Manual adjustment operation must be add or subtract',
+                    'manual_stock_adjustment_operation.required_with' => 'Manual adjustment operation is required when adjustment quantity is provided',
                 ]
             );
 
@@ -1356,6 +1367,40 @@ class WarehouseStockController extends Controller
             $operation = $validated['operation'];
 
             DB::beginTransaction();
+
+            // ============================================================
+            // MANUAL STOCK ADJUSTMENT (operation-based) — applied first
+            // ============================================================
+            $adjustmentOld = null;
+            $adjustmentNew = null;
+            $adjustmentApplied = false;
+
+            if (
+                array_key_exists('manual_stock_adjustment', $validated)
+                && $validated['manual_stock_adjustment'] !== null
+                && (int) $validated['manual_stock_adjustment'] > 0
+            ) {
+                try {
+                    [$adjustmentOld, $adjustmentNew] = $this->applyManualStockAdjustment(
+                        $product,
+                        (int) $validated['manual_stock_adjustment'],
+                        $validated['manual_stock_adjustment_operation'] ?? 'subtract',
+                        $validated['reason_for_stock_adjustment'] ?? null
+                    );
+                    $adjustmentApplied = true;
+
+                    $product->refresh();
+                } catch (\Exception $e) {
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'message' => $e->getMessage(),
+                        'errors' => [
+                            'manual_stock_adjustment' => [$e->getMessage()]
+                        ]
+                    ], 422);
+                }
+            }
 
             // ============================================================
             // CASE 1: VARIANT-WISE UPDATE
@@ -1387,7 +1432,7 @@ class WarehouseStockController extends Controller
                     $quantity = $variantData['quantity'];
 
                     // ----------------------------------------------------
-                    // 1. Warehouse stock row (may or may not exist)
+                    // 1. Warehouse stock row
                     // ----------------------------------------------------
                     $warehouseStock = WarehouseStock::firstOrCreate(
                         [
@@ -1473,6 +1518,8 @@ class WarehouseStockController extends Controller
 
                 DB::commit();
 
+                $product->refresh();
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Variant stocks updated successfully',
@@ -1485,7 +1532,15 @@ class WarehouseStockController extends Controller
                             'id'           => $product->id,
                             'name'         => $product->name,
                             'total_stock'  => (int) $product->stock_quantity,
+                            'total_added_quantity' => (int) $product->total_added_quantity,
+                            'manual_stock_adjustment' => (int) $product->manual_stock_adjustment,
                             'has_variants' => true,
+                        ],
+                        'manual_stock_adjustment' => [
+                            'applied' => $adjustmentApplied,
+                            'old' => $adjustmentOld,
+                            'new' => $adjustmentNew,
+                            'operation' => $validated['manual_stock_adjustment_operation'] ?? null,
                         ],
                         'operation'        => $operation,
                         'total_updated'    => count($updatedVariants),
@@ -1498,7 +1553,43 @@ class WarehouseStockController extends Controller
             // ============================================================
             // CASE 2: NON-VARIANT PRODUCT UPDATE
             // ============================================================
+
+            // If only manual adjustment was intended (no quantity provided)
             if (!isset($validated['quantity'])) {
+
+                if ($adjustmentApplied) {
+                    DB::commit();
+                    $product->refresh();
+
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Manual stock adjustment applied successfully',
+                        'data' => [
+                            'warehouse' => [
+                                'id'   => $warehouse->id,
+                                'name' => $warehouse->name ?? null,
+                            ],
+                            'product' => [
+                                'id' => $product->id,
+                                'name' => $product->name,
+                                'stock_quantity' => (int) $product->stock_quantity,
+                                'initial_stock' => (int) $product->initial_stock,
+                                'total_added_quantity' => (int) $product->total_added_quantity,
+                                'manual_stock_adjustment' => (int) $product->manual_stock_adjustment,
+                                'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
+                                'has_variants' => $product->variants()->count() > 0,
+                            ],
+                            'manual_stock_adjustment' => [
+                                'applied' => $adjustmentApplied,
+                                'old' => $adjustmentOld,
+                                'new' => $adjustmentNew,
+                                'operation' => $validated['manual_stock_adjustment_operation'] ?? null,
+                            ],
+                        ],
+                        'timestamp' => now()->toISOString(),
+                    ]);
+                }
+
                 DB::rollBack();
                 return response()->json([
                     'success' => false,
@@ -1571,6 +1662,8 @@ class WarehouseStockController extends Controller
 
             DB::commit();
 
+            $product->refresh();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Product stock updated successfully',
@@ -1586,6 +1679,7 @@ class WarehouseStockController extends Controller
                         'new_stock'            => $newProductQty,
                         'total_added_delta'    => $totalAddedDelta,
                         'total_added_quantity' => (int) $product->total_added_quantity,
+                        'manual_stock_adjustment' => (int) $product->manual_stock_adjustment,
                         'operation'            => $operation,
                         'quantity'             => $quantity,
                         'has_variants'         => $product->variants()->count() > 0,
@@ -1593,6 +1687,12 @@ class WarehouseStockController extends Controller
                     'warehouse_stock' => [
                         'old_quantity' => $oldWarehouseQty,
                         'new_quantity' => $newWarehouseQty,
+                    ],
+                    'manual_stock_adjustment' => [
+                        'applied' => $adjustmentApplied,
+                        'old' => $adjustmentOld,
+                        'new' => $adjustmentNew,
+                        'operation' => $validated['manual_stock_adjustment_operation'] ?? null,
                     ],
                 ],
                 'timestamp' => now()->toISOString(),
