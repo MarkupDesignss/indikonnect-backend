@@ -3649,6 +3649,15 @@ class OrderController extends Controller
         }
     }
 
+    protected function getRefundableAmount(Order $order): float
+    {
+        $alreadyRefunded = Refund::where('order_id', $order->id)
+            ->whereIn('status', ['initiated', 'completed'])
+            ->sum('amount');
+
+        return max(0, (float) $order->amount_paid - (float) $alreadyRefunded);
+    }
+
     public function adminCancel(Request $request, OrderLine $orderLine)
     {
         // ------------------------------------------------------------
@@ -3657,13 +3666,13 @@ class OrderController extends Controller
         $validated = $request->validate([
             'cancellation_reason' => 'nullable|string|max:1000',
             'admin_notes'         => 'nullable|string|max:2000',
+            'refund_amount'       => 'nullable|numeric|min:0',
         ]);
 
         // ------------------------------------------------------------
         // LOAD RELATIONS
         // ------------------------------------------------------------
         $orderLine->load(['order']);
-
         $order = $orderLine->order;
 
         // ------------------------------------------------------------
@@ -3690,9 +3699,6 @@ class OrderController extends Controller
             ], 422);
         }
 
-        // ------------------------------------------------------------
-        // ONLY confirmed & dispatched CAN BE CANCELLED
-        // ------------------------------------------------------------
         $cancellableStatuses = ['confirmed'];
 
         if (!in_array($orderLine->delivery_status, $cancellableStatuses)) {
@@ -3703,59 +3709,61 @@ class OrderController extends Controller
         }
 
         // ------------------------------------------------------------
-        // TRANSACTION
+        // REFUND AMOUNT VALIDATION (BEFORE TRANSACTION)
         // ------------------------------------------------------------
-        DB::beginTransaction();
+        $refundAmount = $request->filled('refund_amount')
+            ? (float) $request->refund_amount
+            : null;
 
+        if ($refundAmount !== null) {
+            $refundable = $this->getRefundableAmount($order);
+
+            if ($refundAmount < 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Refund amount cannot be negative.',
+                ], 422);
+            }
+
+            if ($refundAmount > $refundable) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}).",
+                ], 422);
+            }
+        }
+
+        // ------------------------------------------------------------
+        // DELEGATE TO CHECKOUT SERVICE (same as approve)
+        // ------------------------------------------------------------
         try {
             $previousLineStatus  = $orderLine->delivery_status;
             $previousOrderStatus = $order->status;
 
-            // --------------------------------------------------------
-            // 1. UPDATE ORDER LINE — status always changes
-            // --------------------------------------------------------
-            $orderLine->delivery_status     = 'cancelled';
-            $orderLine->cancelled_at        = Carbon::now();
-            $orderLine->cancellation_reason = $validated['cancellation_reason']
-                ?? $orderLine->cancellation_reason;
-            $orderLine->delivery_notes      = $validated['admin_notes']
-                ?? $orderLine->delivery_notes;
-            $orderLine->save();
-
-            // NOTE: No stock/quantity restock.
-
-            // --------------------------------------------------------
-            // 2. CHECK IF ALL LINES OF THE ORDER ARE CANCELLED
-            // --------------------------------------------------------
-            $totalLines = OrderLine::where('order_id', $order->id)->count();
-
-            $cancelledLines = OrderLine::where('order_id', $order->id)
-                ->where(function ($q) {
-                    $q->where('delivery_status', 'cancelled')
-                        ->orWhereNotNull('cancelled_at');
-                })
-                ->count();
-
-            $allCancelled = $totalLines > 0 && $cancelledLines === $totalLines;
-
-            // --------------------------------------------------------
-            // 3. UPDATE ORDER STATUS ONLY IF ALL LINES CANCELLED
-            // --------------------------------------------------------
-            if ($allCancelled) {
-                $order->status          = 'cancelled';
-                $order->delivery_status = 'cancelled';
-                $order->cancelled_at    = $order->cancelled_at ?? Carbon::now();
-                $order->save();
-            }
-            // else: order status remains unchanged (previousOrderStatus)
-
-            DB::commit();
+            $result = $this->checkoutService->cancelOrder(
+                $order->user_id,
+                $order->order_reference,
+                $orderLine->id,
+                $validated['cancellation_reason'] ?? 'Admin cancelled order line',
+                $refundAmount,
+                $validated['admin_notes'] ?? null,
+                auth()->id(),
+            );
 
             $order->refresh();
+            $orderLine->refresh();
+
+            // --------------------------------------------------------
+            // MARK ADMIN NOTIFICATION AS READ (if any)
+            // --------------------------------------------------------
+            AdminNotification::where('reference_type', 'order_line')
+                ->where('reference_id', $orderLine->id)
+                ->where('type', 'order_cancellation_request')
+                ->update(['read' => true]);
 
             return response()->json([
                 'success' => true,
-                'message' => $allCancelled
+                'message' => $result['all_items_cancelled']
                     ? 'Order line cancelled. All lines are now cancelled, so the order is marked as cancelled.'
                     : 'Order line cancelled successfully. Order status remains unchanged.',
                 'data' => [
@@ -3768,18 +3776,16 @@ class OrderController extends Controller
                     'new_line_status'      => 'cancelled',
                     'cancelled_at'         => $orderLine->cancelled_at?->toISOString(),
                     'cancellation_reason'  => $orderLine->cancellation_reason,
+                    'refund_amount'        => $refundAmount,
 
                     // Order-level info
-                    'order_total_lines'     => $totalLines,
-                    'order_cancelled_lines' => $cancelledLines,
-                    'order_all_cancelled'   => $allCancelled,
+                    'order_all_cancelled'   => $result['all_items_cancelled'],
                     'previous_order_status' => $previousOrderStatus,
                     'current_order_status'  => $order->status,
+                    'refund_status'         => $order->refund_status,
                 ],
             ]);
         } catch (\Throwable $e) {
-            DB::rollBack();
-
             Log::error('Admin order line cancel failed', [
                 'order_line_id' => $orderLine->id,
                 'error'         => $e->getMessage(),
