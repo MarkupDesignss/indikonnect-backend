@@ -4070,6 +4070,7 @@ class ProductController extends Controller
             ], 500);
         }
     }
+
     private function handleVariantUpdates(Product $product, Request $request, array $validated): int
     {
         $totalStock = 0;
@@ -7360,256 +7361,414 @@ class ProductController extends Controller
     //     }
     // }
     public function updateStock(Request $request)
-{
-    try {
-        $validator = \Illuminate\Support\Facades\Validator::make(
-            $request->all(),
-            [
-                'product_id' => 'required|exists:products,id',
+    {
+        try {
+            $validator = \Illuminate\Support\Facades\Validator::make(
+                $request->all(),
+                [
+                    'product_id' => 'required|exists:products,id',
 
-                // Variants array (optional - only when updating variants)
-                'variants' => 'nullable|array',
-                'variants.*.id' => 'required_with:variants|exists:product_variants,id',
-                'variants.*.stock_quantity' => 'required_with:variants|integer|min:0',
+                    // Variants array (optional - only when updating variants)
+                    'variants' => 'nullable|array',
+                    'variants.*.id' => 'required_with:variants|exists:product_variants,id',
+                    'variants.*.stock_quantity' => 'required_with:variants|integer|min:0',
 
-                // Direct stock update (optional - can update parent product directly)
-                'stock_quantity' => 'nullable|integer|min:0',
+                    // Direct stock update (optional - can update parent product directly)
+                    'stock_quantity' => 'nullable|integer|min:0',
 
-                // Operation type
-                'operation' => 'nullable|in:set,add,subtract',
+                    // Operation type
+                    'operation' => 'nullable|in:set,add,subtract',
 
-                // ============================================================
-                // MANUAL STOCK ADJUSTMENT (operation-based)
-                // ============================================================
-                'manual_stock_adjustment' => 'nullable|integer|min:0',
-                'manual_stock_adjustment_operation' => 'nullable|in:add,subtract|required_with:manual_stock_adjustment',
-                'reason_for_stock_adjustment' => 'nullable|string|max:2000',
-            ],
-            [
-                'product_id.required' => 'Product ID is required',
-                'product_id.exists' => 'Product not found',
-                'variants.*.id.exists' => 'One or more variants not found',
-                'variants.*.stock_quantity.min' => 'Variant stock cannot be negative',
-                'stock_quantity.min' => 'Stock quantity cannot be negative',
-                'operation.in' => 'Operation must be set, add, or subtract',
-                'manual_stock_adjustment_operation.in' => 'Manual adjustment operation must be add or subtract',
-                'manual_stock_adjustment_operation.required_with' => 'Manual adjustment operation is required when adjustment quantity is provided',
-            ]
-        );
+                    // ============================================================
+                    // MANUAL STOCK ADJUSTMENT (operation-based)
+                    // ============================================================
+                    'manual_stock_adjustment' => 'nullable|integer|min:0',
+                    'manual_stock_adjustment_operation' => 'nullable|in:add,subtract|required_with:manual_stock_adjustment',
+                    'reason_for_stock_adjustment' => 'nullable|string|max:2000',
+                ],
+                [
+                    'product_id.required' => 'Product ID is required',
+                    'product_id.exists' => 'Product not found',
+                    'variants.*.id.exists' => 'One or more variants not found',
+                    'variants.*.stock_quantity.min' => 'Variant stock cannot be negative',
+                    'stock_quantity.min' => 'Stock quantity cannot be negative',
+                    'operation.in' => 'Operation must be set, add, or subtract',
+                    'manual_stock_adjustment_operation.in' => 'Manual adjustment operation must be add or subtract',
+                    'manual_stock_adjustment_operation.required_with' => 'Manual adjustment operation is required when adjustment quantity is provided',
+                ]
+            );
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $validated = $validator->validated();
-
-        $productId = $validated['product_id'];
-
-        $product = Product::findOrFail($productId);
-
-        DB::beginTransaction();
-
-        // ============================================================
-        // MANUAL STOCK ADJUSTMENT (operation-based) — applied first
-        // ============================================================
-        $adjustmentOld = null;
-        $adjustmentNew = null;
-        $adjustmentApplied = false;
-
-        if (
-            array_key_exists('manual_stock_adjustment', $validated)
-            && $validated['manual_stock_adjustment'] !== null
-            && (int) $validated['manual_stock_adjustment'] > 0
-        ) {
-            try {
-                [$adjustmentOld, $adjustmentNew] = $this->applyManualStockAdjustment(
-                    $product,
-                    (int) $validated['manual_stock_adjustment'],
-                    $validated['manual_stock_adjustment_operation'] ?? 'subtract',
-                    $validated['reason_for_stock_adjustment'] ?? null
-                );
-                $adjustmentApplied = true;
-
-                $product->refresh();
-            } catch (\Exception $e) {
-                DB::rollBack();
+            if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
-                    'message' => $e->getMessage(),
-                    'errors' => [
-                        'manual_stock_adjustment' => [$e->getMessage()]
-                    ]
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
                 ], 422);
             }
-        }
 
-        // ============================================================
-        // CASE 1: UPDATE VARIANTS
-        // ============================================================
+            $validated = $validator->validated();
 
-        if (isset($validated['variants']) && !empty($validated['variants'])) {
+            $productId = $validated['product_id'];
 
-            // Operation is required for variants
-            if (!isset($validated['operation'])) {
-                DB::rollBack();
+            $product = Product::findOrFail($productId);
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Operation is required when updating variants'
-                ], 400);
+            DB::beginTransaction();
+
+            // ============================================================
+            // MANUAL STOCK ADJUSTMENT (operation-based) — applied first
+            // ============================================================
+            $adjustmentOld = null;
+            $adjustmentNew = null;
+            $adjustmentApplied = false;
+
+            if (
+                array_key_exists('manual_stock_adjustment', $validated)
+                && $validated['manual_stock_adjustment'] !== null
+                && (int) $validated['manual_stock_adjustment'] > 0
+            ) {
+                try {
+                    [$adjustmentOld, $adjustmentNew] = $this->applyManualStockAdjustment(
+                        $product,
+                        (int) $validated['manual_stock_adjustment'],
+                        $validated['manual_stock_adjustment_operation'] ?? 'subtract',
+                        $validated['reason_for_stock_adjustment'] ?? null
+                    );
+                    $adjustmentApplied = true;
+
+                    $product->refresh();
+                } catch (\Exception $e) {
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'message' => $e->getMessage(),
+                        'errors' => [
+                            'manual_stock_adjustment' => [$e->getMessage()]
+                        ]
+                    ], 422);
+                }
             }
 
-            $operation = $validated['operation'];
+            // ============================================================
+            // CASE 1: UPDATE VARIANTS
+            // ============================================================
 
-            $variantsData = $validated['variants'];
+            if (isset($validated['variants']) && !empty($validated['variants'])) {
 
-            $updatedVariants = [];
+                // Operation is required for variants
+                if (!isset($validated['operation'])) {
+                    DB::rollBack();
 
-            $totalVariants = count($variantsData);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Operation is required when updating variants'
+                    ], 400);
+                }
 
-            // Verify all variants belong to this product
-            $variantIds = collect($variantsData)
-                ->pluck('id')
-                ->toArray();
+                $operation = $validated['operation'];
 
-            $existingVariants = ProductVariant::whereIn('id', $variantIds)
-                ->where('product_id', $productId)
-                ->get()
-                ->keyBy('id');
+                $variantsData = $validated['variants'];
 
-            if ($existingVariants->count() != $totalVariants) {
-                DB::rollBack();
+                $updatedVariants = [];
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'One or more variants do not belong to this product'
-                ], 400);
-            }
+                $totalVariants = count($variantsData);
 
-            $totalAddedQuantity = 0;
+                // Verify all variants belong to this product
+                $variantIds = collect($variantsData)
+                    ->pluck('id')
+                    ->toArray();
 
-            // Update each variant
-            foreach ($variantsData as $variantData) {
+                $existingVariants = ProductVariant::whereIn('id', $variantIds)
+                    ->where('product_id', $productId)
+                    ->get()
+                    ->keyBy('id');
 
-                $variant = $existingVariants[$variantData['id']];
+                if ($existingVariants->count() != $totalVariants) {
+                    DB::rollBack();
 
-                $oldStock = $variant->stock_quantity;
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'One or more variants do not belong to this product'
+                    ], 400);
+                }
 
-                $quantity = $variantData['stock_quantity'];
+                $totalAddedQuantity = 0;
 
-                // Apply operation
-                switch ($operation) {
+                // Update each variant
+                foreach ($variantsData as $variantData) {
 
-                    case 'set':
+                    $variant = $existingVariants[$variantData['id']];
 
-                        $newStock = $quantity;
+                    $oldStock = $variant->stock_quantity;
 
-                        if ($quantity > $oldStock) {
-                            $totalAddedQuantity += ($quantity - $oldStock);
-                        }
+                    $quantity = $variantData['stock_quantity'];
 
-                        break;
+                    // Apply operation
+                    switch ($operation) {
 
-                    case 'add':
+                        case 'set':
 
-                        $newStock = $oldStock + $quantity;
+                            $newStock = $quantity;
 
-                        $totalAddedQuantity += $quantity;
+                            if ($quantity > $oldStock) {
+                                $totalAddedQuantity += ($quantity - $oldStock);
+                            }
 
-                        break;
+                            break;
 
-                    case 'subtract':
+                        case 'add':
 
-                        $newStock = $oldStock - $quantity;
+                            $newStock = $oldStock + $quantity;
 
-                        break;
+                            $totalAddedQuantity += $quantity;
 
-                    default:
+                            break;
+
+                        case 'subtract':
+
+                            $newStock = $oldStock - $quantity;
+
+                            break;
+
+                        default:
+
+                            DB::rollBack();
+
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'Invalid operation type'
+                            ], 400);
+                    }
+
+                    // Validate stock is not negative
+                    if ($newStock < 0) {
 
                         DB::rollBack();
 
                         return response()->json([
                             'success' => false,
-                            'message' => 'Invalid operation type'
+                            'message' => "Stock cannot be negative for variant ID {$variantData['id']}. Current: {$oldStock}, Operation: {$operation}, Quantity: {$quantity}"
                         ], 400);
+                    }
+
+                    // Update variant stock
+                    $variant->stock_quantity = $newStock;
+
+                    // Update variant total_added_quantity when adding
+                    if ($operation === 'add' && $quantity > 0) {
+                        $variant->total_added_quantity =
+                            (int) ($variant->total_added_quantity ?? 0) + $quantity;
+                    } elseif ($operation === 'set' && $quantity > $oldStock) {
+                        $variant->total_added_quantity =
+                            (int) ($variant->total_added_quantity ?? 0) + ($quantity - $oldStock);
+                    }
+
+                    $variant->save();
+
+                    $updatedVariants[] = [
+                        'id' => $variant->id,
+                        'sku' => $variant->sku,
+                        'attributes' => $variant->attributes,
+                        'old_stock' => $oldStock,
+                        'operation' => $operation,
+                        'quantity' => $quantity,
+                        'new_stock' => $newStock,
+                        'total_added_quantity' => (int) $variant->total_added_quantity,
+                    ];
                 }
 
-                // Validate stock is not negative
-                if ($newStock < 0) {
+                // ============================================================
+                // UPDATE PARENT PRODUCT STOCK
+                // ============================================================
 
-                    DB::rollBack();
+                $totalStock = $this->updateProductStock($productId);
+
+                $product->refresh();
+
+                // ============================================================
+                // UPDATE TOTAL ADDED QUANTITY (PRODUCT LEVEL)
+                // ============================================================
+
+                if ($totalAddedQuantity > 0) {
+                    $product->total_added_quantity =
+                        (int) ($product->total_added_quantity ?? 0) + $totalAddedQuantity;
+
+                    $product->save();
+                }
+
+                $product->refresh();
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Variant stocks updated successfully',
+
+                    'data' => [
+                        'product' => [
+                            'id' => $product->id,
+                            'name' => $product->name,
+                            'total_stock' => $totalStock,
+                            'total_added_quantity' => (int) $product->total_added_quantity,
+                            'manual_stock_adjustment' => (int) $product->manual_stock_adjustment,
+                            'has_variants' => true,
+                        ],
+
+                        'manual_stock_adjustment' => [
+                            'applied' => $adjustmentApplied,
+                            'old' => $adjustmentOld,
+                            'new' => $adjustmentNew,
+                            'operation' => $validated['manual_stock_adjustment_operation'] ?? null,
+                        ],
+
+                        'total_updated' => $totalVariants,
+
+                        'operation' => $operation,
+
+                        'updated_variants' => $updatedVariants,
+                    ],
+
+                    'timestamp' => now()->toISOString()
+                ]);
+            }
+
+            // ============================================================
+            // CASE 2: UPDATE PARENT PRODUCT STOCK
+            // ============================================================
+
+            // If only manual adjustment was intended (no stock_quantity provided)
+            if (!isset($validated['stock_quantity'])) {
+
+                if ($adjustmentApplied) {
+                    DB::commit();
+                    $product->refresh();
 
                     return response()->json([
-                        'success' => false,
-                        'message' => "Stock cannot be negative for variant ID {$variantData['id']}. Current: {$oldStock}, Operation: {$operation}, Quantity: {$quantity}"
-                    ], 400);
+                        'success' => true,
+                        'message' => 'Manual stock adjustment applied successfully',
+
+                        'data' => [
+                            'product' => [
+                                'id' => $product->id,
+                                'name' => $product->name,
+                                'stock_quantity' => (int) $product->stock_quantity,
+                                'initial_stock' => (int) $product->initial_stock,
+                                'total_added_quantity' => (int) $product->total_added_quantity,
+                                'manual_stock_adjustment' => (int) $product->manual_stock_adjustment,
+                                'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
+                                'has_variants' => $product->variants()->count() > 0,
+                            ],
+                            'manual_stock_adjustment' => [
+                                'applied' => $adjustmentApplied,
+                                'old' => $adjustmentOld,
+                                'new' => $adjustmentNew,
+                                'operation' => $validated['manual_stock_adjustment_operation'] ?? null,
+                            ],
+                        ],
+
+                        'timestamp' => now()->toISOString()
+                    ]);
                 }
 
-                // Update variant stock
-                $variant->stock_quantity = $newStock;
+                DB::rollBack();
 
-                // Update variant total_added_quantity when adding
-                if ($operation === 'add' && $quantity > 0) {
-                    $variant->total_added_quantity =
-                        (int) ($variant->total_added_quantity ?? 0) + $quantity;
-                } elseif ($operation === 'set' && $quantity > $oldStock) {
-                    $variant->total_added_quantity =
-                        (int) ($variant->total_added_quantity ?? 0) + ($quantity - $oldStock);
-                }
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Stock quantity is required when not updating variants'
+                ], 400);
+            }
 
-                $variant->save();
+            $oldStock = $product->stock_quantity;
 
-                $updatedVariants[] = [
-                    'id' => $variant->id,
-                    'sku' => $variant->sku,
-                    'attributes' => $variant->attributes,
-                    'old_stock' => $oldStock,
-                    'operation' => $operation,
-                    'quantity' => $quantity,
-                    'new_stock' => $newStock,
-                    'total_added_quantity' => (int) $variant->total_added_quantity,
-                ];
+            $quantity = $validated['stock_quantity'];
+
+            $operation = $validated['operation'] ?? 'set';
+
+            // Apply operation
+            switch ($operation) {
+
+                case 'add':
+
+                    $newStock = $oldStock + $quantity;
+
+                    break;
+
+                case 'subtract':
+
+                    $newStock = $oldStock - $quantity;
+
+                    break;
+
+                case 'set':
+
+                default:
+
+                    $newStock = $quantity;
+
+                    break;
+            }
+
+            // Validate negative stock
+            if ($newStock < 0) {
+
+                DB::rollBack();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => "Stock cannot be negative. Current: {$oldStock}, New: {$newStock}"
+                ], 400);
             }
 
             // ============================================================
-            // UPDATE PARENT PRODUCT STOCK
+            // UPDATE PRODUCT STOCK
             // ============================================================
 
-            $totalStock = $this->updateProductStock($productId);
-
-            $product->refresh();
+            $product->stock_quantity = $newStock;
 
             // ============================================================
-            // UPDATE TOTAL ADDED QUANTITY (PRODUCT LEVEL)
+            // UPDATE TOTAL ADDED QUANTITY
             // ============================================================
 
-            if ($totalAddedQuantity > 0) {
+            if ($operation === 'add') {
                 $product->total_added_quantity =
-                    (int) ($product->total_added_quantity ?? 0) + $totalAddedQuantity;
-
-                $product->save();
+                    (int) ($product->total_added_quantity ?? 0) + $quantity;
+            } elseif ($operation === 'set' && $quantity > $oldStock) {
+                $product->total_added_quantity =
+                    (int) ($product->total_added_quantity ?? 0) + ($quantity - $oldStock);
             }
 
-            $product->refresh();
+            $product->save();
+
+            // Back in stock notification
+            if ($oldStock == 0 && $newStock > 0) {
+                $this->sendBackInStockNotifications($productId, null);
+            }
 
             DB::commit();
 
+            $product->refresh();
+
             return response()->json([
                 'success' => true,
-                'message' => 'Variant stocks updated successfully',
+
+                'message' => 'Product stock updated successfully',
 
                 'data' => [
                     'product' => [
                         'id' => $product->id,
+
                         'name' => $product->name,
-                        'total_stock' => $totalStock,
+
+                        'old_stock' => $oldStock,
+
+                        'new_stock' => $newStock,
+
                         'total_added_quantity' => (int) $product->total_added_quantity,
+
                         'manual_stock_adjustment' => (int) $product->manual_stock_adjustment,
-                        'has_variants' => true,
+
+                        'operation' => $operation,
+
+                        'has_variants' => $product->variants()->count() > 0,
                     ],
 
                     'manual_stock_adjustment' => [
@@ -7618,163 +7777,104 @@ class ProductController extends Controller
                         'new' => $adjustmentNew,
                         'operation' => $validated['manual_stock_adjustment_operation'] ?? null,
                     ],
-
-                    'total_updated' => $totalVariants,
-
-                    'operation' => $operation,
-
-                    'updated_variants' => $updatedVariants,
                 ],
 
                 'timestamp' => now()->toISOString()
             ]);
+        } catch (\Exception $e) {
+
+            DB::rollBack();
+
+            Log::error('Stock update failed: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'request' => $request->all()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update stock',
+                'error' => config('app.debug')
+                    ? $e->getMessage()
+                    : 'Internal server error'
+            ], 500);
+        }
+    }
+
+    protected function applyManualStockAdjustment(
+        Product $product,
+        int $qty,
+        string $operation,
+        ?string $reason = null
+    ): array {
+        $oldSnapshot = [
+            'stock_quantity'          => (int) $product->stock_quantity,
+            'initial_stock'           => (int) ($product->initial_stock ?? 0),
+            'total_added_quantity'    => (int) ($product->total_added_quantity ?? 0),
+            'manual_stock_adjustment' => (int) ($product->manual_stock_adjustment ?? 0),
+        ];
+
+        if ($qty <= 0) {
+            return [$oldSnapshot, $oldSnapshot];
         }
 
-        // ============================================================
-        // CASE 2: UPDATE PARENT PRODUCT STOCK
-        // ============================================================
+        if ($operation === 'subtract') {
 
-        // If only manual adjustment was intended (no stock_quantity provided)
-        if (!isset($validated['stock_quantity'])) {
-
-            if ($adjustmentApplied) {
-                DB::commit();
-                $product->refresh();
-
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Manual stock adjustment applied successfully',
-
-                    'data' => [
-                        'product' => [
-                            'id' => $product->id,
-                            'name' => $product->name,
-                            'stock_quantity' => (int) $product->stock_quantity,
-                            'initial_stock' => (int) $product->initial_stock,
-                            'total_added_quantity' => (int) $product->total_added_quantity,
-                            'manual_stock_adjustment' => (int) $product->manual_stock_adjustment,
-                            'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
-                            'has_variants' => $product->variants()->count() > 0,
-                        ],
-                        'manual_stock_adjustment' => [
-                            'applied' => $adjustmentApplied,
-                            'old' => $adjustmentOld,
-                            'new' => $adjustmentNew,
-                            'operation' => $validated['manual_stock_adjustment_operation'] ?? null,
-                        ],
-                    ],
-
-                    'timestamp' => now()->toISOString()
-                ]);
+            // Safety: stock_quantity negative na ho
+            if ($oldSnapshot['stock_quantity'] < $qty) {
+                throw new \Exception(
+                    "Manual stock adjustment exceeds current stock_quantity ({$oldSnapshot['stock_quantity']}). Cannot subtract {$qty}."
+                );
             }
 
-            DB::rollBack();
+            // Safety: initial_stock negative na ho
+            if ($oldSnapshot['initial_stock'] < $qty) {
+                throw new \Exception(
+                    "Manual stock adjustment exceeds initial_stock ({$oldSnapshot['initial_stock']}). Cannot subtract {$qty}."
+                );
+            }
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Stock quantity is required when not updating variants'
-            ], 400);
+            // Safety: total_added_quantity negative na ho
+            if ($oldSnapshot['total_added_quantity'] < $qty) {
+                throw new \Exception(
+                    "Manual stock adjustment exceeds total_added_quantity ({$oldSnapshot['total_added_quantity']}). Cannot subtract {$qty}."
+                );
+            }
+
+            $product->stock_quantity       = $oldSnapshot['stock_quantity'] - $qty;
+            $product->initial_stock        = $oldSnapshot['initial_stock'] - $qty;
+            $product->total_added_quantity = $oldSnapshot['total_added_quantity'] - $qty;
+
+            // Cumulative: subtract hua toh +qty
+            $product->manual_stock_adjustment =
+                (int) ($product->manual_stock_adjustment ?? 0) + $qty;
+        } elseif ($operation === 'add') {
+
+            $product->stock_quantity       = $oldSnapshot['stock_quantity'] + $qty;
+            $product->initial_stock        = $oldSnapshot['initial_stock'] + $qty;
+            $product->total_added_quantity = $oldSnapshot['total_added_quantity'] + $qty;
+
+            // Cumulative: add hua toh -qty
+            $product->manual_stock_adjustment =
+                (int) ($product->manual_stock_adjustment ?? 0) - $qty;
+        } else {
+            throw new \Exception("Invalid manual stock adjustment operation: {$operation}");
         }
 
-        $oldStock = $product->stock_quantity;
-
-        $quantity = $validated['stock_quantity'];
-
-        $operation = $validated['operation'] ?? 'set';
-
-        // Apply operation
-        switch ($operation) {
-
-            case 'add':
-
-                $newStock = $oldStock + $quantity;
-
-                break;
-
-            case 'subtract':
-
-                $newStock = $oldStock - $quantity;
-
-                break;
-
-            case 'set':
-
-            default:
-
-                $newStock = $quantity;
-
-                break;
-        }
-
-        // Validate negative stock
-        if ($newStock < 0) {
-
-            DB::rollBack();
-
-            return response()->json([
-                'success' => false,
-                'message' => "Stock cannot be negative. Current: {$oldStock}, New: {$newStock}"
-            ], 400);
-        }
-
-        // ============================================================
-        // UPDATE PRODUCT STOCK
-        // ============================================================
-
-        $product->stock_quantity = $newStock;
-
-        // ============================================================
-        // UPDATE TOTAL ADDED QUANTITY
-        // ============================================================
-
-        if ($operation === 'add') {
-            $product->total_added_quantity =
-                (int) ($product->total_added_quantity ?? 0) + $quantity;
-        } elseif ($operation === 'set' && $quantity > $oldStock) {
-            $product->total_added_quantity =
-                (int) ($product->total_added_quantity ?? 0) + ($quantity - $oldStock);
+        if ($reason !== null) {
+            $product->reason_for_stock_adjustment = $reason;
         }
 
         $product->save();
 
-        // Back in stock notification
-        if ($oldStock == 0 && $newStock > 0) {
-            $this->sendBackInStockNotifications($productId, null);
-        }
+        $newSnapshot = [
+            'stock_quantity'          => (int) $product->stock_quantity,
+            'initial_stock'           => (int) $product->initial_stock,
+            'total_added_quantity'    => (int) $product->total_added_quantity,
+            'manual_stock_adjustment' => (int) $product->manual_stock_adjustment,
+        ];
 
-        DB::commit();
-
-        $product->refresh();
-
-        return response()->json([
-            'success' => true,
-
-            'message' => 'Product stock updated successfully',
-
-            'data' => [
-                'product' => [
-                    'id' => $product->id,
-
-                    'name' => $product->name,
-
-                    'old_stock' => $oldStock,
-
-                    'new_stock' => $newStock,
-
-                    'total_added_quantity' => (int) $product->total_added_quantity,
-
-                    'manual_stock_adjustment' => (int) $product->manual_stock_adjustment,
-
-                    'operation' => $operation,
-
-                    'has_variants' => $product->variants()->count() > 0,
-                ],
-
-                'manual_stock_adjustment' => [
-                    'applied' => $adjustmentApplied,
-                    'old' => $adjustmentOld,
-                    'new' => $adjustmentNew,
-                    'operation' => $validated['manual_stock_adjustment_operation'] ?? null
+        return [$oldSnapshot, $newSnapshot];
+    }
 
     // private function updateProductStock($productId): int
     // {
