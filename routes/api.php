@@ -719,6 +719,10 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('orders')->group(function (
     Route::post('/ship', [OrderController::class, 'ship']);
     Route::post('/deliver', [OrderController::class, 'deliver']);
     Route::get('/{orderReference}/shipping-details', [OrderController::class, 'getShippingDetails']);
+    Route::post(
+        'order-lines/{orderLine}/cancel',
+        [OrderController::class, 'adminCancel']
+    );
 });
 
 // ============================

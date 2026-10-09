@@ -1748,69 +1748,22 @@ class ProductController extends Controller
         }
 
         // ------------------------------------------------------------
-        // STATUS BUCKETS
-        // ------------------------------------------------------------
-        $reservedStatuses = [
-            'confirmed',
-            'shipped',
-            'dispatched',
-            'cancel_pending',
-            'cancel_rejected',
-            'undelivered',
-        ];
-
-        $soldStatuses = [
-            'delivered',
-            'return_initiated',
-            'return_pending',
-            'return_approved',
-            'return_rejected',
-            'replacement_pending',
-            'replacement_approved',
-            'replacement_rejected',
-            'replaced',
-            'buyback_pending',
-            'buyback_approved',
-            'buyback_rejected',
-            'buyback_cancelled',
-        ];
-
-        $returnedStatuses = [
-            'return_received',
-            'returned',
-            'refunded',
-            'buyback_refunded',
-        ];
-
-        $cancelledStatuses = [
-            'cancelled',
-        ];
-
-        // ------------------------------------------------------------
-        // RESERVED STOCK
-        // Order confirmed but not yet delivered
-        // ------------------------------------------------------------
-        $reservedRows = DB::table('order_lines')
-            ->join('orders', 'order_lines.order_id', '=', 'orders.id')
-            ->whereIn('order_lines.product_id', $productIds)
-            ->whereNull('orders.deleted_at')
-            ->where('order_lines.is_replacement', false)
-            ->whereIn('order_lines.delivery_status', $reservedStatuses)
-            ->groupBy('order_lines.product_id')
-            ->selectRaw('order_lines.product_id, COALESCE(SUM(order_lines.quantity), 0) as total_reserved')
-            ->pluck('total_reserved', 'product_id')
-            ->toArray();
-
-        // ------------------------------------------------------------
-        // SOLD STOCK
-        // Delivered / return-process / replacement / buyback
+        // STOCK SOLD
+        // Delivered / shipped / processing / confirmed order lines
+        // Exclude: cancelled lines, soft-deleted orders, replacements
         // ------------------------------------------------------------
         $soldRows = DB::table('order_lines')
             ->join('orders', 'order_lines.order_id', '=', 'orders.id')
             ->whereIn('order_lines.product_id', $productIds)
             ->whereNull('orders.deleted_at')
+            ->whereNull('order_lines.cancelled_at')
             ->where('order_lines.is_replacement', false)
-            ->whereIn('order_lines.delivery_status', $soldStatuses)
+            ->whereIn('orders.status', [
+                'confirmed',
+                'processing',
+                'shipped',
+                'delivered',
+            ])
             ->groupBy('order_lines.product_id')
             ->selectRaw('order_lines.product_id, COALESCE(SUM(order_lines.quantity), 0) as total_sold')
             ->pluck('total_sold', 'product_id')
@@ -1818,34 +1771,17 @@ class ProductController extends Controller
 
         // ------------------------------------------------------------
         // CUSTOMER RETURNS
-        // Only those order_lines that have a returns record
-        // with returns.status NOT IN (pending, cancelled, rejected)
+        // Sum returned_quantity from order_lines
+        // (already maintained, no need to join returns table)
         // ------------------------------------------------------------
         $returnRows = DB::table('order_lines')
             ->join('orders', 'order_lines.order_id', '=', 'orders.id')
-            ->join('returns', 'returns.order_line_id', '=', 'order_lines.id')
             ->whereIn('order_lines.product_id', $productIds)
             ->whereNull('orders.deleted_at')
-            ->whereNull('returns.deleted_at')
             ->where('order_lines.is_replacement', false)
-            ->whereNotIn('returns.status', ['pending', 'cancelled', 'rejected'])
             ->groupBy('order_lines.product_id')
             ->selectRaw('order_lines.product_id, COALESCE(SUM(order_lines.returned_quantity), 0) as total_returned')
             ->pluck('total_returned', 'product_id')
-            ->toArray();
-
-        // ------------------------------------------------------------
-        // CANCELLED ORDERS
-        // ------------------------------------------------------------
-        $cancelledRows = DB::table('order_lines')
-            ->join('orders', 'order_lines.order_id', '=', 'orders.id')
-            ->whereIn('order_lines.product_id', $productIds)
-            ->whereNull('orders.deleted_at')
-            ->where('order_lines.is_replacement', false)
-            ->whereIn('order_lines.delivery_status', $cancelledStatuses)
-            ->groupBy('order_lines.product_id')
-            ->selectRaw('order_lines.product_id, COALESCE(SUM(order_lines.quantity), 0) as total_cancelled')
-            ->pluck('total_cancelled', 'product_id')
             ->toArray();
 
         // ------------------------------------------------------------
@@ -1855,10 +1791,8 @@ class ProductController extends Controller
 
         foreach ($productIds as $id) {
             $result[$id] = [
-                'reserved_stock'   => (int) ($reservedRows[$id] ?? 0),
                 'stock_sold'       => (int) ($soldRows[$id] ?? 0),
                 'customer_returns' => (int) ($returnRows[$id] ?? 0),
-                'cancelled_orders' => (int) ($cancelledRows[$id] ?? 0),
             ];
         }
 
@@ -1892,33 +1826,25 @@ class ProductController extends Controller
                 : $product->retail_mrp;
 
             // ============================================================
-            // STOCK MOVEMENT BREAKDOWN
+            // STOCK MOVEMENT BREAKDOWN (NEW — ADDITIVE)
             // ============================================================
-            // initial_stock    -> products.initial_stock
-            // restock          -> products.total_added_quantity
-            // total_stock      -> initial_stock + restock
-            // reserved_stock   -> order_lines (confirmed/shipped/dispatched/
-            //                     cancel_pending/cancel_rejected/undelivered)
-            // stock_sold       -> order_lines (delivered + return_* +
-            //                     replacement_* + buyback_*)
-            // customer_returns -> returns table (status NOT IN pending/cancelled/rejected)
-            // cancelled_orders -> order_lines (delivery_status = cancelled)
-            // available_stock  -> products.stock_quantity
-            //
-            // Verify:
-            //   available = total_stock - reserved - sold + returned + cancelled
-            // ============================================================
-            $initialStock   = (int) ($product->initial_stock ?? 0);
-            $restock        = (int) ($product->total_added_quantity ?? 0);
-            $totalStock     = $initialStock + $restock;
-
-            $reserved       = (int) ($stockMovement[$product->id]['reserved_stock'] ?? 0);
-            $sold           = (int) ($stockMovement[$product->id]['stock_sold'] ?? 0);
-            $returned       = (int) ($stockMovement[$product->id]['customer_returns'] ?? 0);
-            $cancelled      = (int) ($stockMovement[$product->id]['cancelled_orders'] ?? 0);
+            $sold          = (int) ($stockMovement[$product->id]['stock_sold'] ?? 0);
+            $returned      = (int) ($stockMovement[$product->id]['customer_returns'] ?? 0);
+            $restock       = (int) ($product->total_added_quantity ?? 0);
             $availableStock = (int) $product->stock_quantity;
 
-            $calculatedAvailable = $totalStock - $reserved - $sold + $returned + $cancelled;
+            // Reverse calculate initial stock:
+            //   available = initial + restock - sold + returned
+            //   => initial = available - restock + sold - returned
+            $initialStock = $availableStock - $restock + $sold - $returned;
+
+            // Safety: initial stock negative na ho
+            if ($initialStock < 0) {
+                $initialStock = 0;
+            }
+
+            // Verify calculation
+            $calculatedAvailable = $initialStock + $restock - $sold + $returned;
 
             return [
                 'id' => $product->id,
@@ -1990,20 +1916,27 @@ class ProductController extends Controller
                 'is_wishlisted' => $isWishlisted,
 
                 // ============================================================
-                // STOCK MOVEMENT BREAKDOWN (additive — existing keys untouched)
+                // NEW: STOCK MOVEMENT BREAKDOWN (additive — existing keys untouched)
                 // ============================================================
                 'stock_movement' => [
-                    'initial_stock'    => $initialStock,
-                    'restock'          => $restock,
-                    // 'total_stock'      => $totalStock,
-
-                    'reserved_stock'   => $reserved,
-                    'stock_sold'       => $sold,
-                    'customer_returns' => $returned,
-                    'cancelled_orders' => $cancelled,
-
-                    'available_stock'  => $availableStock,
-                    // 'is_matched'       => $availableStock === $calculatedAvailable,
+                    'initial_stock'    => (int) $initialStock,
+                    'restock'          => (int) $restock,
+                    'stock_sold'       => (int) $sold,
+                    'customer_returns' => (int) $returned,
+                    'available_stock'  => (int) $availableStock,
+                    'breakdown'        => sprintf(
+                        'Initial Stock: %d | Restock: +%d | Stock Sold: −%d | Customer Returns: +%d | Available Stock = %d + %d − %d + %d = %d units',
+                        $initialStock,
+                        $restock,
+                        $sold,
+                        $returned,
+                        $initialStock,
+                        $restock,
+                        $sold,
+                        $returned,
+                        $calculatedAvailable
+                    ),
+                    'is_matched'       => $availableStock === $calculatedAvailable,
                 ],
                 // ============================================================
 
@@ -2891,6 +2824,604 @@ class ProductController extends Controller
     /**
      * Update a product with variants
      */
+    // public function update(Request $request, $id)
+    // {
+    //     $product = Product::where('id', $id)->first();
+    //     if (!$product) {
+    //         return response()->json([
+    //             'message' => 'Product not found'
+    //         ], 422);
+    //     }
+
+    //     $validator = Validator::make($request->all(), [
+    //         'product_code' => ['sometimes', 'required', 'string', 'max:255'],
+    //         'name' => ['sometimes', 'required', 'string', 'max:255'],
+    //         'slug' => [
+    //             'nullable',
+    //             'string',
+    //             'max:255',
+    //             Rule::unique('products')->ignore($product->id)
+    //         ],
+    //         'description' => ['nullable', 'string'],
+    //         'specification' => ['nullable', 'string'],
+    //         'brand_id' => ['nullable'],
+    //         'hsn_code' => ['nullable', 'string', 'max:50'],
+    //         'uom' => ['nullable', 'string', 'max:50'],
+    //         'category_id' => ['sometimes', 'required', 'exists:categories,id'],
+    //         'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+    //         'subcategory_id' => ['nullable', 'exists:subcategories,id'],
+
+    //         // Product pricing
+    //         'retail_mrp' => ['sometimes', 'required', 'numeric', 'min:0'],
+    //         'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+
+    //         'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
+    //         'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
+
+    //         // Stock
+    //         'stock_quantity' => ['nullable', 'integer', 'min:0'],
+    //         'total_added_quantity' => ['nullable', 'integer', 'min:0'],
+    //         'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
+    //         'shipping_charge' => ['nullable', 'min:0'],
+    //         'commission_value' => ['nullable', 'min:0'],
+
+    //         // Status
+    //         'is_published' => ['sometimes', 'boolean'],
+    //         'is_trending' => ['sometimes', 'boolean'],
+    //         'trending_sort_order' => ['nullable', 'integer', 'min:0'],
+    //         'sale_type' => ['nullable', 'string', 'in:today_best,limited'],
+
+    //         // Product images
+    //         'product_images' => ['nullable', 'array'],
+    //         'product_images.*.image' => [
+    //             'nullable',
+    //             'mimes:jpg,jpeg,png,webp,avif'
+    //         ],
+    //         'product_images.*.sort_order' => ['nullable', 'integer'],
+    //         'product_images.*.is_primary' => ['nullable', 'boolean'],
+
+    //         'remove_images' => ['nullable', 'array'],
+    //         'remove_images.*' => ['exists:product_images,id'],
+
+    //         // Variants
+    //         'variants' => ['nullable', 'array'],
+    //         'variants.*.id' => [
+    //             'nullable',
+    //             'exists:product_variants,id'
+    //         ],
+    //         'variants.*.sku' => [
+    //             'nullable',
+    //             'string',
+    //             'max:255'
+    //         ],
+    //         'variants.*.attributes' => ['nullable'],
+
+    //         'variants.*.retail_mrp' => [
+    //             'nullable',
+    //             'numeric',
+    //             'min:0'
+    //         ],
+    //         'variants.*.retail_discount_type' => [
+    //             'nullable',
+    //             'in:percentage,fixed'
+    //         ],
+    //         'variants.*.retail_discount_value' => [
+    //             'nullable',
+    //             'numeric',
+    //             'min:0'
+    //         ],
+
+    //         'variants.*.distributor_mrp' => [
+    //             'nullable',
+    //             'numeric',
+    //             'min:0'
+    //         ],
+    //         'variants.*.distributor_discount_type' => [
+    //             'nullable',
+    //             'in:percentage,fixed'
+    //         ],
+    //         'variants.*.distributor_discount_value' => [
+    //             'nullable',
+    //             'numeric',
+    //             'min:0'
+    //         ],
+
+    //         'variants.*.stock_quantity' => [
+    //             'nullable',
+    //             'integer',
+    //             'min:0'
+    //         ],
+    //         'variants.*.low_stock_threshold' => [
+    //             'nullable',
+    //             'integer',
+    //             'min:0'
+    //         ],
+    //         'variants.*.sort_order' => [
+    //             'nullable',
+    //             'integer',
+    //             'min:0'
+    //         ],
+    //         'variants.*.is_active' => [
+    //             'nullable',
+    //             'boolean'
+    //         ],
+
+    //         // Variant Images Validation
+    //         'variants.*.images' => ['nullable', 'array'],
+    //         'variants.*.images.*.image' => [
+    //             'nullable',
+    //             'image',
+    //             'mimes:jpg,jpeg,png,webp,avif',
+    //             'max:2048',
+    //         ],
+    //         'variants.*.images.*.sort_order' => ['nullable', 'integer', 'min:0'],
+    //         'variants.*.images.*.is_primary' => ['nullable', 'boolean'],
+    //         'variants.*.remove_images' => ['nullable', 'array'],
+    //         'variants.*.remove_images.*' => ['exists:variant_images,id'],
+
+    //         'remove_variants' => ['nullable', 'array'],
+    //         'remove_variants.*' => [
+    //             'nullable',
+    //             'exists:product_variants,id'
+    //         ],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json([
+    //             'errors' => $validator->errors()
+    //         ], 422);
+    //     }
+
+    //     DB::beginTransaction();
+    //     try {
+
+    //         $validated = $validator->validated();
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | OLD VALUES
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $oldValues = [
+    //             'product_id' => $product->id,
+    //             'product_code' => $product->product_code,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'brand_id' => $product->brand_id,
+    //             'category_id' => $product->category_id,
+    //             'tax_category_id' => $product->tax_category_id,
+    //             'subcategory_id' => $product->subcategory_id,
+
+    //             'retail_mrp' => $product->retail_mrp,
+    //             'retail_price' => $product->retail_price,
+    //             'retail_discount_type' => $product->retail_discount_type,
+    //             'retail_discount_value' => $product->retail_discount_value,
+
+    //             'distributor_mrp' => $product->distributor_mrp,
+    //             'distributor_price' => $product->distributor_price,
+    //             'distributor_discount_type' => $product->distributor_discount_type,
+    //             'distributor_discount_value' => $product->distributor_discount_value,
+
+    //             'stock_quantity' => $product->stock_quantity,
+    //             'total_added_quantity' => $product->total_added_quantity,
+    //             'low_stock_threshold' => $product->low_stock_threshold,
+    //             'shipping_charge' => $product->shipping_charge,
+    //             'commission_value' => $product->commission_value,
+
+    //             'is_published' => $product->is_published,
+    //             'is_trending' => $product->is_trending,
+    //             'sale_type' => $product->sale_type,
+
+    //             'description' => $product->description,
+    //             'specification' => $product->specification,
+    //             'hsn_code' => $product->hsn_code,
+    //             'uom' => $product->uom,
+    //         ];
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | UPDATE PRODUCT DATA
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $productData = collect($validated)
+    //             ->except([
+    //                 'product_images',
+    //                 'variants',
+    //                 'remove_images',
+    //                 'remove_variants',
+    //                 'total_added_quantity', // handled separately below
+    //             ])
+    //             ->toArray();
+
+    //         if ($request->has('is_trending')) {
+    //             $isTrending = $request->input('is_trending');
+
+    //             if (
+    //                 $isTrending === '0' ||
+    //                 $isTrending === 0 ||
+    //                 $isTrending === false ||
+    //                 $isTrending === 'false'
+    //             ) {
+    //                 unset($productData['is_trending']);
+    //             }
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | CAST BOOLEAN VALUES PROPERLY
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         if (array_key_exists('is_published', $productData)) {
+    //             $productData['is_published'] = filter_var($productData['is_published'], FILTER_VALIDATE_BOOLEAN);
+    //         }
+
+    //         if (array_key_exists('is_trending', $productData)) {
+    //             $productData['is_trending'] = filter_var($productData['is_trending'], FILTER_VALIDATE_BOOLEAN);
+    //         }
+
+    //         if (array_key_exists('variants', $validated)) {
+    //             foreach ($validated['variants'] as $key => $variant) {
+    //                 if (array_key_exists('is_active', $variant)) {
+    //                     $validated['variants'][$key]['is_active'] = filter_var($variant['is_active'], FILTER_VALIDATE_BOOLEAN);
+    //                 }
+    //             }
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | SET DEFAULT BRAND ID
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         if (array_key_exists('brand_id', $productData)) {
+    //             if (empty($productData['brand_id'])) {
+    //                 $productData['brand_id'] = 1;
+    //             }
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | RETAIL PRICE
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         if (array_key_exists('retail_mrp', $productData)) {
+    //             $productData['retail_price'] = $this->calculatePrice(
+    //                 $productData['retail_mrp'],
+    //                 $productData['retail_discount_type'] ?? null,
+    //                 $productData['retail_discount_value'] ?? null
+    //             );
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | DISTRIBUTOR PRICE
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         if (
+    //             array_key_exists('distributor_mrp', $productData)
+    //             && $productData['distributor_mrp'] !== null
+    //             && $productData['distributor_mrp'] !== ''
+    //         ) {
+    //             $productData['distributor_price'] = $this->calculatePrice(
+    //                 $productData['distributor_mrp'],
+    //                 $productData['distributor_discount_type'] ?? null,
+    //                 $productData['distributor_discount_value'] ?? null
+    //             );
+    //         } elseif (
+    //             array_key_exists('distributor_mrp', $productData)
+    //             && (
+    //                 $productData['distributor_mrp'] === null
+    //                 || $productData['distributor_mrp'] === ''
+    //             )
+    //         ) {
+    //             $productData['distributor_price'] = null;
+    //             $productData['distributor_mrp'] = null;
+    //             $productData['distributor_discount_type'] = null;
+    //             $productData['distributor_discount_value'] = null;
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | SLUG
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         if (
+    //             array_key_exists('slug', $productData)
+    //             || array_key_exists('name', $productData)
+    //         ) {
+    //             if (
+    //                 empty($productData['slug'])
+    //                 && array_key_exists('name', $productData)
+    //             ) {
+    //                 $productData['slug'] = Str::slug($productData['name']);
+    //             }
+
+    //             if (
+    //                 array_key_exists('slug', $productData)
+    //                 && $productData['slug'] !== $product->slug
+    //             ) {
+    //                 $productData['slug'] = $this->generateUniqueSlug(
+    //                     $productData['slug'],
+    //                     $product->id
+    //                 );
+    //             }
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | VARIANTS EXIST?
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $hasVariants = array_key_exists('variants', $validated)
+    //             && is_array($validated['variants'])
+    //             && count($validated['variants']) > 0;
+
+    //         $oldProductStock = $product->stock_quantity;
+    //         $oldVariantStocks = [];
+
+    //         if ($product->variants()->count() > 0) {
+    //             $oldVariantStocks = $product->variants()
+    //                 ->pluck('stock_quantity', 'id')
+    //                 ->toArray();
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | STOCK + TOTAL_ADDED_QUANTITY HANDLING (PRODUCT LEVEL)
+    //     |--------------------------------------------------------------------------
+    //     | Logic:
+    //     |   - Agar product-level stock_quantity bheji gayi hai aur product ke
+    //     |     variants nahi hain, to:
+    //     |        diff = new_stock - old_stock
+    //     |        - diff > 0  → total_added_quantity += diff (naya stock add hua)
+    //     |        - diff < 0  → total_added_quantity same (sale/adjustment)
+    //     |        - diff = 0  → kuch change nahi
+    //     |   - Agar variants hain, to stock variants me handle hoga
+    //     */
+
+    //         if ($hasVariants) {
+    //             // Variants ke case me product-level stock_quantity skip karo
+    //             if (array_key_exists('stock_quantity', $productData)) {
+    //                 unset($productData['stock_quantity']);
+    //             }
+    //         } else {
+    //             if (array_key_exists('stock_quantity', $validated)) {
+    //                 $newStock = (int) $validated['stock_quantity'];
+    //                 $oldStock = (int) $product->stock_quantity;
+    //                 $diff = $newStock - $oldStock;
+
+    //                 if ($diff > 0) {
+    //                     // Naya stock add hua → total_added_quantity bhi badhao
+    //                     $productData['total_added_quantity'] =
+    //                         (int) $product->total_added_quantity + $diff;
+    //                 }
+    //                 // diff <= 0 → total_added_quantity ko touch mat karo
+
+    //                 $productData['stock_quantity'] = $newStock;
+    //             }
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | UPDATE PRODUCT
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         if (!empty($productData)) {
+    //             $product->update($productData);
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | PRODUCT IMAGES
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $this->handleProductImageUpdates(
+    //             $request,
+    //             $product
+    //         );
+
+    //         $variantUpdateDetails = [];
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | REMOVE VARIANTS
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         if (
+    //             array_key_exists('remove_variants', $validated)
+    //             && !empty($validated['remove_variants'])
+    //         ) {
+    //             ProductVariant::where('product_id', $product->id)
+    //                 ->whereIn('id', $validated['remove_variants'])
+    //                 ->delete();
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | HANDLE VARIANTS
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         if ($hasVariants) {
+    //             $totalStock = $this->handleVariantUpdates(
+    //                 $product,
+    //                 $request,
+    //                 $validated
+    //             );
+
+    //             $product->update([
+    //                 'stock_quantity' => $totalStock
+    //             ]);
+
+    //             $updatedVariants = $product->variants()->get();
+
+    //             foreach ($updatedVariants as $variant) {
+    //                 $oldStock = $oldVariantStocks[$variant->id] ?? 0;
+    //                 $newStock = $variant->stock_quantity;
+
+    //                 if ($oldStock == 0 && $newStock > 0) {
+    //                     $this->sendBackInStockNotifications(null, $variant->id);
+    //                 }
+    //             }
+
+    //             foreach ($updatedVariants as $variant) {
+    //                 $variantUpdateDetails[] = [
+    //                     'id' => $variant->id,
+    //                     'sku' => $variant->sku,
+    //                     'attributes' => $variant->attributes,
+    //                     'retail_mrp' => $variant->retail_mrp,
+    //                     'retail_price' => $variant->retail_price,
+    //                     'retail_discount_type' => $variant->retail_discount_type,
+    //                     'retail_discount_value' => $variant->retail_discount_value,
+
+    //                     'distributor_mrp' => $variant->distributor_mrp,
+    //                     'distributor_price' => $variant->distributor_price,
+    //                     'distributor_discount_type' => $variant->distributor_discount_type,
+    //                     'distributor_discount_value' => $variant->distributor_discount_value,
+
+    //                     'stock_quantity' => $variant->stock_quantity,
+    //                     'total_added_quantity' => $variant->total_added_quantity,
+    //                     'low_stock_threshold' => $variant->low_stock_threshold,
+    //                     'sort_order' => $variant->sort_order,
+    //                     'is_active' => $variant->is_active,
+
+    //                     'images' => $variant->images->map(function ($image) {
+    //                         return [
+    //                             'id' => $image->id,
+    //                             'image' => asset('storage/' . $image->image),
+    //                             'sort_order' => $image->sort_order,
+    //                             'is_primary' => $image->is_primary,
+    //                         ];
+    //                     })->toArray(),
+    //                 ];
+    //             }
+    //         } else {
+    //             // Product-level restock notification
+    //             if (array_key_exists('stock_quantity', $validated)) {
+    //                 if ($oldProductStock == 0 && $product->stock_quantity > 0) {
+    //                     $this->sendBackInStockNotifications($product->id, null);
+    //                 }
+    //             }
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | COMMIT
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         DB::commit();
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | LOAD RELATIONS
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $product->load([
+    //             'category',
+    //             'taxCategory',
+    //             'images',
+    //             'variants.images'
+    //         ]);
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | NEW VALUES / AUDIT
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $newValues = [
+    //             'product_id' => $product->id,
+    //             'product_code' => $product->product_code,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'brand_id' => $product->brand_id,
+
+    //             'category_id' => $product->category_id,
+    //             'category_name' => $product->category?->name,
+
+    //             'tax_category_id' => $product->tax_category_id,
+    //             'subcategory_id' => $product->subcategory_id,
+
+    //             'retail_mrp' => $product->retail_mrp,
+    //             'retail_price' => $product->retail_price,
+    //             'retail_discount_type' => $product->retail_discount_type,
+    //             'retail_discount_value' => $product->retail_discount_value,
+
+    //             'distributor_mrp' => $product->distributor_mrp,
+    //             'distributor_price' => $product->distributor_price,
+    //             'distributor_discount_type' => $product->distributor_discount_type,
+    //             'distributor_discount_value' => $product->distributor_discount_value,
+
+    //             'stock_quantity' => $product->stock_quantity,
+    //             'total_added_quantity' => $product->total_added_quantity,
+    //             'low_stock_threshold' => $product->low_stock_threshold,
+    //             'shipping_charge' => $product->shipping_charge,
+    //             'commission_value' => $product->commission_value,
+
+    //             'is_published' => $product->is_published,
+    //             'is_trending' => $product->is_trending,
+    //             'trending_sort_order' => $product->trending_sort_order,
+
+    //             'sale_type' => $product->sale_type,
+
+    //             'description' => $product->description,
+    //             'specification' => $product->specification,
+    //             'hsn_code' => $product->hsn_code,
+    //             'uom' => $product->uom,
+
+    //             'has_variants' => $hasVariants,
+    //             'variants_count' => count($variantUpdateDetails),
+    //             'variants' => $variantUpdateDetails,
+
+    //             'updated_by' => $this->getAdminId(),
+    //             'updated_at' => now()->toDateTimeString(),
+    //         ];
+
+    //         $this->logAudit(
+    //             'product_update',
+    //             'catalogue',
+    //             $oldValues,
+    //             $newValues
+    //         );
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | RESPONSE
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         return response()->json(
+    //             $this->formatProduct($product)
+    //         );
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+
+    //         Log::error('Failed to update product:', [
+    //             'error' => $e->getMessage(),
+    //             'trace' => $e->getTraceAsString()
+    //         ]);
+
+    //         return response()->json([
+    //             'message' => 'Failed to update product',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function update(Request $request, $id)
     {
         $product = Product::where('id', $id)->first();
@@ -2933,6 +3464,12 @@ class ProductController extends Controller
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'shipping_charge' => ['nullable', 'min:0'],
             'commission_value' => ['nullable', 'min:0'],
+
+            // ============================================================
+            // MANUAL STOCK ADJUSTMENT
+            // ============================================================
+            'manual_stock_adjustment' => ['nullable', 'integer', 'min:0'],
+            'reason_for_stock_adjustment' => ['nullable', 'string', 'max:2000'],
 
             // Status
             'is_published' => ['sometimes', 'boolean'],
@@ -3073,7 +3610,10 @@ class ProductController extends Controller
                 'distributor_discount_value' => $product->distributor_discount_value,
 
                 'stock_quantity' => $product->stock_quantity,
+                'initial_stock' => $product->initial_stock,
                 'total_added_quantity' => $product->total_added_quantity,
+                'manual_stock_adjustment' => $product->manual_stock_adjustment,
+                'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
                 'low_stock_threshold' => $product->low_stock_threshold,
                 'shipping_charge' => $product->shipping_charge,
                 'commission_value' => $product->commission_value,
@@ -3090,6 +3630,89 @@ class ProductController extends Controller
 
             /*
         |--------------------------------------------------------------------------
+        | MANUAL STOCK ADJUSTMENT
+        |--------------------------------------------------------------------------
+        | Agar admin ne manual_stock_adjustment bheja hai (>0), toh:
+        |   - stock_quantity       -= adjustment
+        |   - initial_stock        -= adjustment
+        |   - total_added_quantity -= adjustment
+        |   - manual_stock_adjustment += adjustment (cumulative)
+        |   - reason_for_stock_adjustment = reason
+        |
+        | Safety: teeno fields negative na ho jayein.
+        |--------------------------------------------------------------------------
+        */
+
+            $adjustmentApplied = false;
+            $adjustmentQty = 0;
+
+            if (
+                array_key_exists('manual_stock_adjustment', $validated)
+                && $validated['manual_stock_adjustment'] !== null
+                && (int) $validated['manual_stock_adjustment'] > 0
+            ) {
+                $adjustmentQty = (int) $validated['manual_stock_adjustment'];
+
+                // --------------------------------------------------------
+                // SAFETY CHECKS
+                // --------------------------------------------------------
+                if ((int) $product->stock_quantity < $adjustmentQty) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'Manual stock adjustment exceeds current stock_quantity.',
+                        'errors' => [
+                            'manual_stock_adjustment' => [
+                                "Current stock_quantity is {$product->stock_quantity}, cannot adjust by {$adjustmentQty}."
+                            ]
+                        ]
+                    ], 422);
+                }
+
+                if ((int) ($product->initial_stock ?? 0) < $adjustmentQty) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'Manual stock adjustment exceeds initial_stock.',
+                        'errors' => [
+                            'manual_stock_adjustment' => [
+                                "Current initial_stock is {$product->initial_stock}, cannot adjust by {$adjustmentQty}."
+                            ]
+                        ]
+                    ], 422);
+                }
+
+                if ((int) ($product->total_added_quantity ?? 0) < $adjustmentQty) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'Manual stock adjustment exceeds total_added_quantity.',
+                        'errors' => [
+                            'manual_stock_adjustment' => [
+                                "Current total_added_quantity is {$product->total_added_quantity}, cannot adjust by {$adjustmentQty}."
+                            ]
+                        ]
+                    ], 422);
+                }
+
+                // --------------------------------------------------------
+                // APPLY ADJUSTMENT
+                // --------------------------------------------------------
+                $product->stock_quantity       = (int) $product->stock_quantity - $adjustmentQty;
+                $product->initial_stock        = (int) $product->initial_stock - $adjustmentQty;
+                $product->total_added_quantity = (int) $product->total_added_quantity - $adjustmentQty;
+
+                $product->manual_stock_adjustment =
+                    (int) ($product->manual_stock_adjustment ?? 0) + $adjustmentQty;
+
+                $product->reason_for_stock_adjustment =
+                    $validated['reason_for_stock_adjustment']
+                    ?? $product->reason_for_stock_adjustment;
+
+                $product->save();
+
+                $adjustmentApplied = true;
+            }
+
+            /*
+        |--------------------------------------------------------------------------
         | UPDATE PRODUCT DATA
         |--------------------------------------------------------------------------
         */
@@ -3100,7 +3723,9 @@ class ProductController extends Controller
                     'variants',
                     'remove_images',
                     'remove_variants',
-                    'total_added_quantity', // handled separately below
+                    'total_added_quantity',           // handled separately below
+                    'manual_stock_adjustment',        // handled above
+                    'reason_for_stock_adjustment',    // handled above
                 ])
                 ->toArray();
 
@@ -3253,6 +3878,7 @@ class ProductController extends Controller
         |        - diff < 0  → total_added_quantity same (sale/adjustment)
         |        - diff = 0  → kuch change nahi
         |   - Agar variants hain, to stock variants me handle hoga
+        |--------------------------------------------------------------------------
         */
 
             if ($hasVariants) {
@@ -3263,15 +3889,16 @@ class ProductController extends Controller
             } else {
                 if (array_key_exists('stock_quantity', $validated)) {
                     $newStock = (int) $validated['stock_quantity'];
+                    // NOTE: agar adjustment apply ho chuka hai, toh product->stock_quantity
+                    // ab already adjusted value hai. Isliye yahan old value ke roop me
+                    // $product->stock_quantity (adjusted) use karo.
                     $oldStock = (int) $product->stock_quantity;
                     $diff = $newStock - $oldStock;
 
                     if ($diff > 0) {
-                        // Naya stock add hua → total_added_quantity bhi badhao
                         $productData['total_added_quantity'] =
                             (int) $product->total_added_quantity + $diff;
                     }
-                    // diff <= 0 → total_added_quantity ko touch mat karo
 
                     $productData['stock_quantity'] = $newStock;
                 }
@@ -3434,7 +4061,10 @@ class ProductController extends Controller
                 'distributor_discount_value' => $product->distributor_discount_value,
 
                 'stock_quantity' => $product->stock_quantity,
+                'initial_stock' => $product->initial_stock,
                 'total_added_quantity' => $product->total_added_quantity,
+                'manual_stock_adjustment' => $product->manual_stock_adjustment,
+                'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
                 'low_stock_threshold' => $product->low_stock_threshold,
                 'shipping_charge' => $product->shipping_charge,
                 'commission_value' => $product->commission_value,
@@ -6418,7 +7048,6 @@ class ProductController extends Controller
     // public function updateStock(Request $request)
     // {
     //     try {
-    //         // ============ VALIDATION ============
     //         $validator = \Illuminate\Support\Facades\Validator::make(
     //             $request->all(),
     //             [
@@ -6432,7 +7061,7 @@ class ProductController extends Controller
     //                 // Direct stock update (optional - can update parent product directly)
     //                 'stock_quantity' => 'nullable|integer|min:0',
 
-    //                 // Operation type (set, add, subtract)
+    //                 // Operation type
     //                 'operation' => 'nullable|in:set,add,subtract',
     //             ],
     //             [
@@ -6454,16 +7083,23 @@ class ProductController extends Controller
     //         }
 
     //         $validated = $validator->validated();
+
     //         $productId = $validated['product_id'];
+
     //         $product = Product::findOrFail($productId);
 
     //         DB::beginTransaction();
 
-    //         // ============ CASE: UPDATE VARIANTS ============
+    //         // ============================================================
+    //         // CASE 1: UPDATE VARIANTS
+    //         // ============================================================
+
     //         if (isset($validated['variants']) && !empty($validated['variants'])) {
-    //             // Check operation for variants
+
+    //             // Operation is required for variants
     //             if (!isset($validated['operation'])) {
     //                 DB::rollBack();
+
     //                 return response()->json([
     //                     'success' => false,
     //                     'message' => 'Operation is required when updating variants'
@@ -6471,12 +7107,18 @@ class ProductController extends Controller
     //             }
 
     //             $operation = $validated['operation'];
+
     //             $variantsData = $validated['variants'];
+
     //             $updatedVariants = [];
+
     //             $totalVariants = count($variantsData);
 
     //             // Verify all variants belong to this product
-    //             $variantIds = collect($variantsData)->pluck('id')->toArray();
+    //             $variantIds = collect($variantsData)
+    //                 ->pluck('id')
+    //                 ->toArray();
+
     //             $existingVariants = ProductVariant::whereIn('id', $variantIds)
     //                 ->where('product_id', $productId)
     //                 ->get()
@@ -6484,31 +7126,61 @@ class ProductController extends Controller
 
     //             if ($existingVariants->count() != $totalVariants) {
     //                 DB::rollBack();
+
     //                 return response()->json([
     //                     'success' => false,
     //                     'message' => 'One or more variants do not belong to this product'
     //                 ], 400);
     //             }
 
+    //             /*
+    //          * Keep track of how much stock was actually added.
+    //          *
+    //          * Example:
+    //          * Variant 1 -> add 10
+    //          * Variant 2 -> add 20
+    //          *
+    //          * totalAddedQuantity = 30
+    //          */
+    //             $totalAddedQuantity = 0;
+
     //             // Update each variant
     //             foreach ($variantsData as $variantData) {
+
     //                 $variant = $existingVariants[$variantData['id']];
+
     //                 $oldStock = $variant->stock_quantity;
+
     //                 $quantity = $variantData['stock_quantity'];
 
     //                 // Apply operation
     //                 switch ($operation) {
+
     //                     case 'set':
+
     //                         $newStock = $quantity;
+
     //                         break;
+
     //                     case 'add':
+
     //                         $newStock = $oldStock + $quantity;
+
+    //                         // Track only added quantity
+    //                         $totalAddedQuantity += $quantity;
+
     //                         break;
+
     //                     case 'subtract':
+
     //                         $newStock = $oldStock - $quantity;
+
     //                         break;
+
     //                     default:
+
     //                         DB::rollBack();
+
     //                         return response()->json([
     //                             'success' => false,
     //                             'message' => 'Invalid operation type'
@@ -6517,14 +7189,18 @@ class ProductController extends Controller
 
     //                 // Validate stock is not negative
     //                 if ($newStock < 0) {
+
     //                     DB::rollBack();
+
     //                     return response()->json([
     //                         'success' => false,
     //                         'message' => "Stock cannot be negative for variant ID {$variantData['id']}. Current: {$oldStock}, Operation: {$operation}, Quantity: {$quantity}"
     //                     ], 400);
     //                 }
 
+    //                 // Update variant stock
     //                 $variant->stock_quantity = $newStock;
+
     //                 $variant->save();
 
     //                 $updatedVariants[] = [
@@ -6538,34 +7214,68 @@ class ProductController extends Controller
     //                 ];
     //             }
 
-    //             // Update parent product total stock (sum of all variants)
+    //             // ============================================================
+    //             // UPDATE PARENT PRODUCT STOCK
+    //             // ============================================================
+
+    //             // Existing function updates product stock based on variants
     //             $totalStock = $this->updateProductStock($productId);
+
     //             $product->refresh();
-    //             $result = $this->bulkUpdateVariantsWithOperation($variantsData, $operation);
+
+    //             // ============================================================
+    //             // UPDATE TOTAL ADDED QUANTITY
+    //             // ============================================================
+
+    //             if ($operation === 'add' && $totalAddedQuantity > 0) {
+
+    //                 $product->total_added_quantity =
+    //                     ($product->total_added_quantity ?? 0) + $totalAddedQuantity;
+
+    //                 $product->save();
+    //             }
+
+    //             $product->refresh();
+
+    //             $result = $this->bulkUpdateVariantsWithOperation(
+    //                 $variantsData,
+    //                 $operation
+    //             );
+
     //             DB::commit();
 
     //             return response()->json([
     //                 'success' => true,
     //                 'message' => 'Variant stocks updated successfully',
+
     //                 'data' => [
     //                     'product' => [
     //                         'id' => $product->id,
     //                         'name' => $product->name,
     //                         'total_stock' => $totalStock,
+    //                         'total_added_quantity' => $product->total_added_quantity,
     //                         'has_variants' => true,
     //                     ],
+
     //                     'total_updated' => $totalVariants,
+
     //                     'operation' => $operation,
+
     //                     'updated_variants' => $updatedVariants,
     //                 ],
+
     //                 'timestamp' => now()->toISOString()
     //             ]);
     //         }
 
-    //         // ============ CASE: UPDATE PARENT PRODUCT STOCK ============
-    //         // This runs whether product has variants or not
+    //         // ============================================================
+    //         // CASE 2: UPDATE PARENT PRODUCT STOCK
+    //         // ============================================================
+
     //         if (!isset($validated['stock_quantity'])) {
+
     //             DB::rollBack();
+
     //             return response()->json([
     //                 'success' => false,
     //                 'message' => 'Stock quantity is required when not updating variants'
@@ -6573,69 +7283,117 @@ class ProductController extends Controller
     //         }
 
     //         $oldStock = $product->stock_quantity;
-    //         $newStock = $validated['stock_quantity'];
 
-    //         // Apply operation if provided
-    //         if (isset($validated['operation'])) {
-    //             switch ($validated['operation']) {
-    //                 case 'add':
-    //                     $newStock = $oldStock + $validated['stock_quantity'];
-    //                     break;
-    //                 case 'subtract':
-    //                     $newStock = $oldStock - $validated['stock_quantity'];
-    //                     break;
-    //                 case 'set':
-    //                 default:
-    //                     $newStock = $validated['stock_quantity'];
-    //                     break;
-    //             }
+    //         $quantity = $validated['stock_quantity'];
+
+    //         $operation = $validated['operation'] ?? 'set';
+
+    //         // Apply operation
+    //         switch ($operation) {
+
+    //             case 'add':
+
+    //                 $newStock = $oldStock + $quantity;
+
+    //                 break;
+
+    //             case 'subtract':
+
+    //                 $newStock = $oldStock - $quantity;
+
+    //                 break;
+
+    //             case 'set':
+
+    //             default:
+
+    //                 $newStock = $quantity;
+
+    //                 break;
     //         }
 
     //         // Validate negative stock
     //         if ($newStock < 0) {
+
     //             DB::rollBack();
+
     //             return response()->json([
     //                 'success' => false,
     //                 'message' => "Stock cannot be negative. Current: {$oldStock}, New: {$newStock}"
     //             ], 400);
     //         }
 
+    //         // ============================================================
+    //         // UPDATE PRODUCT STOCK
+    //         // ============================================================
+
     //         $product->stock_quantity = $newStock;
+
+    //         // ============================================================
+    //         // UPDATE TOTAL ADDED QUANTITY
+    //         // ============================================================
+
+    //         /*
+    //      * Only "add" operation increases total_added_quantity.
+    //      *
+    //      * Example:
+    //      * Current stock = 100
+    //      * Add 20
+    //      *
+    //      * stock_quantity = 120
+    //      * total_added_quantity = previous total + 20
+    //      */
+    //         if ($operation === 'add') {
+
+    //             $product->total_added_quantity =
+    //                 ($product->total_added_quantity ?? 0) + $quantity;
+    //         }
+
     //         $product->save();
 
+    //         // Back in stock notification
     //         if ($oldStock == 0 && $newStock > 0) {
     //             $this->sendBackInStockNotifications($productId, null);
     //         }
 
-    //         // If product has variants, you might want to update each variant's stock too
+    //         // If product has variants
     //         if ($product->variants()->count() > 0) {
-    //             // Option 1: Don't update variants (keep them as they are)
-    //             // Option 2: Update all variants with the same value
-    //             // Option 3: Distribute the stock among variants
 
-    //             // For now, we'll just update the parent product
-    //             // You can add logic here to handle variants if needed
+    //             // For now, parent product stock is updated independently.
+    //             // Variants remain unchanged.
     //         }
 
     //         DB::commit();
 
     //         return response()->json([
     //             'success' => true,
+
     //             'message' => 'Product stock updated successfully',
+
     //             'data' => [
     //                 'product' => [
     //                     'id' => $product->id,
+
     //                     'name' => $product->name,
+
     //                     'old_stock' => $oldStock,
+
     //                     'new_stock' => $newStock,
-    //                     'operation' => $validated['operation'] ?? 'set',
+
+    //                     'total_added_quantity' => $product->total_added_quantity,
+
+    //                     'operation' => $operation,
+
     //                     'has_variants' => $product->variants()->count() > 0,
     //                 ]
     //             ],
+
     //             'timestamp' => now()->toISOString()
     //         ]);
     //     } catch (\Exception $e) {
+
     //         DB::rollBack();
+
     //         Log::error('Stock update failed: ' . $e->getMessage(), [
     //             'trace' => $e->getTraceAsString(),
     //             'request' => $request->all()
@@ -6644,11 +7402,12 @@ class ProductController extends Controller
     //         return response()->json([
     //             'success' => false,
     //             'message' => 'Failed to update stock',
-    //             'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+    //             'error' => config('app.debug')
+    //                 ? $e->getMessage()
+    //                 : 'Internal server error'
     //         ], 500);
     //     }
     // }
-
     public function updateStock(Request $request)
     {
         try {
@@ -6739,12 +7498,6 @@ class ProductController extends Controller
 
                 /*
              * Keep track of how much stock was actually added.
-             *
-             * Example:
-             * Variant 1 -> add 10
-             * Variant 2 -> add 20
-             *
-             * totalAddedQuantity = 30
              */
                 $totalAddedQuantity = 0;
 
@@ -6763,6 +7516,11 @@ class ProductController extends Controller
                         case 'set':
 
                             $newStock = $quantity;
+
+                            // Only count the increase as "added"
+                            if ($quantity > $oldStock) {
+                                $totalAddedQuantity += ($quantity - $oldStock);
+                            }
 
                             break;
 
@@ -6805,6 +7563,15 @@ class ProductController extends Controller
                     // Update variant stock
                     $variant->stock_quantity = $newStock;
 
+                    // Update variant total_added_quantity when adding
+                    if ($operation === 'add' && $quantity > 0) {
+                        $variant->total_added_quantity =
+                            (int) ($variant->total_added_quantity ?? 0) + $quantity;
+                    } elseif ($operation === 'set' && $quantity > $oldStock) {
+                        $variant->total_added_quantity =
+                            (int) ($variant->total_added_quantity ?? 0) + ($quantity - $oldStock);
+                    }
+
                     $variant->save();
 
                     $updatedVariants[] = [
@@ -6815,6 +7582,7 @@ class ProductController extends Controller
                         'operation' => $operation,
                         'quantity' => $quantity,
                         'new_stock' => $newStock,
+                        'total_added_quantity' => (int) $variant->total_added_quantity,
                     ];
                 }
 
@@ -6822,29 +7590,22 @@ class ProductController extends Controller
                 // UPDATE PARENT PRODUCT STOCK
                 // ============================================================
 
-                // Existing function updates product stock based on variants
                 $totalStock = $this->updateProductStock($productId);
 
                 $product->refresh();
 
                 // ============================================================
-                // UPDATE TOTAL ADDED QUANTITY
+                // UPDATE TOTAL ADDED QUANTITY (PRODUCT LEVEL)
                 // ============================================================
 
-                if ($operation === 'add' && $totalAddedQuantity > 0) {
-
+                if ($totalAddedQuantity > 0) {
                     $product->total_added_quantity =
-                        ($product->total_added_quantity ?? 0) + $totalAddedQuantity;
+                        (int) ($product->total_added_quantity ?? 0) + $totalAddedQuantity;
 
                     $product->save();
                 }
 
                 $product->refresh();
-
-                $result = $this->bulkUpdateVariantsWithOperation(
-                    $variantsData,
-                    $operation
-                );
 
                 DB::commit();
 
@@ -6857,7 +7618,7 @@ class ProductController extends Controller
                             'id' => $product->id,
                             'name' => $product->name,
                             'total_stock' => $totalStock,
-                            'total_added_quantity' => $product->total_added_quantity,
+                            'total_added_quantity' => (int) $product->total_added_quantity,
                             'has_variants' => true,
                         ],
 
@@ -6937,20 +7698,13 @@ class ProductController extends Controller
             // UPDATE TOTAL ADDED QUANTITY
             // ============================================================
 
-            /*
-         * Only "add" operation increases total_added_quantity.
-         *
-         * Example:
-         * Current stock = 100
-         * Add 20
-         *
-         * stock_quantity = 120
-         * total_added_quantity = previous total + 20
-         */
             if ($operation === 'add') {
-
                 $product->total_added_quantity =
-                    ($product->total_added_quantity ?? 0) + $quantity;
+                    (int) ($product->total_added_quantity ?? 0) + $quantity;
+            } elseif ($operation === 'set' && $quantity > $oldStock) {
+                // Agar set kiya aur value badhi, toh diff ko added maano
+                $product->total_added_quantity =
+                    (int) ($product->total_added_quantity ?? 0) + ($quantity - $oldStock);
             }
 
             $product->save();
@@ -6958,13 +7712,6 @@ class ProductController extends Controller
             // Back in stock notification
             if ($oldStock == 0 && $newStock > 0) {
                 $this->sendBackInStockNotifications($productId, null);
-            }
-
-            // If product has variants
-            if ($product->variants()->count() > 0) {
-
-                // For now, parent product stock is updated independently.
-                // Variants remain unchanged.
             }
 
             DB::commit();
@@ -6984,7 +7731,7 @@ class ProductController extends Controller
 
                         'new_stock' => $newStock,
 
-                        'total_added_quantity' => $product->total_added_quantity,
+                        'total_added_quantity' => (int) $product->total_added_quantity,
 
                         'operation' => $operation,
 

@@ -1115,7 +1115,7 @@ class WarehouseStockController extends Controller
     //                 // ----------------------------------------------------
     //                 // 2. Variant global stock
     //                 // ----------------------------------------------------
-    //                 $oldVariantQty = $variant->stock_quantity;
+    //                 $oldVariantQty = (int) $variant->stock_quantity;
 
     //                 $newVariantQty = $this->applyOperation($oldVariantQty, $quantity, $operation);
 
@@ -1127,19 +1127,35 @@ class WarehouseStockController extends Controller
     //                     ], 400);
     //                 }
 
+    //                 // ================================================
+    //                 // ✅ TOTAL_ADDED_QUANTITY LOGIC (VARIANT)
+    //                 // ================================================
+    //                 $totalAddedDelta = $this->calculateTotalAddedDelta(
+    //                     $oldVariantQty,
+    //                     $newVariantQty,
+    //                     $operation,
+    //                     $quantity
+    //                 );
+
     //                 $variant->stock_quantity = $newVariantQty;
+    //                 if ($totalAddedDelta > 0) {
+    //                     $variant->total_added_quantity =
+    //                         (int) $variant->total_added_quantity + $totalAddedDelta;
+    //                 }
     //                 $variant->save();
 
     //                 $updatedVariants[] = [
-    //                     'id'                 => $variant->id,
-    //                     'sku'                => $variant->sku,
-    //                     'attributes'         => $variant->attributes,
-    //                     'operation'          => $operation,
-    //                     'quantity'           => $quantity,
-    //                     'warehouse_old_qty'  => $oldWarehouseQty,
-    //                     'warehouse_new_qty'  => $newWarehouseQty,
-    //                     'variant_old_stock'  => $oldVariantQty,
-    //                     'variant_new_stock'  => $newVariantQty,
+    //                     'id'                    => $variant->id,
+    //                     'sku'                   => $variant->sku,
+    //                     'attributes'            => $variant->attributes,
+    //                     'operation'             => $operation,
+    //                     'quantity'              => $quantity,
+    //                     'warehouse_old_qty'     => $oldWarehouseQty,
+    //                     'warehouse_new_qty'     => $newWarehouseQty,
+    //                     'variant_old_stock'     => $oldVariantQty,
+    //                     'variant_new_stock'     => $newVariantQty,
+    //                     'total_added_delta'     => $totalAddedDelta,
+    //                     'total_added_quantity'  => (int) $variant->total_added_quantity,
     //                 ];
     //             }
 
@@ -1221,7 +1237,7 @@ class WarehouseStockController extends Controller
     //         // ------------------------------------------------------------
     //         // 2. Parent product global stock
     //         // ------------------------------------------------------------
-    //         $oldProductQty = $product->stock_quantity;
+    //         $oldProductQty = (int) $product->stock_quantity;
 
     //         $newProductQty = $this->applyOperation($oldProductQty, $quantity, $operation);
 
@@ -1233,7 +1249,21 @@ class WarehouseStockController extends Controller
     //             ], 400);
     //         }
 
+    //         // ================================================
+    //         // TOTAL_ADDED_QUANTITY LOGIC (PRODUCT)
+    //         // ================================================
+    //         $totalAddedDelta = $this->calculateTotalAddedDelta(
+    //             $oldProductQty,
+    //             $newProductQty,
+    //             $operation,
+    //             $quantity
+    //         );
+
     //         $product->stock_quantity = $newProductQty;
+    //         if ($totalAddedDelta > 0) {
+    //             $product->total_added_quantity =
+    //                 (int) $product->total_added_quantity + $totalAddedDelta;
+    //         }
     //         $product->save();
 
     //         DB::commit();
@@ -1247,13 +1277,15 @@ class WarehouseStockController extends Controller
     //                     'name' => $warehouse->name ?? null,
     //                 ],
     //                 'product' => [
-    //                     'id'          => $product->id,
-    //                     'name'        => $product->name,
-    //                     'old_stock'   => $oldProductQty,
-    //                     'new_stock'   => $newProductQty,
-    //                     'operation'   => $operation,
-    //                     'quantity'    => $quantity,
-    //                     'has_variants' => $product->variants()->count() > 0,
+    //                     'id'                   => $product->id,
+    //                     'name'                 => $product->name,
+    //                     'old_stock'            => $oldProductQty,
+    //                     'new_stock'            => $newProductQty,
+    //                     'total_added_delta'    => $totalAddedDelta,
+    //                     'total_added_quantity' => (int) $product->total_added_quantity,
+    //                     'operation'            => $operation,
+    //                     'quantity'             => $quantity,
+    //                     'has_variants'         => $product->variants()->count() > 0,
     //                 ],
     //                 'warehouse_stock' => [
     //                     'old_quantity' => $oldWarehouseQty,
@@ -1292,8 +1324,7 @@ class WarehouseStockController extends Controller
                     'variants.*.id' => 'required_with:variants|exists:product_variants,id',
                     'variants.*.quantity' => 'required_with:variants|integer|min:0',
 
-                    // Optional: direct product (non-variant) update
-                    'quantity' => 'nullable|integer|min:0',
+                    // Optional: direct product (non-variant) update                'quantity' => 'nullable|integer|min:0',
 
                     // Operation type
                     'operation' => 'required|in:set,add,subtract',
@@ -1400,7 +1431,7 @@ class WarehouseStockController extends Controller
                     }
 
                     // ================================================
-                    // ✅ TOTAL_ADDED_QUANTITY LOGIC (VARIANT)
+                    // TOTAL_ADDED_QUANTITY LOGIC (VARIANT)
                     // ================================================
                     $totalAddedDelta = $this->calculateTotalAddedDelta(
                         $oldVariantQty,
