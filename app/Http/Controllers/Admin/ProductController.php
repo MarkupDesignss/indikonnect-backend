@@ -1839,7 +1839,7 @@ class ProductController extends Controller
             // Reverse calculate initial stock:
             //   available = initial + restock - sold + returned
             //   => initial = available - restock + sold - returned
-            $initialStock = $availableStock - $restock + $sold - $returned;
+            $initialStock = $product->initial_stock;
 
             // Safety: initial stock negative na ho
             if ($initialStock < 0) {
