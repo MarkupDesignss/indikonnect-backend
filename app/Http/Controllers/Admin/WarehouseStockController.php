@@ -1758,18 +1758,18 @@ class WarehouseStockController extends Controller
             $product->initial_stock        = $oldSnapshot['initial_stock'] - $qty;
             $product->total_added_quantity = $oldSnapshot['total_added_quantity'] - $qty;
 
-            // Cumulative: subtract hua toh +qty
+            // ✅ FIXED: subtract → manual_stock_adjustment bhi minus
             $product->manual_stock_adjustment =
-                (int) ($product->manual_stock_adjustment ?? 0) + $qty;
+                (int) ($product->manual_stock_adjustment ?? 0) - $qty;
         } elseif ($operation === 'add') {
 
             $product->stock_quantity       = $oldSnapshot['stock_quantity'] + $qty;
             $product->initial_stock        = $oldSnapshot['initial_stock'] + $qty;
             $product->total_added_quantity = $oldSnapshot['total_added_quantity'] + $qty;
 
-            // Cumulative: add hua toh -qty
+            // ✅ FIXED: add → manual_stock_adjustment bhi plus
             $product->manual_stock_adjustment =
-                (int) ($product->manual_stock_adjustment ?? 0) - $qty;
+                (int) ($product->manual_stock_adjustment ?? 0) + $qty;
         } else {
             throw new \Exception("Invalid manual stock adjustment operation: {$operation}");
         }
