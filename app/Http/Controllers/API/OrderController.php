@@ -21,6 +21,7 @@ use App\Traits\AuditLogTrait;
 use Illuminate\Support\Facades\Log;
 use App\Services\NotificationService;
 use App\Services\ReturnService;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Validator;
 
 class OrderController extends Controller
@@ -3645,6 +3646,151 @@ class OrderController extends Controller
             return response()->json(['message' => $e->getMessage(),], 422);
         } catch (\Throwable $e) {
             return response()->json(['message' => 'Something went wrong while marking the order line as undelivered.', 'error' => $e->getMessage(),], 500);
+        }
+    }
+
+    public function adminCancel(Request $request, OrderLine $orderLine)
+    {
+        // ------------------------------------------------------------
+        // VALIDATION
+        // ------------------------------------------------------------
+        $validated = $request->validate([
+            'cancellation_reason' => 'nullable|string|max:1000',
+            'admin_notes'         => 'nullable|string|max:2000',
+        ]);
+
+        // ------------------------------------------------------------
+        // LOAD RELATIONS
+        // ------------------------------------------------------------
+        $orderLine->load(['order']);
+
+        $order = $orderLine->order;
+
+        // ------------------------------------------------------------
+        // GUARDS
+        // ------------------------------------------------------------
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found for this order line.',
+            ], 404);
+        }
+
+        if ($order->deleted_at) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order has been deleted. Cannot cancel its line.',
+            ], 422);
+        }
+
+        if ($orderLine->delivery_status === 'cancelled' || $orderLine->cancelled_at) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This order line is already cancelled.',
+            ], 422);
+        }
+
+        // ------------------------------------------------------------
+        // ONLY confirmed & dispatched CAN BE CANCELLED
+        // ------------------------------------------------------------
+        $cancellableStatuses = ['confirmed'];
+
+        if (!in_array($orderLine->delivery_status, $cancellableStatuses)) {
+            return response()->json([
+                'success' => false,
+                'message' => "Cannot cancel a line with delivery status '{$orderLine->delivery_status}'. Only 'confirmed' or 'dispatched' lines can be cancelled.",
+            ], 422);
+        }
+
+        // ------------------------------------------------------------
+        // TRANSACTION
+        // ------------------------------------------------------------
+        DB::beginTransaction();
+
+        try {
+            $previousLineStatus  = $orderLine->delivery_status;
+            $previousOrderStatus = $order->status;
+
+            // --------------------------------------------------------
+            // 1. UPDATE ORDER LINE — status always changes
+            // --------------------------------------------------------
+            $orderLine->delivery_status     = 'cancelled';
+            $orderLine->cancelled_at        = Carbon::now();
+            $orderLine->cancellation_reason = $validated['cancellation_reason']
+                ?? $orderLine->cancellation_reason;
+            $orderLine->delivery_notes      = $validated['admin_notes']
+                ?? $orderLine->delivery_notes;
+            $orderLine->save();
+
+            // NOTE: No stock/quantity restock.
+
+            // --------------------------------------------------------
+            // 2. CHECK IF ALL LINES OF THE ORDER ARE CANCELLED
+            // --------------------------------------------------------
+            $totalLines = OrderLine::where('order_id', $order->id)->count();
+
+            $cancelledLines = OrderLine::where('order_id', $order->id)
+                ->where(function ($q) {
+                    $q->where('delivery_status', 'cancelled')
+                        ->orWhereNotNull('cancelled_at');
+                })
+                ->count();
+
+            $allCancelled = $totalLines > 0 && $cancelledLines === $totalLines;
+
+            // --------------------------------------------------------
+            // 3. UPDATE ORDER STATUS ONLY IF ALL LINES CANCELLED
+            // --------------------------------------------------------
+            if ($allCancelled) {
+                $order->status          = 'cancelled';
+                $order->delivery_status = 'cancelled';
+                $order->cancelled_at    = $order->cancelled_at ?? Carbon::now();
+                $order->save();
+            }
+            // else: order status remains unchanged (previousOrderStatus)
+
+            DB::commit();
+
+            $order->refresh();
+
+            return response()->json([
+                'success' => true,
+                'message' => $allCancelled
+                    ? 'Order line cancelled. All lines are now cancelled, so the order is marked as cancelled.'
+                    : 'Order line cancelled successfully. Order status remains unchanged.',
+                'data' => [
+                    'order_line_id'        => $orderLine->id,
+                    'order_id'             => $orderLine->order_id,
+                    'product_id'           => $orderLine->product_id,
+                    'variant_id'           => $orderLine->variant_id,
+                    'quantity'             => (int) $orderLine->quantity,
+                    'previous_line_status' => $previousLineStatus,
+                    'new_line_status'      => 'cancelled',
+                    'cancelled_at'         => $orderLine->cancelled_at?->toISOString(),
+                    'cancellation_reason'  => $orderLine->cancellation_reason,
+
+                    // Order-level info
+                    'order_total_lines'     => $totalLines,
+                    'order_cancelled_lines' => $cancelledLines,
+                    'order_all_cancelled'   => $allCancelled,
+                    'previous_order_status' => $previousOrderStatus,
+                    'current_order_status'  => $order->status,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            Log::error('Admin order line cancel failed', [
+                'order_line_id' => $orderLine->id,
+                'error'         => $e->getMessage(),
+                'trace'         => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to cancel order line.',
+                'error'   => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
         }
     }
 }
