@@ -1998,7 +1998,6 @@ class ProductController extends Controller
                 'stock_movement' => [
                     'initial_stock'    => $initialStock,
                     'restock'          => $restock,
-                    'total_stock'      => $totalStock,
 
                     'reserved_stock'   => $reserved,
                     'stock_sold'       => $sold,
