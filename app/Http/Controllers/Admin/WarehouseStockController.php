@@ -1714,6 +1714,82 @@ class WarehouseStockController extends Controller
         }
     }
 
+    protected function applyManualStockAdjustment(
+        Product $product,
+        int $qty,
+        string $operation,
+        ?string $reason = null
+    ): array {
+        $oldSnapshot = [
+            'stock_quantity'          => (int) $product->stock_quantity,
+            'initial_stock'           => (int) ($product->initial_stock ?? 0),
+            'total_added_quantity'    => (int) ($product->total_added_quantity ?? 0),
+            'manual_stock_adjustment' => (int) ($product->manual_stock_adjustment ?? 0),
+        ];
+
+        if ($qty <= 0) {
+            return [$oldSnapshot, $oldSnapshot];
+        }
+
+        if ($operation === 'subtract') {
+
+            // Safety: stock_quantity negative na ho
+            if ($oldSnapshot['stock_quantity'] < $qty) {
+                throw new \Exception(
+                    "Manual stock adjustment exceeds current stock_quantity ({$oldSnapshot['stock_quantity']}). Cannot subtract {$qty}."
+                );
+            }
+
+            // Safety: initial_stock negative na ho
+            if ($oldSnapshot['initial_stock'] < $qty) {
+                throw new \Exception(
+                    "Manual stock adjustment exceeds initial_stock ({$oldSnapshot['initial_stock']}). Cannot subtract {$qty}."
+                );
+            }
+
+            // Safety: total_added_quantity negative na ho
+            if ($oldSnapshot['total_added_quantity'] < $qty) {
+                throw new \Exception(
+                    "Manual stock adjustment exceeds total_added_quantity ({$oldSnapshot['total_added_quantity']}). Cannot subtract {$qty}."
+                );
+            }
+
+            $product->stock_quantity       = $oldSnapshot['stock_quantity'] - $qty;
+            $product->initial_stock        = $oldSnapshot['initial_stock'] - $qty;
+            $product->total_added_quantity = $oldSnapshot['total_added_quantity'] - $qty;
+
+            // ✅ FIXED: subtract → manual_stock_adjustment bhi minus
+            $product->manual_stock_adjustment =
+                (int) ($product->manual_stock_adjustment ?? 0) - $qty;
+        } elseif ($operation === 'add') {
+
+            $product->stock_quantity       = $oldSnapshot['stock_quantity'] + $qty;
+            $product->initial_stock        = $oldSnapshot['initial_stock'] + $qty;
+            $product->total_added_quantity = $oldSnapshot['total_added_quantity'] + $qty;
+
+            // ✅ FIXED: add → manual_stock_adjustment bhi plus
+            $product->manual_stock_adjustment =
+                (int) ($product->manual_stock_adjustment ?? 0) + $qty;
+        } else {
+            throw new \Exception("Invalid manual stock adjustment operation: {$operation}");
+        }
+
+        if ($reason !== null) {
+            $product->reason_for_stock_adjustment = $reason;
+        }
+
+        $product->save();
+
+        $newSnapshot = [
+            'stock_quantity'          => (int) $product->stock_quantity,
+            'initial_stock'           => (int) $product->initial_stock,
+            'total_added_quantity'    => (int) $product->total_added_quantity,
+            'manual_stock_adjustment' => (int) $product->manual_stock_adjustment,
+        ];
+
+        return [$oldSnapshot, $newSnapshot];
+    }
+
     private function calculateTotalAddedDelta(
         int $oldQty,
         int $newQty,
