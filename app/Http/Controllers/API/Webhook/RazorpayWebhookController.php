@@ -47,7 +47,7 @@ class RazorpayWebhookController extends Controller
             // Pull notes from payment first, fallback to order entity
             $notes = $paymentEntity['notes'] ?? $orderEntity['notes'] ?? [];
 
-            // ✅ Only order_reference now (no group id)
+            //  Only order_reference now (no group id)
             $orderReference = $notes['order_reference']
                 ?? $orderEntity['receipt']
                 ?? $payload['reference_id']
