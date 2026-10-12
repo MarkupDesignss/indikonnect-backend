@@ -22,6 +22,12 @@ class ProductVariant extends Model
         'sort_order' => 'integer',
     ];
 
+    public function parentProduct()
+    {
+        return $this->belongsTo(Product::class, 'parent_product_id');
+    }
+
+
     protected $attributes = [
         'stock_quantity' => 0,
         'is_active' => true,
