@@ -1977,7 +1977,17 @@ class ProductController extends Controller
                 'price_for' => $isDistributor ? 'distributor' : 'retail',
 
                 'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
-                'is_active_deal' => $isActiveDeal,
+
+                'is_active_deal' => $isActiveDeal = (
+                    $product->is_deal_of_the_day &&
+                    $product->deal_of_the_day_starts_at &&
+                    $product->deal_of_the_day_ends_at &&
+                    now()->between(
+                        $product->deal_of_the_day_starts_at,
+                        $product->deal_of_the_day_ends_at
+                    )
+                ),
+
                 'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
                 'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
                 'sale_type' => $product->sale_type,
@@ -6718,49 +6728,148 @@ class ProductController extends Controller
         ]);
     }
 
+    // public function markAsDealOfTheDay(Request $request, $id)
+    // {
+    //     $request->validate([
+    //         'sale_type'    => 'required|string',
+    //     ]);
+    //     $product = Product::find($id);
+    //     if (!$product) {
+    //         return response()->json(['message' => 'Product not found'], 404);
+    //     }
+
+    //     $validator = Validator::make($request->all(), [
+    //         'starts_at' => ['nullable', 'date'],
+    //         'ends_at' => ['nullable', 'date', 'after:starts_at'],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['errors' => $validator->errors()], 422);
+    //     }
+
+    //     DB::beginTransaction();
+    //     try {
+    //         $product->update([
+    //             'is_deal_of_the_day' => true,
+    //             'deal_of_the_day_starts_at' => $request->starts_at ?? now(),
+    //             'deal_of_the_day_ends_at' => $request->ends_at ?? now()->addHours(24),
+    //             'sale_type' => $request->sale_type,
+    //         ]);
+
+    //         DB::commit();
+    //         $product->load(['category', 'taxCategory', 'images']);
+
+    //         return response()->json([
+    //             'message' => 'Product marked as deal of the day successfully',
+    //             'product' => $this->formatProduct($product)
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         Log::error('Failed to mark product as deal of the day:', [
+    //             'error' => $e->getMessage()
+    //         ]);
+    //         return response()->json([
+    //             'message' => 'Failed to mark product as deal of the day',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
+
     public function markAsDealOfTheDay(Request $request, $id)
     {
         $request->validate([
-            'sale_type'    => 'required|string',
+            'sale_type' => 'nullable|string',
+            'starts_at' => 'nullable|date',
+            'ends_at' => 'nullable|date|after:starts_at',
         ]);
+
         $product = Product::find($id);
+
         if (!$product) {
-            return response()->json(['message' => 'Product not found'], 404);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'starts_at' => ['nullable', 'date'],
-            'ends_at' => ['nullable', 'date', 'after:starts_at'],
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'message' => 'Product not found',
+            ], 404);
         }
 
         DB::beginTransaction();
+
         try {
-            $product->update([
-                'is_deal_of_the_day' => true,
-                'deal_of_the_day_starts_at' => $request->starts_at ?? now(),
-                'deal_of_the_day_ends_at' => $request->ends_at ?? now()->addHours(24),
-                'sale_type' => $request->sale_type,
-            ]);
+            // Toggle deal status
+            $isDealOfTheDay = !$product->is_deal_of_the_day;
+
+            if ($isDealOfTheDay) {
+                $startsAt = $request->starts_at
+                    ? \Carbon\Carbon::parse($request->starts_at)
+                    : now();
+
+                $endsAt = $request->ends_at
+                    ? \Carbon\Carbon::parse($request->ends_at)
+                    : $startsAt->copy()->addHours(24);
+
+                if ($endsAt->lessThanOrEqualTo($startsAt)) {
+                    DB::rollBack();
+
+                    return response()->json([
+                        'message' => 'The end time must be after the start time.',
+                    ], 422);
+                }
+
+                $product->update([
+                    'is_deal_of_the_day' => true,
+                    'deal_of_the_day_starts_at' => $startsAt,
+                    'deal_of_the_day_ends_at' => $endsAt,
+                    'sale_type' => $request->input('sale_type', 'today_best'),
+                ]);
+            } else {
+                // Disable deal
+                $product->update([
+                    'is_deal_of_the_day' => false,
+                    'sale_type' => 'today_best',
+                ]);
+            }
 
             DB::commit();
-            $product->load(['category', 'taxCategory', 'images']);
+
+            $product->refresh()->load([
+                'category',
+                'taxCategory',
+                'images',
+            ]);
+
+            $isActiveDeal = (
+                (bool) $product->is_deal_of_the_day &&
+                $product->deal_of_the_day_starts_at &&
+                $product->deal_of_the_day_ends_at &&
+                now()->between(
+                    $product->deal_of_the_day_starts_at,
+                    $product->deal_of_the_day_ends_at
+                )
+            );
 
             return response()->json([
-                'message' => 'Product marked as deal of the day successfully',
-                'product' => $this->formatProduct($product)
+                'message' => $isDealOfTheDay
+                    ? 'Product marked as deal of the day successfully'
+                    : 'Deal of the day disabled successfully',
+
+                'product' => $this->formatProduct($product),
+
+                'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+                'is_active_deal' => (bool) $isActiveDeal,
+                'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+                'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Failed to mark product as deal of the day:', [
-                'error' => $e->getMessage()
+
+            Log::error('Failed to toggle deal of the day:', [
+                'product_id' => $id,
+                'error' => $e->getMessage(),
             ]);
+
             return response()->json([
-                'message' => 'Failed to mark product as deal of the day',
-                'error' => $e->getMessage()
+                'message' => 'Failed to toggle deal of the day',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

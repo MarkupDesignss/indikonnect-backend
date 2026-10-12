@@ -2316,7 +2316,6 @@ class AuthController extends Controller
             if (empty($sponsorId)) {
                 $sponsorId = $this->generateUniqueSponsorId();
             } else {
-                // Uniqueness excluding current user
                 $taken = User::where('sponsor_id', $sponsorId)
                     ->where('id', '!=', $user->id)
                     ->exists();
