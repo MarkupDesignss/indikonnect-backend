@@ -16,7 +16,7 @@ return [
     'name' => env('APP_NAME', 'Laravel'),
     'company_name' => env('COMPANY_NAME', 'IndieKonnect'),
     'company_gstin' => env('COMPANY_GSTIN', ''),
-    'company_address' => env('COMPANY_ADDRESS', ''),
+    'company_address' => env('COMPANY_ADDRESS', 'punjab'),
     'supplier_state' => env('SUPPLIER_STATE', ''),
     'company_email'   => env('COMPANY_EMAIL', 'care@indiekonnect.com'),
     'company_phone'   => env('COMPANY_PHONE', '+91 98765 43210'),
