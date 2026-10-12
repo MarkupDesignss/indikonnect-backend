@@ -2915,8 +2915,8 @@ class ProductController extends Controller
         try {
             $variant = DB::transaction(function () use ($validated, $images, &$uploadedPaths) {
                 $variant = ProductVariant::create([
-                    'product_id'         => $validated['parent_product_id'],
-                    'variant_product_id' => $validated['product_id'],
+                    'parent_product_id'         => $validated['parent_product_id'],
+                    'product_id' => $validated['product_id'],
                     'hax_color'          => $validated['hax_color'],
                 ]);
 
