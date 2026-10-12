@@ -9420,7 +9420,7 @@ class ProductController extends Controller
             'summary'                => $this->getSummary($startDate, $endDate),
             'chart'                  => $this->getChartData($startDate, $endDate, $groupBy, $labelFormat),
             'top_products'           => $this->getTopProducts($startDate, $endDate),
-            'order_status_breakdown' => $this->getOrderStatusBreakdown($startDate, $endDate),
+            // 'order_status_breakdown' => $this->getOrderStatusBreakdown($startDate, $endDate),
             'top_distributors'       => $this->getTopDistributors($startDate, $endDate),
             'payment_breakdown'      => $this->getPaymentBreakdown($startDate, $endDate),
             'return_refund_summary'  => $this->getReturnRefundSummary($startDate, $endDate),
@@ -9739,7 +9739,7 @@ class ProductController extends Controller
                     ? asset('storage/' . ltrim($row->product->images->first()->image, '/'))
                     : null,
                 'total_qty'     => (int) $row->total_qty,
-                'total_revenue' => round($row->total_revenue, 2),
+                // 'total_revenue' => round($row->total_revenue, 2),
             ])
             ->toArray();
     }
