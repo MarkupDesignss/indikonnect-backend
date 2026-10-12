@@ -2861,43 +2861,120 @@ class ProductController extends Controller
      * Create a product variant
      */
 
-    protected function createVariant($product, $variantData)
+    public function createVariant(Request $request, $parent_product_id)
     {
-        // Calculate variant prices
-        $variantData['retail_price'] = $this->calculatePrice(
-            $variantData['retail_mrp'],
-            $variantData['retail_discount_type'] ?? null,
-            $variantData['retail_discount_value'] ?? null
-        );
+        // Merge route parameter into the request so it can be validated.
+        $request->merge([
+            'parent_product_id' => $parent_product_id,
+        ]);
 
-        if (!empty($variantData['distributor_mrp'])) {
-            $variantData['distributor_price'] = $this->calculatePrice(
-                $variantData['distributor_mrp'],
-                $variantData['distributor_discount_type'] ?? null,
-                $variantData['distributor_discount_value'] ?? null
-            );
-        } else {
-            $variantData['distributor_price'] = null;
-            $variantData['distributor_mrp'] = null;
-            $variantData['distributor_discount_type'] = null;
-            $variantData['distributor_discount_value'] = null;
+        // -----------------------------------------------------------------
+        // 1. Validation
+        // -----------------------------------------------------------------
+        try {
+            $validated = $request->validate([
+                'parent_product_id' => 'required|integer|exists:products,id',
+                'product_id'        => [
+                    'required',
+                    'integer',
+                    'different:parent_product_id',
+                    'exists:products,id',
+                    'unique:product_variants,variant_product_id',
+                ],
+                'hax_color'         => 'required|string|max:50',
+                'images'            => 'nullable|array|max:20',
+                'images.*'          => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors'  => $e->errors(),
+            ], 422);
         }
 
-        $variantData['low_stock_threshold'] = $variantData['low_stock_threshold'] ?? 5;
-        $variantData['is_active'] = $variantData['is_active'] ?? true;
-        $variantData['product_id'] = $product->id;
-        $variantData['sort_order'] = $variantData['sort_order'] ?? 0;
+        // -----------------------------------------------------------------
+        // 2. Normalize uploaded files
+        // -----------------------------------------------------------------
+        $images = $request->file('images') ?? [];
 
-        // Remove images from variant data - they'll be handled separately
-        unset($variantData['images']);
-
-        // Ensure stock_quantity is set
-        if (!isset($variantData['stock_quantity'])) {
-            $variantData['stock_quantity'] = 0;
+        if (! is_array($images)) {
+            $images = [$images];
         }
 
-        // Create variant
-        return ProductVariant::create($variantData);
+        // Filter out any null entries (defensive).
+        $images = array_values(array_filter($images));
+
+        $uploadedPaths = [];
+        $variant       = null;
+
+        // -----------------------------------------------------------------
+        // 3. Transaction — create variant + images
+        //    Any failure here MUST be rolled back and files cleaned up.
+        // -----------------------------------------------------------------
+        try {
+            $variant = DB::transaction(function () use ($validated, $images, &$uploadedPaths) {
+                $variant = ProductVariant::create([
+                    'product_id'         => $validated['parent_product_id'],
+                    'variant_product_id' => $validated['product_id'],
+                    'hax_color'          => $validated['hax_color'],
+                ]);
+
+                foreach ($images as $index => $image) {
+                    $path            = $image->store('variant-images', 'public');
+                    $uploadedPaths[] = $path;
+
+                    VariantImage::create([
+                        'variant_id' => $variant->id,
+                        'image'      => $path,
+                        'sort_order' => $index + 1,
+                        'is_primary' => $index === 0,
+                    ]);
+                }
+
+                return $variant;
+            });
+        } catch (Throwable $e) {
+            // Transaction failed → safe to delete all files we uploaded.
+            foreach ($uploadedPaths as $path) {
+                Storage::disk('public')->delete($path);
+            }
+
+            report($e);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to attach product as a variant.',
+            ], 500);
+        }
+
+        // -----------------------------------------------------------------
+        // 4. Post-commit work (DB is committed — DO NOT delete files here)
+        // -----------------------------------------------------------------
+        try {
+            $variant->load('images');
+
+            $variant->images->transform(function ($image) {
+                $image->image_url = asset('storage/' . $image->image);
+                return $image;
+            });
+        } catch (Throwable $e) {
+            // The variant was created successfully, but we couldn't build
+            // the response payload. Log it, but still return success.
+            report($e);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Product attached as a variant successfully, but response enrichment failed.',
+                'data'    => $variant,
+            ], 201);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Product attached as a variant successfully.',
+            'data'    => $variant,
+        ], 201);
     }
 
     /**
