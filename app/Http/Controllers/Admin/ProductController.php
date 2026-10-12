@@ -13,6 +13,7 @@ use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductReview;
 use App\Models\ProductVariant;
+use Throwable;
 use App\Models\User;
 use Carbon\Carbon;
 use App\Models\VariantImage;
@@ -6870,6 +6871,111 @@ class ProductController extends Controller
             return response()->json([
                 'message' => 'Failed to toggle deal of the day',
                 'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function cereateVariant(Request $request)
+    {
+        $validated = $request->validate([
+            'product_id' => 'required|integer|exists:products,id',
+
+            'hax_color' => [
+                'required',
+                'string',
+                'max:50',
+            ],
+
+            'images' => 'nullable|array|max:20',
+
+            'images.*' => [
+                'required',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
+            ],
+
+            'primary_image_index' => [
+                'nullable',
+                'integer',
+                'min:0',
+            ],
+        ]);
+
+        $images = $request->file('images', []);
+        $primaryIndex = (int) $request->input(
+            'primary_image_index',
+            0
+        );
+
+        if (
+            count($images) > 0 &&
+            $primaryIndex >= count($images)
+        ) {
+            throw ValidationException::withMessages([
+                'primary_image_index' =>
+                'Primary image index must match an uploaded image.',
+            ]);
+        }
+
+        $uploadedPaths = [];
+
+        try {
+            $variant = DB::transaction(function () use (
+                $validated,
+                $images,
+                $primaryIndex,
+                &$uploadedPaths
+            ) {
+                $variant = ProductVariant::create([
+                    'product_id' => $validated['product_id'],
+                    'hax_color' => $validated['hax_color'],
+                ]);
+
+                foreach ($images as $index => $image) {
+                    $path = $image->store(
+                        'variant-images',
+                        'public'
+                    );
+
+                    $uploadedPaths[] = $path;
+
+                    VariantImage::create([
+                        'variant_id' => $variant->id,
+                        'image' => $path,
+                        'sort_order' => $index + 1,
+                        'is_primary' => $index === $primaryIndex,
+                    ]);
+                }
+
+                return $variant;
+            });
+
+            $variant->load('images');
+
+            $variant->images->transform(function ($image) {
+                $image->image_url = asset(
+                    'storage/' . $image->image
+                );
+
+                return $image;
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Product variant created successfully.',
+                'data' => $variant,
+            ], 201);
+        } catch (Throwable $e) {
+            foreach ($uploadedPaths as $path) {
+                Storage::disk('public')->delete($path);
+            }
+
+            report($e);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to create product variant.',
             ], 500);
         }
     }
