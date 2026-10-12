@@ -2405,12 +2405,6 @@ class AuthController extends Controller
                     'error'   => $e->getMessage(),
                 ]);
 
-                return response()->json([
-                    'status'  => false,
-                    'message' => 'Unable to validate sponsor right now. Please try again.',
-                ], 503);
-            }
-
             if ($response['code'] !== 0) {
                 return response()->json([
                     'status'  => false,

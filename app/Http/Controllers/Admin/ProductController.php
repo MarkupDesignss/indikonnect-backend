@@ -1977,7 +1977,17 @@ class ProductController extends Controller
                 'price_for' => $isDistributor ? 'distributor' : 'retail',
 
                 'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
-                'is_active_deal' => $isActiveDeal,
+
+                'is_active_deal' => $isActiveDeal = (
+                    $product->is_deal_of_the_day &&
+                    $product->deal_of_the_day_starts_at &&
+                    $product->deal_of_the_day_ends_at &&
+                    now()->between(
+                        $product->deal_of_the_day_starts_at,
+                        $product->deal_of_the_day_ends_at
+                    )
+                ),
+
                 'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
                 'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
                 'sale_type' => $product->sale_type,
@@ -6718,206 +6728,435 @@ class ProductController extends Controller
         ]);
     }
 
+    // public function markAsDealOfTheDay(Request $request, $id)
+    // {
+    //     $request->validate([
+    //         'sale_type'    => 'required|string',
+    //     ]);
+    //     $product = Product::find($id);
+    //     if (!$product) {
+    //         return response()->json(['message' => 'Product not found'], 404);
+    //     }
+
+    //     $validator = Validator::make($request->all(), [
+    //         'starts_at' => ['nullable', 'date'],
+    //         'ends_at' => ['nullable', 'date', 'after:starts_at'],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['errors' => $validator->errors()], 422);
+    //     }
+
+    //     DB::beginTransaction();
+    //     try {
+    //         $product->update([
+    //             'is_deal_of_the_day' => true,
+    //             'deal_of_the_day_starts_at' => $request->starts_at ?? now(),
+    //             'deal_of_the_day_ends_at' => $request->ends_at ?? now()->addHours(24),
+    //             'sale_type' => $request->sale_type,
+    //         ]);
+
+    //         DB::commit();
+    //         $product->load(['category', 'taxCategory', 'images']);
+
+    //         return response()->json([
+    //             'message' => 'Product marked as deal of the day successfully',
+    //             'product' => $this->formatProduct($product)
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         Log::error('Failed to mark product as deal of the day:', [
+    //             'error' => $e->getMessage()
+    //         ]);
+    //         return response()->json([
+    //             'message' => 'Failed to mark product as deal of the day',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
+
     public function markAsDealOfTheDay(Request $request, $id)
     {
         $request->validate([
-            'sale_type'    => 'required|string',
+            'sale_type' => 'nullable|string',
+            'starts_at' => 'nullable|date',
+            'ends_at' => 'nullable|date|after:starts_at',
         ]);
+
         $product = Product::find($id);
+
         if (!$product) {
-            return response()->json(['message' => 'Product not found'], 404);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'starts_at' => ['nullable', 'date'],
-            'ends_at' => ['nullable', 'date', 'after:starts_at'],
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'message' => 'Product not found',
+            ], 404);
         }
 
         DB::beginTransaction();
+
         try {
-            $product->update([
-                'is_deal_of_the_day' => true,
-                'deal_of_the_day_starts_at' => $request->starts_at ?? now(),
-                'deal_of_the_day_ends_at' => $request->ends_at ?? now()->addHours(24),
-                'sale_type' => $request->sale_type,
-            ]);
+            // Toggle deal status
+            $isDealOfTheDay = !$product->is_deal_of_the_day;
+
+            if ($isDealOfTheDay) {
+                $startsAt = $request->starts_at
+                    ? \Carbon\Carbon::parse($request->starts_at)
+                    : now();
+
+                $endsAt = $request->ends_at
+                    ? \Carbon\Carbon::parse($request->ends_at)
+                    : $startsAt->copy()->addHours(24);
+
+                if ($endsAt->lessThanOrEqualTo($startsAt)) {
+                    DB::rollBack();
+
+                    return response()->json([
+                        'message' => 'The end time must be after the start time.',
+                    ], 422);
+                }
+
+                $product->update([
+                    'is_deal_of_the_day' => true,
+                    'deal_of_the_day_starts_at' => $startsAt,
+                    'deal_of_the_day_ends_at' => $endsAt,
+                    'sale_type' => $request->input('sale_type', 'today_best'),
+                ]);
+            } else {
+                // Disable deal
+                $product->update([
+                    'is_deal_of_the_day' => false,
+                    'sale_type' => 'today_best',
+                ]);
+            }
 
             DB::commit();
-            $product->load(['category', 'taxCategory', 'images']);
+
+            $product->refresh()->load([
+                'category',
+                'taxCategory',
+                'images',
+            ]);
+
+            $isActiveDeal = (
+                (bool) $product->is_deal_of_the_day &&
+                $product->deal_of_the_day_starts_at &&
+                $product->deal_of_the_day_ends_at &&
+                now()->between(
+                    $product->deal_of_the_day_starts_at,
+                    $product->deal_of_the_day_ends_at
+                )
+            );
 
             return response()->json([
-                'message' => 'Product marked as deal of the day successfully',
-                'product' => $this->formatProduct($product)
+                'message' => $isDealOfTheDay
+                    ? 'Product marked as deal of the day successfully'
+                    : 'Deal of the day disabled successfully',
+
+                'product' => $this->formatProduct($product),
+
+                'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+                'is_active_deal' => (bool) $isActiveDeal,
+                'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+                'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Failed to mark product as deal of the day:', [
-                'error' => $e->getMessage()
+
+            Log::error('Failed to toggle deal of the day:', [
+                'product_id' => $id,
+                'error' => $e->getMessage(),
             ]);
+
             return response()->json([
-                'message' => 'Failed to mark product as deal of the day',
-                'error' => $e->getMessage()
+                'message' => 'Failed to toggle deal of the day',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
 
+    // public function getDealOfTheDayProducts($wishlistIds = [])
+    // {
+    //     // 1. Admin-selected active Deal of the Day products
+    //     $adminDeals = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+    //         ->where('is_deal_of_the_day', true)
+    //         ->where('sale_type', 'today_best')
+    //         ->where('is_published', true)
+    //         ->where(function ($query) {
+    //             $query->whereNull('deal_of_the_day_starts_at')
+    //                 ->orWhere('deal_of_the_day_starts_at', '<=', now());
+    //         })
+    //         ->where(function ($query) {
+    //             $query->whereNull('deal_of_the_day_ends_at')
+    //                 ->orWhere('deal_of_the_day_ends_at', '>=', now());
+    //         })
+    //         ->orderBy('trending_sort_order')
+    //         ->get();
+
+    //     // Already selected active product IDs
+    //     $selectedIds = $adminDeals->pluck('id')->toArray();
+
+    //     // 2. If less than 2, get default products
+    //     $required = 2 - $adminDeals->count();
+
+    //     if ($required > 0) {
+    //         $defaultProducts = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+    //             ->where('is_published', true)
+    //             ->where('stock_quantity', '>', 0)
+    //             ->whereNotIn('id', $selectedIds)
+    //             ->get()
+    //             ->map(function ($product) {
+    //                 $mrp = (float) $product->retail_mrp;
+    //                 $discountValue = (float) $product->retail_discount_value;
+
+    //                 if ($product->retail_discount_type === 'percentage') {
+    //                     $discountAmount = ($mrp * $discountValue) / 100;
+    //                 } elseif ($product->retail_discount_type === 'fixed') {
+    //                     $discountAmount = $discountValue;
+    //                 } else {
+    //                     $discountAmount = 0;
+    //                 }
+
+    //                 $product->calculated_discount_amount = $discountAmount;
+
+    //                 return $product;
+    //             })
+    //             ->sortByDesc('calculated_discount_amount')
+    //             ->take($required)
+    //             ->values();
+
+    //         $adminDeals = $adminDeals->concat($defaultProducts);
+    //     }
+
+    //     // 3. If still less than 2, fill from products
+    //     if ($adminDeals->count() < 2) {
+    //         $remaining = 2 - $adminDeals->count();
+
+    //         $fallbackProducts = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+    //             ->where('is_published', true)
+    //             ->where('stock_quantity', '>', 0)
+    //             ->whereNotIn('id', $adminDeals->pluck('id')->toArray())
+    //             ->latest()
+    //             ->limit($remaining)
+    //             ->get();
+
+    //         $adminDeals = $adminDeals->concat($fallbackProducts);
+    //     }
+
+    //     return $adminDeals
+    //         ->take(2)
+    //         ->map(function ($product) use ($wishlistIds) {
+    //             // Get product image or fallback to variant image
+    //             $primaryImage = $product->images->where('is_primary', true)->first()
+    //                 ?? $product->images->first();
+
+    //             // If no product image, get from first variant
+    //             if (!$primaryImage) {
+    //                 $firstVariant = $product->variants->first();
+    //                 if ($firstVariant) {
+    //                     $variantImage = $firstVariant->images->where('is_primary', true)->first()
+    //                         ?? $firstVariant->images->first();
+    //                     if ($variantImage) {
+    //                         $primaryImage = (object) [
+    //                             'image' => $variantImage->image,
+    //                             'is_primary' => $variantImage->is_primary,
+    //                             'sort_order' => $variantImage->sort_order,
+    //                         ];
+    //                     }
+    //                 }
+    //             }
+
+    //             $isActiveDeal = $product->isActiveDealOfTheDay();
+
+    //             return [
+    //                 'id' => $product->id,
+    //                 'product_code' => $product->product_code,
+    //                 'name' => $product->name,
+    //                 'slug' => $product->slug,
+    //                 'description' => $product->description,
+
+    //                 // Category details
+    //                 'category' => $product->category ? [
+    //                     'id' => $product->category->id,
+    //                     'name' => $product->category->title,
+    //                     'slug' => $product->category->slug,
+    //                     'description' => $product->category->description,
+    //                 ] : null,
+
+    //                 // Deal status
+    //                 'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+    //                 'is_active_deal' => $isActiveDeal,
+    //                 'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+    //                 'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+
+    //                 // Retail pricing
+    //                 'retail_mrp' => $product->retail_mrp,
+    //                 'retail_price' => $product->retail_price,
+    //                 'retail_discount_type' => $product->retail_discount_type,
+    //                 'retail_discount_value' => $product->retail_discount_value,
+    //                 'retail_discount_amount' => $product->retail_mrp - $product->retail_price,
+    //                 'retail_discount_percentage' => $product->retail_mrp > 0
+    //                     ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
+    //                     : 0,
+
+    //                 // Distributor pricing
+    //                 'distributor_mrp' => $product->distributor_mrp,
+    //                 'distributor_price' => $product->distributor_price,
+    //                 'distributor_discount_type' => $product->distributor_discount_type,
+    //                 'distributor_discount_value' => $product->distributor_discount_value,
+    //                 'distributor_discount_amount' => $product->distributor_mrp && $product->distributor_price
+    //                     ? $product->distributor_mrp - $product->distributor_price
+    //                     : null,
+    //                 'distributor_discount_percentage' => $product->distributor_mrp && $product->distributor_price && $product->distributor_mrp > 0
+    //                     ? round((($product->distributor_mrp - $product->distributor_price) / $product->distributor_mrp) * 100, 2)
+    //                     : null,
+
+    //                 // Stock and status
+    //                 'stock_quantity' => (int) $product->stock_quantity,
+    //                 'stock_status' => $this->getProductStatus($product),
+    //                 'is_published' => (bool) $product->is_published,
+
+    //                 // Image (product or variant fallback)
+    //                 'image' => $primaryImage ? [
+    //                     'id' => $primaryImage->id ?? null,
+    //                     'image_url' => asset('storage/' . $primaryImage->image),
+    //                     'is_primary' => (bool) ($primaryImage->is_primary ?? false),
+    //                 ] : null,
+    //                 'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+    //             ];
+    //         })
+    //         ->values()
+    //         ->toArray();
+    // }
+
     public function getDealOfTheDayProducts($wishlistIds = [])
     {
-        // 1. Admin-selected active Deal of the Day products
-        $adminDeals = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
+        $now = now();
+
+        $products = Product::with([
+            'category',
+            'taxCategory',
+            'images',
+            'variants.images',
+        ])
             ->where('is_deal_of_the_day', true)
             ->where('sale_type', 'today_best')
             ->where('is_published', true)
-            ->where(function ($query) {
-                $query->whereNull('deal_of_the_day_starts_at')
-                    ->orWhere('deal_of_the_day_starts_at', '<=', now());
-            })
-            ->where(function ($query) {
-                $query->whereNull('deal_of_the_day_ends_at')
-                    ->orWhere('deal_of_the_day_ends_at', '>=', now());
-            })
+            ->where('stock_quantity', '>', 0)
+            ->whereNotNull('deal_of_the_day_starts_at')
+            ->whereNotNull('deal_of_the_day_ends_at')
+            ->where('deal_of_the_day_starts_at', '<=', $now)
+            ->where('deal_of_the_day_ends_at', '>=', $now)
             ->orderBy('trending_sort_order')
             ->get();
 
-        // Already selected active product IDs
-        $selectedIds = $adminDeals->pluck('id')->toArray();
+        return $products->map(function ($product) use ($wishlistIds, $now) {
 
-        // 2. If less than 2, get default products
-        $required = 2 - $adminDeals->count();
+            // Get product image or fallback to variant image
+            $primaryImage = $product->images
+                ->where('is_primary', true)
+                ->first() ?? $product->images->first();
 
-        if ($required > 0) {
-            $defaultProducts = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
-                ->where('is_published', true)
-                ->where('stock_quantity', '>', 0)
-                ->whereNotIn('id', $selectedIds)
-                ->get()
-                ->map(function ($product) {
-                    $mrp = (float) $product->retail_mrp;
-                    $discountValue = (float) $product->retail_discount_value;
+            if (!$primaryImage) {
+                $firstVariant = $product->variants->first();
 
-                    if ($product->retail_discount_type === 'percentage') {
-                        $discountAmount = ($mrp * $discountValue) / 100;
-                    } elseif ($product->retail_discount_type === 'fixed') {
-                        $discountAmount = $discountValue;
-                    } else {
-                        $discountAmount = 0;
-                    }
+                if ($firstVariant) {
+                    $variantImage = $firstVariant->images
+                        ->where('is_primary', true)
+                        ->first() ?? $firstVariant->images->first();
 
-                    $product->calculated_discount_amount = $discountAmount;
-
-                    return $product;
-                })
-                ->sortByDesc('calculated_discount_amount')
-                ->take($required)
-                ->values();
-
-            $adminDeals = $adminDeals->concat($defaultProducts);
-        }
-
-        // 3. If still less than 2, fill from products
-        if ($adminDeals->count() < 2) {
-            $remaining = 2 - $adminDeals->count();
-
-            $fallbackProducts = Product::with(['category', 'taxCategory', 'images', 'variants.images'])
-                ->where('is_published', true)
-                ->where('stock_quantity', '>', 0)
-                ->whereNotIn('id', $adminDeals->pluck('id')->toArray())
-                ->latest()
-                ->limit($remaining)
-                ->get();
-
-            $adminDeals = $adminDeals->concat($fallbackProducts);
-        }
-
-        return $adminDeals
-            ->take(2)
-            ->map(function ($product) use ($wishlistIds) {
-                // Get product image or fallback to variant image
-                $primaryImage = $product->images->where('is_primary', true)->first()
-                    ?? $product->images->first();
-
-                // If no product image, get from first variant
-                if (!$primaryImage) {
-                    $firstVariant = $product->variants->first();
-                    if ($firstVariant) {
-                        $variantImage = $firstVariant->images->where('is_primary', true)->first()
-                            ?? $firstVariant->images->first();
-                        if ($variantImage) {
-                            $primaryImage = (object) [
-                                'image' => $variantImage->image,
-                                'is_primary' => $variantImage->is_primary,
-                                'sort_order' => $variantImage->sort_order,
-                            ];
-                        }
+                    if ($variantImage) {
+                        $primaryImage = (object) [
+                            'image' => $variantImage->image,
+                            'is_primary' => $variantImage->is_primary,
+                            'sort_order' => $variantImage->sort_order,
+                        ];
                     }
                 }
+            }
 
-                $isActiveDeal = $product->isActiveDealOfTheDay();
+            $isActiveDeal = (
+                (bool) $product->is_deal_of_the_day
+                && $product->deal_of_the_day_starts_at
+                && $product->deal_of_the_day_ends_at
+                && $now->between(
+                    $product->deal_of_the_day_starts_at,
+                    $product->deal_of_the_day_ends_at
+                )
+            );
 
-                return [
-                    'id' => $product->id,
-                    'product_code' => $product->product_code,
-                    'name' => $product->name,
-                    'slug' => $product->slug,
-                    'description' => $product->description,
+            return [
+                'id' => $product->id,
+                'product_code' => $product->product_code,
+                'name' => $product->name,
+                'slug' => $product->slug,
+                'description' => $product->description,
 
-                    // Category details
-                    'category' => $product->category ? [
-                        'id' => $product->category->id,
-                        'name' => $product->category->title,
-                        'slug' => $product->category->slug,
-                        'description' => $product->category->description,
-                    ] : null,
+                // Category details
+                'category' => $product->category ? [
+                    'id' => $product->category->id,
+                    'name' => $product->category->title,
+                    'slug' => $product->category->slug,
+                    'description' => $product->category->description,
+                ] : null,
 
-                    // Deal status
-                    'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
-                    'is_active_deal' => $isActiveDeal,
-                    'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
-                    'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
+                // Deal status
+                'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+                'is_active_deal' => (bool) $isActiveDeal,
+                'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+                'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toISOString(),
 
-                    // Retail pricing
-                    'retail_mrp' => $product->retail_mrp,
-                    'retail_price' => $product->retail_price,
-                    'retail_discount_type' => $product->retail_discount_type,
-                    'retail_discount_value' => $product->retail_discount_value,
-                    'retail_discount_amount' => $product->retail_mrp - $product->retail_price,
-                    'retail_discount_percentage' => $product->retail_mrp > 0
-                        ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
-                        : 0,
+                // Retail pricing
+                'retail_mrp' => $product->retail_mrp,
+                'retail_price' => $product->retail_price,
+                'retail_discount_type' => $product->retail_discount_type,
+                'retail_discount_value' => $product->retail_discount_value,
+                'retail_discount_amount' => $product->retail_mrp - $product->retail_price,
+                'retail_discount_percentage' => $product->retail_mrp > 0
+                    ? round(
+                        (($product->retail_mrp - $product->retail_price)
+                            / $product->retail_mrp) * 100,
+                        2
+                    )
+                    : 0,
 
-                    // Distributor pricing
-                    'distributor_mrp' => $product->distributor_mrp,
-                    'distributor_price' => $product->distributor_price,
-                    'distributor_discount_type' => $product->distributor_discount_type,
-                    'distributor_discount_value' => $product->distributor_discount_value,
-                    'distributor_discount_amount' => $product->distributor_mrp && $product->distributor_price
-                        ? $product->distributor_mrp - $product->distributor_price
-                        : null,
-                    'distributor_discount_percentage' => $product->distributor_mrp && $product->distributor_price && $product->distributor_mrp > 0
-                        ? round((($product->distributor_mrp - $product->distributor_price) / $product->distributor_mrp) * 100, 2)
-                        : null,
+                // Distributor pricing
+                'distributor_mrp' => $product->distributor_mrp,
+                'distributor_price' => $product->distributor_price,
+                'distributor_discount_type' => $product->distributor_discount_type,
+                'distributor_discount_value' => $product->distributor_discount_value,
+                'distributor_discount_amount' => $product->distributor_mrp !== null
+                    && $product->distributor_price !== null
+                    ? $product->distributor_mrp - $product->distributor_price
+                    : null,
+                'distributor_discount_percentage' => $product->distributor_mrp !== null
+                    && $product->distributor_price !== null
+                    && $product->distributor_mrp > 0
+                    ? round(
+                        (($product->distributor_mrp - $product->distributor_price)
+                            / $product->distributor_mrp) * 100,
+                        2
+                    )
+                    : null,
 
-                    // Stock and status
-                    'stock_quantity' => (int) $product->stock_quantity,
-                    'stock_status' => $this->getProductStatus($product),
-                    'is_published' => (bool) $product->is_published,
+                // Stock and status
+                'stock_quantity' => (int) $product->stock_quantity,
+                'stock_status' => $this->getProductStatus($product),
+                'is_published' => (bool) $product->is_published,
 
-                    // Image (product or variant fallback)
-                    'image' => $primaryImage ? [
-                        'id' => $primaryImage->id ?? null,
-                        'image_url' => asset('storage/' . $primaryImage->image),
-                        'is_primary' => (bool) ($primaryImage->is_primary ?? false),
-                    ] : null,
-                    'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
-                ];
-            })
-            ->values()
-            ->toArray();
+                // Product or variant image
+                'image' => $primaryImage ? [
+                    'id' => $primaryImage->id ?? null,
+                    'image_url' => asset('storage/' . $primaryImage->image),
+                    'is_primary' => (bool) ($primaryImage->is_primary ?? false),
+                ] : null,
+
+                'primary_image_url' => $primaryImage
+                    ? asset('storage/' . $primaryImage->image)
+                    : null,
+            ];
+        })->values()->toArray();
     }
+
 
     public function removeDealOfTheDay($id)
     {
@@ -9420,7 +9659,7 @@ class ProductController extends Controller
             'summary'                => $this->getSummary($startDate, $endDate),
             'chart'                  => $this->getChartData($startDate, $endDate, $groupBy, $labelFormat),
             'top_products'           => $this->getTopProducts($startDate, $endDate),
-            'order_status_breakdown' => $this->getOrderStatusBreakdown($startDate, $endDate),
+            // 'order_status_breakdown' => $this->getOrderStatusBreakdown($startDate, $endDate),
             'top_distributors'       => $this->getTopDistributors($startDate, $endDate),
             'payment_breakdown'      => $this->getPaymentBreakdown($startDate, $endDate),
             'return_refund_summary'  => $this->getReturnRefundSummary($startDate, $endDate),
@@ -9685,6 +9924,32 @@ class ProductController extends Controller
         return $buckets;
     }
 
+    // private function getTopProducts(Carbon $start, Carbon $end, int $limit = 10): array
+    // {
+    //     return OrderLine::whereHas('order', function ($q) use ($start, $end) {
+    //         $q->whereBetween('created_at', [$start, $end])
+    //             ->whereNotIn('status', ['cancelled', 'failed']);
+    //     })
+    //         ->select(
+    //             'product_id',
+    //             DB::raw('SUM(quantity) as total_qty'),
+    //             DB::raw('SUM(line_total) as total_revenue')
+    //         )
+    //         ->groupBy('product_id')
+    //         ->orderByDesc('total_qty')
+    //         ->limit($limit)
+    //         ->with('product:id,name,product_code,slug,retail_price')
+    //         ->get()
+    //         ->map(fn($row) => [
+    //             'product_id'    => $row->product_id,
+    //             'name'          => $row->product->name ?? 'N/A',
+    //             'product_code'  => $row->product->product_code ?? null,
+    //             'slug'          => $row->product->slug ?? null,
+    //             'total_qty'     => (int) $row->total_qty,
+    //             'total_revenue' => round($row->total_revenue, 2),
+    //         ])
+    //         ->toArray();
+    // }
     private function getTopProducts(Carbon $start, Carbon $end, int $limit = 10): array
     {
         return OrderLine::whereHas('order', function ($q) use ($start, $end) {
@@ -9699,18 +9964,25 @@ class ProductController extends Controller
             ->groupBy('product_id')
             ->orderByDesc('total_qty')
             ->limit($limit)
-            ->with('product:id,name,product_code,slug,retail_price')
+            ->with([
+                'product:id,name,product_code,slug,retail_price',
+                'product.images'
+            ])
             ->get()
             ->map(fn($row) => [
                 'product_id'    => $row->product_id,
                 'name'          => $row->product->name ?? 'N/A',
                 'product_code'  => $row->product->product_code ?? null,
                 'slug'          => $row->product->slug ?? null,
+                'image' => !empty($row->product->images->first()?->image)
+                    ? asset('storage/' . ltrim($row->product->images->first()->image, '/'))
+                    : null,
                 'total_qty'     => (int) $row->total_qty,
-                'total_revenue' => round($row->total_revenue, 2),
+                // 'total_revenue' => round($row->total_revenue, 2),
             ])
             ->toArray();
     }
+
 
     private function getOrderStatusBreakdown(Carbon $start, Carbon $end): array
     {
