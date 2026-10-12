@@ -29,21 +29,26 @@ use Illuminate\Support\Facades\Password;
 use App\Services\TwilioService;
 use App\Services\NotificationService;
 use App\Services\KycVerificationService;
+use App\Sdks\Partner\IgniteClient;
+use App\Sdks\Partner\ResultCode; 
 
 class AuthController extends Controller
 {
     protected $twilioService;
     protected NotificationService $notificationService;
     protected KycVerificationService $kyc;
+    protected IgniteClient $ignite;
 
     public function __construct(
         TwilioService $twilioService,
         NotificationService $notificationService,
-        KycVerificationService $kyc
+        KycVerificationService $kyc,
+        IgniteClient $ignite
     ) {
         $this->twilioService = $twilioService;
         $this->notificationService = $notificationService;
         $this->kyc = $kyc;
+        $this->ignite = $ignite;
     }
     /**
      * Get role ID by account type from database
@@ -2276,14 +2281,93 @@ class AuthController extends Controller
      * DISTRIBUTOR: Step 2 - Sponsor & Placement
      */
 
+    // public function distributorStep2Sponsor(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone'                 => 'required|min:10|max:15',
+    //             'sponsor_id'            => 'nullable|max:20|unique:users,sponsor_id',
+    //             'placement_leg'         => 'nullable|in:left,right',
+    //             'is_custom_sponsor_id'  => 'nullable|boolean',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $user = User::where('phone', $request->phone)->first();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status'  => false,
+    //                 'message' => 'User not found.'
+    //             ], 422);
+    //         }
+
+    //         // Step 1 check
+    //         if (!$user->phone_verified || !$user->email_verified_at) {
+    //             return response()->json([
+    //                 'status'  => false,
+    //                 'message' => 'Please complete step 1 (Personal Info & Verification) first.'
+    //             ], 422);
+    //         }
+
+    //         // Determine sponsor_id (custom or auto)
+    //         $sponsorId = $request->sponsor_id;
+
+    //         if (empty($sponsorId)) {
+    //             $sponsorId = $this->generateUniqueSponsorId();
+    //         } else {
+    //             // Uniqueness excluding current user
+    //             $taken = User::where('sponsor_id', $sponsorId)
+    //                 ->where('id', '!=', $user->id)
+    //                 ->exists();
+
+    //             if ($taken) {
+    //                 return response()->json([
+    //                     'status'               => false,
+    //                     'message'              => 'This Sponsor ID is already taken. Please choose another one.',
+    //                     'suggested_sponsor_id' => $this->generateUniqueSponsorId(),
+    //                 ], 422);
+    //             }
+    //         }
+
+    //         // Update user's sponsor info (only existing columns)
+    //         $user->update([
+    //             'sponsor_id'        => $sponsorId,
+    //             'placement_leg'     => $request->placement_leg,
+    //             'registration_step' => max($user->registration_step ?? 0, 2),
+    //         ]);
+
+    //         return response()->json([
+    //             'status'               => true,
+    //             'message'              => 'Sponsor information saved successfully',
+    //             'step'                 => 2,
+    //             'next_step'            => 3,
+    //             'sponsor_id'           => $sponsorId,
+    //             'is_custom_sponsor_id' => $request->boolean('is_custom_sponsor_id'),
+    //             'user'                 => $user->fresh(),
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Distributor step 2 error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status'  => false,
+    //             'message' => 'Something went wrong. Please try again.'
+    //         ], 500);
+    //     }
+    // }
+
     public function distributorStep2Sponsor(Request $request)
     {
         try {
             $validator = Validator::make($request->all(), [
-                'phone'                 => 'required|min:10|max:15',
-                'sponsor_id'            => 'nullable|max:20|unique:users,sponsor_id',
-                'placement_leg'         => 'nullable|in:left,right',
-                'is_custom_sponsor_id'  => 'nullable|boolean',
+                'phone'         => 'required|min:10|max:15',
+                'ba_id'         => 'nullable|string|max:50',
+                'sponsor_id'    => 'required|string|max:50',
+                'placement_leg' => 'nullable|in:left,right',
             ]);
 
             if ($validator->fails()) {
@@ -2306,108 +2390,63 @@ class AuthController extends Controller
             if (!$user->phone_verified || !$user->email_verified_at) {
                 return response()->json([
                     'status'  => false,
-                    'message' => 'Please complete step 1 (Personal Info & Verification) first.'
+                    'message' => 'Please complete step 1 first.'
                 ], 422);
             }
 
-            // Determine sponsor_id (custom or auto)
-            $sponsorId = $request->sponsor_id;
+            $sponsorId = trim($request->sponsor_id);
 
-            if (empty($sponsorId)) {
-                $sponsorId = $this->generateUniqueSponsorId();
-            } else {
-                $taken = User::where('sponsor_id', $sponsorId)
-                    ->where('id', '!=', $user->id)
-                    ->exists();
+            // ============ IGNITE: Validate Sponsor ============
+            try {
+                $response = $this->ignite->memberDetails($sponsorId);
+            } catch (\Exception $e) {
+                Log::error('[Step2-Sponsor] Ignite call failed', [
+                    'user_id' => $user->id,
+                    'error'   => $e->getMessage(),
+                ]);
 
-                if ($taken) {
-                    return response()->json([
-                        'status'               => false,
-                        'message'              => 'This Sponsor ID is already taken. Please choose another one.',
-                        'suggested_sponsor_id' => $this->generateUniqueSponsorId(),
-                    ], 422);
-                }
+            if ($response['code'] !== 0) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Invalid sponsor ID: ' . ($response['msg'] ?? 'Not found'),
+                ], 422);
             }
 
-            // Update user's sponsor info (only existing columns)
-            $user->update([
+            $sponsorData = $response['data'];
+
+            // ============ SAVE ============
+            $updateData = [
                 'sponsor_id'        => $sponsorId,
                 'placement_leg'     => $request->placement_leg,
                 'registration_step' => max($user->registration_step ?? 0, 2),
-            ]);
+            ];
+
+            // If ba_id is provided, save it as distributor_id
+            if ($request->filled('ba_id')) {
+                $updateData['distributor_id'] = trim($request->ba_id);
+            }
+
+            $user->update($updateData);
 
             return response()->json([
-                'status'               => true,
-                'message'              => 'Sponsor information saved successfully',
-                'step'                 => 2,
-                'next_step'            => 3,
-                'sponsor_id'           => $sponsorId,
-                'is_custom_sponsor_id' => $request->boolean('is_custom_sponsor_id'),
-                'user'                 => $user->fresh(),
+                'status'    => true,
+                'message'   => 'Sponsor validated and saved.',
+                'step'      => 2,
+                'next_step' => 3,
+                'sponsor'   => [
+                    'ba_id'     => $sponsorData['ba_id'],
+                    'member_id' => $sponsorData['member_id'],
+                ],
+                'user' => $user->fresh(),
             ]);
         } catch (\Exception $e) {
-            Log::error('Distributor step 2 error: ' . $e->getMessage());
+            Log::error('[Step2-Sponsor] Error: ' . $e->getMessage());
             return response()->json([
                 'status'  => false,
                 'message' => 'Something went wrong. Please try again.'
             ], 500);
         }
     }
-    // public function distributorStep2Sponsor(Request $request)
-    // {
-    //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'phone' => 'required|min:10|max:15',
-    //             'sponsor_id' => 'nullable|max:20',
-    //             'placement_leg' => 'nullable|in:left,right',
-    //         ]);
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'errors' => $validator->errors()
-    //             ], 422);
-    //         }
-
-    //         $user = User::where('phone', $request->phone)->first();
-
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'User not found.'
-    //             ], 422);
-    //         }
-
-    //         // Check if step 1 is completed
-    //         if (!$user->phone_verified || !$user->email_verified_at) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Please complete step 1 (Personal Info & Verification) first.'
-    //             ], 422);
-    //         }
-
-    //         // Update sponsor information
-    //         $user->update([
-    //             'sponsor_id' => $request->sponsor_id,
-    //             'placement_leg' => $request->placement_leg,
-    //             'registration_step' => max($user->registration_step ?? 0, 2),
-    //         ]);
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'message' => 'Sponsor information saved successfully',
-    //             'step' => 2,
-    //             'next_step' => 3,
-    //             'user' => $user
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('Distributor step 2 error: ' . $e->getMessage());
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
 
     /**
      * DISTRIBUTOR: Step 3 - Aadhaar Verification
@@ -3659,6 +3698,70 @@ class AuthController extends Controller
                     'status' => false,
                     'message' => 'Bank details required.'
                 ], 422);
+            }
+
+            /* ============ SPONSOR CHECK ============ */
+            if (empty($user->sponsor_id)) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Sponsor is required. Please go back to Step 2.',
+                ], 422);
+            }
+
+            /* ============ IGNITE: Register Member ============ */
+            if (empty($user->distributor_id)) {
+                // Generate unique partner reference for Ignite
+                $partnerRef = 'IDK-' . $user->id . '-' . time();
+
+                try {
+                    $igniteResponse = $this->ignite->registerMember(
+                        partnerMemberRef: $partnerRef,
+                        sponsorBaId:      $user->sponsor_id,
+                        fullname:         $user->full_name,
+                    );
+                } catch (\Exception $e) {
+                    Log::error('[Step7-Submit] Ignite call failed', [
+                        'user_id' => $user->id,
+                        'error'   => $e->getMessage(),
+                    ]);
+
+                    return response()->json([
+                        'status'  => false,
+                        'message' => 'Unable to register with Ignite right now. Please try again.',
+                    ], 503);
+                }
+
+                // Handle duplicate
+                if ($igniteResponse['code'] === ResultCode::ORDER_DUPLICATE->value) {
+                    $igniteResponse = $this->ignite->getOrder($partnerRef);
+                }
+
+                if ($igniteResponse['code'] !== ResultCode::OK->value) {
+                    Log::error('[Step7-Submit] Ignite error', [
+                        'user_id' => $user->id,
+                        'code'    => $igniteResponse['code'],
+                        'msg'     => $igniteResponse['msg'],
+                    ]);
+
+                    return response()->json([
+                        'status'  => false,
+                        'message' => 'Ignite registration failed: ' . ($igniteResponse['msg'] ?? ''),
+                        'code'    => $igniteResponse['code'],
+                    ], 422);
+                }
+
+                $igniteData = $igniteResponse['data'];
+
+                // Save BA ID
+                $user->update([
+                    'distributor_id' => $igniteData['ba_id'],
+                ]);
+
+                Log::info('[Step7-Submit] Ignite member registered', [
+                    'user_id'   => $user->id,
+                    'ba_id'     => $igniteData['ba_id'],
+                    'member_id' => $igniteData['member_id'],
+                ]);
             }
 
             /*
