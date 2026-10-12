@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
+use App\Sdks\Partner\IgniteClient;
 
 Route::get('/', function () {
     return 'Home page works!';
@@ -26,4 +27,9 @@ Route::get('/test/{param}', function ($param) {
 Route::get('/run-storage-link', function () {
     Artisan::call('storage:link');
     return 'Storage link created successfully!';
+});
+
+Route::get('/test-ignite', function (IgniteClient $ignite) {
+    $response = $ignite->memberDetails('AIA0938091-003');
+    return response()->json($response);
 });

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "bc946b9c39a4f43d082a7ab9deb7327d",
+    "content-hash": "3b6c94c910ffc344d8967f6b20851217",
     "packages": [
         {
             "name": "barryvdh/laravel-dompdf",
@@ -875,16 +875,16 @@
         },
         {
             "name": "guzzlehttp/guzzle",
-            "version": "7.15.3",
+            "version": "7.15.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/guzzle/guzzle.git",
-                "reference": "ae311b8f045ea93ce7b1c9cdb7cec06c53f944bc"
+                "reference": "994a8a073c61d9c2282155e7671c0bc14bba19da"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/guzzle/guzzle/zipball/ae311b8f045ea93ce7b1c9cdb7cec06c53f944bc",
-                "reference": "ae311b8f045ea93ce7b1c9cdb7cec06c53f944bc",
+                "url": "https://api.github.com/repos/guzzle/guzzle/zipball/994a8a073c61d9c2282155e7671c0bc14bba19da",
+                "reference": "994a8a073c61d9c2282155e7671c0bc14bba19da",
                 "shasum": ""
             },
             "require": {
@@ -983,7 +983,7 @@
             ],
             "support": {
                 "issues": "https://github.com/guzzle/guzzle/issues",
-                "source": "https://github.com/guzzle/guzzle/tree/7.15.3"
+                "source": "https://github.com/guzzle/guzzle/tree/7.15.4"
             },
             "funding": [
                 {
@@ -999,7 +999,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-08-05T19:48:21+00:00"
+            "time": "2026-08-24T09:16:39+00:00"
         },
         {
             "name": "guzzlehttp/promises",
