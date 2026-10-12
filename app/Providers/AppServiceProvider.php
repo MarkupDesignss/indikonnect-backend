@@ -9,15 +9,22 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\ServiceProvider;
+use App\Sdks\Partner\IgniteClient;
 
 class AppServiceProvider extends ServiceProvider
 {
     /**
      * Register any application services.
      */
+    
     public function register(): void
     {
-        //
+        $this->app->singleton(IgniteClient::class, function () {
+            return new IgniteClient(
+                config('services.ignite.base_url'),
+                config('services.ignite.api_key'),
+            );
+        });
     }
 
     /**

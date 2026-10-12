@@ -60,4 +60,9 @@ return [
         'timeout'         => 30,
     ],
 
+    'ignite' => [
+        'base_url' => env('IGNITE_BASE_URL', 'https://demo-ignite.techtegyit.com/partner/v1'),
+        'api_key'  => env('IGNITE_API_KEY', ''),
+    ],
+
 ];
