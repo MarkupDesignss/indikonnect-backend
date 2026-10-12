@@ -9685,6 +9685,32 @@ class ProductController extends Controller
         return $buckets;
     }
 
+    // private function getTopProducts(Carbon $start, Carbon $end, int $limit = 10): array
+    // {
+    //     return OrderLine::whereHas('order', function ($q) use ($start, $end) {
+    //         $q->whereBetween('created_at', [$start, $end])
+    //             ->whereNotIn('status', ['cancelled', 'failed']);
+    //     })
+    //         ->select(
+    //             'product_id',
+    //             DB::raw('SUM(quantity) as total_qty'),
+    //             DB::raw('SUM(line_total) as total_revenue')
+    //         )
+    //         ->groupBy('product_id')
+    //         ->orderByDesc('total_qty')
+    //         ->limit($limit)
+    //         ->with('product:id,name,product_code,slug,retail_price')
+    //         ->get()
+    //         ->map(fn($row) => [
+    //             'product_id'    => $row->product_id,
+    //             'name'          => $row->product->name ?? 'N/A',
+    //             'product_code'  => $row->product->product_code ?? null,
+    //             'slug'          => $row->product->slug ?? null,
+    //             'total_qty'     => (int) $row->total_qty,
+    //             'total_revenue' => round($row->total_revenue, 2),
+    //         ])
+    //         ->toArray();
+    // }
     private function getTopProducts(Carbon $start, Carbon $end, int $limit = 10): array
     {
         return OrderLine::whereHas('order', function ($q) use ($start, $end) {
@@ -9699,18 +9725,25 @@ class ProductController extends Controller
             ->groupBy('product_id')
             ->orderByDesc('total_qty')
             ->limit($limit)
-            ->with('product:id,name,product_code,slug,retail_price')
+            ->with([
+                'product:id,name,product_code,slug,retail_price',
+                'product.images'
+            ])
             ->get()
             ->map(fn($row) => [
                 'product_id'    => $row->product_id,
                 'name'          => $row->product->name ?? 'N/A',
                 'product_code'  => $row->product->product_code ?? null,
                 'slug'          => $row->product->slug ?? null,
+                'image' => !empty($row->product->images->first()?->image)
+                    ? asset('storage/' . ltrim($row->product->images->first()->image, '/'))
+                    : null,
                 'total_qty'     => (int) $row->total_qty,
                 'total_revenue' => round($row->total_revenue, 2),
             ])
             ->toArray();
     }
+
 
     private function getOrderStatusBreakdown(Carbon $start, Carbon $end): array
     {
