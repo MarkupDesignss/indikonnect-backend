@@ -1529,6 +1529,7 @@ class ProductController extends Controller
 
             return [
                 'id' => $product->id,
+                'is_primary' => $product->is_primary ?? null,
                 'product_code' => $product->product_code,
                 'name' => $product->name,
                 'brand_id' => $product->brand_id ?? null,
