@@ -2961,6 +2961,236 @@ class ProductController extends Controller
             'new_product',
         ]);
     }
+    // public function store(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'product_code' => ['required', 'string', 'max:255', Rule::unique('products')],
+    //         'name' => ['required', 'string', 'max:255'],
+    //         'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')],
+    //         'description' => ['nullable', 'string'],
+    //         'specification' => ['nullable', 'string'],
+    //         'brand_id' => ['nullable'],
+    //         'hsn_code' => ['nullable', 'string', 'max:50'],
+    //         'uom' => ['nullable', 'string', 'max:50'],
+    //         'category_id' => ['required', 'exists:categories,id'],
+    //         'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+    //         'retail_mrp' => ['required', 'numeric', 'min:0'],
+    //         'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+    //         'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
+    //         'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
+    //         'stock_quantity' => ['required_if:variants,null', 'nullable', 'integer', 'min:0'],
+    //         'shipping_charge' => ['required', 'min:0'],
+    //         'total_added_quantity' => ['nullable', 'min:0'],
+    //         'commission_value' => ['required', 'integer', 'min:0'],
+    //         'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
+    //         'is_published' => ['nullable', 'boolean'],
+    //         'is_trending' => ['nullable', 'boolean'],
+    //         'trending_sort_order' => ['nullable', 'integer', 'min:0'],
+    //         'sale_type' => ['nullable', 'string', 'in:today_best,limited'],
+    //         'product_images' => ['nullable', 'array'],
+    //         'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
+    //         'product_images.*.sort_order' => ['nullable', 'integer'],
+    //         'product_images.*.is_primary' => ['nullable', 'boolean'],
+
+    //         // Variants validation
+    //         'variants' => ['nullable', 'array'],
+    //         'variants.*.sku' => ['required_with:variants', 'string', 'max:255'],
+    //         'variants.*.attributes' => ['required_with:variants'],
+    //         'variants.*.retail_mrp' => ['required_with:variants', 'numeric', 'min:0'],
+    //         'variants.*.retail_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'variants.*.retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+    //         'variants.*.distributor_mrp' => ['nullable', 'numeric', 'min:0'],
+    //         'variants.*.distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'variants.*.distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
+    //         'variants.*.stock_quantity' => ['required_with:variants', 'integer', 'min:0'],
+    //         'variants.*.low_stock_threshold' => ['nullable', 'integer', 'min:0'],
+    //         'variants.*.sort_order' => ['nullable', 'integer', 'min:0'],
+    //         'variants.*.is_active' => ['nullable', 'boolean'],
+    //         'variants.*.images' => ['nullable', 'array'],
+    //         'variants.*.images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
+    //         'variants.*.images.*.sort_order' => ['nullable', 'integer'],
+    //         'variants.*.images.*.is_primary' => ['nullable', 'boolean'],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['errors' => $validator->errors()], 422);
+    //     }
+
+    //     DB::beginTransaction();
+    //     try {
+    //         $validated = $validator->validated();
+
+    //         // Extract product data
+    //         $productData = collect($validated)->except(['product_images', 'variants'])->toArray();
+    //         if (empty($productData['brand_id'])) {
+    //             $productData['brand_id'] = 1;
+    //         }
+
+    //         // Calculate retail price
+    //         $productData['retail_price'] = $this->calculatePrice(
+    //             $productData['retail_mrp'],
+    //             $productData['retail_discount_type'] ?? null,
+    //             $productData['retail_discount_value'] ?? null
+    //         );
+
+    //         // Calculate distributor price
+    //         if (!empty($productData['distributor_mrp'])) {
+    //             $productData['distributor_price'] = $this->calculatePrice(
+    //                 $productData['distributor_mrp'],
+    //                 $productData['distributor_discount_type'] ?? null,
+    //                 $productData['distributor_discount_value'] ?? null
+    //             );
+    //         } else {
+    //             $productData['distributor_price'] = null;
+    //             $productData['distributor_mrp'] = null;
+    //             $productData['distributor_discount_type'] = null;
+    //             $productData['distributor_discount_value'] = null;
+    //         }
+
+    //         // Generate slug if not provided
+    //         if (empty($productData['slug'])) {
+    //             $productData['slug'] = Str::slug($productData['name']);
+    //         }
+    //         $productData['slug'] = $this->generateUniqueSlug($productData['slug']);
+    //         $productData['is_published'] = $productData['is_published'] ?? false;
+    //         $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
+    //         $productData['total_added_quantity'] = $productData['stock_quantity'] ?? 0;
+    //         $productData['shipping_charge'] = $productData['shipping_charge'] ?? 0;
+    //         $productData['commission_value'] = $productData['commission_value'] ?? 0;
+
+    //         // Check if variants exist
+    //         $hasVariants = !empty($validated['variants']);
+
+    //         // If variants exist, product stock will be calculated from variants
+    //         if ($hasVariants) {
+    //             // Remove stock_quantity from product data if variants exist
+    //             // It will be calculated from variants sum
+    //             unset($productData['stock_quantity']);
+    //         } else {
+    //             // If no variants, use the provided stock_quantity
+    //             if (!isset($productData['stock_quantity'])) {
+    //                 $productData['stock_quantity'] = 0;
+    //             }
+    //         }
+
+    //         // Create product
+    //         $product = Product::create($productData);
+
+    //         // Handle product images
+    //         $this->handleProductImages($request, $product);
+
+    //         // Handle variants with their images
+    //         $variantDetails = [];
+    //         if ($hasVariants) {
+    //             $totalStock = 0;
+
+    //             foreach ($validated['variants'] as $variantIndex => $variantData) {
+    //                 // Extract images from variant data
+    //                 $variantImages = $variantData['images'] ?? [];
+    //                 unset($variantData['images']);
+
+    //                 // Create the variant
+    //                 $variant = $this->createVariant($product, $variantData);
+
+    //                 // Add variant stock to total
+    //                 $totalStock += $variantData['stock_quantity'] ?? 0;
+
+    //                 //  Handle variant images with file uploads — pass $variantIndex
+    //                 if (!empty($variantImages)) {
+    //                     $this->handleVariantImages($request, $variant, $variantImages, $variantIndex);
+    //                 }
+
+    //                 $variantDetails[] = [
+    //                     'sku' => $variantData['sku'],
+    //                     'attributes' => $variantData['attributes'],
+    //                     'retail_mrp' => $variantData['retail_mrp'],
+    //                     'distributor_mrp' => $variantData['distributor_mrp'] ?? null,
+    //                     'stock_quantity' => $variantData['stock_quantity'] ?? 0,
+    //                     'is_active' => $variantData['is_active'] ?? true,
+    //                 ];
+    //             }
+
+    //             // Update product stock with total from variants
+    //             $product->update(['stock_quantity' => $totalStock]);
+    //         }
+
+    //         DB::commit();
+    //         $product->load(['category', 'taxCategory', 'images', 'variants.images']);
+
+    //         try {
+    //             $users = User::whereHas('notificationSettings', function ($query) {
+    //                 $query->where('promotional_emails', true);
+    //             })->get();
+
+    //             foreach ($users as $user) {
+    //                 $templateData = [
+    //                     'product_name' => $product->name,
+    //                     'product_code' => $product->product_code,
+    //                     'product_slug' => $product->slug,
+    //                     'retail_price' => number_format($product->retail_price, 2),
+    //                     'product_id' => $product->id,
+    //                     'category_name' => $product->category?->name ?? '',
+    //                     'customer_name' => $user->full_name ?? $user->name ?? 'Customer',
+    //                 ];
+
+    //                 $this->notificationService->sendUserNotification(
+    //                     $user,
+    //                     'product_added',
+    //                     $templateData,
+    //                     ['mail']
+    //                 );
+    //             }
+    //         } catch (\Throwable $e) {
+    //             Log::error('Failed to send new product promotional notifications', [
+    //                 'product_id' => $product->id,
+    //                 'error' => $e->getMessage(),
+    //             ]);
+    //         }
+
+    //         $this->logAudit(
+    //             'product_create',
+    //             'catalogue',
+    //             null,
+    //             [
+    //                 'product_id' => $product->id,
+    //                 'product_code' => $product->product_code,
+    //                 'name' => $product->name,
+    //                 'slug' => $product->slug,
+    //                 'category_id' => $product->category_id,
+    //                 'category_name' => $product->category?->name,
+    //                 'tax_category_id' => $product->tax_category_id,
+    //                 'retail_mrp' => $product->retail_mrp,
+    //                 'retail_price' => $product->retail_price,
+    //                 'distributor_mrp' => $product->distributor_mrp,
+    //                 'distributor_price' => $product->distributor_price,
+    //                 'stock_quantity' => $product->stock_quantity,
+    //                 'low_stock_threshold' => $product->low_stock_threshold,
+    //                 'is_published' => $product->is_published,
+    //                 'is_trending' => $product->is_trending,
+    //                 'sale_type' => $product->sale_type,
+    //                 'has_variants' => $hasVariants,
+    //                 'variants_count' => count($variantDetails),
+    //                 'variants' => $variantDetails,
+    //                 'created_by' => $this->getAdminId(),
+    //                 'created_at' => now()->toDateTimeString(),
+    //             ]
+    //         );
+
+    //         return response()->json($this->formatProduct($product), 201);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         Log::error('Product creation failed:', [
+    //             'error' => $e->getMessage(),
+    //             'trace' => $e->getTraceAsString()
+    //         ]);
+    //         return response()->json([
+    //             'message' => 'Failed to create product',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -2980,7 +3210,7 @@ class ProductController extends Controller
             'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
             'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
             'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
-            'stock_quantity' => ['required_if:variants,null', 'nullable', 'integer', 'min:0'],
+            'stock_quantity' => ['nullable', 'integer', 'min:0'],
             'shipping_charge' => ['required', 'min:0'],
             'total_added_quantity' => ['nullable', 'min:0'],
             'commission_value' => ['required', 'integer', 'min:0'],
@@ -2994,24 +3224,12 @@ class ProductController extends Controller
             'product_images.*.sort_order' => ['nullable', 'integer'],
             'product_images.*.is_primary' => ['nullable', 'boolean'],
 
-            // Variants validation
-            'variants' => ['nullable', 'array'],
-            'variants.*.sku' => ['required_with:variants', 'string', 'max:255'],
-            'variants.*.attributes' => ['required_with:variants'],
-            'variants.*.retail_mrp' => ['required_with:variants', 'numeric', 'min:0'],
-            'variants.*.retail_discount_type' => ['nullable', 'in:percentage,fixed'],
-            'variants.*.retail_discount_value' => ['nullable', 'numeric', 'min:0'],
-            'variants.*.distributor_mrp' => ['nullable', 'numeric', 'min:0'],
-            'variants.*.distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
-            'variants.*.distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
-            'variants.*.stock_quantity' => ['required_with:variants', 'integer', 'min:0'],
-            'variants.*.low_stock_threshold' => ['nullable', 'integer', 'min:0'],
-            'variants.*.sort_order' => ['nullable', 'integer', 'min:0'],
-            'variants.*.is_active' => ['nullable', 'boolean'],
-            'variants.*.images' => ['nullable', 'array'],
-            'variants.*.images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
-            'variants.*.images.*.sort_order' => ['nullable', 'integer'],
-            'variants.*.images.*.is_primary' => ['nullable', 'boolean'],
+            // ============================================================
+            // VARIANT ATTACHMENT (multiple products)
+            // ============================================================
+            'variants' => ['nullable', 'array', 'min:1'],
+            'variants.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
+            'variants.*.hax_color' => ['required', 'string', 'max:50'],
         ]);
 
         if ($validator->fails()) {
@@ -3024,6 +3242,7 @@ class ProductController extends Controller
 
             // Extract product data
             $productData = collect($validated)->except(['product_images', 'variants'])->toArray();
+
             if (empty($productData['brand_id'])) {
                 $productData['brand_id'] = 1;
             }
@@ -3054,26 +3273,13 @@ class ProductController extends Controller
                 $productData['slug'] = Str::slug($productData['name']);
             }
             $productData['slug'] = $this->generateUniqueSlug($productData['slug']);
+
             $productData['is_published'] = $productData['is_published'] ?? false;
             $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
-            $productData['total_added_quantity'] = $productData['stock_quantity'] ?? 0;
+            $productData['stock_quantity'] = $productData['stock_quantity'] ?? 0;
+            $productData['total_added_quantity'] = $productData['stock_quantity'];
             $productData['shipping_charge'] = $productData['shipping_charge'] ?? 0;
             $productData['commission_value'] = $productData['commission_value'] ?? 0;
-
-            // Check if variants exist
-            $hasVariants = !empty($validated['variants']);
-
-            // If variants exist, product stock will be calculated from variants
-            if ($hasVariants) {
-                // Remove stock_quantity from product data if variants exist
-                // It will be calculated from variants sum
-                unset($productData['stock_quantity']);
-            } else {
-                // If no variants, use the provided stock_quantity
-                if (!isset($productData['stock_quantity'])) {
-                    $productData['stock_quantity'] = 0;
-                }
-            }
 
             // Create product
             $product = Product::create($productData);
@@ -3081,43 +3287,55 @@ class ProductController extends Controller
             // Handle product images
             $this->handleProductImages($request, $product);
 
-            // Handle variants with their images
+            /*
+        |--------------------------------------------------------------------------
+        | ATTACH VARIANTS (immediate, from payload)
+        |--------------------------------------------------------------------------
+        | Har entry me sirf product_id aur hax_color aayega.
+        | parent_product_id = $product->id (auto).
+        |--------------------------------------------------------------------------
+        */
+
             $variantDetails = [];
-            if ($hasVariants) {
-                $totalStock = 0;
 
-                foreach ($validated['variants'] as $variantIndex => $variantData) {
-                    // Extract images from variant data
-                    $variantImages = $variantData['images'] ?? [];
-                    unset($variantData['images']);
+            if (!empty($validated['variants'])) {
+                // Prevent self-attachment
+                $invalidProductIds = collect($validated['variants'])
+                    ->pluck('product_id')
+                    ->filter(fn($pid) => (int) $pid === (int) $product->id)
+                    ->values()
+                    ->all();
 
-                    // Create the variant
-                    $variant = $this->createVariant($product, $variantData);
-
-                    // Add variant stock to total
-                    $totalStock += $variantData['stock_quantity'] ?? 0;
-
-                    //  Handle variant images with file uploads — pass $variantIndex
-                    if (!empty($variantImages)) {
-                        $this->handleVariantImages($request, $variant, $variantImages, $variantIndex);
-                    }
-
-                    $variantDetails[] = [
-                        'sku' => $variantData['sku'],
-                        'attributes' => $variantData['attributes'],
-                        'retail_mrp' => $variantData['retail_mrp'],
-                        'distributor_mrp' => $variantData['distributor_mrp'] ?? null,
-                        'stock_quantity' => $variantData['stock_quantity'] ?? 0,
-                        'is_active' => $variantData['is_active'] ?? true,
-                    ];
+                if (!empty($invalidProductIds)) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'Validation failed',
+                        'errors' => [
+                            'variants' => [
+                                'A product cannot be attached as a variant to itself.'
+                            ]
+                        ]
+                    ], 422);
                 }
 
-                // Update product stock with total from variants
-                $product->update(['stock_quantity' => $totalStock]);
+                foreach ($validated['variants'] as $variantRow) {
+                    $variant = ProductVariant::create([
+                        'parent_product_id' => $product->id,
+                        'product_id'        => $variantRow['product_id'],
+                        'hax_color'         => $variantRow['hax_color'],
+                    ]);
+
+                    $variantDetails[] = [
+                        'id'                => $variant->id,
+                        'parent_product_id' => $variant->parent_product_id,
+                        'product_id'        => $variant->product_id,
+                        'hax_color'         => $variant->hax_color,
+                    ];
+                }
             }
 
             DB::commit();
-            $product->load(['category', 'taxCategory', 'images', 'variants.images']);
+            $product->load(['category', 'taxCategory', 'images']);
 
             try {
                 $users = User::whereHas('notificationSettings', function ($query) {
@@ -3170,7 +3388,7 @@ class ProductController extends Controller
                     'is_published' => $product->is_published,
                     'is_trending' => $product->is_trending,
                     'sale_type' => $product->sale_type,
-                    'has_variants' => $hasVariants,
+                    'has_variants' => !empty($variantDetails),
                     'variants_count' => count($variantDetails),
                     'variants' => $variantDetails,
                     'created_by' => $this->getAdminId(),
@@ -3619,6 +3837,8 @@ class ProductController extends Controller
     /**
      * Update a product with variants
      */
+
+
     // public function update(Request $request, $id)
     // {
     //     $product = Product::where('id', $id)->first();
@@ -3661,6 +3881,13 @@ class ProductController extends Controller
     //         'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
     //         'shipping_charge' => ['nullable', 'min:0'],
     //         'commission_value' => ['nullable', 'min:0'],
+
+    //         // ============================================================
+    //         // MANUAL STOCK ADJUSTMENT (operation-based)
+    //         // ============================================================
+    //         'manual_stock_adjustment' => ['nullable', 'integer', 'min:0'],
+    //         'manual_stock_adjustment_operation' => ['nullable', 'in:add,subtract', 'required_with:manual_stock_adjustment'],
+    //         'reason_for_stock_adjustment' => ['nullable', 'string', 'max:2000'],
 
     //         // Status
     //         'is_published' => ['sometimes', 'boolean'],
@@ -3801,7 +4028,10 @@ class ProductController extends Controller
     //             'distributor_discount_value' => $product->distributor_discount_value,
 
     //             'stock_quantity' => $product->stock_quantity,
+    //             'initial_stock' => $product->initial_stock,
     //             'total_added_quantity' => $product->total_added_quantity,
+    //             'manual_stock_adjustment' => $product->manual_stock_adjustment,
+    //             'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
     //             'low_stock_threshold' => $product->low_stock_threshold,
     //             'shipping_charge' => $product->shipping_charge,
     //             'commission_value' => $product->commission_value,
@@ -3818,6 +4048,46 @@ class ProductController extends Controller
 
     //         /*
     //     |--------------------------------------------------------------------------
+    //     | MANUAL STOCK ADJUSTMENT (operation-based)
+    //     |--------------------------------------------------------------------------
+    //     | add / subtract ke hisaab se teeno fields adjust honge:
+    //     |   stock_quantity, initial_stock, total_added_quantity
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $adjustmentOld = null;
+    //         $adjustmentNew = null;
+    //         $adjustmentApplied = false;
+
+    //         if (
+    //             array_key_exists('manual_stock_adjustment', $validated)
+    //             && $validated['manual_stock_adjustment'] !== null
+    //             && (int) $validated['manual_stock_adjustment'] > 0
+    //         ) {
+    //             try {
+    //                 [$adjustmentOld, $adjustmentNew] = $this->applyManualStockAdjustment(
+    //                     $product,
+    //                     (int) $validated['manual_stock_adjustment'],
+    //                     $validated['manual_stock_adjustment_operation'] ?? 'subtract',
+    //                     $validated['reason_for_stock_adjustment'] ?? null
+    //                 );
+    //                 $adjustmentApplied = true;
+
+    //                 // Refresh so that subsequent diff calculations use adjusted values
+    //                 $product->refresh();
+    //             } catch (\Exception $e) {
+    //                 DB::rollBack();
+    //                 return response()->json([
+    //                     'message' => $e->getMessage(),
+    //                     'errors' => [
+    //                         'manual_stock_adjustment' => [$e->getMessage()]
+    //                     ]
+    //                 ], 422);
+    //             }
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
     //     | UPDATE PRODUCT DATA
     //     |--------------------------------------------------------------------------
     //     */
@@ -3828,7 +4098,10 @@ class ProductController extends Controller
     //                 'variants',
     //                 'remove_images',
     //                 'remove_variants',
-    //                 'total_added_quantity', // handled separately below
+    //                 'total_added_quantity',                 // handled separately below
+    //                 'manual_stock_adjustment',              // handled above
+    //                 'manual_stock_adjustment_operation',    // handled above
+    //                 'reason_for_stock_adjustment',          // handled above
     //             ])
     //             ->toArray();
 
@@ -3973,18 +4246,12 @@ class ProductController extends Controller
     //     |--------------------------------------------------------------------------
     //     | STOCK + TOTAL_ADDED_QUANTITY HANDLING (PRODUCT LEVEL)
     //     |--------------------------------------------------------------------------
-    //     | Logic:
-    //     |   - Agar product-level stock_quantity bheji gayi hai aur product ke
-    //     |     variants nahi hain, to:
-    //     |        diff = new_stock - old_stock
-    //     |        - diff > 0  → total_added_quantity += diff (naya stock add hua)
-    //     |        - diff < 0  → total_added_quantity same (sale/adjustment)
-    //     |        - diff = 0  → kuch change nahi
-    //     |   - Agar variants hain, to stock variants me handle hoga
+    //     | Note: agar adjustment already apply ho chuka hai, toh product->stock_quantity
+    //     | ab adjusted value hai. Isliye diff calculate karte waqt wahi use karo.
+    //     |--------------------------------------------------------------------------
     //     */
 
     //         if ($hasVariants) {
-    //             // Variants ke case me product-level stock_quantity skip karo
     //             if (array_key_exists('stock_quantity', $productData)) {
     //                 unset($productData['stock_quantity']);
     //             }
@@ -3995,11 +4262,9 @@ class ProductController extends Controller
     //                 $diff = $newStock - $oldStock;
 
     //                 if ($diff > 0) {
-    //                     // Naya stock add hua → total_added_quantity bhi badhao
     //                     $productData['total_added_quantity'] =
     //                         (int) $product->total_added_quantity + $diff;
     //                 }
-    //                 // diff <= 0 → total_added_quantity ko touch mat karo
 
     //                 $productData['stock_quantity'] = $newStock;
     //             }
@@ -4021,10 +4286,7 @@ class ProductController extends Controller
     //     |--------------------------------------------------------------------------
     //     */
 
-    //         $this->handleProductImageUpdates(
-    //             $request,
-    //             $product
-    //         );
+    //         $this->handleProductImageUpdates($request, $product);
 
     //         $variantUpdateDetails = [];
 
@@ -4103,7 +4365,6 @@ class ProductController extends Controller
     //                 ];
     //             }
     //         } else {
-    //             // Product-level restock notification
     //             if (array_key_exists('stock_quantity', $validated)) {
     //                 if ($oldProductStock == 0 && $product->stock_quantity > 0) {
     //                     $this->sendBackInStockNotifications($product->id, null);
@@ -4162,7 +4423,10 @@ class ProductController extends Controller
     //             'distributor_discount_value' => $product->distributor_discount_value,
 
     //             'stock_quantity' => $product->stock_quantity,
+    //             'initial_stock' => $product->initial_stock,
     //             'total_added_quantity' => $product->total_added_quantity,
+    //             'manual_stock_adjustment' => $product->manual_stock_adjustment,
+    //             'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
     //             'low_stock_threshold' => $product->low_stock_threshold,
     //             'shipping_charge' => $product->shipping_charge,
     //             'commission_value' => $product->commission_value,
@@ -4181,6 +4445,13 @@ class ProductController extends Controller
     //             'has_variants' => $hasVariants,
     //             'variants_count' => count($variantUpdateDetails),
     //             'variants' => $variantUpdateDetails,
+
+    //             // Manual adjustment audit
+    //             'manual_stock_adjustment_applied' => $adjustmentApplied,
+    //             'manual_stock_adjustment_old'     => $adjustmentOld,
+    //             'manual_stock_adjustment_new'     => $adjustmentNew,
+    //             'manual_stock_adjustment_operation' =>
+    //             $validated['manual_stock_adjustment_operation'] ?? null,
 
     //             'updated_by' => $this->getAdminId(),
     //             'updated_at' => now()->toDateTimeString(),
@@ -4216,7 +4487,6 @@ class ProductController extends Controller
     //         ], 500);
     //     }
     // }
-
     public function update(Request $request, $id)
     {
         $product = Product::where('id', $id)->first();
@@ -4285,87 +4555,16 @@ class ProductController extends Controller
             'remove_images' => ['nullable', 'array'],
             'remove_images.*' => ['exists:product_images,id'],
 
-            // Variants
-            'variants' => ['nullable', 'array'],
-            'variants.*.id' => [
-                'nullable',
-                'exists:product_variants,id'
-            ],
-            'variants.*.sku' => [
-                'nullable',
-                'string',
-                'max:255'
-            ],
-            'variants.*.attributes' => ['nullable'],
+            // ============================================================
+            // VARIANT ATTACHMENT (multiple products) — same as store
+            // ============================================================
+            'variants' => ['nullable', 'array', 'min:1'],
+            'variants.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
+            'variants.*.hax_color' => ['required', 'string', 'max:50'],
 
-            'variants.*.retail_mrp' => [
-                'nullable',
-                'numeric',
-                'min:0'
-            ],
-            'variants.*.retail_discount_type' => [
-                'nullable',
-                'in:percentage,fixed'
-            ],
-            'variants.*.retail_discount_value' => [
-                'nullable',
-                'numeric',
-                'min:0'
-            ],
-
-            'variants.*.distributor_mrp' => [
-                'nullable',
-                'numeric',
-                'min:0'
-            ],
-            'variants.*.distributor_discount_type' => [
-                'nullable',
-                'in:percentage,fixed'
-            ],
-            'variants.*.distributor_discount_value' => [
-                'nullable',
-                'numeric',
-                'min:0'
-            ],
-
-            'variants.*.stock_quantity' => [
-                'nullable',
-                'integer',
-                'min:0'
-            ],
-            'variants.*.low_stock_threshold' => [
-                'nullable',
-                'integer',
-                'min:0'
-            ],
-            'variants.*.sort_order' => [
-                'nullable',
-                'integer',
-                'min:0'
-            ],
-            'variants.*.is_active' => [
-                'nullable',
-                'boolean'
-            ],
-
-            // Variant Images Validation
-            'variants.*.images' => ['nullable', 'array'],
-            'variants.*.images.*.image' => [
-                'nullable',
-                'image',
-                'mimes:jpg,jpeg,png,webp,avif',
-                'max:2048',
-            ],
-            'variants.*.images.*.sort_order' => ['nullable', 'integer', 'min:0'],
-            'variants.*.images.*.is_primary' => ['nullable', 'boolean'],
-            'variants.*.remove_images' => ['nullable', 'array'],
-            'variants.*.remove_images.*' => ['exists:variant_images,id'],
-
+            // Optional: variant ids to remove
             'remove_variants' => ['nullable', 'array'],
-            'remove_variants.*' => [
-                'nullable',
-                'exists:product_variants,id'
-            ],
+            'remove_variants.*' => ['nullable', 'exists:product_variants,id'],
         ]);
 
         if ($validator->fails()) {
@@ -4376,7 +4575,6 @@ class ProductController extends Controller
 
         DB::beginTransaction();
         try {
-
             $validated = $validator->validated();
 
             /*
@@ -4428,9 +4626,6 @@ class ProductController extends Controller
         |--------------------------------------------------------------------------
         | MANUAL STOCK ADJUSTMENT (operation-based)
         |--------------------------------------------------------------------------
-        | add / subtract ke hisaab se teeno fields adjust honge:
-        |   stock_quantity, initial_stock, total_added_quantity
-        |--------------------------------------------------------------------------
         */
 
             $adjustmentOld = null;
@@ -4451,7 +4646,6 @@ class ProductController extends Controller
                     );
                     $adjustmentApplied = true;
 
-                    // Refresh so that subsequent diff calculations use adjusted values
                     $product->refresh();
                 } catch (\Exception $e) {
                     DB::rollBack();
@@ -4473,13 +4667,13 @@ class ProductController extends Controller
             $productData = collect($validated)
                 ->except([
                     'product_images',
-                    'variants',
                     'remove_images',
-                    'remove_variants',
-                    'total_added_quantity',                 // handled separately below
-                    'manual_stock_adjustment',              // handled above
-                    'manual_stock_adjustment_operation',    // handled above
-                    'reason_for_stock_adjustment',          // handled above
+                    'variants',                             // handled separately
+                    'remove_variants',                      // handled separately
+                    'total_added_quantity',
+                    'manual_stock_adjustment',
+                    'manual_stock_adjustment_operation',
+                    'reason_for_stock_adjustment',
                 ])
                 ->toArray();
 
@@ -4496,12 +4690,6 @@ class ProductController extends Controller
                 }
             }
 
-            /*
-        |--------------------------------------------------------------------------
-        | CAST BOOLEAN VALUES PROPERLY
-        |--------------------------------------------------------------------------
-        */
-
             if (array_key_exists('is_published', $productData)) {
                 $productData['is_published'] = filter_var($productData['is_published'], FILTER_VALIDATE_BOOLEAN);
             }
@@ -4510,31 +4698,11 @@ class ProductController extends Controller
                 $productData['is_trending'] = filter_var($productData['is_trending'], FILTER_VALIDATE_BOOLEAN);
             }
 
-            if (array_key_exists('variants', $validated)) {
-                foreach ($validated['variants'] as $key => $variant) {
-                    if (array_key_exists('is_active', $variant)) {
-                        $validated['variants'][$key]['is_active'] = filter_var($variant['is_active'], FILTER_VALIDATE_BOOLEAN);
-                    }
-                }
-            }
-
-            /*
-        |--------------------------------------------------------------------------
-        | SET DEFAULT BRAND ID
-        |--------------------------------------------------------------------------
-        */
-
             if (array_key_exists('brand_id', $productData)) {
                 if (empty($productData['brand_id'])) {
                     $productData['brand_id'] = 1;
                 }
             }
-
-            /*
-        |--------------------------------------------------------------------------
-        | RETAIL PRICE
-        |--------------------------------------------------------------------------
-        */
 
             if (array_key_exists('retail_mrp', $productData)) {
                 $productData['retail_price'] = $this->calculatePrice(
@@ -4543,12 +4711,6 @@ class ProductController extends Controller
                     $productData['retail_discount_value'] ?? null
                 );
             }
-
-            /*
-        |--------------------------------------------------------------------------
-        | DISTRIBUTOR PRICE
-        |--------------------------------------------------------------------------
-        */
 
             if (
                 array_key_exists('distributor_mrp', $productData)
@@ -4572,12 +4734,6 @@ class ProductController extends Controller
                 $productData['distributor_discount_type'] = null;
                 $productData['distributor_discount_value'] = null;
             }
-
-            /*
-        |--------------------------------------------------------------------------
-        | SLUG
-        |--------------------------------------------------------------------------
-        */
 
             if (
                 array_key_exists('slug', $productData)
@@ -4603,56 +4759,24 @@ class ProductController extends Controller
 
             /*
         |--------------------------------------------------------------------------
-        | VARIANTS EXIST?
-        |--------------------------------------------------------------------------
-        */
-
-            $hasVariants = array_key_exists('variants', $validated)
-                && is_array($validated['variants'])
-                && count($validated['variants']) > 0;
-
-            $oldProductStock = $product->stock_quantity;
-            $oldVariantStocks = [];
-
-            if ($product->variants()->count() > 0) {
-                $oldVariantStocks = $product->variants()
-                    ->pluck('stock_quantity', 'id')
-                    ->toArray();
-            }
-
-            /*
-        |--------------------------------------------------------------------------
         | STOCK + TOTAL_ADDED_QUANTITY HANDLING (PRODUCT LEVEL)
         |--------------------------------------------------------------------------
-        | Note: agar adjustment already apply ho chuka hai, toh product->stock_quantity
-        | ab adjusted value hai. Isliye diff calculate karte waqt wahi use karo.
-        |--------------------------------------------------------------------------
         */
 
-            if ($hasVariants) {
-                if (array_key_exists('stock_quantity', $productData)) {
-                    unset($productData['stock_quantity']);
-                }
-            } else {
-                if (array_key_exists('stock_quantity', $validated)) {
-                    $newStock = (int) $validated['stock_quantity'];
-                    $oldStock = (int) $product->stock_quantity;
-                    $diff = $newStock - $oldStock;
+            $oldProductStock = $product->stock_quantity;
 
-                    if ($diff > 0) {
-                        $productData['total_added_quantity'] =
-                            (int) $product->total_added_quantity + $diff;
-                    }
+            if (array_key_exists('stock_quantity', $validated)) {
+                $newStock = (int) $validated['stock_quantity'];
+                $oldStock = (int) $product->stock_quantity;
+                $diff = $newStock - $oldStock;
 
-                    $productData['stock_quantity'] = $newStock;
+                if ($diff > 0) {
+                    $productData['total_added_quantity'] =
+                        (int) $product->total_added_quantity + $diff;
                 }
+
+                $productData['stock_quantity'] = $newStock;
             }
-
-            /*
-        |--------------------------------------------------------------------------
-        | UPDATE PRODUCT
-        |--------------------------------------------------------------------------
-        */
 
             if (!empty($productData)) {
                 $product->update($productData);
@@ -4666,87 +4790,81 @@ class ProductController extends Controller
 
             $this->handleProductImageUpdates($request, $product);
 
-            $variantUpdateDetails = [];
-
             /*
         |--------------------------------------------------------------------------
-        | REMOVE VARIANTS
+        | REMOVE VARIANTS (optional)
         |--------------------------------------------------------------------------
         */
 
-            if (
-                array_key_exists('remove_variants', $validated)
-                && !empty($validated['remove_variants'])
-            ) {
-                ProductVariant::where('product_id', $product->id)
+            if (!empty($validated['remove_variants'])) {
+                ProductVariant::where('parent_product_id', $product->id)
                     ->whereIn('id', $validated['remove_variants'])
                     ->delete();
             }
 
             /*
         |--------------------------------------------------------------------------
-        | HANDLE VARIANTS
+        | ATTACH VARIANTS (immediate, from payload)
         |--------------------------------------------------------------------------
         */
 
-            if ($hasVariants) {
-                $totalStock = $this->handleVariantUpdates(
-                    $product,
-                    $request,
-                    $validated
-                );
+            $variantDetails = [];
 
-                $product->update([
-                    'stock_quantity' => $totalStock
-                ]);
+            if (!empty($validated['variants'])) {
+                // Prevent self-attachment
+                $invalidProductIds = collect($validated['variants'])
+                    ->pluck('product_id')
+                    ->filter(fn($pid) => (int) $pid === (int) $product->id)
+                    ->values()
+                    ->all();
 
-                $updatedVariants = $product->variants()->get();
-
-                foreach ($updatedVariants as $variant) {
-                    $oldStock = $oldVariantStocks[$variant->id] ?? 0;
-                    $newStock = $variant->stock_quantity;
-
-                    if ($oldStock == 0 && $newStock > 0) {
-                        $this->sendBackInStockNotifications(null, $variant->id);
-                    }
+                if (!empty($invalidProductIds)) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'Validation failed',
+                        'errors' => [
+                            'variants' => [
+                                'A product cannot be attached as a variant to itself.'
+                            ]
+                        ]
+                    ], 422);
                 }
 
-                foreach ($updatedVariants as $variant) {
-                    $variantUpdateDetails[] = [
-                        'id' => $variant->id,
-                        'sku' => $variant->sku,
-                        'attributes' => $variant->attributes,
-                        'retail_mrp' => $variant->retail_mrp,
-                        'retail_price' => $variant->retail_price,
-                        'retail_discount_type' => $variant->retail_discount_type,
-                        'retail_discount_value' => $variant->retail_discount_value,
+                // Avoid duplicates: skip product_ids already attached to this parent
+                $existingProductIds = ProductVariant::where('parent_product_id', $product->id)
+                    ->pluck('product_id')
+                    ->map(fn($v) => (int) $v)
+                    ->all();
 
-                        'distributor_mrp' => $variant->distributor_mrp,
-                        'distributor_price' => $variant->distributor_price,
-                        'distributor_discount_type' => $variant->distributor_discount_type,
-                        'distributor_discount_value' => $variant->distributor_discount_value,
+                foreach ($validated['variants'] as $variantRow) {
+                    if (in_array((int) $variantRow['product_id'], $existingProductIds, true)) {
+                        continue;
+                    }
 
-                        'stock_quantity' => $variant->stock_quantity,
-                        'total_added_quantity' => $variant->total_added_quantity,
-                        'low_stock_threshold' => $variant->low_stock_threshold,
-                        'sort_order' => $variant->sort_order,
-                        'is_active' => $variant->is_active,
+                    $variant = ProductVariant::create([
+                        'parent_product_id' => $product->id,
+                        'product_id'        => $variantRow['product_id'],
+                        'hax_color'         => $variantRow['hax_color'],
+                    ]);
 
-                        'images' => $variant->images->map(function ($image) {
-                            return [
-                                'id' => $image->id,
-                                'image' => asset('storage/' . $image->image),
-                                'sort_order' => $image->sort_order,
-                                'is_primary' => $image->is_primary,
-                            ];
-                        })->toArray(),
+                    $variantDetails[] = [
+                        'id'                => $variant->id,
+                        'parent_product_id' => $variant->parent_product_id,
+                        'product_id'        => $variant->product_id,
+                        'hax_color'         => $variant->hax_color,
                     ];
                 }
-            } else {
-                if (array_key_exists('stock_quantity', $validated)) {
-                    if ($oldProductStock == 0 && $product->stock_quantity > 0) {
-                        $this->sendBackInStockNotifications($product->id, null);
-                    }
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | BACK IN STOCK NOTIFICATION
+        |--------------------------------------------------------------------------
+        */
+
+            if (array_key_exists('stock_quantity', $validated)) {
+                if ($oldProductStock == 0 && $product->stock_quantity > 0) {
+                    $this->sendBackInStockNotifications($product->id, null);
                 }
             }
 
@@ -4758,17 +4876,10 @@ class ProductController extends Controller
 
             DB::commit();
 
-            /*
-        |--------------------------------------------------------------------------
-        | LOAD RELATIONS
-        |--------------------------------------------------------------------------
-        */
-
             $product->load([
                 'category',
                 'taxCategory',
-                'images',
-                'variants.images'
+                'images'
             ]);
 
             /*
@@ -4820,9 +4931,9 @@ class ProductController extends Controller
                 'hsn_code' => $product->hsn_code,
                 'uom' => $product->uom,
 
-                'has_variants' => $hasVariants,
-                'variants_count' => count($variantUpdateDetails),
-                'variants' => $variantUpdateDetails,
+                'has_variants' => !empty($variantDetails),
+                'variants_count' => count($variantDetails),
+                'variants' => $variantDetails,
 
                 // Manual adjustment audit
                 'manual_stock_adjustment_applied' => $adjustmentApplied,
@@ -4841,12 +4952,6 @@ class ProductController extends Controller
                 $oldValues,
                 $newValues
             );
-
-            /*
-        |--------------------------------------------------------------------------
-        | RESPONSE
-        |--------------------------------------------------------------------------
-        */
 
             return response()->json(
                 $this->formatProduct($product)
