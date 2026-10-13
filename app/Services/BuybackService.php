@@ -220,7 +220,7 @@ class BuybackService
 
             // 3. Update order-level return status
             $this->updateOrderReturnStatus($returnOrder->order);
-            $this->updateOrderMainStatus($returnOrder->order);
+            // $this->updateOrderMainStatus($returnOrder->order);
 
             // ========== STOCK RESTORE ON APPROVAL ==========
             try {
@@ -325,7 +325,7 @@ class BuybackService
 
             // 3. Update order-level return status
             $this->updateOrderReturnStatus($returnOrder->order);
-            $this->updateOrderMainStatus($returnOrder->order);
+            // $this->updateOrderMainStatus($returnOrder->order);
 
             // 4. Admin notification
             $this->createBuybackNotification($returnOrder, 'rejected');
@@ -494,7 +494,7 @@ class BuybackService
 
             // 6. Update order-level statuses
             $this->updateOrderReturnStatus($returnOrder->order);
-            $this->updateOrderMainStatus($returnOrder->order);
+            // $this->updateOrderMainStatus($returnOrder->order);
 
             // 7. Admin notification
             $this->createBuybackNotification($returnOrder, 'completed');
@@ -603,7 +603,7 @@ class BuybackService
 
             // 3. Update order-level return status
             $this->updateOrderReturnStatus($returnOrder->order);
-            $this->updateOrderMainStatus($returnOrder->order);
+            // $this->updateOrderMainStatus($returnOrder->order);
 
             // 4. Admin notification
             $this->createBuybackNotification($returnOrder, 'completed');
@@ -1189,7 +1189,7 @@ class BuybackService
             // 3. Update order-level return status
             if ($returnOrder->order) {
                 $this->updateOrderReturnStatus($returnOrder->order);
-                $this->updateOrderMainStatus($returnOrder->order);
+                // $this->updateOrderMainStatus($returnOrder->order);
             }
 
             // 4. Log
