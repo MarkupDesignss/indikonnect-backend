@@ -2136,7 +2136,7 @@ class ReturnService
                 'status'              => $refund->status,
                 'gateway_reference'   => $refund->gateway_reference,
                 'refund_method'       => $refund->refund_method,
-                'deduction_breakdown' => $refund->deduction_breakdown ?? null,
+                // 'deduction_breakdown' => $refund->deduction_breakdown ?? null,
                 'notes'               => $refund->notes,
                 'approved_by'         => $refund->approved_by,
                 'failure_reason'      => $refund->failure_reason,

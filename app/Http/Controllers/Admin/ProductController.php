@@ -3203,6 +3203,7 @@ class ProductController extends Controller
             'hsn_code' => ['nullable', 'string', 'max:50'],
             'uom' => ['nullable', 'string', 'max:50'],
             'category_id' => ['required', 'exists:categories,id'],
+            'subcategory_id' => ['required', 'exists:subcategories,id'],
             'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
             'retail_mrp' => ['required', 'numeric', 'min:0'],
             'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
