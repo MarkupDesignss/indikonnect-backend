@@ -338,7 +338,7 @@ class AdminController extends Controller
             ->whereNull('products.deleted_at')
             ->groupBy('categories.id', 'categories.title', 'categories.slug')
             ->orderBy('product_count', 'DESC')
-            ->limit(3)
+            ->limit(5)
             ->get()
             ->map(function ($category) {
                 return [
