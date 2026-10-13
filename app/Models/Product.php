@@ -55,9 +55,14 @@ class Product extends Model
         return $this->hasMany(ProductReview::class);
     }
 
+    // public function variants()
+    // {
+    //     return $this->hasMany(ProductVariant::class);
+    // }
+
     public function variants()
     {
-        return $this->hasMany(ProductVariant::class);
+        return $this->hasMany(ProductVariant::class, 'parent_product_id');
     }
 
     public function updateStockFromVariants()
@@ -229,6 +234,4 @@ class Product extends Model
     {
         return $this->hasMany(WarehouseStock::class, 'product_id');
     }
-
-    
 }

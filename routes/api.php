@@ -213,7 +213,7 @@ Route::prefix('subscribers')->group(function () {
 // ============================
 // PRODUCTS
 // ============================
-Route::post('/products/{parent_product_id}/variants', [ProductController::class, 'cereateVariant']);
+Route::post('/products/{parent_product_id}/variants', [ProductController::class, 'createVariant']);
 Route::post('move-product-image/{product}', [ProductController::class, 'swapImageOrder']);
 Route::prefix('products')->group(function () {
     // Public routes with optional auth
