@@ -543,7 +543,7 @@ class ReturnService
             $this->updateOrderReturnStatus($order);
 
             // Update order main status
-            $this->updateOrderMainStatus($order);
+            // $this->updateOrderMainStatus($order);
 
             /*
          * Notification.
@@ -1245,7 +1245,7 @@ class ReturnService
          * Recalculate order-level return status.
          */
             $this->updateOrderReturnStatus($order);
-            $this->updateOrderMainStatus($order);
+            // $this->updateOrderMainStatus($order);
 
             /*
          * Notify.
@@ -2426,7 +2426,7 @@ class ReturnService
 
             // 3. Update order-level statuses
             $this->updateOrderReturnStatus($returnOrder->order);
-            $this->updateOrderMainStatus($returnOrder->order);
+            // $this->updateOrderMainStatus($returnOrder->order);
 
             // ========== REVERSAL TRIGGER ==========
             try {
@@ -2646,7 +2646,7 @@ class ReturnService
 
             // Update order-level statuses
             $this->updateOrderReturnStatus($returnOrder->order);
-            $this->updateOrderMainStatus($returnOrder->order);
+            // $this->updateOrderMainStatus($returnOrder->order);
 
             // Notifications
             $this->createReturnNotification($returnOrder, 'rejected');
@@ -2912,7 +2912,7 @@ class ReturnService
             $this->updateOrderReturnStatus($returnOrder->order);
 
             // 4. Order main status
-            $this->updateOrderMainStatus($returnOrder->order);
+            // $this->updateOrderMainStatus($returnOrder->order);
 
             return [
                 'success'             => true,
@@ -3137,7 +3137,7 @@ class ReturnService
             // COMMON: status recalculation + notifications
             // ============================================================
             $this->updateOrderReturnStatus($returnOrder->order);
-            $this->updateOrderMainStatus($returnOrder->order);
+            // $this->updateOrderMainStatus($returnOrder->order);
 
             $this->createReturnNotification($returnOrder, 'completed');
             $this->sendUserNotification($returnOrder, 'completed');
@@ -3824,7 +3824,7 @@ class ReturnService
             $order = $orderLine->order;
 
             // Update main order status according to its order lines
-            $this->updateOrderMainStatus($order);
+            // $this->updateOrderMainStatus($order);
 
             return [
                 'order_line' => $orderLine->fresh(),
@@ -4960,7 +4960,7 @@ class ReturnService
 
             // 3. Update order-level return status
             $this->updateOrderReturnStatus($returnOrder->order);
-            $this->updateOrderMainStatus($returnOrder->order);
+            // $this->updateOrderMainStatus($returnOrder->order);
 
             // 4. Update distributor status (if distributor)
             if ($returnOrder->user->account_type === 'distributor') {
@@ -5138,7 +5138,7 @@ class ReturnService
 
             // 3. Update order-level return status
             $this->updateOrderReturnStatus($returnOrder->order);
-            $this->updateOrderMainStatus($returnOrder->order);
+            // $this->updateOrderMainStatus($returnOrder->order);
 
             // ========== NEW: USER NOTIFICATION ==========
             try {
