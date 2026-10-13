@@ -3504,67 +3504,65 @@ class ProductController extends Controller
      * Create a product variant
      */
 
-    public function createVariant(Request $request, $parent_product_id)
+    public function createVariant(Request $request)
     {
-        // Merge route parameter into the request so it can be validated.
-        // dd($parent_product_id);
-        $request->merge([
-            'parent_product_id' => $parent_product_id,
-        ]);
-
-        // -----------------------------------------------------------------
         // 1. Validation
-        // -----------------------------------------------------------------
         try {
             $validated = $request->validate([
                 'parent_product_id' => 'required|integer|exists:products,id',
-                'product_id'        => [
+
+                'product_id' => [
                     'required',
                     'integer',
                     'different:parent_product_id',
                     'exists:products,id',
                 ],
-                'hax_color'         => 'required|string|max:50',
-                'images'            => 'nullable|array|max:20',
-                'images.*'          => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
+
+                'hax_color' => 'required|string|max:50',
+
+                'images' => 'nullable|array|max:20',
+
+                'images.*' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
             ]);
-        } catch (ValidationException $e) {
+        } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed.',
-                'errors'  => $e->errors(),
+                'errors' => $e->errors(),
             ], 422);
         }
 
-        // -----------------------------------------------------------------
-        // 2. Normalize uploaded files
-        // -----------------------------------------------------------------
+        // 2. Normalize uploaded images
         $images = $request->file('images') ?? [];
 
-        if (! is_array($images)) {
+        if (!is_array($images)) {
             $images = [$images];
         }
 
-        // Filter out any null entries (defensive).
         $images = array_values(array_filter($images));
 
         $uploadedPaths = [];
-        $variant       = null;
 
-        // -----------------------------------------------------------------
-        // 3. Transaction — create variant + images
-        //    Any failure here MUST be rolled back and files cleaned up.
-        // -----------------------------------------------------------------
         try {
-            $variant = DB::transaction(function () use ($validated, $images, &$uploadedPaths) {
+            // 3. Create variant and images in a transaction
+            $variant = DB::transaction(function () use (
+                $validated,
+                $images,
+                &$uploadedPaths
+            ) {
                 $variant = ProductVariant::create([
-                    'parent_product_id'         => $validated['parent_product_id'],
-                    'product_id' => $validated['product_id'],
-                    'hax_color'          => $validated['hax_color'],
+                    'parent_product_id' => $validated['parent_product_id'],
+                    'product_id'        => $validated['product_id'],
+                    'hax_color'         => $validated['hax_color'],
                 ]);
 
                 foreach ($images as $index => $image) {
-                    $path            = $image->store('variant-images', 'public');
+                    $path = $image->store('variant-images', 'public');
+
+                    if (!$path) {
+                        throw new \RuntimeException('Unable to upload variant image.');
+                    }
+
                     $uploadedPaths[] = $path;
 
                     VariantImage::create([
@@ -3577,8 +3575,8 @@ class ProductController extends Controller
 
                 return $variant;
             });
-        } catch (Throwable $e) {
-            // Transaction failed → safe to delete all files we uploaded.
+        } catch (\Throwable $e) {
+            // Delete uploaded files if database operation fails
             foreach ($uploadedPaths as $path) {
                 Storage::disk('public')->delete($path);
             }
@@ -3591,34 +3589,32 @@ class ProductController extends Controller
             ], 500);
         }
 
-        // -----------------------------------------------------------------
-        // 4. Post-commit work (DB is committed — DO NOT delete files here)
-        // -----------------------------------------------------------------
+        // 4. Prepare response
         try {
             $variant->load('images');
 
             $variant->images->transform(function ($image) {
                 $image->image_url = asset('storage/' . $image->image);
+
                 return $image;
             });
-        } catch (Throwable $e) {
-            // The variant was created successfully, but we couldn't build
-            // the response payload. Log it, but still return success.
+        } catch (\Throwable $e) {
             report($e);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Product attached as a variant successfully, but response enrichment failed.',
-                'data'    => $variant,
+                'message' => 'Product attached as a variant successfully.',
+                'data' => $variant,
             ], 201);
         }
 
         return response()->json([
             'success' => true,
             'message' => 'Product attached as a variant successfully.',
-            'data'    => $variant,
+            'data' => $variant,
         ], 201);
     }
+
 
     /**
      * Update a product with variants
