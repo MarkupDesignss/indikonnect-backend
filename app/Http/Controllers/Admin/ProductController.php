@@ -1530,6 +1530,7 @@ class ProductController extends Controller
             return [
                 'id' => $product->id,
                 'is_primary' => $product->is_primary ?? null,
+                'is_best_seller' => $product->is_best_seller ?? null,
                 'product_code' => $product->product_code,
                 'name' => $product->name,
                 'brand_id' => $product->brand_id ?? null,
@@ -1862,6 +1863,7 @@ class ProductController extends Controller
             $formattedProduct = [
                 'id' => $product->id,
                 'product_code' => $product->product_code,
+                'is_best_seller' => $product->is_best_seller,
                 'commission_value' => $product->commission_value,
                 'name' => $product->name,
                 'slug' => $product->slug,
@@ -2252,6 +2254,7 @@ class ProductController extends Controller
         return [
             'id' => $product->id,
             'product_code' => $product->product_code,
+            'is_best_seller' => $product->is_best_seller,
             'name' => $product->name,
             'slug' => $product->slug,
             'commission_value' => $product->commission_value,
@@ -6306,15 +6309,22 @@ class ProductController extends Controller
             ->get();
 
         // 2. BEST SELLERS - Top 8 products from order_lines
-        $bestSellerIds = DB::table('order_lines')
-            ->select('product_id', DB::raw('COUNT(*) as order_count'))
-            ->whereNotNull('product_id')
-            ->groupBy('product_id')
-            ->orderBy('order_count', 'DESC')
-            ->limit(8)
-            ->pluck('product_id')
-            ->toArray();
+        // $bestSellerIds = DB::table('order_lines')
+        //     ->select('product_id', DB::raw('COUNT(*) as order_count'))
+        //     ->whereNotNull('product_id')
+        //     ->groupBy('product_id')
+        //     ->orderBy('order_count', 'DESC')
+        //     ->limit(8)
+        //     ->pluck('product_id')
+        //     ->toArray();
 
+        $bestSellerIds = DB::table('products')
+            ->where('is_best_seller', 1)
+            ->where('is_published', 1)
+            ->orderBy('id', 'DESC')
+            ->limit(25)
+            ->pluck('id')
+            ->toArray();
         $bestSellers = Product::with([
             'category',
             'subcategory',
@@ -10407,5 +10417,37 @@ class ProductController extends Controller
             'total_refund_amount'   => round($totalRefundAmount ?? 0, 2),
             'total_cv_reversed'     => round($reversedCv ?? 0, 2),
         ];
+    }
+
+    public function toggleBestSeller(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'is_best_seller' => 'required|in:0,1',
+        ]);
+
+        $product = Product::find($id);
+
+        if (!$product) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found.',
+            ], 404);
+        }
+
+        $product->is_best_seller = (int) $validated['is_best_seller'];
+        $product->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => $product->is_best_seller
+                ? 'Product marked as best seller successfully.'
+                : 'Product removed from best sellers successfully.',
+            'data' => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'product_code' => $product->product_code,
+                'is_best_seller' => (int) $product->is_best_seller,
+            ],
+        ], 200);
     }
 }
