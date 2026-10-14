@@ -213,7 +213,7 @@ Route::prefix('subscribers')->group(function () {
 // ============================
 // PRODUCTS
 // ============================
-
+Route::patch('best-seller/products/{id}', [ProductController::class, 'toggleBestSeller',]);
 Route::post('/create/variants', [ProductController::class, 'createVariant']);
 Route::post('/products/{productId}/set-primary', [ProductController::class, 'setPrimaryProduct']);
 Route::post('move-product-image/{product}', [ProductController::class, 'swapImageOrder']);
