@@ -7,7 +7,6 @@ use App\Models\Order;
 use App\Models\Wishlist;
 use App\Models\Cart;
 use App\Models\Product;
-use Carbon\Carbon;
 use App\Models\OrderLine;
 use App\Models\ProductReview;
 use App\Models\User;
@@ -15,16 +14,31 @@ use App\Services\DistributorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use App\Sdks\Partner\IgniteClient;
+use App\Sdks\Partner\ResultCode;
 
 class UserDashboardController extends Controller
 {
     protected DistributorService $distributorService;
+    protected IgniteClient $ignite;
 
-    public function __construct(DistributorService $distributorService)
-    {
+    public function __construct(
+        DistributorService $distributorService,
+        IgniteClient $ignite
+    ) {
         $this->distributorService = $distributorService;
+        $this->ignite = $ignite;
     }
 
+    /**
+     * Display the user dashboard.
+     *
+     * Returns common stats, latest order, recent activity, wishlist, and cart.
+     * For distributors, also includes Ignite member details (rank, CV, balances).
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function dashboard(Request $request)
     {
         $user = $request->user();
@@ -37,10 +51,10 @@ class UserDashboardController extends Controller
         $wishlistItems = $this->getWishlistItems($userId);
         $cartItems = $this->getCartItems($userId);
 
-        // Commission data – ONLY for distributors
-        $commissionData = null;
-        if ($user->isDistributor()) {
-            $commissionData = $this->distributorService->getDashboardData($userId);
+        // Distributor-only: Ignite details
+        $igniteData = null;
+        if ($user->isDistributor() && $user->distributor_id) {
+            $igniteData = $this->getIgniteMemberDetails($user->distributor_id);
         }
 
         return response()->json([
@@ -57,12 +71,61 @@ class UserDashboardController extends Controller
                 'recent_activity' => $recentActivity,
                 'wishlist' => $wishlistItems,
                 'cart' => $cartItems,
-                // Commission data – null for customers, filled for distributors
-                'commission' => $commissionData,
+                'ignite' => $igniteData,
             ]
         ]);
     }
 
+    /**
+     * Get Ignite member details (rank, CV, balances) for a distributor.
+     *
+     * @param  string  $baId
+     * @return array|null
+     */
+    private function getIgniteMemberDetails(string $baId): ?array
+    {
+        try {
+            $response = $this->ignite->memberDetails($baId);
+
+            if ($response['code'] !== ResultCode::OK->value) {
+                return null;
+            }
+
+            $data = $response['data'];
+
+            return [
+                'member_id'         => $data['member_id'] ?? null,
+                'ba_id'             => $data['ba_id'] ?? null,
+                'rank_no'           => $data['rank_no'] ?? 0,
+                'base_rank_no'      => $data['base_rank_no'] ?? 0,
+                'eligible_rank_no'  => $data['eligible_rank_no'] ?? 0,
+                'cv_left'           => $data['cv_left'] ?? '0.0000',
+                'cv_right'          => $data['cv_right'] ?? '0.0000',
+                'floating_cv_left'  => $data['floating_cv_left'] ?? '0.0000',
+                'floating_cv_right' => $data['floating_cv_right'] ?? '0.0000',
+                'total_cv_left'     => $data['total_cv_left'] ?? '0.0000',
+                'total_cv_right'    => $data['total_cv_right'] ?? '0.0000',
+                'cash_bal'          => $data['cash_bal'] ?? '0.0000',
+                'green_bal'         => $data['green_bal'] ?? '0.0000',
+                'yellow_bal'        => $data['yellow_bal'] ?? '0.0000',
+                'blue_bal'          => $data['blue_bal'] ?? '0.0000',
+                'membership_status' => $data['membership_status'] ?? null,
+                'total_steps'       => $data['total_steps'] ?? 0,
+                'qualified_at'      => $data['qualified_at'] ?? null,
+                'is_placed'         => !empty($data['binary_parent_id']),
+                'placement_leg'     => $data['binary_side'] ?? null,
+            ];
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Calculate general user statistics.
+     *
+     * @param  int  $userId
+     * @return array
+     */
     private function getUserStats($userId)
     {
         $totalOrders = OrderLine::whereHas('order', function ($query) use ($userId) {
@@ -94,6 +157,12 @@ class UserDashboardController extends Controller
         ];
     }
 
+    /**
+     * Get the user's most recent order with product details.
+     *
+     * @param  int  $userId
+     * @return array|null
+     */
     private function getLatestOrder($userId)
     {
         $order = Order::with(['lines.product.images'])
@@ -145,54 +214,12 @@ class UserDashboardController extends Controller
         ];
     }
 
-    // private function getRecentActivity($userId)
-    // {
-    //     $orders = Order::where('user_id', $userId)
-    //         ->latest('created_at')
-    //         ->limit(10)
-    //         ->get();
-
-    //     $activities = [];
-
-    //     foreach ($orders as $order) {
-    //         $orderLine = OrderLine::where('order_id', $order->id)->first();
-    //         $productName = $orderLine ?
-    //             (Product::find($orderLine->product_id)?->name ?? 'Product') :
-    //             'Product';
-
-    //         $activities[] = [
-    //             'event' => "Product Purchase: {$productName}",
-    //             'date' => $order->created_at->format('M d, Y'),
-    //             'points_earned' => "+{$order->coin_redeemed} PV",
-    //             'status' => 'Confirmed',
-    //             'order_reference' => $order->order_reference
-    //         ];
-    //     }
-
-    //     $recentReviews = ProductReview::where('user_id', $userId)
-    //         ->with('product')
-    //         ->latest('created_at')
-    //         ->limit(5)
-    //         ->get();
-
-    //     foreach ($recentReviews as $review) {
-    //         $productName = $review->product?->name ?? 'Product';
-    //         $activities[] = [
-    //             'event' => "Product Review: {$productName}",
-    //             'date' => $review->created_at->format('M d, Y'),
-    //             'rating' => $review->rating,
-    //             'review_text' => $review->review_text,
-    //             'status' => $review->status ?? 'active',
-    //             'product_id' => $review->product_id
-    //         ];
-    //     }
-
-    //     usort($activities, function ($a, $b) {
-    //         return strtotime($b['date']) - strtotime($a['date']);
-    //     });
-
-    //     return array_slice($activities, 0, 10);
-    // }
+    /**
+     * Get recent activity for the user (orders, reviews, wishlist, cart).
+     *
+     * @param  int  $userId
+     * @return array
+     */
     private function getRecentActivity($userId)
     {
         $activities = [];
@@ -214,8 +241,8 @@ class UserDashboardController extends Controller
                 'event' => "Product Purchase: {$productName}",
                 'created_at' => $order->created_at->format('M d, Y H:i:s'),
                 'updated_at' => $order->updated_at->format('M d, Y H:i:s'),
-                'created_timestamp' => $order->created_at->timestamp, // This is already an int
-                'updated_timestamp' => $order->updated_at->timestamp, // This is already an int
+                'created_timestamp' => $order->created_at->timestamp,
+                'updated_timestamp' => $order->updated_at->timestamp,
                 'points_earned' => "+{$order->coin_redeemed} PV",
                 'status' => 'Confirmed',
                 'order_reference' => $order->order_reference
@@ -236,8 +263,8 @@ class UserDashboardController extends Controller
                 'event' => "Product Review: {$productName}",
                 'created_at' => $review->created_at->format('M d, Y H:i:s'),
                 'updated_at' => $review->updated_at->format('M d, Y H:i:s'),
-                'created_timestamp' => $review->created_at->timestamp, // Fix: use ->timestamp
-                'updated_timestamp' => $review->updated_at->timestamp, // Fix: use ->timestamp
+                'created_timestamp' => $review->created_at->timestamp,
+                'updated_timestamp' => $review->updated_at->timestamp,
                 'rating' => $review->rating,
                 'review_text' => $review->review_text,
                 'status' => $review->status ?? 'active',
@@ -259,8 +286,8 @@ class UserDashboardController extends Controller
                 'event' => "Added to Wishlist: {$productName}",
                 'created_at' => $wishlist->created_at->format('M d, Y H:i:s'),
                 'updated_at' => $wishlist->updated_at->format('M d, Y H:i:s'),
-                'created_timestamp' => $wishlist->created_at->timestamp, // Fix: use ->timestamp
-                'updated_timestamp' => $wishlist->updated_at->timestamp, // Fix: use ->timestamp
+                'created_timestamp' => $wishlist->created_at->timestamp,
+                'updated_timestamp' => $wishlist->updated_at->timestamp,
                 'product_id' => $wishlist->product_id,
                 'wishlist_id' => $wishlist->id
             ];
@@ -274,7 +301,6 @@ class UserDashboardController extends Controller
             ->get();
 
         foreach ($carts as $cart) {
-            // Get cart items for this cart
             $cartItems = DB::table('cart_items')
                 ->where('cart_id', $cart->id)
                 ->join('products', 'cart_items.product_id', '=', 'products.id')
@@ -300,15 +326,20 @@ class UserDashboardController extends Controller
             }
         }
 
-        // Sort all activities by created_timestamp (newest first)
+        // Sort by created_timestamp (newest first)
         usort($activities, function ($a, $b) {
             return $b['created_timestamp'] - $a['created_timestamp'];
         });
 
-        // Return top 10 most recent activities
         return array_slice($activities, 0, 10);
     }
 
+    /**
+     * Get wishlist items with product details.
+     *
+     * @param  int  $userId
+     * @return array
+     */
     private function getWishlistItems($userId)
     {
         $wishlistItems = Wishlist::where('user_id', $userId)
@@ -344,6 +375,12 @@ class UserDashboardController extends Controller
         return $items;
     }
 
+    /**
+     * Get cart items with product details.
+     *
+     * @param  int  $userId
+     * @return array
+     */
     private function getCartItems($userId)
     {
         $cart = Cart::where('user_id', $userId)->latest()->first();
@@ -382,15 +419,14 @@ class UserDashboardController extends Controller
         return $items;
     }
 
+    /**
+     * Get global marketplace statistics (public).
+     *
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function getStats()
     {
         try {
-            /*
-            |--------------------------------------------------------------------------
-            | Distributor Reviews
-            |--------------------------------------------------------------------------
-            | Only reviews submitted by users whose account_type is distributer
-            */
             $reviews = ProductReview::query()
                 ->select([
                     'product_reviews.id',
@@ -426,27 +462,10 @@ class UserDashboardController extends Controller
                         ],
                     ];
                 });
-            /*
-            |--------------------------------------------------------------------------
-            | Total Reviews
-            |--------------------------------------------------------------------------
-            | Customer + Distributor both
-            */
-            $totalReviews = ProductReview::count();
 
-            /*
-            |--------------------------------------------------------------------------
-            | Average Rating
-            |--------------------------------------------------------------------------
-            */
+            $totalReviews = ProductReview::count();
             $averageRating = ProductReview::avg('rating');
 
-            /*
-            |--------------------------------------------------------------------------
-            | Repeat Buyers
-            |--------------------------------------------------------------------------
-            | Users who have placed more than one order
-            */
             $totalBuyers = DB::table('orders')
                 ->whereNull('deleted_at')
                 ->whereNotNull('user_id')
@@ -466,12 +485,6 @@ class UserDashboardController extends Controller
                 ? round(($repeatBuyers / $totalBuyers) * 100)
                 : 0;
 
-            /*
-            |--------------------------------------------------------------------------
-            | Total Cities
-            |--------------------------------------------------------------------------
-            | Unique cities from addresses
-            */
             $totalCities = DB::table('addresses')
                 ->whereNull('deleted_at')
                 ->whereNotNull('city')
@@ -499,13 +512,20 @@ class UserDashboardController extends Controller
         }
     }
 
+    /**
+     * Get distributor-specific statistics including Ignite rank progress.
+     *
+     * Combines local order data with Ignite rank progress. Requires the
+     * authenticated user to be a distributor.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function getDistributorStats(Request $request)
     {
         try {
-            // Get the authenticated user
             $authUser = Auth::user();
 
-            // Check if user is authenticated
             if (!$authUser) {
                 return response()->json([
                     'success' => false,
@@ -514,7 +534,6 @@ class UserDashboardController extends Controller
                 ], 401);
             }
 
-            // Check if the authenticated user is a distributor
             if ($authUser->account_type !== 'distributor') {
                 return response()->json([
                     'success' => false,
@@ -523,15 +542,12 @@ class UserDashboardController extends Controller
                 ], 403);
             }
 
-            // Get the authenticated user's ID
             $userId = $authUser->id;
 
-            // Get the distributor user
             $user = User::where('account_type', 'distributor')
                 ->where('id', $userId)
                 ->first();
 
-            // If user not found
             if (!$user) {
                 return response()->json([
                     'success' => false,
@@ -540,7 +556,7 @@ class UserDashboardController extends Controller
                 ], 404);
             }
 
-            // Calculate statistics using order_lines table
+            // Local order statistics
             $stats = DB::table('orders as o')
                 ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
                 ->join('products as p', 'ol.product_id', '=', 'p.id')
@@ -554,21 +570,35 @@ class UserDashboardController extends Controller
                 ])
                 ->first();
 
-            // Build the response data
+            // Ignite rank progress (if registered)
+            $rankProgress = null;
+            if ($user->distributor_id) {
+                try {
+                    $response = $this->ignite->rankProgress($user->distributor_id);
+
+                    if ($response['code'] === ResultCode::OK->value) {
+                        $rankProgress = $response['data'];
+                    }
+                } catch (\Exception $e) {
+                    // Silently ignore Ignite errors — local stats still returned
+                }
+            }
+
             $result = [
                 'user_id' => $user->id,
                 'full_name' => $user->full_name,
                 'email' => $user->email,
                 'phone' => $user->phone,
+                'distributor_id' => $user->distributor_id,
                 'total_orders' => (int) $stats->total_orders,
                 'total_amount_mrp' => (float) $stats->total_amount_mrp,
                 'total_savings' => (float) $stats->total_savings,
                 'total_coins_earned' => (int) $stats->total_coins_earned,
                 'account_type' => $user->account_type,
                 'joined_at' => $user->created_at->toDateTimeString(),
+                'rank_progress' => $rankProgress,
             ];
 
-            // Return response
             return response()->json([
                 'success' => true,
                 'data' => $result,

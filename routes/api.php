@@ -557,6 +557,8 @@ Route::middleware('auth:sanctum')->prefix('distributor/genealogy')->group(functi
     Route::get('/children/{userId}', [GenealogyController::class, 'children']);
     Route::get('/search', [GenealogyController::class, 'search']);
     Route::get('/downline', [GenealogyController::class, 'downlineList']);
+    Route::get('/pending-placements', [GenealogyController::class, 'pendingPlacements']);
+    Route::post('/set-placement', [GenealogyController::class, 'setPlacement']);
 });
 
 // ============================
