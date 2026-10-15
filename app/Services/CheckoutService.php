@@ -2090,43 +2090,40 @@ class CheckoutService
             }
 
             // ---------- Gateway order creation ----------
-            $gateway = $data['payment_gateway'] ?? null;
+            // ---------- Gateway order creation ----------
+            $gateway = $data['payment_gateway'] ?? null;   // 'razorpay' | 'hdfc_sg' | 'hdfc_ie'
             $gatewayPayload = [];
 
             if ($gateway === 'razorpay') {
-                $razorpayOrder = $this->razorpayService->createOrder($order);
-                $gatewayPayload = [
+                $razorpayService = app(\App\Services\PaymentGateway\RazorpayService::class);
+                $razorpayOrder   = $razorpayService->createOrder($order);
+                $gatewayPayload  = [
                     'razorpay_order_id' => $razorpayOrder['id'],
                     'razorpay_key'      => config('services.razorpay.key_id'),
                 ];
-            } elseif ($gateway === 'hdfc') {
-                $hdfcOrder = $this->hdfcService->createOrder($order);
+            } elseif (in_array($gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
+
+                // Map public gateway key -> config block key
+                $configKey = $gateway === 'hdfc_sg' ? 'sg' : 'ie';
+                $config    = config("services.hdfc.{$configKey}");
+
+                if (!$config || empty($config['api_key'])) {
+                    throw new \Exception("HDFC merchant [{$gateway}] is not configured.");
+                }
+
+                $hdfcService = new \App\Services\PaymentGateway\HdfcService($config);
+                $hdfcOrder   = $hdfcService->createOrder($order);
+
                 $gatewayPayload = [
-                    'hdfc_order_id'    => $hdfcOrder['id'],
+                    'hdfc_order_id'     => $hdfcOrder['id'],
                     'hdfc_payment_link' => $hdfcOrder['payment_link'],
-                    'hdfc_sdk_payload' => $hdfcOrder['sdk_payload'],
-                    'hdfc_merchant_id' => config('services.hdfc.merchant_id'),
+                    'hdfc_sdk_payload'  => $hdfcOrder['sdk_payload'],
+                    'hdfc_merchant_id'  => $config['merchant_id'],
+                    'hdfc_gateway_key'  => $gateway,  // 'hdfc_sg' or 'hdfc_ie'
                 ];
             } else {
                 throw new \Exception('Unsupported payment gateway: ' . $gateway);
             }
-
-            return array_merge([
-                'order_id'        => $order->id,
-                'order_reference' => $order->order_reference,
-                'total_items'     => count($itemsWithTaxSplit),
-                'total_amount'    => $grandTotal,
-                'status'          => 'pending',
-                'checkout_type'   => $isBuyNow ? 'buy_now' : 'cart',
-                'gateway'         => $gateway,
-                'tax_split'       => [
-                    'delivery_state' => $deliveryState,
-                    'supplier_state' => $supplierState,
-                    'total_cgst'     => round($totals['cgst'], 2),
-                    'total_sgst'     => round($totals['sgst'], 2),
-                    'total_igst'     => round($totals['igst'], 2),
-                ],
-            ], $gatewayPayload);
         });
     }
     protected function generateItemReference(): string
