@@ -7,13 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class Brand extends Model
 {
 
-    protected $fillable = [
-        'title',
-        'discount_percentage',
-        'logo',
-        'banner',
-        'status',
-    ];
+    protected $guarded = [];
 
     protected $casts = [
         'discount_percentage' => 'integer',
@@ -33,5 +27,9 @@ class Brand extends Model
     public function products()
     {
         return $this->hasMany(Product::class, 'brand_id');
+    }
+    public function category()
+    {
+        return $this->belongsTo(Category::class);
     }
 }

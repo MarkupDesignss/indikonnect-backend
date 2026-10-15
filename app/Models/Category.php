@@ -28,6 +28,10 @@ class Category extends Model
     {
         return $this->hasMany(Subcategory::class, 'category_id');
     }
+    public function brands()
+    {
+        return $this->hasMany(Brand::class);
+    }
 
     // Auto-generate slug from title
     protected static function boot()
