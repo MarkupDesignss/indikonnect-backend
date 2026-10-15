@@ -19,6 +19,11 @@ class BrandController extends Controller
         try {
             $query = Brand::query();
 
+            // Filter by category_id
+            if ($request->filled('category_id')) {
+                $query->where('category_id', $request->category_id);
+            }
+
             // New Arrivals - last 30 days
             if ($request->boolean('new_arrivals')) {
                 $query->where('created_at', '>=', now()->subDays(30));
@@ -32,6 +37,7 @@ class BrandController extends Controller
                 return [
                     'id' => $brand->id,
                     'title' => $brand->title,
+                    'category_id' => $brand->category_id,
                     'status' => $brand->status,
                     'discount_percentage' => $brand->discount_percentage,
                     'logo' => $brand->logo_url,
@@ -64,6 +70,7 @@ class BrandController extends Controller
             // Validation
             $validated = $request->validate([
                 'title' => 'required|string|max:255|unique:brands,title',
+                'category_id' => 'required|integer|exists:categories,id',
                 'discount_percentage' => 'nullable|integer|min:0|max:100',
                 'status' => 'nullable',
                 'logo' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:5120',
@@ -71,6 +78,8 @@ class BrandController extends Controller
             ], [
                 'title.required' => 'Brand heading is required',
                 'title.unique' => 'This brand already exists',
+                'category_id.required' => 'Category is required',
+                'category_id.exists' => 'Selected category does not exist',
                 'discount_percentage.max' => 'Discount percentage cannot exceed 100',
                 'logo.max' => 'Logo must not be larger than 5MB',
                 'banner.max' => 'Banner must not be larger than 10MB',
@@ -91,6 +100,7 @@ class BrandController extends Controller
             // Create brand
             $brand = Brand::create([
                 'title' => $validated['title'],
+                'category_id' => $validated['category_id'],
                 'discount_percentage' => $validated['discount_percentage'],
                 'status' => $request->status ?? true,
                 'logo' => $logoPath,
@@ -103,6 +113,7 @@ class BrandController extends Controller
                 'data' => [
                     'id' => $brand->id,
                     'title' => $brand->title,
+                    'category_id' => $brand->category_id,
                     'discount_percentage' => $brand->discount_percentage,
                     'logo' => $brand->logo_url,
                     'banner' => $brand->banner_url,
@@ -148,6 +159,7 @@ class BrandController extends Controller
                 'data' => [
                     'id' => $brand->id,
                     'title' => $brand->title,
+                    'category_id' => $brand->category_id,
                     'discount_percentage' => $brand->discount_percentage,
                     'logo' => $brand->logo_url,
                     'banner' => $brand->banner_url,
@@ -190,6 +202,13 @@ class BrandController extends Controller
                     Rule::unique('brands', 'title')->ignore($id),
                 ],
 
+                'category_id' => [
+                    'sometimes',
+                    'nullable',
+                    'integer',
+                    'exists:categories,id',
+                ],
+
                 'discount_percentage' => [
                     'sometimes',
                     'nullable',
@@ -221,6 +240,7 @@ class BrandController extends Controller
                 ],
             ], [
                 'title.unique' => 'This brand already exists',
+                'category_id.exists' => 'Selected category does not exist',
                 'discount_percentage.max' => 'Discount percentage cannot exceed 100',
                 'logo.max' => 'Logo must not be larger than 5MB',
                 'banner.max' => 'Banner must not be larger than 10MB',
@@ -231,6 +251,10 @@ class BrandController extends Controller
 
             if ($request->has('title')) {
                 $updateData['title'] = $validated['title'];
+            }
+
+            if ($request->has('category_id')) {
+                $updateData['category_id'] = $validated['category_id'];
             }
 
             if ($request->has('discount_percentage')) {
@@ -283,6 +307,7 @@ class BrandController extends Controller
                 'data' => [
                     'id' => $brand->id,
                     'title' => $brand->title,
+                    'category_id' => $brand->category_id,
                     'discount_percentage' => $brand->discount_percentage,
                     'status' => $brand->status,
                     'logo' => $brand->logo_url,
