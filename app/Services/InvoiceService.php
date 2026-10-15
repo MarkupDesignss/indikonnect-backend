@@ -74,7 +74,7 @@ class InvoiceService
     // {
     //     $last = Invoice::orderBy('id', 'desc')->first();
     //     $next = $last ? (int) substr($last->invoice_number, 4) + 1 : 1001;
-    //     return 'INV-' . str_pad($next, 6, '0', STR_PAD_LEFT);
+    //     return 'INV' . str_pad($next, 6, '0', STR_PAD_LEFT);
     // }
 
     public function generateInvoice(Order $order): Invoice
@@ -164,7 +164,7 @@ class InvoiceService
     {
         $last = Invoice::orderBy('id', 'desc')->first();
         $next = $last ? (int) substr($last->invoice_number, 4) + 1 : 1001;
-        return 'INV-' . str_pad($next, 6, '0', STR_PAD_LEFT);
+        return 'INV' . str_pad($next, 6, '0', STR_PAD_LEFT);
     }
 
     protected function recalculateFromOrderLines(Order $order): array
