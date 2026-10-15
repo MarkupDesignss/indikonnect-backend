@@ -13,12 +13,25 @@ use Illuminate\Support\Facades\Log;
 class HdfcWebhookController extends Controller
 {
     protected CheckoutService $checkoutService;
-    protected HdfcService $hdfcService;
 
-    public function __construct(CheckoutService $checkoutService, HdfcService $hdfcService)
+    public function __construct(CheckoutService $checkoutService)
     {
         $this->checkoutService = $checkoutService;
-        $this->hdfcService     = $hdfcService;
+    }
+
+    /**
+     * Resolve HdfcService instance based on gateway key stored on order.
+     */
+    protected function resolveHdfcService(?string $gatewayKey): HdfcService
+    {
+        $configKey = $gatewayKey === 'hdfc_ie' ? 'ie' : 'sg';
+        $config    = config("services.hdfc.{$configKey}");
+
+        if (!$config || empty($config['api_key'])) {
+            throw new \Exception("HDFC merchant [{$gatewayKey}] is not configured.");
+        }
+
+        return new HdfcService($config);
     }
 
     /**
@@ -45,12 +58,22 @@ class HdfcWebhookController extends Controller
                 return response()->json(['error' => 'Order reference missing'], 400);
             }
 
-            // Optional signature verification (only if HDFC sends a signature header)
+            // Find order to know which merchant config to use
+            $order = Order::where('order_reference', $orderReference)->first();
+
+            if (!$order) {
+                Log::error('HDFC webhook: order not found', ['ref' => $orderReference]);
+                return response()->json(['error' => 'Order not found'], 404);
+            }
+
+            $hdfcService = $this->resolveHdfcService($order->payment_gateway);
+
+            // Optional signature verification
             $signature = $request->header('x-hdfc-signature')
                 ?? $request->header('X-HDFC-Signature');
 
             if (config('app.env') === 'production' && $signature) {
-                if (!$this->hdfcService->verifySignature($payload, $signature)) {
+                if (!$hdfcService->verifySignature($payload, $signature)) {
                     Log::warning('HDFC webhook signature invalid');
                     return response()->json(['error' => 'Invalid signature'], 401);
                 }
@@ -58,7 +81,7 @@ class HdfcWebhookController extends Controller
 
             if (in_array($status, ['CHARGED', 'SUCCESS', 'CAPTURED', 'PAID'])) {
                 $result = $this->checkoutService->confirmOrder($orderReference, [
-                    'gateway'        => 'hdfc',
+                    'gateway'        => $order->payment_gateway,
                     'transaction_id' => $payload['id']
                         ?? $payload['transaction_id']
                         ?? ($payload['order']['id'] ?? null),
@@ -96,30 +119,37 @@ class HdfcWebhookController extends Controller
 
     /**
      * Browser redirect target after HDFC payment page.
-     *
-     * HDFC does NOT reliably POST back here — always re-verify via API.
      */
     public function return(Request $request)
     {
-        // HDFC sends these params on return URL
         $orderReference = $request->input('order_id')
             ?? $request->input('udf1')
             ?? $request->input('orderId');
 
         $hdfcOrderId = $request->input('id')
-            ?? $request->input('order_id'); // sometimes same
+            ?? $request->input('order_id');
 
         $frontend = rtrim(config('app.frontend_url', config('app.url')), '/');
 
         try {
-            // Prefer verifying against HDFC API rather than trusting query params
+            $order = Order::where('order_reference', $orderReference)->first();
+
+            if (!$order) {
+                return redirect()->away(
+                    $frontend . '/order-failed?ref=' . urlencode((string) $orderReference)
+                        . '&reason=order_not_found'
+                );
+            }
+
+            $hdfcService = $this->resolveHdfcService($order->payment_gateway);
+
             if ($hdfcOrderId) {
-                $status = $this->hdfcService->getOrderStatus($hdfcOrderId);
+                $status      = $hdfcService->getOrderStatus($hdfcOrderId);
                 $orderStatus = strtoupper($status['status'] ?? '');
 
                 if (in_array($orderStatus, ['CHARGED', 'SUCCESS', 'CAPTURED', 'PAID'])) {
                     $this->checkoutService->confirmOrder($orderReference, [
-                        'gateway'        => 'hdfc',
+                        'gateway'        => $order->payment_gateway,
                         'transaction_id' => $status['id'] ?? $hdfcOrderId,
                         'amount'         => $status['amount'] ?? 0,
                         'method'         => $status['payment_method_type'] ?? 'hdfc',
@@ -139,10 +169,7 @@ class HdfcWebhookController extends Controller
                 }
             }
 
-            // Fallback: webhook may have already confirmed; just push to a status page
-            $order = Order::where('order_reference', $orderReference)->first();
-
-            if ($order && $order->status === 'confirmed') {
+            if ($order->status === 'confirmed') {
                 return redirect()->away(
                     $frontend . '/order-success?ref=' . urlencode($orderReference)
                 );

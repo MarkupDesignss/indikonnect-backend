@@ -308,17 +308,15 @@ class CheckoutController extends Controller
     /**
      * FR-CO-005: Place order and initiate Razorpay payment
      */
-
     // public function placeOrder(Request $request): JsonResponse
     // {
     //     $validated = $request->validate([
     //         'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
     //         'grand_total' => 'required|numeric|min:0',
-    //         'payment_gateway' => 'nullable|in:razorpay',
+    //         'payment_gateway' => 'required|in:razorpay,hdfc',
 
     //         'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
 
-    //         // Change from summary_data to summary
     //         'summary_data' => 'required|array',
     //         'summary_data.subtotal' => 'sometimes|numeric|min:0',
     //         'summary_data.total_tax' => 'sometimes|numeric|min:0',
@@ -330,13 +328,11 @@ class CheckoutController extends Controller
     //         'summary_data.amount_redeemed' => 'nullable|numeric|min:0',
     //         'summary_data.net_subtotal' => 'nullable|numeric|min:0',
 
-    //         // Tax breakdown validation
     //         'summary_data.tax_breakdown' => 'sometimes|array',
     //         'summary_data.tax_breakdown.*.product_name' => 'required_with:summary_data.tax_breakdown|string|max:255',
     //         'summary_data.tax_breakdown.*.tax_category' => 'required_with:summary_data.tax_breakdown|string|max:100',
     //         'summary_data.tax_breakdown.*.rate' => 'required_with:summary_data.tax_breakdown|min:0',
 
-    //         // Buy Now validation
     //         'checkout_type' => 'nullable|in:cart,buy_now',
     //     ]);
 
@@ -362,7 +358,7 @@ class CheckoutController extends Controller
         $validated = $request->validate([
             'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
             'grand_total' => 'required|numeric|min:0',
-            'payment_gateway' => 'required|in:razorpay,hdfc',
+            'payment_gateway' => 'required|in:razorpay,hdfc_sg,hdfc_ie',
 
             'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
 
