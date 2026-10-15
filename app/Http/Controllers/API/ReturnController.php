@@ -227,6 +227,19 @@ class ReturnController extends Controller
                     'exists:orders,order_reference',
                 ],
                 'return_method' => 'required|in:doorstep,courier',
+                'tracking_id' => [
+                    'required_if:return_method,courier',
+                    'nullable',
+                    'string',
+                    'max:100',
+                ],
+
+                'courier' => [
+                    'required_if:return_method,courier',
+                    'nullable',
+                    'string',
+                    'max:100',
+                ],
 
                 'items' => [
                     'required',
@@ -263,7 +276,6 @@ class ReturnController extends Controller
 
                 'items.*.images.*' => [
                     'image',
-                    'mimes:jpeg,png,jpg,gif,avif,webp',
                     'max:5120',
                 ],
 
@@ -287,7 +299,6 @@ class ReturnController extends Controller
 
                 'return_images.*' => [
                     'image',
-                    'mimes:jpeg,png,jpg,gif,avif,webp',
                     'max:5120',
                 ],
             ]);
@@ -322,6 +333,8 @@ class ReturnController extends Controller
          */
             $processedData = $this->processReturnImages($validated);
             $processedData['return_method'] = $validated['return_method'];
+            $processedData['tracking_id']   = $validated['tracking_id'] ?? null;
+            $processedData['courier']       = $validated['courier'] ?? null;
 
             /*
          * Send only processed data to service.

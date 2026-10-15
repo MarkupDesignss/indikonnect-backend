@@ -3,10 +3,10 @@
 namespace App\Services\PaymentGateway;
 
 use App\Models\Order;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Exception;
-use Illuminate\Http\Client\Response;
 
 class HdfcService
 {
@@ -18,34 +18,44 @@ class HdfcService
     protected string $responseKey;
     protected string $cardEncodingKey;
     protected string $environment;
-    protected bool   $enableLogging;
-
-    /** 'hdfc_sg' or 'hdfc_ie' */
+    protected bool $enableLogging;
     protected string $gatewayKey;
 
-    /**
-     * @param  array   $config      One merchant block from config('services.hdfc.*')
-     * @param  string  $gatewayKey  'hdfc_sg' | 'hdfc_ie'
-     */
-    public function __construct(array $config = [], string $gatewayKey = 'hdfc_sg')
-    {
-        // Fallback to 'sg' config when container resolves without args
+    public function __construct(
+        array $config = [],
+        string $gatewayKey = 'hdfc_sg'
+    ) {
         if (empty($config)) {
             $config = config('services.hdfc.sg', []);
         }
 
-        $this->gatewayKey           = $gatewayKey;
-        $this->baseUrl              = rtrim((string) ($config['base_url'] ?? ''), '/');
-        $this->apiKey               = (string) ($config['api_key'] ?? '');
-        $this->merchantId           = (string) ($config['merchant_id'] ?? '');
-        $this->resellerId           = (string) ($config['reseller_id'] ?? '');
-        $this->paymentPageClientId  = (string) ($config['payment_page_client_id'] ?? $this->merchantId);
-        $this->responseKey          = (string) ($config['response_key'] ?? '');
-        $this->cardEncodingKey      = (string) ($config['card_encoding_key'] ?? '');
-        $this->environment          = (string) ($config['environment'] ?? 'live');
-        $this->enableLogging        = (bool)   ($config['enable_logging'] ?? false);
+        $this->gatewayKey = $gatewayKey;
+        $this->baseUrl = rtrim(
+            (string) ($config['base_url'] ?? ''),
+            '/'
+        );
+        $this->apiKey = (string) ($config['api_key'] ?? '');
+        $this->merchantId = (string) ($config['merchant_id'] ?? '');
+        $this->resellerId = (string) ($config['reseller_id'] ?? '');
+        $this->paymentPageClientId = (string) (
+            $config['payment_page_client_id'] ?? $this->merchantId
+        );
+        $this->responseKey = (string) ($config['response_key'] ?? '');
+        $this->cardEncodingKey = (string) (
+            $config['card_encoding_key'] ?? ''
+        );
+        $this->environment = (string) (
+            $config['environment'] ?? 'live'
+        );
+        $this->enableLogging = (bool) (
+            $config['enable_logging'] ?? false
+        );
 
-        if ($this->baseUrl === '' || $this->apiKey === '' || $this->merchantId === '') {
+        if (
+            $this->baseUrl === '' ||
+            $this->apiKey === '' ||
+            $this->merchantId === ''
+        ) {
             throw new Exception(
                 'HDFC configuration is incomplete. Check base_url, api_key and merchant_id.'
             );
@@ -53,13 +63,15 @@ class HdfcService
     }
 
     /**
-     * Create a payment session using Basic Auth.
+     * Create a hosted payment session.
+     *
+     * The webhook is configured in the HDFC dashboard.
+     * No return_url or webhook_url is sent in this request.
      */
     public function createOrder(Order $order): array
     {
         $orderId = (string) $order->order_reference;
 
-        // SmartGateway order IDs must follow its documented restrictions.
         if (
             $orderId === '' ||
             strlen($orderId) > 20 ||
@@ -72,55 +84,60 @@ class HdfcService
 
         $customer = $order->user;
 
-        $email = $customer?->email;
-        $phone = $customer?->phone;
+        if (!$customer) {
+            throw new Exception(
+                'Customer not found for HDFC payment.'
+            );
+        }
+
+        $email = $customer->email;
+        $phone = $customer->phone;
 
         if (empty($email) && empty($phone)) {
-            throw new Exception('Customer email or phone is required for HDFC payment.');
+            throw new Exception(
+                'Customer email or phone is required for HDFC payment.'
+            );
         }
 
-        $amount = number_format((float) $order->total_payable, 2, '.', '');
+        $amount = number_format(
+            (float) $order->total_payable,
+            2,
+            '.',
+            ''
+        );
 
         if ((float) $amount <= 0) {
-            throw new Exception('HDFC payment amount must be greater than zero.');
+            throw new Exception(
+                'HDFC payment amount must be greater than zero.'
+            );
         }
 
-        // ---------- Gateway-specific URLs ----------
-        $isIe = $this->gatewayKey === 'hdfc_ie';
-
-        $returnUrl = $isIe
-            ? route('hdfc.return.ie')
-            : route('hdfc.return.sg');
-
-        $cancelUrl = $isIe
-            ? route('hdfc.cancel.ie')
-            : route('hdfc.cancel.sg');
-
-        // Webhook URL: some Juspay versions accept it in payload,
-        // but the authoritative place is the HDFC dashboard.
-        $webhookUrl = $isIe
-            ? url('/api/webhook/hdfc1')
-            : url('/api/webhook/hdfc');
-
         $payload = [
-            'order_id'                => $orderId,
-            'amount'                  => $amount,
-            'currency'                => 'INR',
-            'customer_id'             => (string) $order->user_id,
-            'customer_email'          => $email,
-            'customer_phone'          => $phone,
-            'payment_page_client_id'  => $this->paymentPageClientId,
-            'action'                  => 'paymentPage',
-            'return_url'              => $returnUrl,
-            'description'             => 'Order ' . $orderId,
-            'first_name'              => $customer?->name ?? 'Customer',
-            'last_name'               => '',
-            'udf1'                    => $orderId,
-            // Optional — Juspay may accept this; if not, ignore/remove it.
-            'webhook_url'             => $webhookUrl,
+            'order_id'               => $orderId,
+            'amount'                 => $amount,
+            'currency'               => 'INR',
+            'customer_id'            => (string) $order->user_id,
+            'payment_page_client_id' => $this->paymentPageClientId,
+            'action'                 => 'paymentPage',
+            'description'            => 'Order ' . $orderId,
+            'first_name'             => $customer->name ?: 'Customer',
+            'last_name'              => '',
+            'udf1'                   => $orderId,
         ];
 
-        $response = $this->post('/session', $payload, (string) $order->user_id);
+        if (!empty($email)) {
+            $payload['customer_email'] = $email;
+        }
+
+        if (!empty($phone)) {
+            $payload['customer_phone'] = $phone;
+        }
+
+        $response = $this->post(
+            '/session',
+            $payload,
+            (string) $order->user_id
+        );
 
         if (empty($response['id'])) {
             throw new Exception(
@@ -130,27 +147,46 @@ class HdfcService
         }
 
         return [
-            'id'            => $response['id'],
-            'status'        => $response['status'] ?? 'CREATED',
-            'payment_link'  => $response['payment_links']['web'] ?? null,
-            'sdk_payload'   => $response['sdk_payload'] ?? null,
-            'raw'           => $response,
+            'id'           => $response['id'],
+            'status'       => $response['status'] ?? 'CREATED',
+            'payment_link' => $response['payment_links']['web'] ?? null,
+            'sdk_payload'  => $response['sdk_payload'] ?? null,
+            'raw'          => $response,
         ];
     }
 
+    /**
+     * Fetch the latest order status from HDFC/Juspay.
+     */
     public function getOrderStatus(string $hdfcOrderId): array
     {
-        return $this->get('/orders/' . rawurlencode($hdfcOrderId));
+        return $this->get(
+            '/orders/' . rawurlencode($hdfcOrderId)
+        );
     }
 
+    /**
+     * Fetch transaction details.
+     */
     public function getTransaction(string $transactionId): array
     {
-        return $this->get('/transactions/' . rawurlencode($transactionId));
+        return $this->get(
+            '/transactions/' . rawurlencode($transactionId)
+        );
     }
 
-    public function verifySignature(array $payload, ?string $signature): bool
-    {
-        if (empty($signature) || $this->responseKey === '') {
+    /**
+     * Verify a signed response only when the configured
+     * response key matches the gateway's documented signing scheme.
+     */
+    public function verifySignature(
+        array $payload,
+        ?string $signature
+    ): bool {
+        if (
+            empty($signature) ||
+            $this->responseKey === ''
+        ) {
             return false;
         }
 
@@ -161,18 +197,22 @@ class HdfcService
         }
 
         $computed = base64_encode(
-            hash_hmac('sha256', $responseData, $this->responseKey, true)
+            hash_hmac(
+                'sha256',
+                $responseData,
+                $this->responseKey,
+                true
+            )
         );
 
         return hash_equals($computed, $signature);
     }
 
-    /* ------------------------------------------------------------------ */
-    /*  Internals                                                          */
-    /* ------------------------------------------------------------------ */
-
-    protected function post(string $path, array $body, string $customerId): array
-    {
+    protected function post(
+        string $path,
+        array $body,
+        string $customerId
+    ): array {
         $url = $this->baseUrl . $path;
 
         $response = Http::withBasicAuth($this->apiKey, '')
@@ -180,7 +220,12 @@ class HdfcService
             ->timeout(30)
             ->post($url, $body);
 
-        return $this->handleResponse($response, 'POST', $url, $body);
+        return $this->handleResponse(
+            $response,
+            'POST',
+            $url,
+            $body
+        );
     }
 
     protected function get(string $path): array
@@ -192,16 +237,21 @@ class HdfcService
             ->timeout(30)
             ->get($url);
 
-        return $this->handleResponse($response, 'GET', $url, []);
+        return $this->handleResponse(
+            $response,
+            'GET',
+            $url,
+            []
+        );
     }
 
     protected function headers(string $customerId): array
     {
         $headers = [
-            'Accept'        => 'application/json',
-            'Content-Type'  => 'application/json',
-            'x-merchantid'  => $this->merchantId,
-            'x-customerid'  => $customerId,
+            'Accept'       => 'application/json',
+            'Content-Type' => 'application/json',
+            'x-merchantid' => $this->merchantId,
+            'x-customerid' => $customerId,
         ];
 
         if ($this->resellerId !== '') {
@@ -211,20 +261,26 @@ class HdfcService
         return $headers;
     }
 
-    protected function handleResponse(Response $response, string $method, string $url, array $payload): array
-    {
+    protected function handleResponse(
+        Response $response,
+        string $method,
+        string $url,
+        array $payload
+    ): array {
         $json = $response->json();
 
         if (!is_array($json)) {
-            $json = ['raw_response' => $response->body()];
+            $json = [
+                'raw_response' => $response->body(),
+            ];
         }
 
         if ($this->enableLogging) {
             Log::info('HDFC API Call', [
-                'method'   => $method,
-                'url'      => $url,
-                'gateway'  => $this->gatewayKey,
-                'payload'  => [
+                'method'  => $method,
+                'url'     => $url,
+                'gateway' => $this->gatewayKey,
+                'payload' => [
                     'order_id' => $payload['order_id'] ?? null,
                     'amount'   => $payload['amount'] ?? null,
                     'currency' => $payload['currency'] ?? null,
