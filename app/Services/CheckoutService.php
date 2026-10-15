@@ -3323,7 +3323,6 @@ class CheckoutService
             $allCancelled = $order->lines()
                 ->where('delivery_status', '!=', 'cancelled')
                 ->doesntExist();
-
             // Update order status if all items are cancelled
             if ($allCancelled) {
                 $order->update([
@@ -3342,7 +3341,6 @@ class CheckoutService
                         $approvedBy
                     );
                 }
-
                 // Create reversal event for full order
                 $payload = $this->buildReversalPayload($order, $reason);
                 CommissionApiEvent::create([
@@ -3564,7 +3562,7 @@ class CheckoutService
                 'refunded_at'   => $fullyRefunded ? now() : $order->refunded_at,
             ]);
 
-            $this->generateCreditNoteForLine($order, $orderLine, $refund->id, $reason);
+            $this->generateCreditNoteForLine($order, $orderLine, $refund->id, $reason, $refundAmount);
 
             Log::info('Partial refund processed via line cancellation', [
                 'order_id'       => $order->id,
@@ -3588,7 +3586,7 @@ class CheckoutService
      * Generate credit note for a cancelled line
      */
 
-    protected function generateCreditNoteForLine(Order $order, OrderLine $orderLine, int $refundId, string $reason): void
+    protected function generateCreditNoteForLine(Order $order, OrderLine $orderLine, int $refundId, string $reason, $refundAmount): void
     {
         $creditNoteService = app(\App\Services\CreditNoteService::class);
 
@@ -3622,7 +3620,7 @@ class CheckoutService
         $returnOrder->refund_shipping = 0; // Partial line cancellation – shipping not refunded proportionally? You can add logic if needed.
         $returnOrder->total_refund_amount = $lineTotal; // or include proportional shipping if you want
 
-        $creditNoteService->generateFromReturn($returnOrder, $refundId);
+        $creditNoteService->generateFromReturn($returnOrder, $refundId, $refundAmount);
     }
 
     /**

@@ -1439,6 +1439,7 @@ class OrderController extends Controller
                 'order.returns',
                 'order.creditNotes',
                 'product',
+                'refunds',
                 'product.images',
                 'product.reviews' => function ($query) {
                     $query->where('status', 'approved')
@@ -1469,7 +1470,10 @@ class OrderController extends Controller
                         Log::info('Review: ID=' . $review->id . ', order_line_id=' . $review->order_line_id . ', order_id=' . $review->order_id . ', status=' . $review->status);
                     }
                 }
-
+                $completedRefunds = $line->refunds->where('status', 'completed');
+                $refundedAmount = $completedRefunds->isNotEmpty()
+                    ? (float) $completedRefunds->sum('amount')   // use 'amount' or 'adjusted_amount'
+                    : null;
                 // Get product images
                 $images = [];
                 $primaryImage = null;
@@ -1739,7 +1743,7 @@ class OrderController extends Controller
                     'gst_rate' => (float) $line->gst_rate,
                     'gst_amount' => (float) $line->gst_amount,
                     'line_total' => (float) $line->line_total,
-                    'refunded_amount' => (float) $line->refunds->amount,
+                    'refunded_amount' => $refundedAmount,
                     'final_amount' => (float) $finalAmount,
                     'delivery_charges' => (float) $totalShippingForLine,
                     'commissionable_volume' => (float) $line->commissionable_volume,
