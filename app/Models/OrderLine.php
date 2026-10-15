@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class OrderLine extends Model
 {
@@ -79,6 +80,10 @@ class OrderLine extends Model
     public function review()
     {
         return $this->hasOne(ProductReview::class);
+    }
+    public function refunds(): HasMany
+    {
+        return $this->hasMany(Refund::class, 'order_line_id', 'id');
     }
 
     public function items()

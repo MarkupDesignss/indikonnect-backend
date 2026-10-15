@@ -178,7 +178,7 @@ class CreditNoteService
     //     });
     // }
 
-    public function generateFromReturn(OrderReturn $returnOrder, int $refundId): CreditNote
+    public function generateFromReturn(OrderReturn $returnOrder, int $refundId, $refundAmount): CreditNote
     {
 
         // Load order with delivery address & lines
@@ -323,7 +323,8 @@ class CreditNoteService
                 'sgst_amount'             => round($sgstTotal, 2),
                 'igst_amount'             => round($igstTotal, 2),
                 'total_gst'               => round($totalGst, 2),
-                'amount'                  => round($totalAmount, 2),
+                'amount'                  => $refundAmount,
+                // 'amount'                  => round($totalAmount, 2),
                 'reason'                  => $returnOrder->reason ?? $returnOrder->type ?? 'Return/Refund',
                 'issued_at'               => now(),
             ]);

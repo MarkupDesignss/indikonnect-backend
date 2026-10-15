@@ -3082,7 +3082,7 @@ class ReturnService
                 // 3. Generate credit note (non-fatal if it fails)
                 try {
                     $creditNoteService = app(\App\Services\CreditNoteService::class);
-                    $creditNote = $creditNoteService->generateFromReturn($returnOrder, $refund->id);
+                    $creditNote = $creditNoteService->generateFromReturn($returnOrder, $refund->id, $refundAmount);
 
                     Log::info('Credit note generated in completeReturn', [
                         'credit_note_id' => $creditNote->id,

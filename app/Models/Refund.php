@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Refund extends Model
 {
@@ -17,6 +18,11 @@ class Refund extends Model
     public function order()
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function orderLine(): BelongsTo
+    {
+        return $this->belongsTo(OrderLine::class, 'order_line_id', 'id');
     }
 
     public function return()
