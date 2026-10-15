@@ -5236,7 +5236,6 @@ class ReturnService
         $refundable = $this->getRefundableAmount($order);
 
         $refundAmount = $refundAmount ?? $refundable;
-
         // Cap at refundable
         if ($refundAmount > $refundable) {
             throw new Exception(
@@ -5300,7 +5299,7 @@ class ReturnService
                 'refunded_at'   => $fullyRefunded ? now() : $order->refunded_at,
             ]);
 
-            $this->generateCreditNoteForCancellation($order, $refund->id, $reason);
+            $this->generateCreditNoteForCancellation($order, $refund->id, $reason, $refundAmount);
 
             Log::info('Refund processed via cancellation', [
                 'order_id'       => $order->id,
@@ -5318,7 +5317,7 @@ class ReturnService
         }
     }
 
-    protected function generateCreditNoteForCancellation(Order $order, int $refundId, string $reason): void
+    protected function generateCreditNoteForCancellation(Order $order, int $refundId, string $reason, $refundAmount): void
     {
         $creditNoteService = app(\App\Services\CreditNoteService::class);
 
@@ -5364,6 +5363,6 @@ class ReturnService
         $returnOrder->total_refund_amount = (float) $order->amount_paid;
 
         // Generate credit note
-        $creditNoteService->generateFromReturn($returnOrder, $refundId);
+        $creditNoteService->generateFromReturn($returnOrder, $refundId, $refundAmount);
     }
 }

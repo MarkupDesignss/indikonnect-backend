@@ -178,7 +178,7 @@ class CreditNoteService
     //     });
     // }
 
-    public function generateFromReturn(OrderReturn $returnOrder, int $refundId, $refundAmount): CreditNote
+    public function generateFromReturn(OrderReturn $returnOrder, int $refundId, int $refundAmount): CreditNote
     {
 
         // Load order with delivery address & lines
@@ -199,7 +199,7 @@ class CreditNoteService
             return $existing;
         }
 
-        return DB::transaction(function () use ($returnOrder, $order, $refund) {
+        return DB::transaction(function () use ($returnOrder, $order, $refund, $refundAmount) {
             $buyerState = $order->deliveryAddress?->state;
             if (empty($buyerState)) {
                 throw new \Exception('Buyer delivery state is missing.');
