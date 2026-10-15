@@ -1,4 +1,3 @@
-```php
 <?php
 
 namespace App\Services\PaymentGateway;
@@ -119,7 +118,7 @@ class HdfcService
         if (empty($response['id'])) {
             throw new Exception(
                 'HDFC session creation failed: ' .
-                json_encode($response, JSON_UNESCAPED_SLASHES)
+                    json_encode($response, JSON_UNESCAPED_SLASHES)
             );
         }
 
@@ -282,11 +281,10 @@ class HdfcService
         if ($response->failed()) {
             throw new Exception(
                 'HDFC API error (' . $response->status() . '): ' .
-                json_encode($json, JSON_UNESCAPED_SLASHES)
+                    json_encode($json, JSON_UNESCAPED_SLASHES)
             );
         }
 
         return $json;
     }
 }
-```
