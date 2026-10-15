@@ -36,9 +36,19 @@ return [
     ],
 
     'razorpay' => [
-    'key_id' => env('RAZORPAY_KEY_ID'),
-    'key_secret' => env('RAZORPAY_KEY_SECRET'),
-    'webhook_secret' => env('RAZORPAY_WEBHOOK_SECRET'),
+        'key_id' => env('RAZORPAY_KEY_ID'),
+        'key_secret' => env('RAZORPAY_KEY_SECRET'),
+        'webhook_secret' => env('RAZORPAY_WEBHOOK_SECRET'),
+    ],
+
+    'hdfc' => [
+        'api_key' => env('HDFC_API_KEY'),
+        'base_url' => env('HDFC_BASE_URL'),
+        'merchant_id' => env('HDFC_MERCHANT_ID'),
+        'enable_logging' => env('HDFC_ENABLE_LOGGING', false),
+        'response_key' => env('HDFC_RESPONSE_KEY'),
+        'card_encoding_key' => env('HDFC_CARD_ENCODING_KEY'),
+        'environment' => env('HDFC_ENVIRONMENT', 'sandbox'),
     ],
 
     'kyc' => [
@@ -46,7 +56,7 @@ return [
         'api_key'     => env('KYC_API_KEY'),
         'api_secret'  => env('KYC_API_SECRET'),
         'environment' => env('KYC_ENV', 'sandbox'),
-     ],
+    ],
 
     'airtel_sms' => [
         'enabled'         => env('AIRTEL_SMS_ENABLED', false),

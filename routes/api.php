@@ -59,6 +59,7 @@ use App\Http\Controllers\Admin\WarehouseStockController;
 use App\Http\Controllers\API\BrandController;
 use App\Http\Controllers\API\SubcategoryController;
 use App\Http\Controllers\API\TestimonialController;
+use App\Http\Controllers\API\Webhook\HdfcWebhookController;
 
 /*
 |--------------------------------------------------------------------------
@@ -401,6 +402,11 @@ Route::middleware('auth:sanctum')->group(function () {
 // WEBHOOKS
 // ============================
 Route::post('/webhook/razorpay', [RazorpayWebhookController::class, 'handle']);
+Route::post('/webhook/hdfc', [HdfcWebhookController::class, 'handle']);
+Route::get('/hdfc/return', [HdfcWebhookController::class, 'return'])
+    ->name('hdfc.return');
+Route::get('/hdfc/cancel', [HdfcWebhookController::class, 'cancel'])
+    ->name('hdfc.cancel');
 
 // ============================
 // SHIPPING METHODS

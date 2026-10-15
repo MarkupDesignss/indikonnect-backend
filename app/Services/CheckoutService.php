@@ -23,6 +23,7 @@ use App\Models\ShippingMethod;
 use App\Models\CouponUsage;
 use App\Models\ProductVariant;
 use App\Models\Refund;
+use App\Services\PaymentGateway\HdfcService;
 use Illuminate\Support\Facades\Auth;
 use App\Traits\AuditLogTrait;
 use App\Services\ReturnService;
@@ -31,6 +32,7 @@ use App\Services\ProformaInvoiceService;
 class CheckoutService
 {
     use AuditLogTrait;
+    protected HdfcService $hdfcService;
     protected GSTCalculator $gstCalculator;
     protected InvoiceService $invoiceService;
     protected RazorpayService $razorpayService;
@@ -42,6 +44,7 @@ class CheckoutService
 
     public function __construct(
         GSTCalculator $gstCalculator,
+        HdfcService $hdfcService,
         InvoiceService $invoiceService,
         RazorpayService $razorpayService,
         PdfInvoiceService $pdfInvoiceService,
@@ -50,6 +53,7 @@ class CheckoutService
         ProformaInvoiceService $proformaInvoiceService
     ) {
         $this->gstCalculator = $gstCalculator;
+         $this->hdfcService     = $hdfcService;
         $this->invoiceService = $invoiceService;
         $this->razorpayService = $razorpayService;
         $this->pdfInvoiceService = $pdfInvoiceService;
@@ -2085,26 +2089,44 @@ class CheckoutService
                 ]);
             }
 
-            // Razorpay order for the SINGLE order
-            $razorpayOrder = $this->razorpayService->createOrder($order);
+            // ---------- Gateway order creation ----------
+            $gateway = $data['payment_gateway'] ?? null;
+            $gatewayPayload = [];
 
-            return [
-                'order_id'          => $order->id,
-                'order_reference'   => $order->order_reference,
-                'total_items'       => count($itemsWithTaxSplit),
-                'total_amount'      => $grandTotal,
-                'razorpay_order_id' => $razorpayOrder['id'],
-                'razorpay_key'      => config('services.razorpay.key_id'),
-                'status'            => 'pending',
-                'checkout_type'     => $isBuyNow ? 'buy_now' : 'cart',
-                'tax_split'         => [
+            if ($gateway === 'razorpay') {
+                $razorpayOrder = $this->razorpayService->createOrder($order);
+                $gatewayPayload = [
+                    'razorpay_order_id' => $razorpayOrder['id'],
+                    'razorpay_key'      => config('services.razorpay.key_id'),
+                ];
+            } elseif ($gateway === 'hdfc') {
+                $hdfcOrder = $this->hdfcService->createOrder($order);
+                $gatewayPayload = [
+                    'hdfc_order_id'    => $hdfcOrder['id'],
+                    'hdfc_payment_link' => $hdfcOrder['payment_link'],
+                    'hdfc_sdk_payload' => $hdfcOrder['sdk_payload'],
+                    'hdfc_merchant_id' => config('services.hdfc.merchant_id'),
+                ];
+            } else {
+                throw new \Exception('Unsupported payment gateway: ' . $gateway);
+            }
+
+            return array_merge([
+                'order_id'        => $order->id,
+                'order_reference' => $order->order_reference,
+                'total_items'     => count($itemsWithTaxSplit),
+                'total_amount'    => $grandTotal,
+                'status'          => 'pending',
+                'checkout_type'   => $isBuyNow ? 'buy_now' : 'cart',
+                'gateway'         => $gateway,
+                'tax_split'       => [
                     'delivery_state' => $deliveryState,
                     'supplier_state' => $supplierState,
                     'total_cgst'     => round($totals['cgst'], 2),
                     'total_sgst'     => round($totals['sgst'], 2),
                     'total_igst'     => round($totals['igst'], 2),
                 ],
-            ];
+            ], $gatewayPayload);
         });
     }
     protected function generateItemReference(): string

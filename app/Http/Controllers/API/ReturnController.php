@@ -263,7 +263,7 @@ class ReturnController extends Controller
 
                 'items.*.images.*' => [
                     'image',
-                    'mimes:jpeg,png,jpg,gif,avif',
+                    'mimes:jpeg,png,jpg,gif,avif,webp',
                     'max:5120',
                 ],
 
@@ -292,7 +292,7 @@ class ReturnController extends Controller
                 ],
             ]);
 
-            // ✅ Verify every order line allows cancellation/return
+            //  Verify every order line allows cancellation/return
             $lineIds = collect($validated['items'])->pluck('order_line_id')->unique()->values();
 
             $blockedLines = OrderLine::whereIn('id', $lineIds)

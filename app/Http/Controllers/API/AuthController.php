@@ -30,7 +30,7 @@ use App\Services\TwilioService;
 use App\Services\NotificationService;
 use App\Services\KycVerificationService;
 use App\Sdks\Partner\IgniteClient;
-use App\Sdks\Partner\ResultCode; 
+use App\Sdks\Partner\ResultCode;
 
 class AuthController extends Controller
 {
