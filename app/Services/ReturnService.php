@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Schema;
 use Exception;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
+use App\Mail\ReturnInitiatedMail;
+use Illuminate\Support\Facades\Mail;
 use App\Services\Commission\CommissionServiceInterface;
 
 class ReturnService
@@ -139,6 +141,19 @@ class ReturnService
             'return_method' => [
                 'required',
                 'in:doorstep,courier',
+            ],
+            'tracking_id' => [
+                'required_if:return_method,courier',
+                'nullable',
+                'string',
+                'max:100',
+            ],
+
+            'courier' => [
+                'required_if:return_method,courier',
+                'nullable',
+                'string',
+                'max:100',
             ],
             'items' => [
                 'required',
@@ -510,6 +525,8 @@ class ReturnService
                 'order_line_id'       => $returnItems[0]['order_line_id'],
                 'user_id'             => $userId,
                 'return_method'       => $data['return_method'],
+                'tracking_id'         => $data['tracking_id'] ?? null,   // ← NEW
+                'courier'             => $data['courier'] ?? null,       // ← NEW
                 'items'               => $returnItems,
                 'status'              => OrderReturn::STATUS_PENDING,
                 'reason'              => $returnReason  ?? null,
@@ -551,6 +568,20 @@ class ReturnService
             $this->createReturnNotification(
                 $returnOrder,
                 'pending'
+            );
+
+            Mail::to($order->user->email)->send(
+                new ReturnInitiatedMail(
+                    $returnOrder,
+                    $returnItems,
+                    [
+                        'subtotal' => $refundSubtotal,
+                        'tax'      => $refundTax,
+                        'shipping' => $refundShipping,
+                        'total'    => $totalRefund,
+                    ],
+                    $order->user->name ?? 'Customer'
+                )
             );
 
             /*
@@ -1696,6 +1727,8 @@ class ReturnService
                     'id'                     => $return->id,
                     'type'                   => $return->type,
                     'return_method'          => $return->return_method,
+                    'tracking_id'          => $return->tracking_id,
+                    'courier'          => $return->courier,
                     'order_reference'        => $return->order->order_reference ?? null,
                     'user'                   => $return->user ? [
                         'id'           => $return->user->id,
@@ -2072,6 +2105,8 @@ class ReturnService
             'id'            => $return->id,
             'type'          => $return->type,
             'return_method' => $return->return_method,
+            'tracking_id'          => $return->tracking_id,
+            'courier'          => $return->courier,
 
             'order' => $return->order ? [
                 'id'             => $return->order->id,

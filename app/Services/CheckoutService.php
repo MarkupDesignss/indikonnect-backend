@@ -2103,24 +2103,28 @@ class CheckoutService
                 ];
             } elseif (in_array($gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
 
-                // Map public gateway key -> config block key
                 $configKey = $gateway === 'hdfc_sg' ? 'sg' : 'ie';
-                $config    = config("services.hdfc.{$configKey}");
+                $config = config("services.hdfc.{$configKey}");
 
                 if (!$config || empty($config['api_key'])) {
-                    throw new \Exception("HDFC merchant [{$gateway}] is not configured.");
+                    throw new \Exception(
+                        "HDFC merchant [{$gateway}] is not configured."
+                    );
                 }
 
-                // Pass gateway key so service can pick the correct return/webhook URLs
-                $hdfcService = new \App\Services\PaymentGateway\HdfcService($config, $gateway);
-                $hdfcOrder   = $hdfcService->createOrder($order);
+                $hdfcService = new \App\Services\PaymentGateway\HdfcService(
+                    $config,
+                    $gateway
+                );
+
+                $hdfcOrder = $hdfcService->createOrder($order);
 
                 $gatewayPayload = [
                     'hdfc_order_id'     => $hdfcOrder['id'],
                     'hdfc_payment_link' => $hdfcOrder['payment_link'],
                     'hdfc_sdk_payload'  => $hdfcOrder['sdk_payload'],
                     'hdfc_merchant_id'  => $config['merchant_id'],
-                    'hdfc_gateway_key'  => $gateway,  // 'hdfc_sg' or 'hdfc_ie'
+                    'hdfc_gateway_key'  => $gateway,
                 ];
             } else {
                 throw new \Exception('Unsupported payment gateway: ' . $gateway);

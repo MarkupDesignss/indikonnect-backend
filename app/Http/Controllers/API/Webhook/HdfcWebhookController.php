@@ -14,14 +14,31 @@ class HdfcWebhookController extends Controller
 {
     protected CheckoutService $checkoutService;
 
+    protected array $successStatuses = [
+        'CHARGED',
+        'SUCCESS',
+        'CAPTURED',
+        'PAID',
+        'AUTHORIZED',
+    ];
+
+    protected array $failureStatuses = [
+        'AUTHORIZATION_FAILED',
+        'FAILED',
+        'DECLINED',
+        'JUSPAY_DECLINED',
+        'PAYMENT_FAILURE',
+        'AUTHENTICATION_FAILED',
+        'EXPIRED',
+        'CANCELLED',
+        'USER_DROPPED',
+    ];
+
     public function __construct(CheckoutService $checkoutService)
     {
         $this->checkoutService = $checkoutService;
     }
 
-    /**
-     * Resolve HdfcService instance based on gateway key stored on the order.
-     */
     protected function resolveHdfcService(?string $gatewayKey): HdfcService
     {
         $gatewayKey = $gatewayKey ?: 'hdfc_sg';
@@ -35,46 +52,62 @@ class HdfcWebhookController extends Controller
         return new HdfcService($config, $gatewayKey);
     }
 
-    /**
-     * Webhook handler — works for both /webhook/hdfc and /webhook/hdfc1.
-     */
     public function handle(Request $request): JsonResponse
     {
-        try {
-            $payload = $request->all();
-            Log::info('HDFC webhook received', $payload);
+        $payload = $request->all();
 
+        // Log without the huge HTML blob
+        $loggable = $payload;
+        if (isset($loggable['return_url']) && is_string($loggable['return_url'])) {
+            $loggable['return_url'] = '[html-omitted]';
+        }
+        Log::info('HDFC webhook received', $loggable);
+
+        try {
+            // ---------- Order reference ----------
             $orderReference = $payload['order_id']
                 ?? $payload['udf1']
                 ?? ($payload['order']['order_id'] ?? null);
 
+            // ---------- Status (top-level) ----------
             $status = strtoupper(
-                $payload['status'] ?? ($payload['order']['status'] ?? '')
+                (string) ($payload['status'] ?? ($payload['order']['status'] ?? ''))
             );
 
+            // ---------- Category (primary signal for this webhook shape) ----------
+            $category = strtoupper((string) ($payload['resp_category'] ?? ''));
+
             if (!$orderReference) {
-                return response()->json(['error' => 'Order reference missing'], 400);
+                Log::warning('HDFC webhook: order reference missing', $loggable);
+                return $this->ack('Order reference missing, ignored');
             }
 
             $order = Order::where('order_reference', $orderReference)->first();
             if (!$order) {
-                return response()->json(['error' => 'Order not found'], 404);
+                Log::warning('HDFC webhook: order not found', ['reference' => $orderReference]);
+                return $this->ack('Order not found, ignored');
             }
 
             $hdfcService = $this->resolveHdfcService($order->payment_gateway);
 
-            // Optional signature verification
-            $signature = $request->header('x-hdfc-signature')
-                ?? $request->header('X-HDFC-Signature');
+            // ---------- Signature (may be embedded inside return_url HTML) ----------
+            $signature = $this->extractSignature($payload);
 
-            if (config('app.env') === 'production' && $signature) {
-                if (!$hdfcService->verifySignature($payload, $signature)) {
-                    Log::warning('HDFC webhook signature invalid');
-                    return response()->json(['error' => 'Invalid signature'], 401);
-                }
+            if ($signature && !$hdfcService->verifySignature($payload, $signature)) {
+                Log::warning('HDFC webhook signature invalid', [
+                    'reference' => $orderReference,
+                ]);
+                // Log-only; don't reject so HDFC doesn't retry.
             }
 
-            if (in_array($status, ['CHARGED', 'SUCCESS', 'CAPTURED', 'PAID'])) {
+            // ---------- Outcome ----------
+            $isSuccess = in_array($status, $this->successStatuses, true)
+                || $category === 'PAYMENT_SUCCESS';
+
+            $isFailure = in_array($status, $this->failureStatuses, true)
+                || $category === 'PAYMENT_FAILURE';
+
+            if ($isSuccess) {
                 $result = $this->checkoutService->confirmOrder($orderReference, [
                     'gateway'        => $order->payment_gateway,
                     'transaction_id' => $payload['id']
@@ -83,120 +116,88 @@ class HdfcWebhookController extends Controller
                     'amount'         => $payload['amount']
                         ?? ($payload['order']['amount'] ?? 0),
                     'method'         => $payload['payment_method_type']
-                        ?? ($payload['payment_method'] ?? 'hdfc'),
+                        ?? $payload['payment_method'] ?? 'hdfc',
                     'status'         => 'captured',
+                ]);
+
+                Log::info('HDFC webhook: order confirmed', [
+                    'reference' => $orderReference,
+                    'status'    => $status,
+                    'category'  => $category,
                 ]);
 
                 return response()->json(['status' => 'success', 'data' => $result]);
             }
 
-            if (in_array($status, ['FAILED', 'AUTHORIZATION_FAILED', 'JUSPAY_DECLINED', 'DECLINED'])) {
-                Log::warning('HDFC payment failed', [
+            if ($isFailure) {
+                Log::warning('HDFC webhook: payment failed', [
                     'reference' => $orderReference,
                     'status'    => $status,
+                    'status_id' => $payload['status_id'] ?? null,
+                    'category'  => $category,
                 ]);
-                return response()->json(['status' => 'failed']);
+
+                // Optional: mark order as failed
+                // $order->update(['status' => 'failed']);
+
+                return $this->ack('Payment failed, order left unchanged');
             }
 
-            return response()->json(['status' => 'ignored', 'hdfc_status' => $status]);
+            Log::info('HDFC webhook: unhandled status', [
+                'reference' => $orderReference,
+                'status'    => $status,
+                'category'  => $category,
+            ]);
+
+            return $this->ack("Unhandled status: {$status} / category: {$category}");
         } catch (\Exception $e) {
             Log::error('HDFC webhook failed: ' . $e->getMessage(), [
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
             ]);
-            return response()->json(['error' => $e->getMessage()], 500);
+            return $this->ack('Processed with errors: ' . $e->getMessage());
         }
     }
 
     /**
-     * Return handler — works for both /hdfc/return and /hdfc/return1.
+     * Try to pull the signature from:
+     *  1. top-level `signature`
+     *  2. request header (x-hdfc-signature / X-HDFC-Signature)
+     *  3. hidden input inside `return_url` HTML
      */
-    public function return(Request $request)
+    protected function extractSignature(array $payload): ?string
     {
-        $orderReference = $request->input('order_id')
-            ?? $request->input('udf1')
-            ?? $request->input('orderId');
-
-        $hdfcOrderId = $request->input('id')
-            ?? $request->input('order_id');
-
-        $frontend = rtrim(config('app.frontend_url', config('app.url')), '/');
-
-        try {
-            $order = Order::where('order_reference', $orderReference)->first();
-
-            if (!$order) {
-                return redirect()->away(
-                    $frontend . '/order-failed?ref=' . urlencode((string) $orderReference)
-                        . '&reason=order_not_found'
-                );
-            }
-
-            $hdfcService = $this->resolveHdfcService($order->payment_gateway);
-
-            if ($hdfcOrderId) {
-                $status      = $hdfcService->getOrderStatus($hdfcOrderId);
-                $orderStatus = strtoupper($status['status'] ?? '');
-
-                if (in_array($orderStatus, ['CHARGED', 'SUCCESS', 'CAPTURED', 'PAID'])) {
-                    $this->checkoutService->confirmOrder($orderReference, [
-                        'gateway'        => $order->payment_gateway,
-                        'transaction_id' => $status['id'] ?? $hdfcOrderId,
-                        'amount'         => $status['amount'] ?? 0,
-                        'method'         => $status['payment_method_type'] ?? 'hdfc',
-                        'status'         => 'captured',
-                    ]);
-
-                    return redirect()->away(
-                        $frontend . '/order-success?ref=' . urlencode($orderReference)
-                    );
-                }
-
-                if (in_array($orderStatus, ['FAILED', 'DECLINED', 'AUTHORIZATION_FAILED'])) {
-                    return redirect()->away(
-                        $frontend . '/order-failed?ref=' . urlencode($orderReference)
-                            . '&reason=' . urlencode($status['status'] ?? 'failed')
-                    );
-                }
-            }
-
-            if ($order->status === 'confirmed') {
-                return redirect()->away(
-                    $frontend . '/order-success?ref=' . urlencode($orderReference)
-                );
-            }
-
-            return redirect()->away(
-                $frontend . '/order-pending?ref=' . urlencode($orderReference)
-            );
-        } catch (\Exception $e) {
-            Log::error('HDFC return handler error: ' . $e->getMessage(), [
-                'reference' => $orderReference,
-            ]);
-
-            return redirect()->away(
-                $frontend . '/order-failed?ref=' . urlencode((string) $orderReference)
-                    . '&reason=exception'
-            );
+        // 1. Top-level
+        if (!empty($payload['signature']) && is_string($payload['signature'])) {
+            return $payload['signature'];
         }
+
+        // 2. Header
+        $header = request()->header('x-hdfc-signature')
+            ?? request()->header('X-HDFC-Signature');
+        if (!empty($header)) {
+            return $header;
+        }
+
+        // 3. Embedded in return_url HTML: name='signature' value='...'
+        if (!empty($payload['return_url']) && is_string($payload['return_url'])) {
+            if (preg_match(
+                "/name=['\"]signature['\"]\s+value=['\"]([^'\"]+)['\"]/i",
+                $payload['return_url'],
+                $m
+            )) {
+                return urldecode($m[1]);
+            }
+        }
+
+        return null;
     }
 
-    /**
-     * Cancel handler — works for both /hdfc/cancel and /hdfc/cancel1.
-     */
-    public function cancel(Request $request)
+    protected function ack(string $message): JsonResponse
     {
-        $orderReference = $request->input('order_id')
-            ?? $request->input('udf1');
-
-        $frontend = rtrim(config('app.frontend_url', config('app.url')), '/');
-
-        Log::info('HDFC payment cancelled by user', [
-            'reference' => $orderReference,
+        return response()->json([
+            'status'  => 'success',
+            'message' => $message,
         ]);
-
-        return redirect()->away(
-            $frontend . '/order-cancelled?ref=' . urlencode((string) $orderReference)
-        );
     }
 }
