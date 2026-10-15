@@ -45,12 +45,14 @@ return [
         'api_key' => env('HDFC_API_KEY'),
         'base_url' => env('HDFC_BASE_URL'),
         'merchant_id' => env('HDFC_MERCHANT_ID'),
-        'enable_logging' => env('HDFC_ENABLE_LOGGING', false),
+        'payment_page_client_id' => env(
+            'HDFC_PAYMENT_PAGE_CLIENT_ID',
+            env('HDFC_MERCHANT_ID')
+        ),
+        'reseller_id' => env('HDFC_RESELLER_ID'),
         'response_key' => env('HDFC_RESPONSE_KEY'),
-        'card_encoding_key' => env('HDFC_CARD_ENCODING_KEY'),
-        'environment' => env('HDFC_ENVIRONMENT', 'sandbox'),
+        'enable_logging' => env('HDFC_ENABLE_LOGGING', false),
     ],
-
     'kyc' => [
         'base_url'    => env('KYC_BASE_URL', 'https://test-api.sandbox.co.in'),
         'api_key'     => env('KYC_API_KEY'),
