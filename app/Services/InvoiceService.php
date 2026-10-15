@@ -134,7 +134,7 @@ class InvoiceService
             'order_id' => $order->id,
             'seller_name' => config('app.company_name', 'IndieKonnect'),
             'seller_gstin' => config('app.company_gstin', ''),
-            'seller_address' => config('app.company_address', ''),
+            'seller_address' => config('app.company_address', 'Punjab'),
             'buyer_name' => $order->user->full_name,
             'buyer_gstin' => $order->user->distributorProfile?->gst_number ?? '',
             'buyer_address' => $order->deliveryAddress->address_line_1,

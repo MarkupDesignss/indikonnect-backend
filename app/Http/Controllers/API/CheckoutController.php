@@ -362,7 +362,7 @@ class CheckoutController extends Controller
         $validated = $request->validate([
             'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
             'grand_total' => 'required|numeric|min:0',
-            'payment_gateway' => 'nullable|in:razorpay',
+            'payment_gateway' => 'required|in:razorpay,hdfc',
 
             'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
 
