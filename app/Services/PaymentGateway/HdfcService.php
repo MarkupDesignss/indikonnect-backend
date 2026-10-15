@@ -18,13 +18,23 @@ class HdfcService
     protected string $responseKey;
     protected string $cardEncodingKey;
     protected string $environment;
-    protected bool $enableLogging;
+    protected bool   $enableLogging;
+
+    /** 'hdfc_sg' or 'hdfc_ie' */
+    protected string $gatewayKey;
 
     /**
-     * @param  array  $config  One merchant block from config('services.hdfc.*')
+     * @param  array   $config      One merchant block from config('services.hdfc.*')
+     * @param  string  $gatewayKey  'hdfc_sg' | 'hdfc_ie'
      */
-    public function __construct(array $config)
+    public function __construct(array $config = [], string $gatewayKey = 'hdfc_sg')
     {
+        // Fallback to 'sg' config when container resolves without args
+        if (empty($config)) {
+            $config = config('services.hdfc.sg', []);
+        }
+
+        $this->gatewayKey           = $gatewayKey;
         $this->baseUrl              = rtrim((string) ($config['base_url'] ?? ''), '/');
         $this->apiKey               = (string) ($config['api_key'] ?? '');
         $this->merchantId           = (string) ($config['merchant_id'] ?? '');
@@ -75,6 +85,23 @@ class HdfcService
             throw new Exception('HDFC payment amount must be greater than zero.');
         }
 
+        // ---------- Gateway-specific URLs ----------
+        $isIe = $this->gatewayKey === 'hdfc_ie';
+
+        $returnUrl = $isIe
+            ? route('hdfc.return.ie')
+            : route('hdfc.return.sg');
+
+        $cancelUrl = $isIe
+            ? route('hdfc.cancel.ie')
+            : route('hdfc.cancel.sg');
+
+        // Webhook URL: some Juspay versions accept it in payload,
+        // but the authoritative place is the HDFC dashboard.
+        $webhookUrl = $isIe
+            ? url('/api/webhook/hdfc1')
+            : url('/api/webhook/hdfc');
+
         $payload = [
             'order_id'                => $orderId,
             'amount'                  => $amount,
@@ -84,11 +111,13 @@ class HdfcService
             'customer_phone'          => $phone,
             'payment_page_client_id'  => $this->paymentPageClientId,
             'action'                  => 'paymentPage',
-            'return_url'              => route('hdfc.return'),
+            'return_url'              => $returnUrl,
             'description'             => 'Order ' . $orderId,
             'first_name'              => $customer?->name ?? 'Customer',
             'last_name'               => '',
             'udf1'                    => $orderId,
+            // Optional — Juspay may accept this; if not, ignore/remove it.
+            'webhook_url'             => $webhookUrl,
         ];
 
         $response = $this->post('/session', $payload, (string) $order->user_id);
@@ -194,6 +223,7 @@ class HdfcService
             Log::info('HDFC API Call', [
                 'method'   => $method,
                 'url'      => $url,
+                'gateway'  => $this->gatewayKey,
                 'payload'  => [
                     'order_id' => $payload['order_id'] ?? null,
                     'amount'   => $payload['amount'] ?? null,
