@@ -23,8 +23,13 @@ class HdfcService
     /**
      * @param  array  $config  One merchant block from config('services.hdfc.*')
      */
-    public function __construct(array $config)
+    public function __construct(array $config = [])
     {
+        // Fallback to 'sg' config when container resolves without args
+        if (empty($config)) {
+            $config = config('services.hdfc.sg', []);
+        }
+
         $this->baseUrl              = rtrim((string) ($config['base_url'] ?? ''), '/');
         $this->apiKey               = (string) ($config['api_key'] ?? '');
         $this->merchantId           = (string) ($config['merchant_id'] ?? '');

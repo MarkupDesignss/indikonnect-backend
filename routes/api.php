@@ -403,7 +403,8 @@ Route::middleware('auth:sanctum')->group(function () {
 // ============================
 Route::post('/webhook/razorpay', [RazorpayWebhookController::class, 'handle']);
 Route::post('/webhook/hdfc', [HdfcWebhookController::class, 'handle']);
-
+Route::get('/hdfc/return',  [HdfcWebhookController::class, 'return'])->name('hdfc.return');
+Route::get('/hdfc/cancel',  [HdfcWebhookController::class, 'cancel'])->name('hdfc.cancel');
 
 // ============================
 // SHIPPING METHODS

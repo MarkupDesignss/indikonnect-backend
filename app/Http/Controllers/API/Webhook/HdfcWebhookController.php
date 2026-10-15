@@ -20,7 +20,7 @@ class HdfcWebhookController extends Controller
     }
 
     /**
-     * Resolve HdfcService instance based on gateway key stored on order.
+     * Resolve HdfcService instance based on gateway key stored on the order.
      */
     protected function resolveHdfcService(?string $gatewayKey): HdfcService
     {
@@ -34,14 +34,10 @@ class HdfcWebhookController extends Controller
         return new HdfcService($config);
     }
 
-    /**
-     * Server-to-server webhook from HDFC
-     */
     public function handle(Request $request): JsonResponse
     {
         try {
             $payload = $request->all();
-
             Log::info('HDFC webhook received', $payload);
 
             $orderReference = $payload['order_id']
@@ -49,20 +45,15 @@ class HdfcWebhookController extends Controller
                 ?? ($payload['order']['order_id'] ?? null);
 
             $status = strtoupper(
-                $payload['status']
-                    ?? ($payload['order']['status'] ?? '')
+                $payload['status'] ?? ($payload['order']['status'] ?? '')
             );
 
             if (!$orderReference) {
-                Log::error('HDFC webhook: order reference missing', $payload);
                 return response()->json(['error' => 'Order reference missing'], 400);
             }
 
-            // Find order to know which merchant config to use
             $order = Order::where('order_reference', $orderReference)->first();
-
             if (!$order) {
-                Log::error('HDFC webhook: order not found', ['ref' => $orderReference]);
                 return response()->json(['error' => 'Order not found'], 404);
             }
 
@@ -92,10 +83,6 @@ class HdfcWebhookController extends Controller
                     'status'         => 'captured',
                 ]);
 
-                Log::info('HDFC order confirmed via webhook', [
-                    'reference' => $orderReference,
-                ]);
-
                 return response()->json(['status' => 'success', 'data' => $result]);
             }
 
@@ -117,9 +104,6 @@ class HdfcWebhookController extends Controller
         }
     }
 
-    /**
-     * Browser redirect target after HDFC payment page.
-     */
     public function return(Request $request)
     {
         $orderReference = $request->input('order_id')
@@ -190,9 +174,6 @@ class HdfcWebhookController extends Controller
         }
     }
 
-    /**
-     * User cancelled on the HDFC payment page.
-     */
     public function cancel(Request $request)
     {
         $orderReference = $request->input('order_id')

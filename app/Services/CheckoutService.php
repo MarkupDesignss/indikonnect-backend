@@ -2124,6 +2124,22 @@ class CheckoutService
             } else {
                 throw new \Exception('Unsupported payment gateway: ' . $gateway);
             }
+            return array_merge([
+                'order_id'        => $order->id,
+                'order_reference' => $order->order_reference,
+                'total_items'     => count($itemsWithTaxSplit),
+                'total_amount'    => $grandTotal,
+                'status'          => 'pending',
+                'checkout_type'   => $isBuyNow ? 'buy_now' : 'cart',
+                'gateway'         => $gateway,
+                'tax_split'       => [
+                    'delivery_state' => $deliveryState,
+                    'supplier_state' => $supplierState,
+                    'total_cgst'     => round($totals['cgst'], 2),
+                    'total_sgst'     => round($totals['sgst'], 2),
+                    'total_igst'     => round($totals['igst'], 2),
+                ],
+            ], $gatewayPayload);
         });
     }
     protected function generateItemReference(): string
