@@ -45,7 +45,7 @@ class OrderController extends Controller
     /**
      * FR-CO-008: Get order history
      * GET /api/order/history
-     */ 
+     */
     // public function history(Request $request): JsonResponse
     // {
     //     $validated = $request->validate([
@@ -1739,6 +1739,7 @@ class OrderController extends Controller
                     'gst_rate' => (float) $line->gst_rate,
                     'gst_amount' => (float) $line->gst_amount,
                     'line_total' => (float) $line->line_total,
+                    'refunded_amount' => (float) $line->refunds->amount,
                     'final_amount' => (float) $finalAmount,
                     'delivery_charges' => (float) $totalShippingForLine,
                     'commissionable_volume' => (float) $line->commissionable_volume,
