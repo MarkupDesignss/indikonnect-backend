@@ -53,7 +53,7 @@ class CheckoutService
         ProformaInvoiceService $proformaInvoiceService
     ) {
         $this->gstCalculator = $gstCalculator;
-         $this->hdfcService     = $hdfcService;
+        $this->hdfcService     = $hdfcService;
         $this->invoiceService = $invoiceService;
         $this->razorpayService = $razorpayService;
         $this->pdfInvoiceService = $pdfInvoiceService;
@@ -2033,7 +2033,7 @@ class CheckoutService
 
             // ============ CREATE SINGLE ORDER ============
             $order = Order::create([
-                'order_reference'       => 'ORD-' . strtoupper(uniqid()),
+                'order_reference'       => 'ORD' . strtoupper(uniqid()),
                 'user_id'               => $user->id,
                 'billing_address_id'    => $data['address_id'],
                 'delivery_address_id'   => $data['address_id'],

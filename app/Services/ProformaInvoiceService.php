@@ -175,7 +175,7 @@ class ProformaInvoiceService
 
         $last = ProformaInvoice::whereYear('created_at', now()->year)->count() + 1;
 
-        return sprintf('PI/%s-%s/%04d', $year, $next, $last);
+        return sprintf('PI%s%s%04d', $year, $next, $last);
     }
 
     /**
