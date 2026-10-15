@@ -2111,7 +2111,8 @@ class CheckoutService
                     throw new \Exception("HDFC merchant [{$gateway}] is not configured.");
                 }
 
-                $hdfcService = new \App\Services\PaymentGateway\HdfcService($config);
+                // Pass gateway key so service can pick the correct return/webhook URLs
+                $hdfcService = new \App\Services\PaymentGateway\HdfcService($config, $gateway);
                 $hdfcOrder   = $hdfcService->createOrder($order);
 
                 $gatewayPayload = [

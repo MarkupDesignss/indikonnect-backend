@@ -24,16 +24,20 @@ class HdfcWebhookController extends Controller
      */
     protected function resolveHdfcService(?string $gatewayKey): HdfcService
     {
-        $configKey = $gatewayKey === 'hdfc_ie' ? 'ie' : 'sg';
-        $config    = config("services.hdfc.{$configKey}");
+        $gatewayKey = $gatewayKey ?: 'hdfc_sg';
+        $configKey  = $gatewayKey === 'hdfc_ie' ? 'ie' : 'sg';
+        $config     = config("services.hdfc.{$configKey}");
 
         if (!$config || empty($config['api_key'])) {
             throw new \Exception("HDFC merchant [{$gatewayKey}] is not configured.");
         }
 
-        return new HdfcService($config);
+        return new HdfcService($config, $gatewayKey);
     }
 
+    /**
+     * Webhook handler — works for both /webhook/hdfc and /webhook/hdfc1.
+     */
     public function handle(Request $request): JsonResponse
     {
         try {
@@ -104,6 +108,9 @@ class HdfcWebhookController extends Controller
         }
     }
 
+    /**
+     * Return handler — works for both /hdfc/return and /hdfc/return1.
+     */
     public function return(Request $request)
     {
         $orderReference = $request->input('order_id')
@@ -174,6 +181,9 @@ class HdfcWebhookController extends Controller
         }
     }
 
+    /**
+     * Cancel handler — works for both /hdfc/cancel and /hdfc/cancel1.
+     */
     public function cancel(Request $request)
     {
         $orderReference = $request->input('order_id')
