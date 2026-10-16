@@ -656,6 +656,16 @@ class BuybackController extends Controller
             'declares_marketable' => 'required|boolean',
             'declares_unsold' => 'nullable|boolean',
             'declares_unused' => 'nullable|boolean',
+            'tracking_id' =>
+            'required_if:return_method,courier',
+            'nullable',
+            'string',
+            'max:100',
+            'courier' =>
+            'required_if:return_method,courier',
+            'nullable',
+            'string',
+            'max:100',
         ]);
 
         if ($validator->fails()) {
@@ -780,6 +790,8 @@ class BuybackController extends Controller
                 'type' => 'buyback',
                 'items' => $returnItems,
                 'return_method' => $data['return_method'],
+                'tracking_id'         => $data['tracking_id'] ?? null,   // ← NEW
+                'courier'             => $data['courier'] ?? null,       // ← NEW
                 'status' => 'pending',
                 'reason' => $data['return_reason'] ?? 'Buy-back request',
                 'refund_subtotal' => $totalRefund,
