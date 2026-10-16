@@ -368,6 +368,39 @@ class IgniteClient
     }
 
     /**
+     * Validate a sponsor BA ID.
+     *
+     * Confirms that the BA ID belongs to a valid main account (-001) that can
+     * be used as a sponsor when registering a new member.
+     *
+     * GET /members/validateSponsor?ba_id=DIA7918383-001
+     *
+     * data: {
+     *   "member_id": 4,
+     *   "ba_id": "DIA7918383-001",
+     *   "unilevel_parent_id": 1,
+     *   "unilevel_parent_ba_id": null,
+     *   "binary_parent_id": 2,
+     *   "binary_side": 1,
+     *   "cv_left": "123806.0000",
+     *   "cv_right": "0.0000",
+     *   "total_cv_left": "123806.0000",
+     *   "total_cv_right": "0.0000",
+     *   "rank_no": 1,
+     *   "membership_status": "active",
+     *   "qualified_at": "2026-09-17 20:44:16"
+     * }
+     *
+     * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND
+     *
+     * @param  string  $baId  the sponsor's BA ID
+     */
+    public function validateSponsor(string $baId): array
+    {
+        return $this->get('/members/validateSponsor', ['ba_id' => $baId]);
+    }
+
+    /**
      * A member's progress toward every rank on their plan, in the sales month open now. Computed
      * from data the partner does not hold: orders and recruits outside this partner, and past
      * months' results. Reading changes nothing; ranks change only when Ignite closes a month.
