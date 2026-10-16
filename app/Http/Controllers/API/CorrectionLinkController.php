@@ -10,6 +10,7 @@ use App\Models\CorrectionRequest;
 
 class CorrectionLinkController extends Controller
 {
+    // GET /correction/{token}
     public function form($token)
     {
         $req = CorrectionRequest::where('token', $token)->first();
@@ -38,7 +39,6 @@ class CorrectionLinkController extends Controller
         DB::transaction(function () use ($req, $data) {
 
             $user = User::find($req->user_id);
-
             if (!$user) {
                 abort(404, 'User not found.');
             }
@@ -48,7 +48,6 @@ class CorrectionLinkController extends Controller
                 'date_of_birth' => $data['date_of_birth'],
             ]);
 
-            // Correction request mark as completed
             $req->update([
                 'status'        => 'completed',
                 'token_used_at' => now(),

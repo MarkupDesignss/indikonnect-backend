@@ -8,6 +8,8 @@ class CorrectionRequest extends Model
 {
     protected $fillable = [
         'user_id',
+        'email',
+        'reason',
         'full_name',
         'date_of_birth',
         'status',
@@ -33,5 +35,10 @@ class CorrectionRequest extends Model
             && $this->token_used_at === null
             && $this->token_expires_at
             && $this->token_expires_at->isFuture();
+    }
+
+    public function getReasonLabelAttribute(): string
+    {
+        return config('correction.reasons')[$this->reason] ?? $this->reason;
     }
 }
