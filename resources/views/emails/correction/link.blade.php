@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Update Your Details</title>
+</head>
+
+<body style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,sans-serif;">
+    <div
+        style="max-width:600px;margin:30px auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.05);">
+
+        <div style="background:#7c3aed;color:#fff;padding:18px 24px;">
+            <h2 style="margin:0;font-size:18px;">🔗 Action Required: Update Your Details</h2>
+        </div>
+
+        <div style="padding:24px;color:#333;font-size:14px;line-height:1.6;">
+            <p>Hi <strong>{{ $req->user->full_name }}</strong>,</p>
+
+            <p>Good news! Your correction request <strong>#{{ $req->id }}</strong> has been <strong
+                    style="color:#16a34a;">approved</strong>.</p>
+
+            <p>Click the button below to update your <strong>Full Name</strong> and <strong>Date of Birth</strong>:</p>
+
+            <p style="text-align:center;margin:28px 0;">
+                <a href="{{ $url }}"
+                    style="background:#16a34a;color:#fff;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">
+                    Update My Details
+                </a>
+            </p>
+
+            <p style="font-size:13px;color:#666;word-break:break-all;">
+                Or copy this link into your browser:<br>
+                <a href="{{ $url }}" style="color:#2563eb;">{{ $url }}</a>
+            </p>
+
+            <div
+                style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:4px;margin:20px 0;">
+                <p style="margin:0;"><strong>⏰ Link expires:</strong>
+                    {{ $req->token_expires_at->format('d M Y, h:i A') }}</p>
+                <p style="margin:6px 0 0;"><strong>🔒 Single use only.</strong> Once used, it becomes invalid.</p>
+            </div>
+
+            <p style="color:#888;font-size:13px;">
+                If you did not request this, please ignore this email or contact support.
+            </p>
+
+            <p>Regards,<br>Support Team</p>
+        </div>
+
+        <div style="background:#f9fafb;padding:14px 24px;font-size:12px;color:#888;text-align:center;">
+            This is an automated message. Please do not reply.
+        </div>
+    </div>
+</body>
+
+</html>

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\API\CorrectionLinkController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
 use App\Sdks\Partner\IgniteClient;
@@ -33,3 +34,6 @@ Route::get('/test-ignite', function (IgniteClient $ignite) {
     $response = $ignite->memberDetails('AIA0938091-003');
     return response()->json($response);
 });
+
+Route::get('/correction/{token}',  [CorrectionLinkController::class, 'form'])->name('correction.form');
+Route::post('/correction/{token}', [CorrectionLinkController::class, 'update'])->name('correction.update');
