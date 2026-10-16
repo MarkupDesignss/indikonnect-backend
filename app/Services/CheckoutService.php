@@ -2833,39 +2833,24 @@ class CheckoutService
     {
         try {
             $user = $order->user;
-    
-            if (!$user || empty($user->distributor_id)) {
+
+            // Only distributors
+            if (!$user || !$user->distributor_id) {
                 return;
             }
-    
+
+            // Only distributor-type orders
             if ($order->order_type !== 'distributor') {
                 return;
             }
-    
-            $ignite = app(IgniteClient::class);
-    
-            // ✅ Step 1: Ignite catalog
-            $catalogResponse = $ignite->catalog();
-    
-            if ($catalogResponse['code'] !== ResultCode::OK->value) {
-                Log::error('Ignite catalog fetch failed', [
-                    'order' => $order->order_reference,
-                    'code'  => $catalogResponse['code'],
-                    'msg'   => $catalogResponse['msg'],
-                ]);
-                return;
-            }
-    
-            $igniteCatalog = collect($catalogResponse['data']['items'])
-                ->keyBy('product_id');
-    
-            // ✅ Step 2: Lines prepare karo (Ignite CV se)
+
+            // Prepare lines
             $lines = [];
             $totalCv = 0;
-    
+
             foreach ($order->lines as $line) {
                 $product = $line->product;
-    
+
                 if (!$product || !$product->ignite_product_id) {
                     Log::warning('Skipping line: no ignite_product_id', [
                         'order' => $order->order_reference,
@@ -2873,90 +2858,26 @@ class CheckoutService
                     ]);
                     continue;
                 }
-    
-                $igniteItem = $igniteCatalog->get($product->ignite_product_id);
-    
-                if (!$igniteItem) {
-                    Log::warning('Product not in Ignite catalog', [
-                        'order' => $order->order_reference,
-                        'ignite_product_id' => $product->ignite_product_id,
-                    ]);
-                    continue;
-                }
-    
+
                 $lines[] = [
                     'product_id' => (int) $product->ignite_product_id,
                     'qty'        => (int) $line->quantity,
                 ];
-    
-                $totalCv += (float) $igniteItem['cv'] * $line->quantity;
+
+                // Calculate CV
+                $totalCv += (float) $product->commission_value * $line->quantity;
             }
-    
+
             if (empty($lines)) {
                 Log::warning('Ignite order skipped: no valid lines', [
                     'order' => $order->order_reference,
                 ]);
                 return;
             }
-    
-            // ✅ Step 3: Member details + plan ranks
-            $memberResponse = $ignite->memberDetails($user->distributor_id);
-    
-            if ($memberResponse['code'] !== ResultCode::OK->value) {
-                Log::error('Ignite memberDetails failed', [
-                    'order' => $order->order_reference,
-                    'code'  => $memberResponse['code'],
-                    'msg'   => $memberResponse['msg'],
-                ]);
-                return;
-            }
-    
-            $memberData = $memberResponse['data'];
-    
-            $planResponse = $ignite->planRanks();
-            $qualifyCv = (float) ($planResponse['data']['plan']['qualify_cv'] ?? 0);
-    
-            // ✅ Step 4: Allocations calculate karo
-            $baId001 = $user->distributor_id;
-            $baId002 = str_replace('-001', '-002', $user->distributor_id);
-            $baId003 = str_replace('-001', '-003', $user->distributor_id);
-    
-            $cv001 = 0;
-    
-            // -001 sirf tab CV lega jab qualified nahi hai
-            if (empty($memberData['qualified_at'])) {
-                $alreadyAllocated = (float) ($memberData['cv_allocated'] ?? 0);
-                $cv001 = max(0, $qualifyCv - $alreadyAllocated);
-                $cv001 = min($cv001, $totalCv);
-            }
-    
-            $remainingCv = $totalCv - $cv001;
-    
-            $allocations = [];
-    
-            if ($cv001 > 0) {
-                $allocations[] = [
-                    'ba_id' => $baId001,
-                    'cv'    => (string) $cv001,
-                ];
-            }
-    
-            if ($remainingCv > 0) {
-                $cv002 = $remainingCv / 2;
-                $cv003 = $remainingCv - $cv002;
-    
-                $allocations[] = [
-                    'ba_id' => $baId002,
-                    'cv'    => (string) $cv002,
-                ];
-    
-                $allocations[] = [
-                    'ba_id' => $baId003,
-                    'cv'    => (string) $cv003,
-                ];
-            }
-    
-            // ✅ Step 5: Ignite pe bhejo
+
+            // Call Ignite
+            $ignite = app(IgniteClient::class);
+
             $response = $ignite->createOrder(
                 baId:            $user->distributor_id,
                 partnerOrderRef: $order->order_reference,
@@ -2966,21 +2887,21 @@ class CheckoutService
                 localAmount:     (string) $order->total_payable,
                 localCurrency:   'INR',
                 lines:           $lines,
-                allocations:     $allocations,
+                allocations:     [
+                    ['ba_id' => $user->distributor_id, 'cv' => (string) $totalCv],
+                ],
                 extraTcs:        [],
             );
-    
-            // ✅ Step 6: Response handle karo
+
+            // Handle response
             if ($response['code'] === ResultCode::OK->value) {
                 $order->update([
                     'ignite_order_no' => $response['data']['order_no'] ?? null,
                 ]);
-    
+
                 Log::info('Ignite order posted', [
                     'order'           => $order->order_reference,
                     'ignite_order_no' => $response['data']['order_no'],
-                    'total_cv'        => $totalCv,
-                    'allocations'     => $allocations,
                 ]);
             } elseif ($response['code'] === ResultCode::ORDER_DUPLICATE->value) {
                 Log::info('Ignite order already posted', [
@@ -2988,11 +2909,9 @@ class CheckoutService
                 ]);
             } else {
                 Log::error('Ignite createOrder failed', [
-                    'order'       => $order->order_reference,
-                    'code'        => $response['code'],
-                    'msg'         => $response['msg'],
-                    'total_cv'    => $totalCv,
-                    'allocations' => $allocations,
+                    'order' => $order->order_reference,
+                    'code'  => $response['code'],
+                    'msg'   => $response['msg'],
                 ]);
             }
         } catch (\Exception $e) {
@@ -3002,6 +2921,7 @@ class CheckoutService
             ]);
         }
     }
+
     /**
      * Send low stock notification
      */
