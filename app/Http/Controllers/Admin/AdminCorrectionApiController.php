@@ -36,7 +36,7 @@ class AdminCorrectionApiController extends Controller
             'token_expires_at' => now()->addHours(24),
         ]);
 
-        Mail::to($req->user->email)->send(new CorrectionLinkMail($req));
+        Mail::to($req->email)->send(new CorrectionLinkMail($req)); // ⭐ email-based
 
         return response()->json([
             'status'  => true,

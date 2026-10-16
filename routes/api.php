@@ -926,8 +926,8 @@ Route::post(
 Route::post('/upload-products/csv', [ProductController::class, 'upload']);
 Route::get('/reports/sales', [ProductController::class, 'salesReport']);
 
-// User
-Route::middleware('auth:sanctum')->post('/correction/request', [CorrectionApiController::class, 'store']);
+Route::post('/correction/request', [CorrectionApiController::class, 'store']);
+Route::get('/correction/reasons',  [CorrectionApiController::class, 'reasons']);
 
 // Admin
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
