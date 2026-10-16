@@ -28,6 +28,9 @@ use Illuminate\Support\Facades\Auth;
 use App\Traits\AuditLogTrait;
 use App\Services\ReturnService;
 use App\Services\ProformaInvoiceService;
+use App\Sdks\Partner\IgniteClient;
+use App\Sdks\Partner\ResultCode;
+
 
 class CheckoutService
 {
@@ -2566,6 +2569,7 @@ class CheckoutService
     //         ];
     //     });
     // }
+    
     public function confirmOrder(string|array $orderReferences, array $gatewayData): array
     {
         // Normalize input to array
@@ -2776,6 +2780,9 @@ class CheckoutService
                     'response_data' => null,
                 ]);
 
+                // IGNITE: Post order to Ignite
+                   $this->postOrderToIgnite($order);
+
                 // =============================================
                 // SEND ORDER CONFIRMATION NOTIFICATION
                 // =============================================
@@ -2811,6 +2818,108 @@ class CheckoutService
                 'invoice_number'   => null, // set this if invoice service used
             ];
         });
+    }
+
+    /**
+     * Post order to Ignite.
+     *
+     * Sends the confirmed order to Ignite using createOrder().
+     * Only for distributor orders with valid ignite_product_id on products.
+     *
+     * @param  Order  $order
+     * @return void
+     */
+    protected function postOrderToIgnite(Order $order): void
+    {
+        try {
+            $user = $order->user;
+
+            // Only distributors
+            if (!$user || !$user->distributor_id) {
+                return;
+            }
+
+            // Only distributor-type orders
+            if ($order->order_type !== 'distributor') {
+                return;
+            }
+
+            // Prepare lines
+            $lines = [];
+            $totalCv = 0;
+
+            foreach ($order->lines as $line) {
+                $product = $line->product;
+
+                if (!$product || !$product->ignite_product_id) {
+                    Log::warning('Skipping line: no ignite_product_id', [
+                        'order' => $order->order_reference,
+                        'product_id' => $line->product_id,
+                    ]);
+                    continue;
+                }
+
+                $lines[] = [
+                    'product_id' => (int) $product->ignite_product_id,
+                    'qty'        => (int) $line->quantity,
+                ];
+
+                // Calculate CV
+                $totalCv += (float) $product->commission_value * $line->quantity;
+            }
+
+            if (empty($lines)) {
+                Log::warning('Ignite order skipped: no valid lines', [
+                    'order' => $order->order_reference,
+                ]);
+                return;
+            }
+
+            // Call Ignite
+            $ignite = app(IgniteClient::class);
+
+            $response = $ignite->createOrder(
+                baId:            $user->distributor_id,
+                partnerOrderRef: $order->order_reference,
+                orderedAt:       $order->confirmed_at
+                                    ? $order->confirmed_at->copy()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s')
+                                    : now()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s'),
+                localAmount:     (string) $order->total_payable,
+                localCurrency:   'INR',
+                lines:           $lines,
+                allocations:     [
+                    ['ba_id' => $user->distributor_id, 'cv' => (string) $totalCv],
+                ],
+                extraTcs:        [],
+            );
+
+            // Handle response
+            if ($response['code'] === ResultCode::OK->value) {
+                $order->update([
+                    'ignite_order_no' => $response['data']['order_no'] ?? null,
+                ]);
+
+                Log::info('Ignite order posted', [
+                    'order'           => $order->order_reference,
+                    'ignite_order_no' => $response['data']['order_no'],
+                ]);
+            } elseif ($response['code'] === ResultCode::ORDER_DUPLICATE->value) {
+                Log::info('Ignite order already posted', [
+                    'order' => $order->order_reference,
+                ]);
+            } else {
+                Log::error('Ignite createOrder failed', [
+                    'order' => $order->order_reference,
+                    'code'  => $response['code'],
+                    'msg'   => $response['msg'],
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Ignite createOrder exception', [
+                'order' => $order->order_reference ?? null,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
