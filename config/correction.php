@@ -1,0 +1,13 @@
+<?php
+
+return [
+    'reasons' => [
+        'wrong_name_at_signup'  => 'Wrong name entered during signup',
+        'wrong_dob_at_signup'   => 'Wrong date of birth entered during signup',
+        'both_wrong_at_signup'  => 'Both name and DOB entered incorrectly',
+        'typo_mistake'          => 'Typo / spelling mistake',
+        'legal_name_change'     => 'Legal name change (marriage, court, etc.)',
+        'dob_data_entry_error'  => 'DOB data entry error',
+        'other'                 => 'Other (specify in remarks)',
+    ],
+];

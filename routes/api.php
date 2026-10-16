@@ -46,17 +46,22 @@ use App\Http\Controllers\API\CoolingOffController;
 use App\Http\Controllers\API\CreditNoteController;
 use App\Http\Controllers\API\Webhook\RazorpayWebhookController;
 use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Admin\AdminCorrectionApiController;
 use App\Http\Controllers\Admin\FAQController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\CancellationApprovalController;
 use App\Http\Controllers\Admin\CatalogueController;
+use App\Http\Controllers\Admin\CorrectionAdminController;
+use App\Http\Controllers\Admin\CorrectionController;
+use App\Http\Controllers\Admin\CorrectionLinkController;
 use App\Http\Controllers\Admin\ExportController;
 use App\Http\Controllers\Admin\FaqSectionController;
 use App\Http\Controllers\Admin\WarehouseAssignmentController;
 use App\Http\Controllers\Admin\WarehouseController;
 use App\Http\Controllers\Admin\WarehouseStockController;
 use App\Http\Controllers\API\BrandController;
+use App\Http\Controllers\API\CorrectionApiController;
 use App\Http\Controllers\API\SubcategoryController;
 use App\Http\Controllers\API\TestimonialController;
 use App\Http\Controllers\API\Webhook\HdfcWebhookController;
@@ -920,3 +925,12 @@ Route::post(
 
 Route::post('/upload-products/csv', [ProductController::class, 'upload']);
 Route::get('/reports/sales', [ProductController::class, 'salesReport']);
+
+Route::post('/correction/request', [CorrectionApiController::class, 'store']);
+Route::get('/correction/reasons',  [CorrectionApiController::class, 'reasons']);
+
+// Admin
+Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+    Route::get('/correction/requests',                 [AdminCorrectionApiController::class, 'index']);
+    Route::post('/correction/requests/{id}/send-link', [AdminCorrectionApiController::class, 'sendLink']);
+});
