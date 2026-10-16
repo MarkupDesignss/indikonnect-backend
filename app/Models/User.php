@@ -137,6 +137,8 @@ class User extends Authenticatable
         return $this->belongsTo(User::class, 'sponsor_id');
     }
 
+
+
     /**
      * Get distributor's downline (FR-DP-009)
      */
