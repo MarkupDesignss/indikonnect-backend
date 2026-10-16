@@ -87,9 +87,9 @@ class AuthController extends Controller
         if (!$admin) {
             return response()->json([
                 'success' => false,
-                'message' => 'Admin not found with this email address',
+                'message' => 'No records found with this email',
                 'errors' => [
-                    'email' => ['Admin not found with this email address']
+                    'email' => ['No records found with this email']
                 ]
             ], 404);
         }
