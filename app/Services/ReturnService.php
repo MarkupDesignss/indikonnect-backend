@@ -1727,6 +1727,9 @@ class ReturnService
                     'id'                     => $return->id,
                     'type'                   => $return->type,
                     'return_method'          => $return->return_method,
+                    'refunded_amount' => $refund
+                        ? (float) $refund->amount
+                        : null,
                     'tracking_id'          => $return->tracking_id,
                     'courier'          => $return->courier,
                     'order_reference'        => $return->order->order_reference ?? null,
@@ -2105,6 +2108,9 @@ class ReturnService
             'id'            => $return->id,
             'type'          => $return->type,
             'return_method' => $return->return_method,
+            'refunded_amount' => $refund
+                ? (float) $refund->amount
+                : null,
             'tracking_id'          => $return->tracking_id,
             'courier'          => $return->courier,
 
