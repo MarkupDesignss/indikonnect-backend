@@ -112,7 +112,7 @@ class UserDashboardController extends Controller
                 'membership_status' => $data['membership_status'] ?? null,
                 'total_steps'       => $data['total_steps'] ?? 0,
                 'qualified_at'      => $data['qualified_at'] ?? null,
-                'is_placed'         => !empty($data['binary_parent_id']),
+                'is_placed'         => $data['is_placed'] ?? !empty($data['binary_parent_id']),
                 'placement_leg'     => $data['binary_side'] ?? null,
             ];
         } catch (\Exception $e) {
@@ -128,12 +128,18 @@ class UserDashboardController extends Controller
      */
     private function getUserStats($userId)
     {
-        $totalOrders = OrderLine::whereHas('order', function ($query) use ($userId) {
-            $query->where('user_id', $userId);
-        })->count();
+        // FIX: count orders, not order lines
+        $totalOrders = Order::where('user_id', $userId)->count();
+
         $wishlistCount = Wishlist::where('user_id', $userId)->count();
-        $totalPoints = Order::where('user_id', $userId)->sum('coin_redeemed') ?? 0;
-        $reviewsCount = ProductReview::where('user_id', $userId)->count();
+
+        // FIX: points_earned = total CV from confirmed orders (Ignite commissionable_volume),
+        //      NOT coin_redeemed (which is coin count)
+        $totalPoints = Order::where('user_id', $userId)
+            ->where('status', 'confirmed')
+            ->sum('commissionable_volume') ?? 0;
+
+        $reviewsCount  = ProductReview::where('user_id', $userId)->count();
         $averageRating = ProductReview::where('user_id', $userId)->avg('rating');
 
         $cart = Cart::where('user_id', $userId)->latest()->first();
@@ -148,12 +154,12 @@ class UserDashboardController extends Controller
         }
 
         return [
-            'total_orders' => $totalOrders,
-            'wishlist' => $wishlistCount,
-            'points_earned' => $totalPoints,
-            'reviews' => $reviewsCount,
+            'total_orders'   => $totalOrders,
+            'wishlist'       => $wishlistCount,
+            'points_earned'  => number_format((float) $totalPoints, 2, '.', ''),  // FIX: string format
+            'reviews'        => $reviewsCount,
             'average_rating' => $averageRating ? round($averageRating, 1) : 0,
-            'cart_items' => $cartItemsCount,
+            'cart_items'     => $cartItemsCount,
         ];
     }
 
@@ -232,20 +238,23 @@ class UserDashboardController extends Controller
 
         foreach ($orders as $order) {
             $orderLine = OrderLine::where('order_id', $order->id)->first();
-            $productName = $orderLine ?
-                (Product::find($orderLine->product_id)?->name ?? 'Product') :
-                'Product';
+            $productName = $orderLine
+                ? (Product::find($orderLine->product_id)?->name ?? 'Product')
+                : 'Product';
+
+            // FIX: use commissionable_volume (CV), not coin_redeemed
+            $cv = (float) ($order->commissionable_volume ?? 0);
 
             $activities[] = [
-                'type' => 'order',
-                'event' => "Product Purchase: {$productName}",
-                'created_at' => $order->created_at->format('M d, Y H:i:s'),
-                'updated_at' => $order->updated_at->format('M d, Y H:i:s'),
+                'type'              => 'order',
+                'event'             => "Product Purchase: {$productName}",
+                'created_at'        => $order->created_at->format('M d, Y H:i:s'),
+                'updated_at'        => $order->updated_at->format('M d, Y H:i:s'),
                 'created_timestamp' => $order->created_at->timestamp,
                 'updated_timestamp' => $order->updated_at->timestamp,
-                'points_earned' => "+{$order->coin_redeemed} PV",
-                'status' => 'Confirmed',
-                'order_reference' => $order->order_reference
+                'points_earned'     => '+' . number_format($cv, 2, '.', '') . ' PV',
+                'status'            => 'Confirmed',
+                'order_reference'   => $order->order_reference,
             ];
         }
 
@@ -308,8 +317,12 @@ class UserDashboardController extends Controller
                 ->get();
 
             foreach ($cartItems as $item) {
-                $createdAt = $item->created_at ? date('M d, Y H:i:s', strtotime($item->created_at)) : $cart->created_at->format('M d, Y H:i:s');
-                $updatedAt = $item->updated_at ? date('M d, Y H:i:s', strtotime($item->updated_at)) : $cart->updated_at->format('M d, Y H:i:s');
+                $createdAt = $item->created_at
+                    ? date('M d, Y H:i:s', strtotime($item->created_at))
+                    : $cart->created_at->format('M d, Y H:i:s');
+                $updatedAt = $item->updated_at
+                    ? date('M d, Y H:i:s', strtotime($item->updated_at))
+                    : $cart->updated_at->format('M d, Y H:i:s');
                 $createdTimestamp = $item->created_at ? strtotime($item->created_at) : $cart->created_at->timestamp;
                 $updatedTimestamp = $item->updated_at ? strtotime($item->updated_at) : $cart->updated_at->timestamp;
 
@@ -566,7 +579,8 @@ class UserDashboardController extends Controller
                     DB::raw('COUNT(DISTINCT o.id) as total_orders'),
                     DB::raw('COALESCE(SUM(p.distributor_mrp * ol.quantity), 0) as total_amount_mrp'),
                     DB::raw('COALESCE(SUM((p.distributor_mrp - p.distributor_price) * ol.quantity), 0) as total_savings'),
-                    DB::raw('COALESCE(SUM(o.coin_redeemed), 0) as total_coins_earned')
+                    DB::raw('COALESCE(SUM(o.commissionable_volume), 0) as total_cv'),          // FIX: CV
+                    DB::raw('COALESCE(SUM(o.coin_redeemed), 0) as total_coins_redeemed'),      // keep separate
                 ])
                 ->first();
 
@@ -585,18 +599,19 @@ class UserDashboardController extends Controller
             }
 
             $result = [
-                'user_id' => $user->id,
-                'full_name' => $user->full_name,
-                'email' => $user->email,
-                'phone' => $user->phone,
-                'distributor_id' => $user->distributor_id,
-                'total_orders' => (int) $stats->total_orders,
-                'total_amount_mrp' => (float) $stats->total_amount_mrp,
-                'total_savings' => (float) $stats->total_savings,
-                'total_coins_earned' => (int) $stats->total_coins_earned,
-                'account_type' => $user->account_type,
-                'joined_at' => $user->created_at->toDateTimeString(),
-                'rank_progress' => $rankProgress,
+                'user_id'              => $user->id,
+                'full_name'            => $user->full_name,
+                'email'                => $user->email,
+                'phone'                => $user->phone,
+                'distributor_id'       => $user->distributor_id,
+                'total_orders'         => (int) $stats->total_orders,
+                'total_amount_mrp'     => (float) $stats->total_amount_mrp,
+                'total_savings'        => (float) $stats->total_savings,
+                'total_cv'             => number_format((float) $stats->total_cv, 2, '.', ''),         // FIX
+                'total_coins_redeemed' => (int) $stats->total_coins_redeemed,                          // FIX
+                'account_type'         => $user->account_type,
+                'joined_at'            => $user->created_at->toDateTimeString(),
+                'rank_progress'        => $rankProgress,
             ];
 
             return response()->json([

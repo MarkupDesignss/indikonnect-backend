@@ -16,7 +16,8 @@ use Illuminate\Support\Facades\Storage;
 use App\Services\PaymentGateway\RazorpayService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str; // Added for clarity
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Exception;
 use App\Models\Coupon;
 use App\Models\ShippingMethod;
@@ -1243,47 +1244,12 @@ class CheckoutService
 
     /**
      * FR-CO-004: Apply coin redemption
+     *
+     * Guide bands:
+     *   Yellow: 1-2 → $30 each, 3+ → $40 each (min 1)
+     *   Blue:   4+  → $12.50 each (min 4)
+     *   Below min band → Ignite returns 3003
      */
-    // public function applyCoins(int $userId, int $coinsToRedeem): array
-    // {
-    //     $user = User::findOrFail($userId);
-    //     if (!$user->isDistributor()) {
-    //         throw new Exception('Coin redemption only for distributors');
-    //     }
-
-    //     $coinBalance = $this->getCoinBalance($userId);
-    //     if ($coinsToRedeem > $coinBalance) {
-    //         throw new Exception('Insufficient coin balance');
-    //     }
-
-    //     $cartTotal = $this->getCurrentCartTotal($userId);
-    //     $maxCoins = floor($cartTotal / 10);
-    //     if ($coinsToRedeem > $maxCoins) {
-    //         throw new Exception('Cannot redeem more than order value');
-    //     }
-
-    //     $amountRedeemed = $coinsToRedeem * 10;
-    //     $authorization = $this->authorizeCoinRedemption($userId, $coinsToRedeem, $amountRedeemed);
-
-    //     $redemption = CoinRedemption::create([
-    //         'user_id' => $userId,
-    //         'order_id' => null,
-    //         'coins_used' => $coinsToRedeem,
-    //         'amount_redeemed' => $amountRedeemed,
-    //         'status' => 'authorized',
-    //         'api_authorization_id' => $authorization['id'],
-    //         'authorized_at' => now(),
-    //     ]);
-
-    //     return [
-    //         'success' => true,
-    //         'coins_used' => $coinsToRedeem,
-    //         'amount_redeemed' => $amountRedeemed,
-    //         'remaining_coins' => $coinBalance - $coinsToRedeem,
-    //         'redemption_id' => $redemption->id,
-    //     ];
-    // }
-
     public function applyCoins(int $userId, int $coinsToRedeem, string $pointType): array
     {
         $user = User::findOrFail($userId);
@@ -1292,34 +1258,88 @@ class CheckoutService
             throw new Exception('Only distributors can redeem coins');
         }
 
+        if (!in_array($pointType, ['yellow_bal', 'blue_bal'], true)) {
+            throw new Exception("Unsupported coin type: {$pointType}");
+        }
+
+        if ($coinsToRedeem < 1) {
+            throw new Exception('Coin quantity must be at least 1');
+        }
+
+        // --- Band pre-check (mirror of Ignite guide) ---
+        $minBand = $pointType === 'yellow_bal' ? 1 : 4;
+        if ($coinsToRedeem < $minBand) {
+            throw new Exception(sprintf(
+                '%s minimum redemption is %d coin(s).',
+                $pointType === 'yellow_bal' ? 'Yellow Coin' : 'Blue Coin',
+                $minBand
+            ));
+        }
+
         $ignite = app(\App\Sdks\Partner\IgniteClient::class);
-        $response = $ignite->redeemCoin($user->distributor_id, $pointType, $coinsToRedeem, 'RED-' . $user->id . '-' . time());
 
-        if ($response['code'] !== 0) {
-            throw new Exception('Ignite Refused: ' . $response['msg']);
+        // --- Real balance from Ignite, not a mock ---
+        $member = Cache::remember(
+            "ignite_member_{$user->distributor_id}",
+            60,
+            fn() => $ignite->memberDetails($user->distributor_id)['data'] ?? []
+        );
+
+        $available = (int) ($member[$pointType] ?? 0);
+        if ($coinsToRedeem > $available) {
+            throw new Exception(sprintf(
+                'Insufficient balance: you have %d %s coin(s).',
+                $available,
+                $pointType === 'yellow_bal' ? 'Yellow' : 'Blue'
+            ));
         }
 
-        $usdRate = config('services.ignite.usd_to_inr_rate');
-        if (!$usdRate) {
-            throw new Exception("Ignite USD to INR rate is not configured. Please set IGNITE_USD_TO_INR_RATE in .env.");
+        // --- Idempotency lock: block double-tap for 2 minutes ---
+        $lockKey = "ignite_redeem:{$userId}:{$pointType}:{$coinsToRedeem}";
+        if (!Cache::add($lockKey, 1, 120)) {
+            throw new Exception('A redemption with the same details is in progress. Please wait.');
         }
-        $amountInr = (float) $response['data']['comm_amount'] * (float) $usdRate;
 
-        $redemption = CoinRedemption::create([
-            'user_id' => $userId,
-            'coins_used' => $coinsToRedeem,
-            'amount_redeemed' => $amountInr,
-            'status' => 'authorized',
-            'api_authorization_id' => $response['data']['txid'],
-            'authorized_at' => now(),
-        ]);
+        try {
+            $ref = 'RED-' . $user->distributor_id . '-' . $pointType . '-' . $coinsToRedeem . '-' . now()->timestamp;
 
-        return [
-            'success' => true,
-            'coins_used' => $coinsToRedeem,
-            'amount_redeemed' => $amountInr,
-            'redemption_id' => $redemption->id,
-        ];
+            $response = $ignite->redeemCoin($user->distributor_id, $pointType, $coinsToRedeem, $ref);
+
+            if ($response['code'] !== ResultCode::OK->value) {
+                throw new Exception("Ignite Refused [{$response['code']}]: {$response['msg']}");
+            }
+
+            $usdRate = config('services.ignite.usd_to_inr_rate');
+            if (!$usdRate) {
+                throw new Exception("Ignite USD to INR rate is not configured. Please set IGNITE_USD_TO_INR_RATE in .env.");
+            }
+
+            $amountInr = round((float) $response['data']['comm_amount'] * (float) $usdRate, 2);
+
+            $redemption = CoinRedemption::create([
+                'user_id'              => $userId,
+                'point_type'           => $pointType,
+                'coins_used'           => $coinsToRedeem,
+                'amount_redeemed'      => $amountInr,
+                'status'               => 'authorized',
+                'api_authorization_id' => $response['data']['txid'],
+                'authorized_at'        => now(),
+            ]);
+
+            // Invalidate stale member cache so next checkout sees the new balance
+            Cache::forget("ignite_member_{$user->distributor_id}");
+
+            return [
+                'success'         => true,
+                'coins_used'      => $coinsToRedeem,
+                'point_type'      => $pointType,
+                'amount_redeemed' => $amountInr,
+                'redemption_id'   => $redemption->id,
+            ];
+        } catch (\Throwable $e) {
+            Cache::forget($lockKey); // allow retry after a real failure
+            throw $e;
+        }
     }
 
     /**
@@ -3453,11 +3473,34 @@ class CheckoutService
     }
 
     /**
-     * Get coin balance from Commission API (mock)
+     * Get coin balance from Ignite memberDetails (no more mock).
+     *
+     * Returns the combined redeemable coin count. calculateSummary() uses
+     * this for max_coins_redeemable, so the UI shows the real limit.
      */
     protected function getCoinBalance(int $userId): int
     {
-        return 500;
+        $user = User::find($userId);
+        if (!$user || empty($user->distributor_id)) {
+            return 0;
+        }
+
+        try {
+            $member = Cache::remember(
+                "ignite_member_{$user->distributor_id}",
+                60,
+                fn() => app(\App\Sdks\Partner\IgniteClient::class)->memberDetails($user->distributor_id)['data'] ?? []
+            );
+
+            // Yellow + Blue are the two redeemable types (Green is auto-settled weekly)
+            return (int) ($member['yellow_bal'] ?? 0) + (int) ($member['blue_bal'] ?? 0);
+        } catch (\Throwable $e) {
+            Log::warning('Ignite getCoinBalance failed', [
+                'user_id' => $userId,
+                'error'   => $e->getMessage(),
+            ]);
+            return 0;
+        }
     }
 
     /**

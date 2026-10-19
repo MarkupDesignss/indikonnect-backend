@@ -171,10 +171,16 @@ class PostOrderToIgniteJob implements ShouldQueue
             // Handle response
             if ($response['code'] === ResultCode::OK->value) {
                 $order->update([
-                    'ignite_order_no'    => $response['data']['order_no'] ?? null,
-                    'ignite_sync_status' => 'posted',
-                    'ignite_sync_error'  => null,
+                    'ignite_order_no'       => $response['data']['order_no'] ?? null,
+                    'ignite_sync_status'    => 'posted',
+                    'ignite_sync_error'     => null,
+                    'commissionable_volume' => $response['data']['total_cv'] ?? 0,
                 ]);
+
+                // Invalidate caches so dashboard/tree reflect new CV immediately
+                Cache::forget("ignite_member_{$mainBaId}");
+                Cache::forget("ignite_binary_tree_{$mainBaId}");
+
                 Log::info('Ignite order posted', [
                     'order_id'        => $order->id,
                     'ref'             => $order->order_reference,
@@ -195,15 +201,26 @@ class PostOrderToIgniteJob implements ShouldQueue
                     throw new \Exception("Ignite 5001 but getOrder returned no order_no: " . json_encode($existing));
                 }
 
+                // Prefer getOrder's total_cv; fall back to existing value; default 0 (never null)
+                $cvFromExisting = $existing['data']['total_cv']
+                    ?? $order->commissionable_volume
+                    ?? 0;
+
                 $order->update([
-                    'ignite_order_no'    => $existingOrderNo,
-                    'ignite_sync_status' => 'posted',
-                    'ignite_sync_error'  => null,
+                    'ignite_order_no'       => $existingOrderNo,
+                    'ignite_sync_status'    => 'posted',
+                    'ignite_sync_error'     => null,
+                    'commissionable_volume' => $cvFromExisting,
                 ]);
+
+                Cache::forget("ignite_member_{$mainBaId}");
+                Cache::forget("ignite_binary_tree_{$mainBaId}");
+
                 Log::info('Ignite order duplicate resolved', [
                     'order_id'        => $order->id,
                     'ref'             => $order->order_reference,
                     'ignite_order_no' => $existingOrderNo,
+                    'total_cv'        => $cvFromExisting,
                 ]);
                 return;
             }
@@ -212,14 +229,26 @@ class PostOrderToIgniteJob implements ShouldQueue
 
         } catch (\Exception $e) {
             Log::error("Ignite Job Failed: Order {$order->order_reference}", [
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
                 'attempt' => $this->attempts(),
             ]);
 
-            if ($this->attempts() >= $this->tries) {
-                $order->update(['ignite_sync_status' => 'failed', 'ignite_sync_error' => $e->getMessage()]);
-            } else {
-                $this->release(60);
+            // Wrap the failure-state write so a DB error here doesn't kill the job
+            try {
+                if ($this->attempts() >= $this->tries) {
+                    $order->update([
+                        'ignite_sync_status' => 'failed',
+                        'ignite_sync_error'  => $e->getMessage(),
+                    ]);
+                } else {
+                    $this->release(60);
+                }
+            } catch (\Throwable $inner) {
+                Log::error("Ignite job: failed to persist failure state", [
+                    'order_id' => $order->id,
+                    'error'    => $inner->getMessage(),
+                ]);
+                throw $e;
             }
         }
     }

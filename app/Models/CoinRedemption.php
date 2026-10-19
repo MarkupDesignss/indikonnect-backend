@@ -12,6 +12,7 @@ class CoinRedemption extends Model
      */
     protected $fillable = [
         'user_id',
+        'point_type',
         'order_id',
         'coins_used',
         'amount_redeemed',
