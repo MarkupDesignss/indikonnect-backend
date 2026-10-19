@@ -17,6 +17,7 @@ use Exception;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
 use App\Mail\ReturnInitiatedMail;
+use App\Models\User;
 use Illuminate\Support\Facades\Mail;
 use App\Services\Commission\CommissionServiceInterface;
 
@@ -559,6 +560,21 @@ class ReturnService
             // Update order-level return status
             $this->updateOrderReturnStatus($order);
 
+            /* =============================================
+                | SEND RETURN INITIATED SMS (TWILIO)
+                ============================================= */
+            $this->sendReturnSms(
+                $userId,
+                "Hi {$order->user->name}! Your return request for order {$order->order_reference} "
+                    . "has been submitted. Refund amount: " . number_format($totalRefund, 2) . ". "
+                    . "We will notify you once it is reviewed.",
+                [
+                    'event'             => 'return_initiated',
+                    'return_id'         => $returnOrder->id,
+                    'order_reference'   => $order->order_reference,
+                ]
+            );
+
             // Update order main status
             // $this->updateOrderMainStatus($order);
 
@@ -680,6 +696,24 @@ class ReturnService
                 ],
             ];
         });
+    }
+
+    protected function sendReturnSms(?int $userId, string $message, array $context = []): void
+    {
+        if (!$userId) return;
+
+        $phone = User::find($userId)?->phone;
+
+        if (!$phone) return;
+
+        try {
+            app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+        } catch (\Throwable $e) {
+            Log::error('Return SMS failed', array_merge($context, [
+                'user_id' => $userId,
+                'error'   => $e->getMessage(),
+            ]));
+        }
     }
 
     /**

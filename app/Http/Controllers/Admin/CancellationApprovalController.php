@@ -245,6 +245,30 @@ class CancellationApprovalController extends Controller
                 'result'          => $result,
             ]);
 
+            /* =============================================
+            | SEND CANCELLATION APPROVED SMS (TWILIO)
+            ============================================= */
+            $phone = $order->user?->phone;
+
+            if ($phone) {
+                $refundText = ($refundAmount ?? 0) > 0
+                    ? " A refund of " . number_format($refundAmount, 2) . " has been initiated."
+                    : " No refund applicable.";
+
+                $message = "Hi {$order->user->name}! Your cancellation request for order "
+                    . "{$order->order_reference} has been approved.{$refundText}";
+
+                try {
+                    app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+                } catch (\Throwable $e) {
+                    Log::error('Cancellation approved SMS failed', [
+                        'order_reference' => $order->order_reference,
+                        'order_line_id'   => $orderLineId,
+                        'error'           => $e->getMessage(),
+                    ]);
+                }
+            }
+
             return response()->json([
                 'success' => true,
                 'data'    => $result,
@@ -326,7 +350,30 @@ class CancellationApprovalController extends Controller
                     'rejection_reason' => $request->rejection_reason,
                     'original_reason' => $orderLine->cancellation_reason
                 ]);
+
+                /* =============================================
+                    | SEND CANCELLATION REJECTED SMS (TWILIO)
+                    ============================================= */
+                $phone = $order->user?->phone;
+
+                if ($phone) {
+                    $message = "Hi {$order->user->name}! Your cancellation request for order "
+                        . "{$order->order_reference} has been rejected. "
+                        . "Reason: {$request->rejection_reason}";
+
+                    try {
+                        app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+                    } catch (\Throwable $e) {
+                        Log::error('Cancellation rejected SMS failed', [
+                            'order_reference' => $order->order_reference,
+                            'order_line_id'   => $orderLineId,
+                            'error'           => $e->getMessage(),
+                        ]);
+                    }
+                }
             });
+
+
 
             return response()->json([
                 'success' => true,

@@ -52,6 +52,28 @@ class CancellationService
             'reason' => $reason,
         ]);
 
+        /* =============================================
+        | SEND CANCELLATION REQUESTED SMS (TWILIO)
+        ============================================= */
+        $phone = $order->user?->phone;
+
+        if ($phone) {
+            $productName = $orderLine->product->name ?? 'your item';
+            $message = "Hi {$order->user->name}! Your cancellation request for "
+                . "'{$productName}' in order {$orderReference} has been submitted. "
+                . "You will be notified once it is reviewed.";
+
+            try {
+                app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+            } catch (\Throwable $e) {
+                Log::error('Cancellation request SMS failed', [
+                    'order_reference' => $orderReference,
+                    'order_line_id'   => $orderLine->id,
+                    'error'           => $e->getMessage(),
+                ]);
+            }
+        }
+
         return [
             'order_reference' => $orderReference,
             'order_line_id' => $orderLine->id,
