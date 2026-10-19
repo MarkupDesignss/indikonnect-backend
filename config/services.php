@@ -86,6 +86,11 @@ return [
         'dlt_template_id' => env('AIRTEL_SMS_DLT_TEMPLATE_ID'),
         'timeout'         => 30,
     ],
+    'twilio' => [
+        'sid'   => env('TWILIO_ACCOUNT_SID'),
+        'token' => env('TWILIO_AUTH_TOKEN'),
+        'from'  => env('TWILIO_5R'),
+    ],
 
     'ignite' => [
         'base_url' => env('IGNITE_BASE_URL', 'https://demo-ignite.techtegyit.com/partner/v1'),
