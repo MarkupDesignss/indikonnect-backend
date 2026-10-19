@@ -686,6 +686,26 @@ class AuthController extends Controller
 
             $role = $this->getUserRole($user);
 
+            /* =============================================
+                | SEND WELCOME SMS (TWILIO)
+                ============================================= */
+            $phone = $user->phone;
+
+            if ($phone) {
+                $message = "Hi {$user->full_name}! Welcome to " . config('app.name') . ". "
+                    . "Your customer account has been created successfully. "
+                    . "Start shopping now!";
+
+                try {
+                    app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+                } catch (\Throwable $e) {
+                    Log::error('Customer registration SMS failed', [
+                        'user_id' => $user->id,
+                        'error'   => $e->getMessage(),
+                    ]);
+                }
+            }
+
             return response()->json([
                 'status' => true,
                 'message' => 'Customer account created successfully',
@@ -2445,7 +2465,6 @@ class AuthController extends Controller
                 ],
                 'user' => $user->fresh(),
             ]);
-
         } catch (\Exception $e) {
             Log::error('[Step2-Sponsor] Error: ' . $e->getMessage());
             return response()->json([
@@ -2549,69 +2568,155 @@ class AuthController extends Controller
      *   2. Second call: send reference_id + OTP => marks Aadhaar as verified
      */
     public function distributorStep3Aadhaar(Request $request)
-{
-    try {
-        $validator = Validator::make($request->all(), [
-            'phone'             => 'required|min:10|max:15',
-            'encrypted_aadhaar' => 'required|string|size:12',
-            'aadhaar_consent'   => 'required|in:0,1',
-            'reference_id'      => 'nullable|string',
-            'otp'               => 'nullable|digits:6',
-        ]);
-
-        if ($validator->fails()) {
-            Log::warning('[Step3-Aadhaar] Validation failed', [
-                'errors' => $validator->errors()->toArray(),
-                'phone'  => $request->phone,
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone'             => 'required|min:10|max:15',
+                'encrypted_aadhaar' => 'required|string|size:12',
+                'aadhaar_consent'   => 'required|in:0,1',
+                'reference_id'      => 'nullable|string',
+                'otp'               => 'nullable|digits:6',
             ]);
 
-            return response()->json([
-                'status' => false,
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+            if ($validator->fails()) {
+                Log::warning('[Step3-Aadhaar] Validation failed', [
+                    'errors' => $validator->errors()->toArray(),
+                    'phone'  => $request->phone,
+                ]);
 
-        $user = User::where('phone', $request->phone)->first();
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
 
-        if (!$user) {
-            Log::warning('[Step3-Aadhaar] User not found', ['phone' => $request->phone]);
+            $user = User::where('phone', $request->phone)->first();
 
-            return response()->json([
-                'status'  => false,
-                'message' => 'User not found.',
-            ], 422);
-        }
+            if (!$user) {
+                Log::warning('[Step3-Aadhaar] User not found', ['phone' => $request->phone]);
 
-        $aadhaarNumber = $request->encrypted_aadhaar;
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'User not found.',
+                ], 422);
+            }
 
-        Log::info('[Step3-Aadhaar] Request started', [
-            'user_id'        => $user->id,
-            'phone'          => $request->phone,
-            'aadhaar_masked' => substr($aadhaarNumber, 0, 4) . '********' . substr($aadhaarNumber, -2),
-            'action'         => ($request->filled('reference_id') && $request->filled('otp'))
-                                    ? 'verify_otp'
-                                    : 'send_otp',
-        ]);
+            $aadhaarNumber = $request->encrypted_aadhaar;
 
-        /*
+            Log::info('[Step3-Aadhaar] Request started', [
+                'user_id'        => $user->id,
+                'phone'          => $request->phone,
+                'aadhaar_masked' => substr($aadhaarNumber, 0, 4) . '********' . substr($aadhaarNumber, -2),
+                'action'         => ($request->filled('reference_id') && $request->filled('otp'))
+                    ? 'verify_otp'
+                    : 'send_otp',
+            ]);
+
+            /*
         |--------------------------------------------------------------------------
         | CASE 1: verify OTP
         |--------------------------------------------------------------------------
         */
-        if ($request->filled('reference_id') && $request->filled('otp')) {
+            if ($request->filled('reference_id') && $request->filled('otp')) {
 
-            Log::info('[Step3-Aadhaar] Calling verifyAadhaarOtp', [
-                'user_id'      => $user->id,
-                'reference_id' => $request->reference_id,
-                'otp_masked'   => substr($request->otp, 0, 2) . '****',
+                Log::info('[Step3-Aadhaar] Calling verifyAadhaarOtp', [
+                    'user_id'      => $user->id,
+                    'reference_id' => $request->reference_id,
+                    'otp_masked'   => substr($request->otp, 0, 2) . '****',
+                ]);
+
+                $result = $this->kyc->verifyAadhaarOtp(
+                    $request->reference_id,
+                    $request->otp
+                );
+
+                Log::info('[Step3-Aadhaar] verifyAadhaarOtp raw response', [
+                    'user_id' => $user->id,
+                    'success' => $result['success'] ?? false,
+                    'status'  => $result['status'] ?? null,
+                    'data'    => $result['data'] ?? null,
+                ]);
+
+                if (!$result['success']) {
+                    Log::error('[Step3-Aadhaar] OTP verify failed', [
+                        'user_id' => $user->id,
+                        'message' => $result['data']['message'] ?? null,
+                        'data'    => $result['data'] ?? null,
+                    ]);
+
+                    return response()->json([
+                        'status'  => false,
+                        'message' => $result['data']['message'] ?? 'Aadhaar OTP verification failed.',
+                        'errors'  => $result['data'] ?? null,
+                    ], 422);
+                }
+
+                $aadhaarData = $result['data']['data'] ?? [];
+
+                Log::info('[Step3-Aadhaar] Extracted aadhaarData', [
+                    'user_id'       => $user->id,
+                    'aadhaar_data'  => $aadhaarData,
+                    'verified_name' => $aadhaarData['name'] ?? null,
+                ]);
+
+                // Save to DB
+                $distributorProfile = DistributorProfile::updateOrCreate(
+                    ['user_id' => $user->id],
+                    [
+                        'encrypted_aadhaar'   => encrypt($aadhaarNumber),
+                        'aadhaar_consent'     => $request->aadhaar_consent,
+                        'aadhaar_verified'    => 1,
+                        'aadhaar_verified_at' => now(),
+                        'kyc_status'          => 'pending',
+                    ]
+                );
+
+                $user->update([
+                    'registration_step' => max($user->registration_step ?? 0, 3),
+                    'aadhaar_last4'     => substr($aadhaarNumber, -4),
+                ]);
+
+                // Confirm what was saved
+                $distributorProfile->refresh();
+                $user->refresh();
+
+                Log::info('[Step3-Aadhaar] Saved to DB', [
+                    'user_id' => $user->id,
+                    'distributor_profile' => [
+                        'id'                  => $distributorProfile->id,
+                        'aadhaar_verified'    => $distributorProfile->aadhaar_verified,
+                        'aadhaar_verified_at' => $distributorProfile->aadhaar_verified_at,
+                        'kyc_status'          => $distributorProfile->kyc_status,
+                    ],
+                    'user' => [
+                        'registration_step' => $user->registration_step,
+                        'aadhaar_last4'     => $user->aadhaar_last4,
+                    ],
+                ]);
+
+                return response()->json([
+                    'status'           => true,
+                    'message'          => 'Aadhaar verified successfully.',
+                    'step'             => 3,
+                    'next_step'        => 4,
+                    'aadhaar_verified' => true,
+                    'aadhaar_last4'    => '****' . substr($aadhaarNumber, -4),
+                    'verified_name'    => $aadhaarData['name'] ?? null,
+                ]);
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | CASE 2: send OTP
+        |--------------------------------------------------------------------------
+        */
+            Log::info('[Step3-Aadhaar] Calling sendAadhaarOtp', [
+                'user_id' => $user->id,
             ]);
 
-            $result = $this->kyc->verifyAadhaarOtp(
-                $request->reference_id,
-                $request->otp
-            );
+            $result = $this->kyc->sendAadhaarOtp($aadhaarNumber);
 
-            Log::info('[Step3-Aadhaar] verifyAadhaarOtp raw response', [
+            Log::info('[Step3-Aadhaar] sendAadhaarOtp raw response', [
                 'user_id' => $user->id,
                 'success' => $result['success'] ?? false,
                 'status'  => $result['status'] ?? null,
@@ -2619,7 +2724,7 @@ class AuthController extends Controller
             ]);
 
             if (!$result['success']) {
-                Log::error('[Step3-Aadhaar] OTP verify failed', [
+                Log::error('[Step3-Aadhaar] OTP send failed', [
                     'user_id' => $user->id,
                     'message' => $result['data']['message'] ?? null,
                     'data'    => $result['data'] ?? null,
@@ -2627,137 +2732,51 @@ class AuthController extends Controller
 
                 return response()->json([
                     'status'  => false,
-                    'message' => $result['data']['message'] ?? 'Aadhaar OTP verification failed.',
+                    'message' => $result['data']['message'] ?? 'Failed to send Aadhaar OTP.',
                     'errors'  => $result['data'] ?? null,
                 ], 422);
             }
 
-            $aadhaarData = $result['data']['data'] ?? [];
+            $referenceId = $result['data']['data']['reference_id'] ?? null;
 
-            Log::info('[Step3-Aadhaar] Extracted aadhaarData', [
-                'user_id'       => $user->id,
-                'aadhaar_data'  => $aadhaarData,
-                'verified_name' => $aadhaarData['name'] ?? null,
+            Log::info('[Step3-Aadhaar] OTP sent, reference_id extracted', [
+                'user_id'      => $user->id,
+                'reference_id' => $referenceId,
             ]);
 
-            // Save to DB
-            $distributorProfile = DistributorProfile::updateOrCreate(
+            DistributorProfile::updateOrCreate(
                 ['user_id' => $user->id],
                 [
-                    'encrypted_aadhaar'   => encrypt($aadhaarNumber),
-                    'aadhaar_consent'     => $request->aadhaar_consent,
-                    'aadhaar_verified'    => 1,
-                    'aadhaar_verified_at' => now(),
-                    'kyc_status'          => 'pending',
+                    'encrypted_aadhaar' => encrypt($aadhaarNumber),
+                    'aadhaar_consent'   => $request->aadhaar_consent,
+                    'kyc_status'        => 'pending',
                 ]
             );
 
-            $user->update([
-                'registration_step' => max($user->registration_step ?? 0, 3),
-                'aadhaar_last4'     => substr($aadhaarNumber, -4),
-            ]);
-
-            // Confirm what was saved
-            $distributorProfile->refresh();
-            $user->refresh();
-
-            Log::info('[Step3-Aadhaar] Saved to DB', [
+            Log::info('[Step3-Aadhaar] Profile staged for OTP verify', [
                 'user_id' => $user->id,
-                'distributor_profile' => [
-                    'id'                  => $distributorProfile->id,
-                    'aadhaar_verified'    => $distributorProfile->aadhaar_verified,
-                    'aadhaar_verified_at' => $distributorProfile->aadhaar_verified_at,
-                    'kyc_status'          => $distributorProfile->kyc_status,
-                ],
-                'user' => [
-                    'registration_step' => $user->registration_step,
-                    'aadhaar_last4'     => $user->aadhaar_last4,
-                ],
             ]);
 
             return response()->json([
-                'status'           => true,
-                'message'          => 'Aadhaar verified successfully.',
-                'step'             => 3,
-                'next_step'        => 4,
-                'aadhaar_verified' => true,
-                'aadhaar_last4'    => '****' . substr($aadhaarNumber, -4),
-                'verified_name'    => $aadhaarData['name'] ?? null,
+                'status'       => true,
+                'message'      => 'Aadhaar OTP sent successfully. Please verify.',
+                'step'         => 3,
+                'reference_id' => $referenceId,
             ]);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | CASE 2: send OTP
-        |--------------------------------------------------------------------------
-        */
-        Log::info('[Step3-Aadhaar] Calling sendAadhaarOtp', [
-            'user_id' => $user->id,
-        ]);
-
-        $result = $this->kyc->sendAadhaarOtp($aadhaarNumber);
-
-        Log::info('[Step3-Aadhaar] sendAadhaarOtp raw response', [
-            'user_id' => $user->id,
-            'success' => $result['success'] ?? false,
-            'status'  => $result['status'] ?? null,
-            'data'    => $result['data'] ?? null,
-        ]);
-
-        if (!$result['success']) {
-            Log::error('[Step3-Aadhaar] OTP send failed', [
-                'user_id' => $user->id,
-                'message' => $result['data']['message'] ?? null,
-                'data'    => $result['data'] ?? null,
+        } catch (\Exception $e) {
+            Log::error('[Step3-Aadhaar] Exception', [
+                'message' => $e->getMessage(),
+                'line'    => $e->getLine(),
+                'file'    => $e->getFile(),
+                'trace'   => $e->getTraceAsString(),
             ]);
 
             return response()->json([
                 'status'  => false,
-                'message' => $result['data']['message'] ?? 'Failed to send Aadhaar OTP.',
-                'errors'  => $result['data'] ?? null,
-            ], 422);
+                'message' => $e->getMessage(),
+            ], 500);
         }
-
-        $referenceId = $result['data']['data']['reference_id'] ?? null;
-
-        Log::info('[Step3-Aadhaar] OTP sent, reference_id extracted', [
-            'user_id'      => $user->id,
-            'reference_id' => $referenceId,
-        ]);
-
-        DistributorProfile::updateOrCreate(
-            ['user_id' => $user->id],
-            [
-                'encrypted_aadhaar' => encrypt($aadhaarNumber),
-                'aadhaar_consent'   => $request->aadhaar_consent,
-                'kyc_status'        => 'pending',
-            ]
-        );
-
-        Log::info('[Step3-Aadhaar] Profile staged for OTP verify', [
-            'user_id' => $user->id,
-        ]);
-
-        return response()->json([
-            'status'       => true,
-            'message'      => 'Aadhaar OTP sent successfully. Please verify.',
-            'step'         => 3,
-            'reference_id' => $referenceId,
-        ]);
-    } catch (\Exception $e) {
-        Log::error('[Step3-Aadhaar] Exception', [
-            'message' => $e->getMessage(),
-            'line'    => $e->getLine(),
-            'file'    => $e->getFile(),
-            'trace'   => $e->getTraceAsString(),
-        ]);
-
-        return response()->json([
-            'status'  => false,
-            'message' => $e->getMessage(),
-        ], 500);
     }
-}
 
     /**
      * DISTRIBUTOR: Step 4 - PAN Verification
@@ -2847,7 +2866,7 @@ class AuthController extends Controller
      *   1. Verify PAN details (name + DOB)
      *   2. Check PAN-Aadhaar link status (KYC confirmation)
      */
-     /**
+    /**
      * DISTRIBUTOR: Step 4 - PAN Verification
      *
      * Uses KycVerificationService to verify PAN details (name + DOB).
@@ -3723,8 +3742,8 @@ class AuthController extends Controller
                 try {
                     $igniteResponse = $this->ignite->registerMember(
                         partnerMemberRef: $partnerRef,
-                        sponsorBaId:      $user->sponsor_id,
-                        fullname:         $user->full_name,
+                        sponsorBaId: $user->sponsor_id,
+                        fullname: $user->full_name,
                     );
                 } catch (\Exception $e) {
                     Log::error('[Step7-Submit] Ignite call failed', [
@@ -3912,6 +3931,25 @@ class AuthController extends Controller
                         'error' => $e->getMessage(),
                     ]
                 );
+            }
+
+            /* =============================================
+ | SEND REGISTRATION SUBMITTED SMS (TWILIO)
+ ============================================= */
+            $phone = $user->phone;
+
+            if ($phone) {
+                $message = "Hi {$user->full_name}! Your distributor registration has been "
+                    . "submitted successfully. We will notify you once KYC review is complete.";
+
+                try {
+                    app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+                } catch (\Throwable $e) {
+                    Log::error('Distributor registration SMS failed', [
+                        'user_id' => $user->id,
+                        'error'   => $e->getMessage(),
+                    ]);
+                }
             }
 
             /*
@@ -5216,7 +5254,7 @@ class AuthController extends Controller
             // Mail::to($user->email)->send(new OtpMail($otp));
 
             // Or if you want to use Twilio for SMS to the user's phone
-            // $this->twilioService->sendOtp($user->phone, $otp);
+            $this->twilioService->sendOtp($user->phone, $otp);
 
             return response()->json([
                 'status' => true,

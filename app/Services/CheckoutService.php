@@ -2569,7 +2569,7 @@ class CheckoutService
     //         ];
     //     });
     // }
-    
+
     public function confirmOrder(string|array $orderReferences, array $gatewayData): array
     {
         // Normalize input to array
@@ -2768,6 +2768,26 @@ class CheckoutService
                 // =============================================
                 $payload = $this->buildCommissionPayload($order);
 
+                // =============================================
+                // SEND ORDER CONFIRMATION SMS (TWILIO)
+                // =============================================
+                $phone = $order->user?->phone;
+
+                if ($phone) {
+                    $message = "Hi {$order->user->name}! Your order {$order->order_reference} "
+                        . "has been confirmed. Total: " . number_format((float) $order->total_payable, 2)
+                        . ". Thank you for your purchase!";
+
+                    try {
+                        app(TwilioSmsService::class)->send($phone, $message);
+                    } catch (\Throwable $e) {
+                        Log::error('Order confirmation SMS failed', [
+                            'order_reference' => $order->order_reference,
+                            'error'           => $e->getMessage(),
+                        ]);
+                    }
+                }
+
                 CommissionApiEvent::create([
                     'event_type'    => 'order_post',
                     'order_id'      => $order->id,
@@ -2781,7 +2801,7 @@ class CheckoutService
                 ]);
 
                 // IGNITE: Post order to Ignite
-                   $this->postOrderToIgnite($order);
+                $this->postOrderToIgnite($order);
 
                 // =============================================
                 // SEND ORDER CONFIRMATION NOTIFICATION
@@ -2879,18 +2899,18 @@ class CheckoutService
             $ignite = app(IgniteClient::class);
 
             $response = $ignite->createOrder(
-                baId:            $user->distributor_id,
+                baId: $user->distributor_id,
                 partnerOrderRef: $order->order_reference,
-                orderedAt:       $order->confirmed_at
-                                    ? $order->confirmed_at->copy()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s')
-                                    : now()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s'),
-                localAmount:     (string) $order->total_payable,
-                localCurrency:   'INR',
-                lines:           $lines,
-                allocations:     [
+                orderedAt: $order->confirmed_at
+                    ? $order->confirmed_at->copy()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s')
+                    : now()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s'),
+                localAmount: (string) $order->total_payable,
+                localCurrency: 'INR',
+                lines: $lines,
+                allocations: [
                     ['ba_id' => $user->distributor_id, 'cv' => (string) $totalCv],
                 ],
-                extraTcs:        [],
+                extraTcs: [],
             );
 
             // Handle response

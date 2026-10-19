@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\OrderReturn;
 use App\Models\Refund;
+use App\Models\User;
 use App\Services\ReturnService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -873,6 +874,24 @@ class ReturnController extends Controller
                 'success' => false,
                 'message' => $e->getMessage(),
             ], 400);
+        }
+    }
+
+    protected function sendReturnSms(?int $userId, string $message, array $context = []): void
+    {
+        if (!$userId) return;
+
+        $phone = User::find($userId)?->phone;
+
+        if (!$phone) return;
+
+        try {
+            app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+        } catch (\Throwable $e) {
+            Log::error('Return SMS failed', array_merge($context, [
+                'user_id' => $userId,
+                'error'   => $e->getMessage(),
+            ]));
         }
     }
 

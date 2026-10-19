@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'Laravel'),
+    'name' => env('APP_NAME', 'IndieKonnect'),
     'company_name' => env('COMPANY_NAME', 'IndieKonnect'),
     'company_gstin' => env('COMPANY_GSTIN', ''),
     'company_address' => env('COMPANY_ADDRESS', 'punjab'),
