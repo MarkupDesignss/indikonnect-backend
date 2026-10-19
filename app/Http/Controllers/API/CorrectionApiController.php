@@ -12,7 +12,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Mail;
 
-
 class CorrectionApiController extends Controller
 {
     public function store(Request $request)
