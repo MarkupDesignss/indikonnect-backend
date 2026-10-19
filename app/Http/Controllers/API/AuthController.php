@@ -3938,19 +3938,19 @@ class AuthController extends Controller
  ============================================= */
             $phone = $user->phone;
 
-            if ($phone) {
-                $message = "Hi {$user->full_name}! Your distributor registration has been "
-                    . "submitted successfully. We will notify you once KYC review is complete.";
+            // if ($phone) {
+            //     $message = "Hi {$user->full_name}! Your distributor registration has been "
+            //         . "submitted successfully. We will notify you once KYC review is complete.";
 
-                try {
-                    app(\App\Services\TwilioSmsService::class)->send($phone, $message);
-                } catch (\Throwable $e) {
-                    Log::error('Distributor registration SMS failed', [
-                        'user_id' => $user->id,
-                        'error'   => $e->getMessage(),
-                    ]);
-                }
-            }
+            //     try {
+            //         app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+            //     } catch (\Throwable $e) {
+            //         Log::error('Distributor registration SMS failed', [
+            //             'user_id' => $user->id,
+            //             'error'   => $e->getMessage(),
+            //         ]);
+            //     }
+            // }
 
             /*
             |--------------------------------------------------------------------------
