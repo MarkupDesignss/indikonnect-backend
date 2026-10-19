@@ -1244,42 +1244,80 @@ class CheckoutService
     /**
      * FR-CO-004: Apply coin redemption
      */
-    public function applyCoins(int $userId, int $coinsToRedeem): array
+    // public function applyCoins(int $userId, int $coinsToRedeem): array
+    // {
+    //     $user = User::findOrFail($userId);
+    //     if (!$user->isDistributor()) {
+    //         throw new Exception('Coin redemption only for distributors');
+    //     }
+
+    //     $coinBalance = $this->getCoinBalance($userId);
+    //     if ($coinsToRedeem > $coinBalance) {
+    //         throw new Exception('Insufficient coin balance');
+    //     }
+
+    //     $cartTotal = $this->getCurrentCartTotal($userId);
+    //     $maxCoins = floor($cartTotal / 10);
+    //     if ($coinsToRedeem > $maxCoins) {
+    //         throw new Exception('Cannot redeem more than order value');
+    //     }
+
+    //     $amountRedeemed = $coinsToRedeem * 10;
+    //     $authorization = $this->authorizeCoinRedemption($userId, $coinsToRedeem, $amountRedeemed);
+
+    //     $redemption = CoinRedemption::create([
+    //         'user_id' => $userId,
+    //         'order_id' => null,
+    //         'coins_used' => $coinsToRedeem,
+    //         'amount_redeemed' => $amountRedeemed,
+    //         'status' => 'authorized',
+    //         'api_authorization_id' => $authorization['id'],
+    //         'authorized_at' => now(),
+    //     ]);
+
+    //     return [
+    //         'success' => true,
+    //         'coins_used' => $coinsToRedeem,
+    //         'amount_redeemed' => $amountRedeemed,
+    //         'remaining_coins' => $coinBalance - $coinsToRedeem,
+    //         'redemption_id' => $redemption->id,
+    //     ];
+    // }
+
+    public function applyCoins(int $userId, int $coinsToRedeem, string $pointType): array
     {
         $user = User::findOrFail($userId);
-        if (!$user->isDistributor()) {
-            throw new Exception('Coin redemption only for distributors');
+
+        if (!$user->isDistributor() || empty($user->distributor_id)) {
+            throw new Exception('Only distributors can redeem coins');
         }
 
-        $coinBalance = $this->getCoinBalance($userId);
-        if ($coinsToRedeem > $coinBalance) {
-            throw new Exception('Insufficient coin balance');
+        $ignite = app(\App\Sdks\Partner\IgniteClient::class);
+        $response = $ignite->redeemCoin($user->distributor_id, $pointType, $coinsToRedeem, 'RED-' . $user->id . '-' . time());
+
+        if ($response['code'] !== 0) {
+            throw new Exception('Ignite Refused: ' . $response['msg']);
         }
 
-        $cartTotal = $this->getCurrentCartTotal($userId);
-        $maxCoins = floor($cartTotal / 10);
-        if ($coinsToRedeem > $maxCoins) {
-            throw new Exception('Cannot redeem more than order value');
+        $usdRate = config('services.ignite.usd_to_inr_rate');
+        if (!$usdRate) {
+            throw new Exception("Ignite USD to INR rate is not configured. Please set IGNITE_USD_TO_INR_RATE in .env.");
         }
-
-        $amountRedeemed = $coinsToRedeem * 10;
-        $authorization = $this->authorizeCoinRedemption($userId, $coinsToRedeem, $amountRedeemed);
+        $amountInr = (float) $response['data']['comm_amount'] * (float) $usdRate;
 
         $redemption = CoinRedemption::create([
             'user_id' => $userId,
-            'order_id' => null,
             'coins_used' => $coinsToRedeem,
-            'amount_redeemed' => $amountRedeemed,
+            'amount_redeemed' => $amountInr,
             'status' => 'authorized',
-            'api_authorization_id' => $authorization['id'],
+            'api_authorization_id' => $response['data']['txid'],
             'authorized_at' => now(),
         ]);
 
         return [
             'success' => true,
             'coins_used' => $coinsToRedeem,
-            'amount_redeemed' => $amountRedeemed,
-            'remaining_coins' => $coinBalance - $coinsToRedeem,
+            'amount_redeemed' => $amountInr,
             'redemption_id' => $redemption->id,
         ];
     }
@@ -2829,96 +2867,103 @@ class CheckoutService
      * @param  Order  $order
      * @return void
      */
+    // protected function postOrderToIgnite(Order $order): void
+    // {
+    //     try {
+    //         $user = $order->user;
+
+    //         // Only distributors
+    //         if (!$user || !$user->distributor_id) {
+    //             return;
+    //         }
+
+    //         // Only distributor-type orders
+    //         if ($order->order_type !== 'distributor') {
+    //             return;
+    //         }
+
+    //         // Prepare lines
+    //         $lines = [];
+    //         $totalCv = 0;
+
+    //         foreach ($order->lines as $line) {
+    //             $product = $line->product;
+
+    //             if (!$product || !$product->ignite_product_id) {
+    //                 Log::warning('Skipping line: no ignite_product_id', [
+    //                     'order' => $order->order_reference,
+    //                     'product_id' => $line->product_id,
+    //                 ]);
+    //                 continue;
+    //             }
+
+    //             $lines[] = [
+    //                 'product_id' => (int) $product->ignite_product_id,
+    //                 'qty'        => (int) $line->quantity,
+    //             ];
+
+    //             // Calculate CV
+    //             $totalCv += (float) $product->commission_value * $line->quantity;
+    //         }
+
+    //         if (empty($lines)) {
+    //             Log::warning('Ignite order skipped: no valid lines', [
+    //                 'order' => $order->order_reference,
+    //             ]);
+    //             return;
+    //         }
+
+    //         // Call Ignite
+    //         $ignite = app(IgniteClient::class);
+
+    //         $response = $ignite->createOrder(
+    //             baId:            $user->distributor_id,
+    //             partnerOrderRef: $order->order_reference,
+    //             orderedAt:       $order->confirmed_at
+    //                                 ? $order->confirmed_at->copy()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s')
+    //                                 : now()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s'),
+    //             localAmount:     (string) $order->total_payable,
+    //             localCurrency:   'INR',
+    //             lines:           $lines,
+    //             allocations:     [
+    //                 ['ba_id' => $user->distributor_id, 'cv' => (string) $totalCv],
+    //             ],
+    //             extraTcs:        [],
+    //         );
+
+    //         // Handle response
+    //         if ($response['code'] === ResultCode::OK->value) {
+    //             $order->update([
+    //                 'ignite_order_no' => $response['data']['order_no'] ?? null,
+    //             ]);
+
+    //             Log::info('Ignite order posted', [
+    //                 'order'           => $order->order_reference,
+    //                 'ignite_order_no' => $response['data']['order_no'],
+    //             ]);
+    //         } elseif ($response['code'] === ResultCode::ORDER_DUPLICATE->value) {
+    //             Log::info('Ignite order already posted', [
+    //                 'order' => $order->order_reference,
+    //             ]);
+    //         } else {
+    //             Log::error('Ignite createOrder failed', [
+    //                 'order' => $order->order_reference,
+    //                 'code'  => $response['code'],
+    //                 'msg'   => $response['msg'],
+    //             ]);
+    //         }
+    //     } catch (\Exception $e) {
+    //         Log::error('Ignite createOrder exception', [
+    //             'order' => $order->order_reference ?? null,
+    //             'error' => $e->getMessage(),
+    //         ]);
+    //     }
+    // }
+    
     protected function postOrderToIgnite(Order $order): void
     {
-        try {
-            $user = $order->user;
-
-            // Only distributors
-            if (!$user || !$user->distributor_id) {
-                return;
-            }
-
-            // Only distributor-type orders
-            if ($order->order_type !== 'distributor') {
-                return;
-            }
-
-            // Prepare lines
-            $lines = [];
-            $totalCv = 0;
-
-            foreach ($order->lines as $line) {
-                $product = $line->product;
-
-                if (!$product || !$product->ignite_product_id) {
-                    Log::warning('Skipping line: no ignite_product_id', [
-                        'order' => $order->order_reference,
-                        'product_id' => $line->product_id,
-                    ]);
-                    continue;
-                }
-
-                $lines[] = [
-                    'product_id' => (int) $product->ignite_product_id,
-                    'qty'        => (int) $line->quantity,
-                ];
-
-                // Calculate CV
-                $totalCv += (float) $product->commission_value * $line->quantity;
-            }
-
-            if (empty($lines)) {
-                Log::warning('Ignite order skipped: no valid lines', [
-                    'order' => $order->order_reference,
-                ]);
-                return;
-            }
-
-            // Call Ignite
-            $ignite = app(IgniteClient::class);
-
-            $response = $ignite->createOrder(
-                baId:            $user->distributor_id,
-                partnerOrderRef: $order->order_reference,
-                orderedAt:       $order->confirmed_at
-                                    ? $order->confirmed_at->copy()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s')
-                                    : now()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s'),
-                localAmount:     (string) $order->total_payable,
-                localCurrency:   'INR',
-                lines:           $lines,
-                allocations:     [
-                    ['ba_id' => $user->distributor_id, 'cv' => (string) $totalCv],
-                ],
-                extraTcs:        [],
-            );
-
-            // Handle response
-            if ($response['code'] === ResultCode::OK->value) {
-                $order->update([
-                    'ignite_order_no' => $response['data']['order_no'] ?? null,
-                ]);
-
-                Log::info('Ignite order posted', [
-                    'order'           => $order->order_reference,
-                    'ignite_order_no' => $response['data']['order_no'],
-                ]);
-            } elseif ($response['code'] === ResultCode::ORDER_DUPLICATE->value) {
-                Log::info('Ignite order already posted', [
-                    'order' => $order->order_reference,
-                ]);
-            } else {
-                Log::error('Ignite createOrder failed', [
-                    'order' => $order->order_reference,
-                    'code'  => $response['code'],
-                    'msg'   => $response['msg'],
-                ]);
-            }
-        } catch (\Exception $e) {
-            Log::error('Ignite createOrder exception', [
-                'order' => $order->order_reference ?? null,
-                'error' => $e->getMessage(),
-            ]);
+        if ($order->order_type === 'distributor') {
+            \App\Jobs\PostOrderToIgniteJob::dispatch($order->id);
         }
     }
 
