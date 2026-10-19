@@ -93,8 +93,14 @@ return [
     ],
 
     'ignite' => [
-        'base_url' => env('IGNITE_BASE_URL', 'https://demo-ignite.techtegyit.com/partner/v1'),
-        'api_key'  => env('IGNITE_API_KEY', ''),
+            'base_url'          => env('IGNITE_BASE_URL', 'https://demo-ignite.techtegyit.com/partner/v1'),
+            'api_key'           => env('IGNITE_API_KEY'),
+            'timezone'          => env('IGNITE_TIMEZONE', 'Asia/Shanghai'),
+            'local_currency'    => env('IGNITE_LOCAL_CURRENCY', 'INR'),
+            'usd_to_inr_rate'   => env('IGNITE_USD_TO_INR_RATE', 83),
+            'cv_split_ratio'    => env('IGNITE_CV_SPLIT_RATIO', 0.5),
+            'node_suffix_002'   => env('IGNITE_NODE_SUFFIX_002', '-002'),
+            'node_suffix_003'   => env('IGNITE_NODE_SUFFIX_003', '-003'),
     ],
 
 ];

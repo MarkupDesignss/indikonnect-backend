@@ -274,34 +274,53 @@ class CheckoutController extends Controller
     /**
      * FR-CO-004: Apply coin redemption (distributor only)
      */
+    // public function applyCoins(Request $request): JsonResponse
+    // {
+    //     if (!auth()->user()->isDistributor()) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Only distributors can redeem coins.',
+    //         ], 403);
+    //     }
+
+    //     $validated = $request->validate([
+    //         'coins' => 'required|integer|min:1',
+    //     ]);
+
+    //     try {
+    //         $result = $this->checkoutService->applyCoins(
+    //             auth()->id(),
+    //             $validated['coins']
+    //         );
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $result,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
+
     public function applyCoins(Request $request): JsonResponse
     {
-        if (!auth()->user()->isDistributor()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Only distributors can redeem coins.',
-            ], 403);
+        if (!auth()->user()->isDistributor() || empty(auth()->user()->distributor_id)) {
+            return response()->json(['success' => false, 'message' => 'Only distributors can redeem coins.'], 403);
         }
 
         $validated = $request->validate([
             'coins' => 'required|integer|min:1',
+            'point_type' => 'required|in:yellow_bal,blue_bal', // 🔥 Frontend se bhejna compulsory hai
         ]);
 
         try {
-            $result = $this->checkoutService->applyCoins(
-                auth()->id(),
-                $validated['coins']
-            );
-
-            return response()->json([
-                'success' => true,
-                'data' => $result,
-            ]);
+            $result = $this->checkoutService->applyCoins(auth()->id(), (int) $validated['coins'], $validated['point_type']);
+            return response()->json(['success' => true, 'data' => $result]);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ], 400);
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
         }
     }
 

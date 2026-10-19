@@ -30,7 +30,7 @@ use App\Services\ReturnService;
 use App\Services\ProformaInvoiceService;
 use App\Sdks\Partner\IgniteClient;
 use App\Sdks\Partner\ResultCode;
-
+use App\Services\TwilioSmsService;
 
 class CheckoutService
 {
@@ -1244,42 +1244,80 @@ class CheckoutService
     /**
      * FR-CO-004: Apply coin redemption
      */
-    public function applyCoins(int $userId, int $coinsToRedeem): array
+    // public function applyCoins(int $userId, int $coinsToRedeem): array
+    // {
+    //     $user = User::findOrFail($userId);
+    //     if (!$user->isDistributor()) {
+    //         throw new Exception('Coin redemption only for distributors');
+    //     }
+
+    //     $coinBalance = $this->getCoinBalance($userId);
+    //     if ($coinsToRedeem > $coinBalance) {
+    //         throw new Exception('Insufficient coin balance');
+    //     }
+
+    //     $cartTotal = $this->getCurrentCartTotal($userId);
+    //     $maxCoins = floor($cartTotal / 10);
+    //     if ($coinsToRedeem > $maxCoins) {
+    //         throw new Exception('Cannot redeem more than order value');
+    //     }
+
+    //     $amountRedeemed = $coinsToRedeem * 10;
+    //     $authorization = $this->authorizeCoinRedemption($userId, $coinsToRedeem, $amountRedeemed);
+
+    //     $redemption = CoinRedemption::create([
+    //         'user_id' => $userId,
+    //         'order_id' => null,
+    //         'coins_used' => $coinsToRedeem,
+    //         'amount_redeemed' => $amountRedeemed,
+    //         'status' => 'authorized',
+    //         'api_authorization_id' => $authorization['id'],
+    //         'authorized_at' => now(),
+    //     ]);
+
+    //     return [
+    //         'success' => true,
+    //         'coins_used' => $coinsToRedeem,
+    //         'amount_redeemed' => $amountRedeemed,
+    //         'remaining_coins' => $coinBalance - $coinsToRedeem,
+    //         'redemption_id' => $redemption->id,
+    //     ];
+    // }
+
+    public function applyCoins(int $userId, int $coinsToRedeem, string $pointType): array
     {
         $user = User::findOrFail($userId);
-        if (!$user->isDistributor()) {
-            throw new Exception('Coin redemption only for distributors');
+
+        if (!$user->isDistributor() || empty($user->distributor_id)) {
+            throw new Exception('Only distributors can redeem coins');
         }
 
-        $coinBalance = $this->getCoinBalance($userId);
-        if ($coinsToRedeem > $coinBalance) {
-            throw new Exception('Insufficient coin balance');
+        $ignite = app(\App\Sdks\Partner\IgniteClient::class);
+        $response = $ignite->redeemCoin($user->distributor_id, $pointType, $coinsToRedeem, 'RED-' . $user->id . '-' . time());
+
+        if ($response['code'] !== 0) {
+            throw new Exception('Ignite Refused: ' . $response['msg']);
         }
 
-        $cartTotal = $this->getCurrentCartTotal($userId);
-        $maxCoins = floor($cartTotal / 10);
-        if ($coinsToRedeem > $maxCoins) {
-            throw new Exception('Cannot redeem more than order value');
+        $usdRate = config('services.ignite.usd_to_inr_rate');
+        if (!$usdRate) {
+            throw new Exception("Ignite USD to INR rate is not configured. Please set IGNITE_USD_TO_INR_RATE in .env.");
         }
-
-        $amountRedeemed = $coinsToRedeem * 10;
-        $authorization = $this->authorizeCoinRedemption($userId, $coinsToRedeem, $amountRedeemed);
+        $amountInr = (float) $response['data']['comm_amount'] * (float) $usdRate;
 
         $redemption = CoinRedemption::create([
             'user_id' => $userId,
-            'order_id' => null,
             'coins_used' => $coinsToRedeem,
-            'amount_redeemed' => $amountRedeemed,
+            'amount_redeemed' => $amountInr,
             'status' => 'authorized',
-            'api_authorization_id' => $authorization['id'],
+            'api_authorization_id' => $response['data']['txid'],
             'authorized_at' => now(),
         ]);
 
         return [
             'success' => true,
             'coins_used' => $coinsToRedeem,
-            'amount_redeemed' => $amountRedeemed,
-            'remaining_coins' => $coinBalance - $coinsToRedeem,
+            'amount_redeemed' => $amountInr,
             'redemption_id' => $redemption->id,
         ];
     }
@@ -2242,334 +2280,6 @@ class CheckoutService
     /**
      * FR-CO-006: Confirm order via webhook
      */
-
-    // public function confirmOrder(string $orderReference, array $gatewayData): array
-    // {
-    //     $order = Order::where('order_reference', $orderReference)->firstOrFail();
-
-    //     if ($order->status === 'confirmed') {
-    //         return ['success' => true, 'message' => 'Order already confirmed'];
-    //     }
-
-    //     return DB::transaction(function () use ($order, $gatewayData) {
-    //         $order->update([
-    //             'status' => 'confirmed',
-    //             'confirmed_at' => now(),
-    //             'payment_gateway' => $gatewayData['gateway'],
-    //             'gateway_transaction_id' => $gatewayData['transaction_id'],
-    //             'amount_paid' => $order->total_payable,
-    //         ]);
-
-    //         // Decrement stock for products and variants
-    //         foreach ($order->lines as $line) {
-    //             // Check if line has variant
-    //             if ($line->variant_id) {
-    //                 $variant = $line->variant;
-    //                 if ($variant) {
-    //                     // Decrement variant stock
-    //                     $variant->decrement('stock_quantity', $line->quantity);
-
-    //                     // Also decrement product stock if tracking at product level
-    //                     $product = $line->product;
-    //                     if ($product) {
-    //                         $product->decrement('stock_quantity', $line->quantity);
-    //                     }
-
-    //                     // Log variant stock movement
-    //                     StockMovement::create([
-    //                         'product_id' => $line->product_id,
-    //                         'variant_id' => $line->variant_id,
-    //                         'quantity' => -$line->quantity,
-    //                         'available_quantity_after' => $variant->stock_quantity,
-    //                         'reason' => 'Order confirmed (variant): ' . $order->order_reference,
-    //                         'order_id' => $order->id,
-    //                     ]);
-
-    //                     // Check variant low stock
-    //                     $variant->refresh();
-    //                     if ($variant->stock_quantity <= $variant->low_stock_threshold) {
-    //                         $this->sendLowStockNotification($order, $line, 'variant');
-    //                     }
-    //                 }
-    //             } else {
-    //                 // Decrement product stock (no variant)
-    //                 $product = $line->product;
-    //                 if ($product) {
-    //                     $product->decrement('stock_quantity', $line->quantity);
-
-    //                     // Log product stock movement
-    //                     StockMovement::create([
-    //                         'product_id' => $line->product_id,
-    //                         'variant_id' => null,
-    //                         'quantity' => -$line->quantity,
-    //                         'available_quantity_after' => $product->stock_quantity,
-    //                         'reason' => 'Order confirmed: ' . $order->order_reference,
-    //                         'order_id' => $order->id,
-    //                     ]);
-
-    //                     // Check product low stock
-    //                     $product->refresh();
-    //                     if ($product->stock_quantity <= $product->low_stock_threshold) {
-    //                         $this->sendLowStockNotification($order, $line, 'product');
-    //                     }
-    //                 }
-    //             }
-
-    //             $line->update([
-    //                 'delivery_status' => 'confirmed'
-    //             ]);
-    //         }
-
-    //         // Delete the cart and its items (only for cart checkout)
-    //         if ($order->checkout_type !== 'buy_now') {
-    //             $cart = Cart::where('user_id', $order->user_id)->first();
-    //             if ($cart) {
-    //                 $cart->items()->delete();
-    //                 $cart->delete();
-    //             }
-    //         }
-
-    //         // Generate invoice using stored summary data
-    //         // $invoice = $this->invoiceService->generateInvoice($order);
-
-    //         // try {
-    //         //     $this->pdfInvoiceService->generateAndSendInvoice($order, $invoice);
-    //         // } catch (\Exception $e) {
-    //         //     Log::error('Failed to send invoice email: ' . $e->getMessage(), [
-    //         //         'order_id' => $order->id
-    //         //     ]);
-    //         // }
-
-    //         // Build full payload for commission API
-    //         $payload = $this->buildCommissionPayload($order);
-
-    //         CommissionApiEvent::create([
-    //             'event_type' => 'order_post',
-    //             'order_id' => $order->id,
-    //             'payload' => $payload,
-    //             'status' => 'pending',
-    //             'retry_count' => 0,
-    //             'max_retries' => 5,
-    //             'last_attempt' => null,
-    //             'error_message' => null,
-    //             'response_data' => null,
-    //         ]);
-
-    //         // Send order confirmation notification
-    //         $this->sendOrderConfirmationNotification($order, $gatewayData);
-
-    //         return [
-    //             'success' => true,
-    //             'order_id' => $order->id,
-    //             'order_reference' => $order->order_reference,
-    //             'status' => 'confirmed',
-    //             // 'invoice_number' => $invoice->invoice_number,
-    //         ];
-    //     });
-    // }
-    // public function confirmOrder(string $orderReference, array $gatewayData): array
-    // {
-    //     $order = Order::where('order_reference', $orderReference)->firstOrFail();
-
-    //     if ($order->status === 'confirmed') {
-    //         return ['success' => true, 'message' => 'Order already confirmed'];
-    //     }
-
-    //     return DB::transaction(function () use ($order, $gatewayData) {
-    //         $oldStatus = $order->status;
-
-    //         $order->update([
-    //             'status' => 'confirmed',
-    //             'confirmed_at' => now(),
-    //             'payment_gateway' => $gatewayData['gateway'],
-    //             'gateway_transaction_id' => $gatewayData['transaction_id'],
-    //             'amount_paid' => $order->total_payable,
-    //         ]);
-
-    //         // =============================================
-    //         // RECORD COUPON USAGE
-    //         // =============================================
-    //         if ($order->coupon_code) {
-    //             $coupon = Coupon::where('code', $order->coupon_code)->first();
-
-    //             if ($coupon) {
-    //                 // Check if usage already exists for this order
-    //                 $existingUsage = CouponUsage::where('order_id', $order->id)->first();
-
-    //                 if (!$existingUsage) {
-    //                     // Create coupon usage entry
-    //                     CouponUsage::create([
-    //                         'coupon_id' => $coupon->id,
-    //                         'user_id' => $order->user_id,
-    //                         'order_id' => $order->id,
-    //                         'discount_amount' => $order->coupon_discount,
-    //                     ]);
-
-    //                     // Increment used_count on coupon
-    //                     $coupon->increment('used_count');
-    //                 }
-    //             }
-    //         }
-
-    //         $lowStockAlerts = [];
-
-    //         // Decrement stock for products and variants
-    //         foreach ($order->lines as $line) {
-    //             // Check if line has variant
-    //             if ($line->variant_id) {
-    //                 $variant = $line->variant;
-    //                 if ($variant) {
-    //                     // Decrement variant stock
-    //                     $variant->decrement('stock_quantity', $line->quantity);
-
-    //                     // Also decrement product stock if tracking at product level
-    //                     $product = $line->product;
-    //                     if ($product) {
-    //                         $product->decrement('stock_quantity', $line->quantity);
-    //                     }
-
-    //                     // Log variant stock movement
-    //                     StockMovement::create([
-    //                         'product_id' => $line->product_id,
-    //                         'variant_id' => $line->variant_id,
-    //                         'quantity' => -$line->quantity,
-    //                         'available_quantity_after' => $variant->stock_quantity,
-    //                         'reason' => 'Order confirmed (variant): ' . $order->order_reference,
-    //                         'order_id' => $order->id,
-    //                     ]);
-
-    //                     // Check variant low stock
-    //                     $variant->refresh();
-    //                     if ($variant->stock_quantity <= $variant->low_stock_threshold) {
-    //                         $alert = $this->sendLowStockNotification($order, $line, 'variant');
-    //                         $lowStockAlerts[] = [
-    //                             'product_id' => $line->product_id,
-    //                             'variant_id' => $line->variant_id,
-    //                             'product_name' => $line->product?->name ?? 'Unknown',
-    //                             'stock' => $variant->stock_quantity,
-    //                             'threshold' => $variant->low_stock_threshold,
-    //                             'alert_type' => 'variant_low_stock'
-    //                         ];
-    //                     }
-    //                 }
-    //             } else {
-    //                 // Decrement product stock (no variant)
-    //                 $product = $line->product;
-    //                 if ($product) {
-    //                     $product->decrement('stock_quantity', $line->quantity);
-
-    //                     // Log product stock movement
-    //                     StockMovement::create([
-    //                         'product_id' => $line->product_id,
-    //                         'variant_id' => null,
-    //                         'quantity' => -$line->quantity,
-    //                         'available_quantity_after' => $product->stock_quantity,
-    //                         'reason' => 'Order confirmed: ' . $order->order_reference,
-    //                         'order_id' => $order->id,
-    //                     ]);
-
-    //                     // Check product low stock
-    //                     $product->refresh();
-    //                     if ($product->stock_quantity <= $product->low_stock_threshold) {
-    //                         $alert = $this->sendLowStockNotification($order, $line, 'product');
-    //                         $lowStockAlerts[] = [
-    //                             'product_id' => $line->product_id,
-    //                             'product_name' => $product->name,
-    //                             'stock' => $product->stock_quantity,
-    //                             'threshold' => $product->low_stock_threshold,
-    //                             'alert_type' => 'product_low_stock'
-    //                         ];
-    //                     }
-    //                 }
-    //             }
-
-    //             $line->update([
-    //                 'delivery_status' => 'confirmed'
-    //             ]);
-    //         }
-
-    //         // Log order confirmation with low stock alerts
-    //         $this->logAudit(
-    //             'order_confirm',
-    //             'orders',
-    //             [
-    //                 'order_reference' => $order->order_reference,
-    //                 'status' => $oldStatus,
-    //                 'total_amount' => $order->total_payable,
-    //                 'user_id' => $order->user_id ?? Auth::user()->id,
-    //             ],
-    //             [
-    //                 'order_reference' => $order->order_reference,
-    //                 'status' => 'confirmed',
-    //                 'confirmed_at' => now()->toDateTimeString(),
-    //                 'payment_gateway' => $gatewayData['gateway'],
-    //                 'transaction_id' => $gatewayData['transaction_id'],
-    //                 'amount_paid' => $order->total_payable,
-    //                 'low_stock_alerts' => $lowStockAlerts,
-    //                 'confirmed_by' => $this->getAdminId(),
-    //             ]
-    //         );
-
-    //         // If low stock alerts exist, log them separately
-    //         foreach ($lowStockAlerts as $alert) {
-    //             $this->logAudit(
-    //                 'low_stock_alert',
-    //                 'inventory',
-    //                 null,
-    //                 $alert,
-    //                 null,
-    //                 $this->getClientIp()
-    //             );
-    //         }
-
-    //         // Delete the cart and its items (only for cart checkout)
-    //         if ($order->checkout_type !== 'buy_now') {
-    //             $cart = Cart::where('user_id', $order->user_id)->first();
-    //             if ($cart) {
-    //                 $cart->items()->delete();
-    //                 $cart->delete();
-    //             }
-    //         }
-
-    //         // Generate invoice using stored summary data
-    //         // $invoice = $this->invoiceService->generateInvoice($order);
-
-    //         // try {
-    //         //     $this->pdfInvoiceService->generateAndSendInvoice($order, $invoice);
-    //         // } catch (\Exception $e) {
-    //         //     Log::error('Failed to send invoice email: ' . $e->getMessage(), [
-    //         //         'order_id' => $order->id
-    //         //     ]);
-    //         // }
-
-    //         // Build full payload for commission API
-    //         $payload = $this->buildCommissionPayload($order);
-
-    //         CommissionApiEvent::create([
-    //             'event_type' => 'order_post',
-    //             'order_id' => $order->id,
-    //             'payload' => $payload,
-    //             'status' => 'pending',
-    //             'retry_count' => 0,
-    //             'max_retries' => 5,
-    //             'last_attempt' => null,
-    //             'error_message' => null,
-    //             'response_data' => null,
-    //         ]);
-
-    //         // Send order confirmation notification
-    //         $this->sendOrderConfirmationNotification($order, $gatewayData);
-
-    //         return [
-    //             'success' => true,
-    //             'order_id' => $order->id,
-    //             'order_reference' => $order->order_reference,
-    //             'status' => 'confirmed',
-    //             'invoice_number' => $invoice->invoice_number ?? null,
-    //         ];
-    //     });
-    // }
-
     public function confirmOrder(string|array $orderReferences, array $gatewayData): array
     {
         // Normalize input to array
@@ -2582,7 +2292,7 @@ class CheckoutService
         }
 
         $orders = Order::whereIn('order_reference', $orderReferences)
-            ->with(['lines.product', 'lines.variant'])
+            ->with(['lines.product', 'lines.variant', 'user'])
             ->get();
 
         if ($orders->isEmpty()) {
@@ -2599,7 +2309,7 @@ class CheckoutService
         }
 
         return DB::transaction(function () use ($orders, $gatewayData) {
-            $confirmedOrders = [];
+            $confirmedOrders   = [];
             $allLowStockAlerts = [];
 
             foreach ($orders as $order) {
@@ -2664,7 +2374,7 @@ class CheckoutService
                             StockMovement::create([
                                 'product_id'               => $line->product_id,
                                 'variant_id'               => $line->variant_id,
-                                'item_reference_id'        => $line->item_reference_id,   // <-- include
+                                'item_reference_id'        => $line->item_reference_id,
                                 'quantity'                 => -$line->quantity,
                                 'available_quantity_after' => $variant->stock_quantity,
                                 'reason'                   => 'Order confirmed (variant): ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
@@ -2675,15 +2385,15 @@ class CheckoutService
                             if ($variant->stock_quantity <= $variant->low_stock_threshold) {
                                 $this->sendLowStockNotification($order, $line, 'variant');
                                 $alert = [
-                                    'product_id'    => $line->product_id,
-                                    'variant_id'    => $line->variant_id,
+                                    'product_id'        => $line->product_id,
+                                    'variant_id'        => $line->variant_id,
                                     'item_reference_id' => $line->item_reference_id,
-                                    'product_name'  => $line->product?->name ?? 'Unknown',
-                                    'stock'         => $variant->stock_quantity,
-                                    'threshold'     => $variant->low_stock_threshold,
-                                    'alert_type'    => 'variant_low_stock',
+                                    'product_name'      => $line->product?->name ?? 'Unknown',
+                                    'stock'             => $variant->stock_quantity,
+                                    'threshold'         => $variant->low_stock_threshold,
+                                    'alert_type'        => 'variant_low_stock',
                                 ];
-                                $lowStockAlerts[] = $alert;
+                                $lowStockAlerts[]    = $alert;
                                 $allLowStockAlerts[] = $alert;
                             }
                         }
@@ -2696,7 +2406,7 @@ class CheckoutService
                             StockMovement::create([
                                 'product_id'               => $line->product_id,
                                 'variant_id'               => null,
-                                'item_reference_id'        => $line->item_reference_id,   // <-- include
+                                'item_reference_id'        => $line->item_reference_id,
                                 'quantity'                 => -$line->quantity,
                                 'available_quantity_after' => $product->stock_quantity,
                                 'reason'                   => 'Order confirmed: ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
@@ -2707,14 +2417,14 @@ class CheckoutService
                             if ($product->stock_quantity <= $product->low_stock_threshold) {
                                 $this->sendLowStockNotification($order, $line, 'product');
                                 $alert = [
-                                    'product_id'    => $line->product_id,
+                                    'product_id'        => $line->product_id,
                                     'item_reference_id' => $line->item_reference_id,
-                                    'product_name'  => $product->name,
-                                    'stock'         => $product->stock_quantity,
-                                    'threshold'     => $product->low_stock_threshold,
-                                    'alert_type'    => 'product_low_stock',
+                                    'product_name'      => $product->name,
+                                    'stock'             => $product->stock_quantity,
+                                    'threshold'         => $product->low_stock_threshold,
+                                    'alert_type'        => 'product_low_stock',
                                 ];
-                                $lowStockAlerts[] = $alert;
+                                $lowStockAlerts[]    = $alert;
                                 $allLowStockAlerts[] = $alert;
                             }
                         }
@@ -2738,14 +2448,14 @@ class CheckoutService
                         'user_id'         => $order->user_id ?? Auth::id(),
                     ],
                     [
-                        'order_reference'   => $order->order_reference,
-                        'status'            => 'confirmed',
-                        'confirmed_at'      => now()->toDateTimeString(),
-                        'payment_gateway'   => $gatewayData['gateway'] ?? null,
-                        'transaction_id'    => $gatewayData['transaction_id'] ?? null,
-                        'amount_paid'       => $order->total_payable,
-                        'low_stock_alerts'  => $lowStockAlerts,
-                        'confirmed_by'      => $this->getAdminId(),
+                        'order_reference'  => $order->order_reference,
+                        'status'           => 'confirmed',
+                        'confirmed_at'     => now()->toDateTimeString(),
+                        'payment_gateway'  => $gatewayData['gateway'] ?? null,
+                        'transaction_id'   => $gatewayData['transaction_id'] ?? null,
+                        'amount_paid'      => $order->total_payable,
+                        'low_stock_alerts' => $lowStockAlerts,
+                        'confirmed_by'     => $this->getAdminId(),
                     ]
                 );
 
@@ -2800,8 +2510,11 @@ class CheckoutService
                     'response_data' => null,
                 ]);
 
-                // IGNITE: Post order to Ignite
-                $this->postOrderToIgnite($order);
+                // IGNITE: Post order to Ignite (queued after commit — see note below)
+                $orderIdForIgnite = $order->id;
+                DB::afterCommit(function () use ($orderIdForIgnite) {
+                    \App\Jobs\PostOrderToIgniteJob::dispatch($orderIdForIgnite);
+                });
 
                 // =============================================
                 // SEND ORDER CONFIRMATION NOTIFICATION
@@ -2823,8 +2536,13 @@ class CheckoutService
                 }
             }
 
-            if ($order->user->account_type == 'distributor') {
-                $this->proformaInvoiceService->generateForOrder($order);
+            // =============================================
+            // PROFORMA INVOICE — per confirmed order
+            // =============================================
+            foreach ($confirmedOrders as $confirmedOrder) {
+                if ($confirmedOrder->user?->account_type === 'distributor') {
+                    $this->proformaInvoiceService->generateForOrder($confirmedOrder);
+                }
             }
 
             return [
@@ -2835,7 +2553,7 @@ class CheckoutService
                 'total_amount'     => round(collect($confirmedOrders)->sum('total_payable'), 2),
                 'status'           => 'confirmed',
                 'low_stock_alerts' => $allLowStockAlerts,
-                'invoice_number'   => null, // set this if invoice service used
+                'invoice_number'   => null,
             ];
         });
     }
@@ -2851,94 +2569,8 @@ class CheckoutService
      */
     protected function postOrderToIgnite(Order $order): void
     {
-        try {
-            $user = $order->user;
-
-            // Only distributors
-            if (!$user || !$user->distributor_id) {
-                return;
-            }
-
-            // Only distributor-type orders
-            if ($order->order_type !== 'distributor') {
-                return;
-            }
-
-            // Prepare lines
-            $lines = [];
-            $totalCv = 0;
-
-            foreach ($order->lines as $line) {
-                $product = $line->product;
-
-                if (!$product || !$product->ignite_product_id) {
-                    Log::warning('Skipping line: no ignite_product_id', [
-                        'order' => $order->order_reference,
-                        'product_id' => $line->product_id,
-                    ]);
-                    continue;
-                }
-
-                $lines[] = [
-                    'product_id' => (int) $product->ignite_product_id,
-                    'qty'        => (int) $line->quantity,
-                ];
-
-                // Calculate CV
-                $totalCv += (float) $product->commission_value * $line->quantity;
-            }
-
-            if (empty($lines)) {
-                Log::warning('Ignite order skipped: no valid lines', [
-                    'order' => $order->order_reference,
-                ]);
-                return;
-            }
-
-            // Call Ignite
-            $ignite = app(IgniteClient::class);
-
-            $response = $ignite->createOrder(
-                baId: $user->distributor_id,
-                partnerOrderRef: $order->order_reference,
-                orderedAt: $order->confirmed_at
-                    ? $order->confirmed_at->copy()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s')
-                    : now()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s'),
-                localAmount: (string) $order->total_payable,
-                localCurrency: 'INR',
-                lines: $lines,
-                allocations: [
-                    ['ba_id' => $user->distributor_id, 'cv' => (string) $totalCv],
-                ],
-                extraTcs: [],
-            );
-
-            // Handle response
-            if ($response['code'] === ResultCode::OK->value) {
-                $order->update([
-                    'ignite_order_no' => $response['data']['order_no'] ?? null,
-                ]);
-
-                Log::info('Ignite order posted', [
-                    'order'           => $order->order_reference,
-                    'ignite_order_no' => $response['data']['order_no'],
-                ]);
-            } elseif ($response['code'] === ResultCode::ORDER_DUPLICATE->value) {
-                Log::info('Ignite order already posted', [
-                    'order' => $order->order_reference,
-                ]);
-            } else {
-                Log::error('Ignite createOrder failed', [
-                    'order' => $order->order_reference,
-                    'code'  => $response['code'],
-                    'msg'   => $response['msg'],
-                ]);
-            }
-        } catch (\Exception $e) {
-            Log::error('Ignite createOrder exception', [
-                'order' => $order->order_reference ?? null,
-                'error' => $e->getMessage(),
-            ]);
+        if ($order->order_type === 'distributor') {
+            \App\Jobs\PostOrderToIgniteJob::dispatch($order->id);
         }
     }
 
