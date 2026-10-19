@@ -7,6 +7,7 @@ use App\Models\AdminNotification;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\OrderShippingDetail;
+use App\Models\Refund;
 use App\Models\Setting;
 use App\Services\CheckoutService;
 use App\Services\InvoiceService;
@@ -3268,6 +3269,30 @@ class OrderController extends Controller
                 ? 'Entire order shipped successfully'
                 : count($processedItems) . ' item(s) shipped successfully';
 
+            /* =============================================
+            | SEND SHIPPED SMS (TWILIO)
+            ============================================= */
+            $phone = $order->user?->phone;
+
+            if ($phone) {
+                $itemCount = count($processedItems);
+                $isFullOrder = $itemCount === $order->lines->count();
+
+                $message = "Hi {$order->user->name}! "
+                    . ($isFullOrder ? "Your order {$order->order_reference} has been shipped." : "{$itemCount} item(s) from your order {$order->order_reference} have been shipped.")
+                    . ($request->courier_company ? " Courier: {$request->courier_company}." : '')
+                    . ($request->courier_tracking_number ? " Tracking: {$request->courier_tracking_number}." : '');
+
+                try {
+                    app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+                } catch (\Throwable $e) {
+                    Log::error('Order shipped SMS failed', [
+                        'order_reference' => $order->order_reference,
+                        'error'           => $e->getMessage(),
+                    ]);
+                }
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => $message,
@@ -3443,6 +3468,29 @@ class OrderController extends Controller
             $message = count($processedItems) === $order->lines->count()
                 ? 'Entire order delivered successfully'
                 : count($processedItems) . ' item(s) delivered successfully';
+
+            /* =============================================
+            | SEND DELIVERED SMS (TWILIO)
+            ============================================= */
+            $phone = $order->user?->phone;
+
+            if ($phone) {
+                $itemCount = count($processedItems);
+                $isFullOrder = $itemCount === $order->lines->count();
+
+                $message = "Hi {$order->user->name}! "
+                    . ($isFullOrder ? "Your order {$order->order_reference} has been delivered." : "{$itemCount} item(s) from your order {$order->order_reference} have been delivered.")
+                    . " We hope you love it! Thank you for shopping with us.";
+
+                try {
+                    app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+                } catch (\Throwable $e) {
+                    Log::error('Order delivered SMS failed', [
+                        'order_reference' => $order->order_reference,
+                        'error'           => $e->getMessage(),
+                    ]);
+                }
+            }
 
             return response()->json([
                 'success' => true,
