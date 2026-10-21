@@ -1529,7 +1529,7 @@ class AuthController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'type' => 'required|in:phone,email',
+                'type'  => 'required|in:phone,email',
                 'phone' => 'required_if:type,phone|min:10|max:15',
                 'email' => 'required_if:type,email|email',
             ]);
@@ -1553,7 +1553,10 @@ class AuthController extends Controller
 
             // ================= PHONE OTP =================
             if ($request->type === 'phone') {
-                $registeredUser = User::where('phone', $request->phone)->first();
+                // ✅ Sirf REGISTERED users ko block karo (partial users nahi)
+                $registeredUser = User::where('phone', $request->phone)
+                    ->where('is_registered', 1)
+                    ->first();
 
                 if ($registeredUser) {
                     return response()->json([
@@ -1562,14 +1565,19 @@ class AuthController extends Controller
                     ], 422);
                 }
 
-                // Check if phone is verified in cache (already used in a flow)
-                $cacheKey = 'phone_verified_' . $request->phone;
-                if (Cache::has($cacheKey)) {
-                    return response()->json([
-                        'status' => false,
-                        'message' => 'This phone number is already used.'
-                    ], 422);
+                // ✅ Verified flag check — agar flag hai to matlab abhi kisi flow mein use ho raha hai
+                // TTL 3 min hai, isliye stale nahi rahega
+                $verifiedKey = 'phone_verified_' . $request->phone;
+                if (Cache::has($verifiedKey)) {
+                    // Agar verified flag abhi bhi hai, matlab user ne OTP verify kiya
+                    // lekin step1 complete nahi kiya. User ko allow karo dobara OTP lene ka
+                    // (kyunki ho sakta hai usne step1 fail kiya ho)
+                    Cache::forget($verifiedKey);
                 }
+
+                // ✅ Purana OTP cache clear karo (re-send allow)
+                $otpKey = 'otp_phone_' . $request->phone;
+                Cache::forget($otpKey);
 
                 // Generate OTP
                 $otp = array_key_exists($request->phone, $staticOtps)
@@ -1577,8 +1585,8 @@ class AuthController extends Controller
                     : rand(100000, 999999);
 
                 // Store OTP in cache (NO DB entry)
-                Cache::put('otp_phone_' . $request->phone, [
-                    'otp' => $otp,
+                Cache::put($otpKey, [
+                    'otp'        => $otp,
                     'expires_at' => now()->addMinutes($expiryMinutes),
                 ], now()->addMinutes($expiryMinutes));
 
@@ -1586,18 +1594,20 @@ class AuthController extends Controller
                 // $this->twilioService->sendOtp($request->phone, $otp);
 
                 return response()->json([
-                    'status' => true,
-                    'message' => 'Phone OTP sent successfully',
-                    'phone' => $request->phone,
-                    'otp' => $otp, // Remove in production
+                    'status'     => true,
+                    'message'    => 'Phone OTP sent successfully',
+                    'phone'      => $request->phone,
+                    'otp'        => $otp, // Remove in production
                     'expires_in' => $expiryMinutes,
                 ]);
             }
 
             // ================= EMAIL OTP =================
             else {
-                // ✅ FIX: Sirf email check kiya, is_registered nahi
-                $registeredUser = User::where('email', $request->email)->first();
+                // ✅ Sirf REGISTERED users ko block karo
+                $registeredUser = User::where('email', $request->email)
+                    ->where('is_registered', 1)
+                    ->first();
 
                 if ($registeredUser) {
                     return response()->json([
@@ -1606,14 +1616,15 @@ class AuthController extends Controller
                     ], 422);
                 }
 
-                // Check if email is verified in cache
-                $cacheKey = 'email_verified_' . $request->email;
-                if (Cache::has($cacheKey)) {
-                    return response()->json([
-                        'status' => false,
-                        'message' => 'This email is already used.'
-                    ], 422);
+                // ✅ Verified flag clear (stale na rahe)
+                $verifiedKey = 'email_verified_' . $request->email;
+                if (Cache::has($verifiedKey)) {
+                    Cache::forget($verifiedKey);
                 }
+
+                // ✅ Purana OTP cache clear karo
+                $otpKey = 'otp_email_' . $request->email;
+                Cache::forget($otpKey);
 
                 // Generate OTP
                 $otp = array_key_exists($request->email, $staticOtps)
@@ -1621,8 +1632,8 @@ class AuthController extends Controller
                     : rand(100000, 999999);
 
                 // Store OTP in cache
-                Cache::put('otp_email_' . $request->email, [
-                    'otp' => $otp,
+                Cache::put($otpKey, [
+                    'otp'        => $otp,
                     'expires_at' => now()->addMinutes($expiryMinutes),
                 ], now()->addMinutes($expiryMinutes));
 
@@ -1630,10 +1641,10 @@ class AuthController extends Controller
                 // Mail::to($request->email)->send(new EmailVerificationMail($otp));
 
                 return response()->json([
-                    'status' => true,
-                    'message' => 'Email OTP sent successfully',
-                    'email' => $request->email,
-                    'otp' => $otp, // Remove in production
+                    'status'     => true,
+                    'message'    => 'Email OTP sent successfully',
+                    'email'      => $request->email,
+                    'otp'        => $otp, // Remove in production
                     'expires_in' => $expiryMinutes,
                 ]);
             }
@@ -1816,9 +1827,11 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Mark phone as verified in cache (valid for 30 min, enough for step1)
+            // OTP cache clear karo
             Cache::forget($cacheKey);
-            Cache::put('phone_verified_' . $request->phone, true, now()->addMinutes(30));
+
+            // ✅ Verified flag sirf 3 minute ke liye (step1 complete karne ke liye kaafi)
+            Cache::put('phone_verified_' . $request->phone, true, now()->addMinutes(3));
 
             return response()->json([
                 'status' => true,
@@ -1945,7 +1958,8 @@ class AuthController extends Controller
             }
 
             Cache::forget($cacheKey);
-            Cache::put('email_verified_' . $request->email, true, now()->addMinutes(30));
+
+            Cache::put('email_verified_' . $request->email, true, now()->addMinutes(3));
 
             return response()->json([
                 'status' => true,
@@ -1967,6 +1981,11 @@ class AuthController extends Controller
     public function distributorStep1Personal(Request $request)
     {
         try {
+            // ✅ Agar request mein phone/email aaye to verified flags turant utha lo
+            // taaki error case mein bhi cache stale na rahe
+            $phoneCacheKey = $request->phone ? 'phone_verified_' . $request->phone : null;
+            $emailCacheKey = $request->email ? 'email_verified_' . $request->email : null;
+
             $validator = Validator::make($request->all(), [
                 'phone' => 'required|min:10|max:15',
                 'email' => [
@@ -1985,29 +2004,36 @@ class AuthController extends Controller
             ]);
 
             if ($validator->fails()) {
+                // ❌ Validation fail → verified flags clear karo
+                if ($phoneCacheKey) Cache::forget($phoneCacheKey);
+                if ($emailCacheKey) Cache::forget($emailCacheKey);
+
                 return response()->json([
                     'status' => false,
                     'errors' => $validator->errors()
                 ], 422);
             }
 
-            // Check phone verified in cache
-            if (!Cache::has('phone_verified_' . $request->phone)) {
+            // ========== VERIFY FLAGS CHECK (ek hi baar) ==========
+            if (!Cache::has($phoneCacheKey)) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Please verify your phone number first.'
                 ], 422);
             }
 
-            // Check email verified in cache
-            if (!Cache::has('email_verified_' . $request->email)) {
+            if (!Cache::has($emailCacheKey)) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Please verify your email first.'
                 ], 422);
             }
 
-            // Check if phone already exists as registered user
+            // ✅ Flags turant clear karo — ab inki zaroorat nahi
+            Cache::forget($phoneCacheKey);
+            Cache::forget($emailCacheKey);
+
+            // Check phone already registered
             $existingPhone = User::where('phone', $request->phone)
                 ->where('is_registered', 1)
                 ->first();
@@ -2019,7 +2045,7 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Check if email already exists as registered user
+            // Check email already registered
             $existingEmail = User::where('email', $request->email)
                 ->where('is_registered', 1)
                 ->first();
@@ -2031,15 +2057,13 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // ========== USER CREATE — SIRF YAHAN ==========
+            // ========== USER CREATE ==========
             $user = User::create([
                 'phone' => $request->phone,
                 'phone_verified' => 1,
                 'phone_verified_at' => now(),
-
                 'email' => $request->email,
                 'email_verified_at' => now(),
-
                 'full_name' => $request->full_name,
                 'country' => $request->country,
                 'account_type' => 'distributor',
@@ -2053,15 +2077,10 @@ class AuthController extends Controller
                 'temp_token' => Str::random(60),
             ]);
 
-            // Create distributor profile
             DistributorProfile::create([
                 'user_id' => $user->id,
                 'kyc_status' => 'pending',
             ]);
-
-            // Clear verified flags from cache
-            Cache::forget('phone_verified_' . $request->phone);
-            Cache::forget('email_verified_' . $request->email);
 
             return response()->json([
                 'status' => true,
@@ -2074,6 +2093,10 @@ class AuthController extends Controller
                 'temp_token' => $user->temp_token,
             ]);
         } catch (\Exception $e) {
+            // ✅ Exception case mein bhi flags clear
+            if (isset($phoneCacheKey) && $phoneCacheKey) Cache::forget($phoneCacheKey);
+            if (isset($emailCacheKey) && $emailCacheKey) Cache::forget($emailCacheKey);
+
             Log::error('Distributor step 1 error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
