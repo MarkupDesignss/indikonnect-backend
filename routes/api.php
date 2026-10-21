@@ -408,23 +408,29 @@ Route::middleware('auth:sanctum')->group(function () {
 // ============================
 Route::post('/webhook/razorpay', [RazorpayWebhookController::class, 'handle']);
 // hdfc_sg merchant webhook
+
 Route::post('/webhook/hdfc', [HdfcWebhookController::class, 'handle'])
     ->name('hdfc.webhook.sg');
-// hdfc_ie merchant webhook
+
 Route::post('/webhook/hdfc1', [HdfcWebhookController::class, 'handle'])
     ->name('hdfc.webhook.ie');
-// ---------- HDFC Return URLs ----------
-// hdfc_sg return
-Route::get('/hdfc/return', [HdfcWebhookController::class, 'return'])
+
+Route::match(['GET', 'POST'], '/hdfc/return', [HdfcWebhookController::class, 'return'])
     ->name('hdfc.return.sg');
-// hdfc_ie return
-Route::get('/hdfc/return1', [HdfcWebhookController::class, 'return'])
+
+Route::match(['GET', 'POST'], '/hdfc/return1', [HdfcWebhookController::class, 'return'])
     ->name('hdfc.return.ie');
-// ---------- HDFC Cancel URLs ----------
-Route::get('/hdfc/cancel', [HdfcWebhookController::class, 'cancel'])
+
+Route::match(['GET', 'POST'], '/hdfc/cancel', [HdfcWebhookController::class, 'cancel'])
     ->name('hdfc.cancel.sg');
-Route::get('/hdfc/cancel1', [HdfcWebhookController::class, 'cancel'])
+
+Route::match(['GET', 'POST'], '/hdfc/cancel1', [HdfcWebhookController::class, 'cancel'])
     ->name('hdfc.cancel.ie');
+
+Route::middleware('auth:sanctum')->get(
+    '/hdfc/orders/{order}/status',
+    [HdfcWebhookController::class, 'status']
+);
 
 // ============================
 // SHIPPING METHODS

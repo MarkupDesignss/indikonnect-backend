@@ -20,6 +20,7 @@ class HdfcService
     protected string $environment;
     protected bool $enableLogging;
     protected string $gatewayKey;
+    protected string $returnUrl;
 
     public function __construct(
         array $config = [],
@@ -30,6 +31,7 @@ class HdfcService
         }
 
         $this->gatewayKey = $gatewayKey;
+        $this->returnUrl = (string) ($config['return_url'] ?? '');
         $this->baseUrl = rtrim(
             (string) ($config['base_url'] ?? ''),
             '/'
@@ -112,7 +114,12 @@ class HdfcService
             );
         }
 
+        if (!filter_var($this->returnUrl, FILTER_VALIDATE_URL) || !str_starts_with($this->returnUrl, 'https://') || parse_url($this->returnUrl, PHP_URL_QUERY)) {
+            throw new Exception('HDFC return_url must be public HTTPS with no query parameters.');
+        }
+
         $payload = [
+            'return_url'             => $this->returnUrl,
             'order_id'               => $orderId,
             'amount'                 => $amount,
             'currency'               => 'INR',
@@ -158,11 +165,9 @@ class HdfcService
     /**
      * Fetch the latest order status from HDFC/Juspay.
      */
-    public function getOrderStatus(string $hdfcOrderId): array
+    public function getOrderStatus(string $orderReference, ?string $customerId = null): array
     {
-        return $this->get(
-            '/orders/' . rawurlencode($hdfcOrderId)
-        );
+        return $this->get('/orders/' . rawurlencode($orderReference), $customerId);
     }
 
     /**
@@ -228,12 +233,12 @@ class HdfcService
         );
     }
 
-    protected function get(string $path): array
+    protected function get(string $path, ?string $customerId = null): array
     {
         $url = $this->baseUrl . $path;
 
         $response = Http::withBasicAuth($this->apiKey, '')
-            ->withHeaders($this->headers(''))
+            ->withHeaders($this->headers($customerId ?? ''))
             ->timeout(30)
             ->get($url);
 
@@ -254,6 +259,9 @@ class HdfcService
             'x-customerid' => $customerId,
         ];
 
+        if ($customerId !== '') {
+            $headers['x-routing-id'] = $customerId;
+        }
         if ($this->resellerId !== '') {
             $headers['x-resellerid'] = $this->resellerId;
         }
