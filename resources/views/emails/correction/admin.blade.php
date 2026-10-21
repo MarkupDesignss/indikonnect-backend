@@ -30,27 +30,30 @@
                     </td>
                 </tr>
                 <tr>
-                    <td style="padding:8px;border-bottom:1px solid #eee;"><strong>Current Name</strong></td>
-                    <td style="padding:8px;border-bottom:1px solid #eee;">{{ $req->user->full_name }}</td>
-                </tr>
-                <tr>
-                    <td style="padding:8px;border-bottom:1px solid #eee;"><strong>Current DOB</strong></td>
-                    <td style="padding:8px;border-bottom:1px solid #eee;">
-                        {{ optional($req->user->date_of_birth)->format('d M Y') ?? 'N/A' }}
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:8px;border-bottom:1px solid #eee;"><strong>Requested Name</strong></td>
+                    <td style="padding:8px;border-bottom:1px solid #eee;"><strong>To Update</strong></td>
                     <td style="padding:8px;border-bottom:1px solid #eee;color:#b91c1c;">
-                        <strong>{{ $req->full_name }}</strong>
+                        <strong>
+                            {{ collect($req->editable_fields)->map(fn($f) => $f === 'full_name' ? 'Full Name' : 'Date of Birth')->join(', ') }}
+                        </strong>
                     </td>
                 </tr>
-                <tr>
-                    <td style="padding:8px;border-bottom:1px solid #eee;"><strong>Requested DOB</strong></td>
-                    <td style="padding:8px;border-bottom:1px solid #eee;color:#b91c1c;">
-                        <strong>{{ $req->date_of_birth->format('d M Y') }}</strong>
-                    </td>
-                </tr>
+
+                @if ($req->needsNameUpdate())
+                    <tr>
+                        <td style="padding:8px;border-bottom:1px solid #eee;"><strong>Current Name</strong></td>
+                        <td style="padding:8px;border-bottom:1px solid #eee;">{{ $req->user->full_name }}</td>
+                    </tr>
+                @endif
+
+                @if ($req->needsDobUpdate())
+                    <tr>
+                        <td style="padding:8px;border-bottom:1px solid #eee;"><strong>Current DOB</strong></td>
+                        <td style="padding:8px;border-bottom:1px solid #eee;">
+                            {{ optional($req->user->date_of_birth)->format('d M Y') ?? 'N/A' }}
+                        </td>
+                    </tr>
+                @endif
+
                 <tr>
                     <td style="padding:8px;"><strong>Request ID</strong></td>
                     <td style="padding:8px;">#{{ $req->id }}</td>

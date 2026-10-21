@@ -18,14 +18,14 @@ class UserAckMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'We received your correction request — #' . $this->req->id,
+            subject: 'Request Received — Profile Correction',
         );
     }
 
     public function content(): Content
     {
         return new Content(
-            view: 'emails.correction.user',
+            view: 'emails.correction.ack',
         );
     }
 }
