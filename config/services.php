@@ -42,30 +42,58 @@ return [
     ],
 
     'hdfc' => [
+
+        // Common frontend result URL
+        'frontend_result_url' => env('HDFC_FRONTEND_RESULT_URL'),
+
         // Indiekonnect Enterprises (SG)
         'sg' => [
-            'base_url'                => env('HDFC_BASE_URL', 'https://smartgateway.hdfc.bank.in'),
-            'api_key'                 => env('HDFC_API_KEY'),
-            'merchant_id'             => env('HDFC_MERCHANT_ID'),
-            'reseller_id'             => env('HDFC_RESELLER_ID', ''),
-            'payment_page_client_id'  => env('HDFC_PAYMENT_PAGE_CLIENT_ID', env('HDFC_MERCHANT_ID')),
-            'response_key'            => env('HDFC_RESPONSE_KEY'),
-            'card_encoding_key'       => env('HDFC_CARD_ENCODING_KEY'),
-            'environment'             => env('HDFC_ENVIRONMENT', 'live'),
-            'enable_logging'          => env('HDFC_ENABLE_LOGGING', false),
+            'base_url' => env(
+                'HDFC_BASE_URL',
+                'https://smartgateway.hdfc.bank.in'
+            ),
+            'api_key' => env('HDFC_API_KEY'),
+            'merchant_id' => env('HDFC_MERCHANT_ID'),
+            'reseller_id' => env('HDFC_RESELLER_ID', ''),
+            'payment_page_client_id' => env(
+                'HDFC_PAYMENT_PAGE_CLIENT_ID',
+                env('HDFC_MERCHANT_ID')
+            ),
+            'response_key' => env('HDFC_RESPONSE_KEY'),
+            'card_encoding_key' => env('HDFC_CARD_ENCODING_KEY'),
+            'environment' => env('HDFC_ENVIRONMENT', 'live'),
+            'enable_logging' => env('HDFC_ENABLE_LOGGING', false),
+
+            'return_url' => env('HDFC_SG_RETURN_URL'),
+            'frontend_result_url' => env('HDFC_FRONTEND_RESULT_URL'),
+            'frontend_result_url' => env(
+                'HDFC_CUSTOMER_RESULT_URL'
+            ),
         ],
 
         // Indiekonnect Enterprises Pvt Ltd (IE)
         'ie' => [
-            'base_url'                => env('HDFC_IE_BASE_URL', 'https://smartgateway.hdfc.bank.in'),
-            'api_key'                 => env('HDFC_IE_API_KEY'),
-            'merchant_id'             => env('HDFC_IE_MERCHANT_ID'),
-            'reseller_id'             => env('HDFC_IE_RESELLER_ID', ''),
-            'payment_page_client_id'  => env('HDFC_IE_PAYMENT_PAGE_CLIENT_ID', env('HDFC_IE_MERCHANT_ID')),
-            'response_key'            => env('HDFC_IE_RESPONSE_KEY'),
-            'card_encoding_key'       => env('HDFC_IE_CARD_ENCODING_KEY'),
-            'environment'             => env('HDFC_IE_ENVIRONMENT', 'live'),
-            'enable_logging'          => env('HDFC_IE_ENABLE_LOGGING', false),
+            'base_url' => env(
+                'HDFC_IE_BASE_URL',
+                'https://smartgateway.hdfc.bank.in'
+            ),
+            'api_key' => env('HDFC_IE_API_KEY'),
+            'merchant_id' => env('HDFC_IE_MERCHANT_ID'),
+            'reseller_id' => env('HDFC_IE_RESELLER_ID', ''),
+            'payment_page_client_id' => env(
+                'HDFC_IE_PAYMENT_PAGE_CLIENT_ID',
+                env('HDFC_IE_MERCHANT_ID')
+            ),
+            'response_key' => env('HDFC_IE_RESPONSE_KEY'),
+            'card_encoding_key' => env('HDFC_IE_CARD_ENCODING_KEY'),
+            'environment' => env('HDFC_IE_ENVIRONMENT', 'live'),
+            'enable_logging' => env('HDFC_IE_ENABLE_LOGGING', false),
+
+            'return_url' => env('HDFC_IE_RETURN_URL'),
+            'frontend_result_url' => env('HDFC_FRONTEND_RESULT_URL'),
+            'frontend_result_url' => env(
+                'HDFC_DISTRIBUTOR_RESULT_URL'
+            ),
         ],
     ],
     'kyc' => [
@@ -93,14 +121,14 @@ return [
     ],
 
     'ignite' => [
-            'base_url'          => env('IGNITE_BASE_URL', 'https://demo-ignite.techtegyit.com/partner/v1'),
-            'api_key'           => env('IGNITE_API_KEY'),
-            'timezone'          => env('IGNITE_TIMEZONE', 'Asia/Shanghai'),
-            'local_currency'    => env('IGNITE_LOCAL_CURRENCY', 'INR'),
-            'usd_to_inr_rate'   => env('IGNITE_USD_TO_INR_RATE', 83),
-            'cv_split_ratio'    => env('IGNITE_CV_SPLIT_RATIO', 0.5),
-            'node_suffix_002'   => env('IGNITE_NODE_SUFFIX_002', '-002'),
-            'node_suffix_003'   => env('IGNITE_NODE_SUFFIX_003', '-003'),
+        'base_url'          => env('IGNITE_BASE_URL', 'https://demo-ignite.techtegyit.com/partner/v1'),
+        'api_key'           => env('IGNITE_API_KEY'),
+        'timezone'          => env('IGNITE_TIMEZONE', 'Asia/Shanghai'),
+        'local_currency'    => env('IGNITE_LOCAL_CURRENCY', 'INR'),
+        'usd_to_inr_rate'   => env('IGNITE_USD_TO_INR_RATE', 83),
+        'cv_split_ratio'    => env('IGNITE_CV_SPLIT_RATIO', 0.5),
+        'node_suffix_002'   => env('IGNITE_NODE_SUFFIX_002', '-002'),
+        'node_suffix_003'   => env('IGNITE_NODE_SUFFIX_003', '-003'),
     ],
 
 ];

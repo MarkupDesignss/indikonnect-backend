@@ -326,8 +326,8 @@ class CheckoutController extends Controller
 
     /**
      * FR-CO-005: Place order and initiate Razorpay payment
-    */
-    
+     */
+
     // public function placeOrder(Request $request): JsonResponse
     // {
     //     $validated = $request->validate([
@@ -337,7 +337,15 @@ class CheckoutController extends Controller
 
     //         'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
 
+    //         'checkout_type' => 'nullable|in:cart,buy_now',
+
+    //         // Buy Now items
     //         'summary_data' => 'required|array',
+    //         'summary_data.items' => 'required_if:checkout_type,buy_now|array|min:1',
+    //         'summary_data.items.*.product_id' => 'required_if:checkout_type,buy_now|integer|exists:products,id',
+    //         'summary_data.items.*.quantity' => 'required_if:checkout_type,buy_now|integer|min:1',
+    //         'summary_data.items.*.variant_id' => 'nullable|integer|exists:product_variants,id',
+
     //         'summary_data.subtotal' => 'sometimes|numeric|min:0',
     //         'summary_data.total_tax' => 'sometimes|numeric|min:0',
     //         'summary_data.coupon_code' => 'nullable|string|max:50',
@@ -352,8 +360,6 @@ class CheckoutController extends Controller
     //         'summary_data.tax_breakdown.*.product_name' => 'required_with:summary_data.tax_breakdown|string|max:255',
     //         'summary_data.tax_breakdown.*.tax_category' => 'required_with:summary_data.tax_breakdown|string|max:100',
     //         'summary_data.tax_breakdown.*.rate' => 'required_with:summary_data.tax_breakdown|min:0',
-
-    //         'checkout_type' => 'nullable|in:cart,buy_now',
     //     ]);
 
     //     try {
@@ -373,7 +379,6 @@ class CheckoutController extends Controller
     //         ], 400);
     //     }
     // }
-
     public function placeOrder(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -425,5 +430,4 @@ class CheckoutController extends Controller
             ], 400);
         }
     }
-
 }
