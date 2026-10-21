@@ -39,6 +39,7 @@ use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\API\LedgerController;
 use App\Http\Controllers\API\BeneficiaryController;
 use App\Http\Controllers\API\GenealogyController;
+use App\Http\Controllers\API\IgniteHistoryController;
 use App\Http\Controllers\API\BuybackController;
 use App\Http\Controllers\API\NotificationController;
 use App\Http\Controllers\API\UserNotificationController;
@@ -589,6 +590,11 @@ Route::middleware('auth:sanctum')->prefix('distributor/genealogy')->group(functi
     Route::get('/downline', [GenealogyController::class, 'downlineList']);
     Route::get('/pending-placements', [GenealogyController::class, 'pendingPlacements']);
     Route::post('/set-placement', [GenealogyController::class, 'setPlacement']);
+});
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/ignite/point-txs',       [\App\Http\Controllers\API\IgniteHistoryController::class, 'pointTxs']);
+    Route::get('/ignite/floating-cv-txs', [\App\Http\Controllers\API\IgniteHistoryController::class, 'floatingCvTxs']);
 });
 
 // ============================
