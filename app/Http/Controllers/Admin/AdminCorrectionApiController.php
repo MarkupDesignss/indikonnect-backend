@@ -18,7 +18,6 @@ class AdminCorrectionApiController extends Controller
         ]);
     }
 
-    // POST /api/admin/correction/requests/{id}/send-link
     public function sendLink($id)
     {
         $req = CorrectionRequest::findOrFail($id);
@@ -36,7 +35,7 @@ class AdminCorrectionApiController extends Controller
             'token_expires_at' => now()->addHours(24),
         ]);
 
-        Mail::to($req->email)->send(new CorrectionLinkMail($req)); // ⭐ email-based
+        Mail::to($req->email)->send(new CorrectionLinkMail($req));
 
         return response()->json([
             'status'  => true,

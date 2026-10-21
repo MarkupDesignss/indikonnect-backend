@@ -19,7 +19,11 @@
 
             <p><strong>Reason you selected:</strong> {{ $req->reason_label }}</p>
 
-            <p>Click the button below to update your <strong>Full Name</strong> and <strong>Date of Birth</strong>:</p>
+            <p>Click the button below to update your
+                <strong>
+                    {{ collect($req->editable_fields)->map(fn($f) => $f === 'full_name' ? 'Full Name' : 'Date of Birth')->join(' & ') }}
+                </strong>:
+            </p>
 
             <p style="text-align:center;margin:28px 0;">
                 <a href="{{ $url }}"

@@ -3,10 +3,10 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Models\CorrectionRequest;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use App\Models\CorrectionRequest;
 
 class CorrectionLinkController extends Controller
 {
@@ -31,10 +31,17 @@ class CorrectionLinkController extends Controller
             return view('correction.invalid');
         }
 
-        $data = $request->validate([
-            'full_name'     => 'required|string|max:150',
-            'date_of_birth' => 'required|date|before:today',
-        ]);
+        $rules = [];
+
+        if ($req->needsNameUpdate()) {
+            $rules['full_name'] = 'required|string|max:150';
+        }
+
+        if ($req->needsDobUpdate()) {
+            $rules['date_of_birth'] = 'required|date|before:today';
+        }
+
+        $data = $request->validate($rules);
 
         DB::transaction(function () use ($req, $data) {
 
@@ -43,15 +50,35 @@ class CorrectionLinkController extends Controller
                 abort(404, 'User not found.');
             }
 
-            $user->update([
-                'full_name'     => $data['full_name'],
-                'date_of_birth' => $data['date_of_birth'],
-            ]);
+            $update = [];
 
-            $req->update([
+            // ✅ Sirf allowed fields update
+            if ($req->needsNameUpdate() && isset($data['full_name'])) {
+                $update['full_name'] = $data['full_name'];
+            }
+
+            if ($req->needsDobUpdate() && isset($data['date_of_birth'])) {
+                $update['date_of_birth'] = $data['date_of_birth'];
+            }
+
+            if (!empty($update)) {
+                $user->update($update);
+            }
+
+            $reqUpdate = [
                 'status'        => 'completed',
                 'token_used_at' => now(),
-            ]);
+            ];
+
+            if ($req->needsNameUpdate() && isset($data['full_name'])) {
+                $reqUpdate['full_name'] = $data['full_name'];
+            }
+
+            if ($req->needsDobUpdate() && isset($data['date_of_birth'])) {
+                $reqUpdate['date_of_birth'] = $data['date_of_birth'];
+            }
+
+            $req->update($reqUpdate);
         });
 
         return view('correction.success');
