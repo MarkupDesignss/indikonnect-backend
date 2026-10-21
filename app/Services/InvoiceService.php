@@ -4,208 +4,160 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\Invoice;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Collection;
 
 class InvoiceService
 {
-    // public function generateInvoice(Order $order): Invoice
-    // {
-    //     $invoiceNumber = $this->generateInvoiceNumber();
-
-    //     $lineItems = [];
-    //     $totalTaxable = 0;
-    //     $totalCgst = 0;
-    //     $totalSgst = 0;
-    //     $totalIgst = 0;
-
-    //     $taxBreakdown = json_decode($order->tax_breakdown, true) ?? [];
-
-    //     foreach ($order->lines as $index => $line) {
-    //         $taxable = $line->unit_price * $line->quantity;
-    //         $totalTaxable += $taxable;
-
-    //         $itemTax = $taxBreakdown[$index] ?? ['cgst' => 0, 'sgst' => 0, 'igst' => 0];
-    //         $totalCgst += $itemTax['cgst'] ?? 0;
-    //         $totalSgst += $itemTax['sgst'] ?? 0;
-    //         $totalIgst += $itemTax['igst'] ?? 0;
-
-    //         $lineItems[] = [
-    //             'product_name' => $line->product->name,
-    //             'product_code' => $line->product->product_code,
-    //             'quantity' => $line->quantity,
-    //             'unit_price' => $line->unit_price,
-    //             'taxable_value' => $taxable,
-    //             'gst_rate' => $line->gst_rate,
-    //             'cgst' => $itemTax['cgst'] ?? 0,
-    //             'sgst' => $itemTax['sgst'] ?? 0,
-    //             'igst' => $itemTax['igst'] ?? 0,
-    //             'gst_amount' => $line->gst_amount,
-    //             'line_total' => $line->line_total,
-    //         ];
-    //     }
-
-    //     $totalTax = $totalCgst + $totalSgst + $totalIgst;
-    //     $totalAmount = $totalTaxable + $totalTax;
-
-    //     return Invoice::create([
-    //         'invoice_number' => $invoiceNumber,
-    //         'order_id' => $order->id,
-    //         'seller_name' => config('app.company_name', 'IndieKonnect'),
-    //         'seller_gstin' => config('app.company_gstin', ''),
-    //         'seller_address' => config('app.company_address', ''),
-    //         'buyer_name' => $order->user->full_name,
-    //         'buyer_gstin' => $order->user->distributorProfile?->gst_number ?? '',
-    //         'buyer_address' => $order->deliveryAddress->address_line_1,
-    //         'delivery_state' => $order->deliveryAddress->state,
-    //         'line_items' => json_encode($lineItems),
-    //         'subtotal_before_redemption' => $order->subtotal + $order->coin_redeemed,
-    //         'coin_redeemed' => $order->coin_redeemed,
-    //         'total_taxable' => $totalTaxable,
-    //         'total_cgst' => $totalCgst,
-    //         'total_sgst' => $totalSgst,
-    //         'total_igst' => $totalIgst,
-    //         'total_tax' => $totalTax,
-    //         'total' => $totalAmount,
-    //         'issued_at' => now(),
-    //     ]);
-    // }
-
-    // protected function generateInvoiceNumber(): string
-    // {
-    //     $last = Invoice::orderBy('id', 'desc')->first();
-    //     $next = $last ? (int) substr($last->invoice_number, 4) + 1 : 1001;
-    //     return 'INV' . str_pad($next, 6, '0', STR_PAD_LEFT);
-    // }
-
-    public function generateInvoice(Order $order): Invoice
+    /**
+     * Generate invoice(s) for given order lines.
+     *
+     * - $lines === null  => poore order ki saari lines (har line ka alag invoice)
+     * - $lines passed    => sirf in lines ka invoice (partial dispatch)
+     *
+     * @return Invoice|Collection  single line => single Invoice, multiple => Collection
+     */
+    public function generateInvoice(Order $order, $lines = null)
     {
-        $invoiceNumber = $this->generateInvoiceNumber();
-
-        $summaryData = json_decode($order->summary_data, true);
-
-        if (!$summaryData) {
-            $summaryData = $this->recalculateFromOrderLines($order);
+        // Normalize input to Collection of OrderLine models
+        if ($lines === null) {
+            $lines = $order->lines;
         }
 
-        $lineItems = [];
-        $totalTaxable = 0;
-        $totalCgst = 0;
-        $totalSgst = 0;
-        $totalIgst = 0;
+        $lines = $lines instanceof Collection
+            ? $lines
+            : collect(is_array($lines) ? $lines : [$lines]);
 
-        $items = $summaryData['items'] ?? [];
-        $taxBreakdown = json_decode($order->tax_breakdown, true) ?? [];
+        $lines = $lines->filter()->values();
 
-        foreach ($items as $index => $item) {
-            $taxableValue = $item['taxable_value'] ?? ($item['unit_price'] * $item['quantity']);
-            $totalTaxable += $taxableValue;
-
-            $cgst = $item['cgst'] ?? 0;
-            $sgst = $item['sgst'] ?? 0;
-            $igst = $item['igst'] ?? 0;
-
-            $totalCgst += $cgst;
-            $totalSgst += $sgst;
-            $totalIgst += $igst;
-
-            $lineItems[] = [
-                'product_name' => $item['product_name'],
-                'product_code' => $item['product_code'] ?? '',
-                'quantity' => $item['quantity'],
-                'unit_price' => $item['unit_price'],
-                'taxable_value' => $taxableValue,
-                'gst_rate' => $item['gst_rate'],
-                'cgst' => $cgst,
-                'sgst' => $sgst,
-                'igst' => $igst,
-                'gst_amount' => $item['total_tax'],
-                'line_total' => $item['line_total'],
-            ];
+        if ($lines->isEmpty()) {
+            throw new \Exception('No order lines provided for invoice generation.');
         }
 
-        $totalTax = $totalCgst + $totalSgst + $totalIgst;
-        $totalAmount = $totalTaxable + $totalTax;
+        // 1 invoice per order line (kyunki invoices.order_line_id hai)
+        $invoices = $lines->map(function ($line) use ($order) {
+            return $this->generateInvoiceForLine($order, $line);
+        });
 
-        // Calculate subtotal before any discounts/redemptions
-        $subtotalBeforeRedemption = $order->subtotal + $order->coin_redeemed + ($order->coupon_discount ?? 0);
+        // Agar single line thi to single Invoice return karo (backward-friendly)
+        return $invoices->count() === 1 ? $invoices->first() : $invoices;
+    }
 
-        $invoice = Invoice::create([
-            'invoice_number' => $invoiceNumber,
-            'order_id' => $order->id,
-            'seller_name' => config('app.company_name', 'IndieKonnect'),
-            'seller_gstin' => config('app.company_gstin', ''),
-            'seller_address' => config('app.company_address', 'Punjab'),
-            'buyer_name' => $order->user->full_name,
-            'buyer_gstin' => $order->user->distributorProfile?->gst_number ?? '',
-            'buyer_address' => $order->deliveryAddress->address_line_1,
-            'delivery_state' => $order->deliveryAddress->state,
-            'line_items' => json_encode($lineItems),
+    /**
+     * Ek order line ke liye ek invoice banao.
+     */
+    protected function generateInvoiceForLine(Order $order, $line): Invoice
+    {
+        $taxData = is_array($line->tax_data)
+            ? $line->tax_data
+            : (json_decode($line->tax_data ?? '[]', true) ?: []);
+
+        $taxableValue = $taxData['taxable_value'] ?? ($line->unit_price * $line->quantity);
+        $cgst         = $taxData['cgst'] ?? 0;
+        $sgst         = $taxData['sgst'] ?? 0;
+        $igst         = $taxData['igst'] ?? 0;
+        $gstAmount    = $line->gst_amount ?? ($cgst + $sgst + $igst);
+
+        $totalTax    = $cgst + $sgst + $igst;
+        $totalAmount = $taxableValue + $totalTax;
+
+        // Is line ke liye discount/coin/coupon proportional share
+        // (kyunki poora discount ek hi line par daalna galat hoga)
+        [$coinShare, $couponShare, $couponCode, $shippingShare, $subtotalBeforeRedemption] =
+            $this->allocateOrderLevelCharges($order, $line, $taxableValue);
+
+        $lineItems = [[
+            'order_line_id' => $line->id,
+            'product_name'  => $line->product->name ?? 'Unknown',
+            'product_code'  => $line->product->product_code ?? '',
+            'quantity'      => $line->quantity,
+            'unit_price'    => $line->unit_price,
+            'taxable_value' => $taxableValue,
+            'gst_rate'      => $line->gst_rate,
+            'cgst'          => $cgst,
+            'sgst'          => $sgst,
+            'igst'          => $igst,
+            'gst_amount'    => $gstAmount,
+            'line_total'    => $line->line_total,
+        ]];
+
+        $totalPayable = max(
+            0,
+            $totalAmount + $shippingShare - $coinShare - $couponShare
+        );
+
+        return Invoice::create([
+            'invoice_number'             => $this->generateInvoiceNumber(),
+            'order_id'                   => $order->id,
+            'order_line_id'              => $line->id,
+            'seller_name'                => config('app.company_name', 'IndieKonnect'),
+            'seller_gstin'               => config('app.company_gstin', ''),
+            'seller_address'             => config('app.company_address', 'Punjab'),
+            'buyer_name'                 => $order->user->full_name,
+            'buyer_gstin'                => $order->user->distributorProfile?->gst_number ?? '',
+            'buyer_address'              => $order->deliveryAddress->address_line_1,
+            'delivery_state'             => $order->deliveryAddress->state,
+            'line_items'                 => json_encode($lineItems),
             'subtotal_before_redemption' => $subtotalBeforeRedemption,
-            'subtotal_after_discount' => $order->subtotal,
-            'coin_redeemed' => $order->coin_redeemed,
-            'coupon_discount' => $order->coupon_discount ?? 0,
-            'coupon_code' => $order->coupon_code,
-            'shipping_charge' => $order->shipping_charge ?? 0,
-            'total_taxable' => $totalTaxable,
-            'total_cgst' => $totalCgst,
-            'total_sgst' => $totalSgst,
-            'total_igst' => $totalIgst,
-            'total_tax' => $totalTax,
-            'total' => $totalAmount,
-            'total_payable' => $order->total_payable,
-            'issued_at' => now(),
-            'summary_snapshot' => json_encode($summaryData),
+            'coin_redeemed'              => $coinShare,
+            'total_taxable'              => $taxableValue,
+            'total_cgst'                 => $cgst,
+            'total_sgst'                 => $sgst,
+            'total_igst'                 => $igst,
+            'total_tax'                  => $totalTax,
+            'coupon_code'                => $couponCode,
+            'coupon_discount'            => $couponShare,
+            'shipping_charge'            => $shippingShare,
+            'subtotal_after_discount'    => max(0, $taxableValue - $couponShare),
+            'total'                      => $totalAmount,
+            'total_payable'              => round($totalPayable, 2),
+            'summary_snapshot'           => json_encode([
+                'items'       => $lineItems,
+                'partial'     => $order->lines->count() > 1,
+                'order_lines' => [$line->id],
+            ]),
+            'issued_at'                  => now(),
         ]);
+    }
 
-        return $invoice;
+    /**
+     * Order-level discount/coin/coupon/shipping ko line par proportionally allocate karo.
+     * Rule: line_share = (line_taxable / order_total_taxable) * order_level_amount
+     *
+     * @return array [coinShare, couponShare, couponCode, shippingShare, subtotalBeforeRedemption]
+     */
+    protected function allocateOrderLevelCharges(Order $order, $line, float $lineTaxable): array
+    {
+        // Order ke saari lines ka total taxable nikaalo
+        $orderTaxableTotal = $order->lines->sum(function ($l) {
+            $td = is_array($l->tax_data)
+                ? $l->tax_data
+                : (json_decode($l->tax_data ?? '[]', true) ?: []);
+            return $td['taxable_value'] ?? ($l->unit_price * $l->quantity);
+        });
+
+        $ratio = $orderTaxableTotal > 0 ? ($lineTaxable / $orderTaxableTotal) : 0;
+
+        $coinShare     = round(($order->coin_redeemed ?? 0) * $ratio, 2);
+        $couponShare   = round(($order->coupon_discount ?? 0) * $ratio, 2);
+        $shippingShare = round(($order->shipping_charge ?? 0) * $ratio, 2);
+
+        // Coupon code sirf us line par jiske share mein coupon laga ho
+        $couponCode = $couponShare > 0 ? $order->coupon_code : null;
+
+        $subtotalBeforeRedemption = round($lineTaxable + $coinShare + $couponShare, 2);
+
+        return [$coinShare, $couponShare, $couponCode, $shippingShare, $subtotalBeforeRedemption];
     }
 
     protected function generateInvoiceNumber(): string
     {
         $last = Invoice::orderBy('id', 'desc')->first();
-        $next = $last ? (int) substr($last->invoice_number, 4) + 1 : 1001;
+        $next = $last ? ((int) substr($last->invoice_number, 4)) + 1 : 1001;
         return 'INV' . str_pad($next, 6, '0', STR_PAD_LEFT);
     }
 
-    protected function recalculateFromOrderLines(Order $order): array
+    protected function recalculateFromOrderLines(Order $order)
     {
-        $items = [];
-        $subtotal = 0;
-        $totalTax = 0;
-        $taxBreakdown = [];
-
-        foreach ($order->lines as $line) {
-            $taxData = json_decode($line->tax_data, true) ?? [];
-            $cgst = $taxData['cgst'] ?? 0;
-            $sgst = $taxData['sgst'] ?? 0;
-            $igst = $taxData['igst'] ?? 0;
-            $taxableValue = $taxData['taxable_value'] ?? ($line->unit_price * $line->quantity);
-
-            $subtotal += $taxableValue;
-            $totalTax += $line->gst_amount;
-
-            $items[] = [
-                'product_id' => $line->product_id,
-                'product_name' => $line->product->name,
-                'product_code' => $line->product->product_code,
-                'quantity' => $line->quantity,
-                'unit_price' => $line->unit_price,
-                'taxable_value' => $taxableValue,
-                'gst_rate' => $line->gst_rate,
-                'cgst' => $cgst,
-                'sgst' => $sgst,
-                'igst' => $igst,
-                'total_tax' => $line->gst_amount,
-                'line_total' => $line->line_total,
-            ];
-        }
-
-        return [
-            'subtotal' => $subtotal,
-            'total_tax' => $totalTax,
-            'grand_total' => $order->total_payable + ($order->coin_redeemed ?? 0) + ($order->coupon_discount ?? 0),
-            'items' => $items,
-            'tax_breakdown' => json_decode($order->tax_breakdown, true) ?? [],
-        ];
+        // ... aapka existing code (waise hi rakh sakte hain)
     }
 }

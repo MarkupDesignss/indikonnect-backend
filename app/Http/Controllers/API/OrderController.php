@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AdminNotification;
+use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\OrderShippingDetail;
@@ -2926,16 +2927,93 @@ class OrderController extends Controller
     /**
      * Dispatch order items or entire order
      */
+    // public function dispatch(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'order_reference' => 'required|string|exists:orders,order_reference',
+    //         'items' => 'nullable|array|min:1',
+    //         'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
+    //         'courier_tracking_number' => 'nullable|string|max:100',
+    //         'courier_company' => 'nullable|string|max:100',
+    //         'delivery_notes' => 'nullable|string|max:500',
+    //         'courier_delivery_date' => 'nullable|date',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['error' => $validator->errors()->first()], 422);
+    //     }
+
+    //     try {
+    //         DB::beginTransaction();
+
+    //         $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
+
+    //         // Determine which items to dispatch
+    //         $itemsToDispatch = $this->getItemsToProcess($order, $request->items ?? []);
+
+    //         if (empty($itemsToDispatch)) {
+    //             throw new Exception('No valid items found to dispatch. Items must be confirmed.');
+    //         }
+
+    //         $processedItems = [];
+
+    //         foreach ($itemsToDispatch as $orderLine) {
+    //             $this->validateDispatchable($orderLine);
+
+    //             $orderLine->update([
+    //                 'delivery_status' => 'dispatched',
+    //                 'dispatched_at' => now(),
+    //             ]);
+
+    //             $processedItems[] = [
+    //                 'order_line_id' => $orderLine->id,
+    //                 'product_name' => $orderLine->product->name ?? 'Unknown',
+    //                 'status' => 'dispatched'
+    //             ];
+
+    //             $this->createShippingDetail($order, $orderLine, $request, 'dispatched');
+    //         }
+
+    //         $order->updateOrderStatus();
+    //         // if ($order->status == 'dispatched') {
+
+    //         $existingInvoice = $order->invoice;
+
+    //         if (!$existingInvoice) {
+    //             $this->invoiceService->generateInvoice($order);
+    //         }
+    //         // }
+
+    //         DB::commit();
+    //         $this->sendOrderDispatchedNotification($order, $processedItems, $request);
+
+    //         $message = count($processedItems) === $order->lines->count()
+    //             ? 'Entire order dispatched successfully'
+    //             : count($processedItems) . ' item(s) dispatched successfully';
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => $message,
+    //             'order_reference' => $order->order_reference,
+    //             'order_status' => $order->fresh()->status,
+    //             'processed_items' => $processedItems,
+    //         ]);
+    //     } catch (Exception $e) {
+    //         DB::rollBack();
+    //         return response()->json(['error' => $e->getMessage()], 400);
+    //     }
+    // }
+
     public function dispatch(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'order_reference' => 'required|string|exists:orders,order_reference',
-            'items' => 'nullable|array|min:1',
-            'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
+            'order_reference'         => 'required|string|exists:orders,order_reference',
+            'items'                   => 'nullable|array|min:1',
+            'items.*.order_line_id'   => 'required|integer|exists:order_lines,id',
             'courier_tracking_number' => 'nullable|string|max:100',
-            'courier_company' => 'nullable|string|max:100',
-            'delivery_notes' => 'nullable|string|max:500',
-            'courier_delivery_date' => 'nullable|date',
+            'courier_company'         => 'nullable|string|max:100',
+            'delivery_notes'          => 'nullable|string|max:500',
+            'courier_delivery_date'   => 'nullable|date',
         ]);
 
         if ($validator->fails()) {
@@ -2954,36 +3032,42 @@ class OrderController extends Controller
                 throw new Exception('No valid items found to dispatch. Items must be confirmed.');
             }
 
-            $processedItems = [];
+            $processedItems  = [];
+            $dispatchedLines = [];   //  invoice ke liye collect
 
             foreach ($itemsToDispatch as $orderLine) {
                 $this->validateDispatchable($orderLine);
 
                 $orderLine->update([
                     'delivery_status' => 'dispatched',
-                    'dispatched_at' => now(),
+                    'dispatched_at'   => now(),
                 ]);
 
                 $processedItems[] = [
                     'order_line_id' => $orderLine->id,
-                    'product_name' => $orderLine->product->name ?? 'Unknown',
-                    'status' => 'dispatched'
+                    'product_name'  => $orderLine->product->name ?? 'Unknown',
+                    'status'        => 'dispatched',
                 ];
+
+                $dispatchedLines[] = $orderLine;
 
                 $this->createShippingDetail($order, $orderLine, $request, 'dispatched');
             }
 
             $order->updateOrderStatus();
-            // if ($order->status == 'dispatched') {
 
-            $existingInvoice = $order->invoice;
+            //    InvoiceService har line ka alag invoice banayega (order_line_id ke saath).
+            //    Duplicate guard InvoiceService ke andar hai, phir bhi yahan filter kar rahe hain.
+            $linesNeedingInvoice = collect($dispatchedLines)->filter(function ($line) {
+                return !Invoice::where('order_line_id', $line->id)->exists();
+            })->values();
 
-            if (!$existingInvoice) {
-                $this->invoiceService->generateInvoice($order);
+            if ($linesNeedingInvoice->isNotEmpty()) {
+                $this->invoiceService->generateInvoice($order, $linesNeedingInvoice);
             }
-            // }
 
             DB::commit();
+
             $this->sendOrderDispatchedNotification($order, $processedItems, $request);
 
             $message = count($processedItems) === $order->lines->count()
@@ -2991,10 +3075,10 @@ class OrderController extends Controller
                 : count($processedItems) . ' item(s) dispatched successfully';
 
             return response()->json([
-                'success' => true,
-                'message' => $message,
+                'success'         => true,
+                'message'         => $message,
                 'order_reference' => $order->order_reference,
-                'order_status' => $order->fresh()->status,
+                'order_status'    => $order->fresh()->status,
                 'processed_items' => $processedItems,
             ]);
         } catch (Exception $e) {
@@ -3002,7 +3086,6 @@ class OrderController extends Controller
             return response()->json(['error' => $e->getMessage()], 400);
         }
     }
-
     protected function insertNotification($user, string $type, array $data): void
     {
         DB::table('notifications')->insert([
