@@ -25,7 +25,7 @@ class UserAckMail extends Mailable
     public function content(): Content
     {
         return new Content(
-            view: 'emails.correction.ack',
+            view: 'emails.correction.user',
         );
     }
 }

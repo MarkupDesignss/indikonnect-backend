@@ -19,6 +19,7 @@ class CorrectionLinkController extends Controller
             return view('correction.invalid');
         }
 
+
         return view('correction.form', compact('req', 'token'));
     }
 
