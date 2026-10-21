@@ -175,6 +175,10 @@ class PostOrderToIgniteJob implements ShouldQueue
                     'ignite_sync_status'    => 'posted',
                     'ignite_sync_error'     => null,
                     'commissionable_volume' => $response['data']['total_cv'] ?? 0,
+                    'sales_week_year'       => $response['data']['sales_week']['year']       ?? null,
+                    'sales_week_no'         => $response['data']['sales_week']['week_no']    ?? null,
+                    'settlement_week_year'  => $response['data']['settlement_week']['year']  ?? null,
+                    'settlement_week_no'    => $response['data']['settlement_week']['week_no'] ?? null,
                 ]);
 
                 // Invalidate caches so dashboard/tree reflect new CV immediately
@@ -211,6 +215,10 @@ class PostOrderToIgniteJob implements ShouldQueue
                     'ignite_sync_status'    => 'posted',
                     'ignite_sync_error'     => null,
                     'commissionable_volume' => $cvFromExisting,
+                    'sales_week_year'       => $existing['data']['sales_week']['year']       ?? $order->sales_week_year,
+                    'sales_week_no'         => $existing['data']['sales_week']['week_no']    ?? $order->sales_week_no,
+                    'settlement_week_year'  => $existing['data']['settlement_week']['year']  ?? $order->settlement_week_year,
+                    'settlement_week_no'    => $existing['data']['settlement_week']['week_no'] ?? $order->settlement_week_no,
                 ]);
 
                 Cache::forget("ignite_member_{$mainBaId}");

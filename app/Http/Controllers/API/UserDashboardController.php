@@ -103,6 +103,7 @@ class UserDashboardController extends Controller
                 'cv_right'          => $data['cv_right'] ?? '0.0000',
                 'floating_cv_left'  => $data['floating_cv_left'] ?? '0.0000',
                 'floating_cv_right' => $data['floating_cv_right'] ?? '0.0000',
+                'pending_cv_note' => 'Settles on the settlement week shown per order',
                 'total_cv_left'     => $data['total_cv_left'] ?? '0.0000',
                 'total_cv_right'    => $data['total_cv_right'] ?? '0.0000',
                 'cash_bal'          => $data['cash_bal'] ?? '0.0000',
@@ -217,6 +218,13 @@ class UserDashboardController extends Controller
                 ? date('M d', strtotime($order->courier_delivery_date))
                 : null,
             'items' => $orderItems,
+            'sales_week' => $order->sales_week_year && $order->sales_week_no
+                ? "{$order->sales_week_year}-W" . str_pad($order->sales_week_no, 2, '0', STR_PAD_LEFT)
+                : null,
+            'settlement_week' => $order->settlement_week_year && $order->settlement_week_no
+                ? "{$order->settlement_week_year}-W" . str_pad($order->settlement_week_no, 2, '0', STR_PAD_LEFT)
+                : null,
+            'cv' => number_format((float) ($order->commissionable_volume ?? 0), 2, '.', ''),
         ];
     }
 
@@ -255,6 +263,12 @@ class UserDashboardController extends Controller
                 'points_earned'     => '+' . number_format($cv, 2, '.', '') . ' PV',
                 'status'            => 'Confirmed',
                 'order_reference'   => $order->order_reference,
+                'sales_week' => $order->sales_week_year && $order->sales_week_no
+                    ? "{$order->sales_week_year}-W" . str_pad($order->sales_week_no, 2, '0', STR_PAD_LEFT)
+                    : null,
+                'settlement_week' => $order->settlement_week_year && $order->settlement_week_no
+                    ? "{$order->settlement_week_year}-W" . str_pad($order->settlement_week_no, 2, '0', STR_PAD_LEFT)
+                    : null,
             ];
         }
 
