@@ -40,15 +40,16 @@
                 @if ($req->needsNameUpdate())
                     <label style="font-weight:bold;">Full Name</label><br>
                     <input type="text" name="full_name" id="full_name"
-                        value="{{ old('full_name', $req->full_name ?? $req->user->full_name) }}" required
+                        value="{{ old('full_name', $req->full_name) }}" required
                         style="width:100%;padding:10px;margin:6px 0 16px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;"><br>
                 @endif
 
                 @if ($req->needsDobUpdate())
                     <label style="font-weight:bold;">Date of Birth</label><br>
+                    <!-- ✅ Yahan max date add ki hai (18 saal pehle ki) -->
                     <input type="date" name="date_of_birth" id="date_of_birth"
                         value="{{ old('date_of_birth', optional($req->date_of_birth ?? $req->user->date_of_birth)->format('Y-m-d')) }}"
-                        required
+                        max="{{ now()->subYears(18)->format('Y-m-d') }}" required
                         style="width:100%;padding:10px;margin:6px 0 20px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;"><br>
                 @endif
 
