@@ -66,9 +66,6 @@ return [
 
             'return_url' => env('HDFC_SG_RETURN_URL'),
             'frontend_result_url' => env('HDFC_FRONTEND_RESULT_URL'),
-            'frontend_result_url' => env(
-                'HDFC_CUSTOMER_RESULT_URL'
-            ),
         ],
 
         // Indiekonnect Enterprises Pvt Ltd (IE)
@@ -90,10 +87,7 @@ return [
             'enable_logging' => env('HDFC_IE_ENABLE_LOGGING', false),
 
             'return_url' => env('HDFC_IE_RETURN_URL'),
-            'frontend_result_url' => env('HDFC_FRONTEND_RESULT_URL'),
-            'frontend_result_url' => env(
-                'HDFC_DISTRIBUTOR_RESULT_URL'
-            ),
+            'frontend_result_url' => env('HDFC_FRONTEND_RESULT_URL', "https://www.markupdesigns.net/indikonnect/payment-result"),
         ],
     ],
     'kyc' => [
