@@ -10,4 +10,10 @@ return [
         'dob_data_entry_error'  => 'DOB data entry error',
         'other'                 => 'Other (specify in remarks)',
     ],
+
+    'reason_fields' => [
+        'wrong_name_at_signup' => ['full_name'],
+        'wrong_dob_at_signup'  => ['date_of_birth'],
+        'both_wrong_at_signup' => ['full_name', 'date_of_birth'],
+    ],
 ];
