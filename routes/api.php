@@ -347,6 +347,7 @@ Route::prefix('cart')->middleware('auth:sanctum')->group(function () {
     Route::post('/merge', [CartController::class, 'mergeCart'])->middleware('auth:sanctum');
 });
 Route::get('/products/{id}/check-stock', [ProductController::class, 'getStock']);
+Route::get('/carts/{id}/check-stock', [ProductController::class, 'checkCartStock']);
 // ============================
 // ADDRESSES
 // ============================

@@ -28,10 +28,14 @@ class InventoryReservationService
                 throw new \Exception("Invalid quantity for product #{$productId}");
             }
 
+            // stock_quantity bhi minus, reserved_inventory bhi plus
             $affected = DB::table('products')
                 ->where('id', $productId)
-                ->whereRaw('(stock_quantity - reserved_inventory) >= ?', [$qty])
-                ->update(['reserved_inventory' => DB::raw('reserved_inventory + ' . $qty)]);
+                ->where('stock_quantity', '>=', $qty)          // available check
+                ->update([
+                    'stock_quantity'     => DB::raw('stock_quantity - ' . $qty),
+                    'reserved_inventory' => DB::raw('reserved_inventory + ' . $qty),
+                ]);
 
             if ($affected === 0) {
                 throw new \Exception("Insufficient stock for product #{$productId}");
@@ -68,17 +72,16 @@ class InventoryReservationService
         }
 
         foreach ($reservations as $res) {
+            // stock_quantity already reserve() me minus ho chuki hai — sirf reserved_inventory release karo
             $affected = DB::table('products')
                 ->where('id', $res->product_id)
-                ->where('stock_quantity', '>=', $res->quantity)
                 ->where('reserved_inventory', '>=', $res->quantity)
                 ->update([
-                    'stock_quantity'     => DB::raw('stock_quantity - ' . $res->quantity),
                     'reserved_inventory' => DB::raw('reserved_inventory - ' . $res->quantity),
                 ]);
 
             if ($affected === 0) {
-                throw new \Exception("Stock mismatch consuming product #{$res->product_id} for order #{$orderId}");
+                throw new \Exception("Reservation mismatch consuming product #{$res->product_id} for order #{$orderId}");
             }
 
             $res->update(['status' => 'consumed', 'consumed_at' => now()]);
@@ -86,11 +89,10 @@ class InventoryReservationService
 
         return true;
     }
-
     public function hasAvailability(int $productId, int $qty): bool
     {
         return Product::where('id', $productId)
-            ->whereRaw('(stock_quantity - reserved_inventory) >= ?', [$qty])
+            ->where('stock_quantity', '>=', $qty)
             ->exists();
     }
 
@@ -105,8 +107,10 @@ class InventoryReservationService
 
         DB::table('products')
             ->where('id', $res->product_id)
-            ->where('reserved_inventory', '>=', $res->quantity)
-            ->update(['reserved_inventory' => DB::raw('reserved_inventory - ' . $res->quantity)]);
+            ->update([
+                'stock_quantity'     => DB::raw('stock_quantity + ' . $res->quantity),
+                'reserved_inventory' => DB::raw('GREATEST(reserved_inventory - ' . $res->quantity . ', 0)'),
+            ]);
 
         $res->update(['status' => 'released', 'released_at' => now()]);
     }
