@@ -26,13 +26,13 @@ class CheckoutController extends Controller
     /**
      * Get cart summary
      */
-    //    public function summary(Request $request)
+
+    // public function summary(Request $request)
     // {
     //     try {
     //         $validated = $request->validate([
     //             'address_id' => 'nullable|exists:addresses,id,user_id,' . auth()->id(),
     //             'coupon_code' => 'nullable|string|max:50',
-    //             'shipping_method_id' => 'nullable|exists:shipping_methods,id',
     //             'coins' => 'nullable|integer|min:0',
 
     //             // Buy Now
@@ -72,10 +72,8 @@ class CheckoutController extends Controller
     //             auth()->id(),
     //             $addressId,
     //             $validated['coupon_code'] ?? null,
-    //             $validated['shipping_method_id'] ?? null,
+    //             null,
     //             $validated['coins'] ?? null,
-
-    //             // Buy Now parameters
     //             $validated['product_id'] ?? null,
     //             $validated['variant_id'] ?? null,
     //             $validated['quantity'] ?? null
@@ -114,6 +112,58 @@ class CheckoutController extends Controller
                 'variant_id' => 'nullable|exists:product_variants,id',
                 'quantity' => 'nullable|integer|min:1',
             ]);
+
+            // ✅ STOCK CHECK START (validation ke just baad)
+            if (!empty($validated['product_id'])) {
+                $product = \App\Models\Product::find($validated['product_id']);
+
+                if (!$product) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Product not found.',
+                    ], 404);
+                }
+
+                if ($product->stock <= 0) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'This product is out of stock.',
+                    ], 422);
+                }
+
+                if (!empty($validated['quantity']) && $validated['quantity'] > $product->stock) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Only ' . $product->stock . ' item(s) available in stock.',
+                    ], 422);
+                }
+            }
+
+            if (!empty($validated['variant_id'])) {
+                $variant = \App\Models\ProductVariant::find($validated['variant_id']);
+
+                if (!$variant) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Variant not found.',
+                    ], 404);
+                }
+
+                if ($variant->stock <= 0) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'This variant is out of stock.',
+                    ], 422);
+                }
+
+                if (!empty($validated['quantity']) && $validated['quantity'] > $variant->stock) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Only ' . $variant->stock . ' item(s) available in stock.',
+                    ], 422);
+                }
+            }
+            // ✅ STOCK CHECK END
 
             // Buy Now validation
             $hasProduct = isset($validated['product_id']);

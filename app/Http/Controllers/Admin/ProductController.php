@@ -10488,4 +10488,34 @@ class ProductController extends Controller
             ],
         ], 200);
     }
+
+    public function getStock($id)
+    {
+        try {
+            $product = \App\Models\Product::select('id', 'stock_quantity')->find($id);
+
+            if (!$product) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Product not found.',
+                ], 404);
+            }
+
+            $stockQuantity = (int) $product->stock_quantity;
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'product_id' => $product->id,
+                    'stock_quantity' => $stockQuantity,
+                    'available' => $stockQuantity > 0,
+                ],
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        }
+    }
 }
