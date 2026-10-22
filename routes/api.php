@@ -346,8 +346,10 @@ Route::prefix('cart')->middleware('auth:sanctum')->group(function () {
     Route::delete('/clear', [CartController::class, 'clear']);
     Route::post('/merge', [CartController::class, 'mergeCart'])->middleware('auth:sanctum');
 });
-Route::get('/products/{id}/check-stock', [ProductController::class, 'getStock']);
-Route::get('/carts/{id}/check-stock', [ProductController::class, 'checkCartStock']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/products/{id}/check-stock', [ProductController::class, 'getStock']);
+    Route::get('/carts/{id}/check-stock', [ProductController::class, 'checkCartStock']);
+});
 // ============================
 // ADDRESSES
 // ============================
