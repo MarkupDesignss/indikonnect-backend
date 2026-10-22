@@ -430,4 +430,147 @@ class CheckoutController extends Controller
             ], 400);
         }
     }
+
+    public function repayOrder(string $orderReference): JsonResponse
+    {
+        $order = Order::where('order_reference', $orderReference)
+            ->where('user_id', auth()->id())
+            ->with(['lines', 'user'])
+            ->firstOrFail();
+
+        // ----------------------------------------------------------
+        // 1. Basic guards
+        // ----------------------------------------------------------
+        if ((float) $order->amount_paid > 0 || $order->status === 'confirmed') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order is already paid.',
+            ], 422);
+        }
+
+        if (!in_array($order->status, ['pending', 'failed'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => "Order cannot be repaid in status: {$order->status}",
+            ], 422);
+        }
+
+        // ----------------------------------------------------------
+        // 2. 30-min window check (created_at + 30 min)
+        // ----------------------------------------------------------
+        $deadline = $order->created_at?->copy()->addMinutes(30);
+
+        if (!$deadline || now()->greaterThanOrEqualTo($deadline)) {
+            // Auto mark failed agar abhi pending hai
+            if ($order->status === 'pending') {
+                DB::transaction(function () use ($order) {
+                    $order->update(['status' => 'failed']);
+                    $order->lines()->update(['delivery_status' => 'failed']);
+                });
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Repayment window has expired. Please place a new order.',
+            ], 410);
+        }
+
+        // ----------------------------------------------------------
+        // 3. Gateway validation (jaisa placeOrder me tha)
+        // ----------------------------------------------------------
+        $gateway = $order->payment_gateway;
+
+        if (!$gateway || !in_array($gateway, ['razorpay', 'hdfc_sg', 'hdfc_ie'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment gateway not available for this order.',
+            ], 422);
+        }
+
+        try {
+            // ------------------------------------------------------
+            // 4. Re-create gateway session (same shape as placeOrder)
+            // ------------------------------------------------------
+            $gatewayPayload = [];
+
+            if ($gateway === 'razorpay') {
+                $razorpayService = app(\App\Services\PaymentGateway\RazorpayService::class);
+                $razorpayOrder   = $razorpayService->createOrder($order);
+                $gatewayPayload  = [
+                    'razorpay_order_id' => $razorpayOrder['id'],
+                    'razorpay_key'      => config('services.razorpay.key_id'),
+                ];
+            } elseif (in_array($gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
+                $configKey = $gateway === 'hdfc_sg' ? 'sg' : 'ie';
+                $config    = config("services.hdfc.{$configKey}");
+
+                if (!$config || empty($config['api_key'])) {
+                    throw new \Exception("HDFC merchant [{$gateway}] is not configured.");
+                }
+
+                $hdfcService = new \App\Services\PaymentGateway\HdfcService($config, $gateway);
+                $hdfcOrder   = $hdfcService->createOrder($order);
+
+                $gatewayPayload = [
+                    'hdfc_order_id'     => $hdfcOrder['id'],
+                    'hdfc_payment_link' => $hdfcOrder['payment_link'],
+                    'hdfc_sdk_payload'  => $hdfcOrder['sdk_payload'],
+                    'hdfc_merchant_id'  => $config['merchant_id'],
+                    'hdfc_gateway_key'  => $gateway,
+                ];
+            }
+
+            // ------------------------------------------------------
+            // 5. Re-open order + lines (failed -> pending)
+            //    NOTE: created_at nahi badal raha, isliye 30-min
+            //          window same rehti hai (jo original thi).
+            //    Agar repay ke baad naya window chahiye to yahan
+            //    'created_at' => now() karna padega — par usse
+            //    order ka "placed on" date badal jayega, isliye
+            //    maine nahi kiya. Aapke requirement ke hisaab se
+            //    repay ka window same 30-min wala hi rahega.
+            // ------------------------------------------------------
+            DB::transaction(function () use ($order) {
+                $order->update(['status' => 'pending']);
+                $order->lines()->update(['delivery_status' => 'pending']);
+            });
+
+            // ------------------------------------------------------
+            // 6. Same response shape as placeOrder()
+            // ------------------------------------------------------
+            return response()->json([
+                'success' => true,
+                'message' => 'Repayment session created.',
+                'data'    => array_merge([
+                    'order_id'           => $order->id,
+                    'order_reference'    => $order->order_reference,
+                    'total_items'        => $order->lines()->count(),
+                    'total_amount'       => (float) $order->total_payable,
+                    'status'             => 'pending',
+                    'checkout_type'      => $order->checkout_type ?? 'cart',
+                    'gateway'            => $gateway,
+                    'payment_expires_at' => $deadline->toDateTimeString(),
+                    'tax_split'          => [
+                        'delivery_state' => strtolower(optional($order->deliveryAddress)->state ?? ''),
+                        'supplier_state' => strtolower(config('app.supplier_state', 'Maharashtra')),
+                        'total_cgst'     => (float) $order->total_cgst,
+                        'total_sgst'     => (float) $order->total_sgst,
+                        'total_igst'     => (float) $order->total_igst,
+                    ],
+                ], $gatewayPayload),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('repayOrder failed', [
+                'order_reference' => $orderReference,
+                'gateway'         => $gateway,
+                'error'           => $e->getMessage(),
+                'trace'           => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        }
+    }
 }

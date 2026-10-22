@@ -1032,11 +1032,12 @@ class OrderController extends Controller
         return implode(', ', array_filter($parts));
     }
 
+
     // public function getOrder()
     // {
     //     try {
-    //         $orderLines = OrderLine::with([
-    //             'order.user',
+    //          $orderLines = OrderLine::with([
+    //            'order.user',
     //             'order.billingAddress',
     //             'order.deliveryAddress',
     //             'order.shippingMethod',
@@ -1044,10 +1045,11 @@ class OrderController extends Controller
     //             'order.returns',
     //             'order.creditNotes',
     //             'product',
+    //             'refunds',
     //             'product.images',
     //             'product.reviews' => function ($query) {
     //                 $query->where('status', 'approved')
-    //                     ->with(['user', 'images']); // Load user and images
+    //                     ->with(['user', 'images']);
     //             },
     //         ])
     //             ->whereHas('order', function ($query) {
@@ -1058,6 +1060,10 @@ class OrderController extends Controller
 
     //         $formattedItems = [];
 
+    //         // Gateway charges percentage from settings (e.g. 2.5)
+    //         $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
+    //         $buybackActivate = Setting::where('key', 'buyback_activate')->value('value');
+    //         $returnWindowDays = (int) setting('return_window_days', 30);
     //         foreach ($orderLines as $line) {
     //             $order = $line->order;
     //             $product = $line->product;
@@ -1070,7 +1076,10 @@ class OrderController extends Controller
     //                     Log::info('Review: ID=' . $review->id . ', order_line_id=' . $review->order_line_id . ', order_id=' . $review->order_id . ', status=' . $review->status);
     //                 }
     //             }
-
+    //             $completedRefunds = $line->refunds->where('status', 'completed');
+    //             $refundedAmount = $completedRefunds->isNotEmpty()
+    //                 ? (float) $completedRefunds->sum('amount')
+    //                 : null;
     //             // Get product images
     //             $images = [];
     //             $primaryImage = null;
@@ -1093,14 +1102,12 @@ class OrderController extends Controller
     //                 }
     //             }
 
-    //             // FIX: Get ONLY approved reviews for this specific order line
+    //             // Get ONLY approved reviews for this specific order line
     //             $productReviews = [];
     //             if ($product && $product->reviews) {
     //                 foreach ($product->reviews as $review) {
-    //                     // Debug: Check each review
     //                     Log::info('Checking review: ' . $review->id . ' against line_id: ' . $line->id);
 
-    //                     // Only include approved reviews that belong to this specific order line
     //                     if (
     //                         $review->status === 'approved' &&
     //                         (int)$review->order_line_id === (int)$line->id
@@ -1207,7 +1214,7 @@ class OrderController extends Controller
     //                 ];
     //             })->values()->toArray();
 
-    //             // FIX: Check if THIS SPECIFIC order line has an approved review
+    //             // Check if THIS SPECIFIC order line has an approved review
     //             $isReviewed = \App\Models\ProductReview::where('user_id', auth()->id())
     //                 ->where('product_id', $line->product_id)
     //                 ->where('order_line_id', $line->id)
@@ -1259,6 +1266,68 @@ class OrderController extends Controller
     //                 }
     //             }
 
+    //             // ============================================================
+    //             // RETURN / REFUND ESTIMATE CALCULATIONS
+    //             // ============================================================
+    //             $quantity = (int) $line->quantity;
+    //             $unitPrice = (float) $line->unit_price;
+    //             $gstRate = (float) $line->gst_rate;
+    //             $shippingPerUnit = (float) $line->shipping_charge;
+    //             $lineTotal = (float) $line->line_total;
+    //             $gstAmount = (float) $line->gst_amount;
+    //             $finalAmount = $lineTotal + ($quantity * $shippingPerUnit);
+
+    //             // Determine which return belongs to this order line (if any) to detect return_method
+    //             $returnMethod = null; // 'doorstep' | 'courier' | null
+
+    //             foreach ($order->returns as $return) {
+    //                 $returnItems = is_string($return->items)
+    //                     ? json_decode($return->items, true)
+    //                     : $return->items;
+
+    //                 if (is_array($returnItems)) {
+    //                     foreach ($returnItems as $rItem) {
+    //                         if (($rItem['order_line_id'] ?? null) == $line->id) {
+    //                             // return_method could be on the return or on the item itself
+    //                             $returnMethod = $rItem['return_method']
+    //                                 ?? $return->return_method
+    //                                 ?? null;
+    //                             break 2;
+    //                         }
+    //                     }
+    //                 }
+    //             }
+
+    //             // Deducted shipping charges:
+    //             //   doorstep -> 2 * (quantity * per-unit shipping)
+    //             //   courier  -> 1 * (quantity * per-unit shipping)
+    //             //   no return -> 0
+    //             $totalShippingForLine = $quantity * $shippingPerUnit;
+    //             $deductedShippingCharges = 0;
+
+    //             if ($returnMethod === 'doorstep') {
+    //                 $deductedShippingCharges = 2 * $totalShippingForLine;
+    //             } elseif ($returnMethod === 'courier') {
+    //                 $deductedShippingCharges = 1 * $totalShippingForLine;
+    //             }
+
+    //             // Gateway charges (percentage from settings) calculated on final amount
+    //             $gatewayCharges = $finalAmount * ($gatewayChargesPercent / 100);
+
+    //             // Tax amount for the product (GST)
+    //             $taxAmount = $gstAmount;
+
+    //             // Total returnable amount (approx)
+    //             // = final amount - deducted shipping - gateway charges
+    //             // (tax is included inside line_total / final amount, so we don't add separately)
+    //             $totalReturnableAmount = $finalAmount
+    //                 - $deductedShippingCharges
+    //                 - $gatewayCharges;
+
+    //             if ($totalReturnableAmount < 0) {
+    //                 $totalReturnableAmount = 0;
+    //             }
+
     //             // Build formatted item
     //             $formattedItems[] = [
     //                 // Order Reference
@@ -1270,7 +1339,6 @@ class OrderController extends Controller
     //                 'confirmed_date' => $formatDate($order->confirmed_at),
 
     //                 // Line Item Details
-    //                 // Line Item Details
     //                 'line_id' => $line->id,
     //                 'product_id' => $line->product_id,
     //                 'item_reference_id' => $line->item_reference_id,
@@ -1281,8 +1349,9 @@ class OrderController extends Controller
     //                 'gst_rate' => (float) $line->gst_rate,
     //                 'gst_amount' => (float) $line->gst_amount,
     //                 'line_total' => (float) $line->line_total,
-    //                 'final_amount' => (float) $line->line_total + ($line->quantity * $line->shipping_charge),
-    //                 'delivery_charges' => ($line->quantity * $line->shipping_charge),
+    //                 'refunded_amount' => $refundedAmount,
+    //                 'final_amount' => (float) $finalAmount,
+    //                 'delivery_charges' => (float) $totalShippingForLine,
     //                 'commissionable_volume' => (float) $line->commissionable_volume,
 
     //                 // Product Status (Order Line Level)
@@ -1291,7 +1360,7 @@ class OrderController extends Controller
     //                 'returned_quantity' => (int) ($line->returned_quantity ?? 0),
     //                 'available_for_return' => $line->getAvailableForReturnAttribute(),
     //                 'is_returnable' => $line->isReturnable() ?? true,
-    //                 // 'is_returnable' => $line->is_returnable ?? true,
+    //                 'is_cancel_return_allowed' => $line->is_cancel_return_allowed,
 
     //                 // Timeline at Order Line Level
     //                 'timeline' => [
@@ -1300,13 +1369,10 @@ class OrderController extends Controller
     //                     'shipped_at' => $formatDate($line->shipped_at),
     //                     'cancelled_at' => $formatDate($line->cancelled_at),
     //                     'dispatched_at' => $formatDate($line->dispatched_at),
-    //                     // 'return_applicable_till' => $line->dispatched_at
-    //                     //     ? $formatDate(\Carbon\Carbon::parse($line->dispatched_at)->addDays(30))
-    //                     //     : null,
     //                     'return_applicable_till' => $line->dispatched_at
     //                         ? $formatDate(
     //                             \Carbon\Carbon::parse($line->dispatched_at)
-    //                                 ->addDays((int) setting('return_window_days', 30))
+    //                                 ->addDays($returnWindowDays)
     //                         )
     //                         : null,
     //                     'delivered_at' => $formatDate($line->delivered_at),
@@ -1314,6 +1380,10 @@ class OrderController extends Controller
     //                     'return_approved_at' => $formatDate($line->return_approved_at),
     //                     'return_rejected_at' => $formatDate($line->return_rejected_at),
     //                     'return_completed_at' => $formatDate($line->return_completed_at),
+    //                     'buyback_requested_at' => $formatDate($line->buyback_requested_at),
+    //                     'buyback_approved_at' => $formatDate($line->buyback_approved_at),
+    //                     'buyback_rejected_at' => $formatDate($line->buyback_rejected_at),
+    //                     'buyback_refunded_at' => $formatDate($line->buyback_refunded_at),
     //                 ],
 
     //                 'is_reviewed' => $isReviewed,
@@ -1322,7 +1392,7 @@ class OrderController extends Controller
     //                 'images' => $images,
     //                 'primary_image' => $primaryImage,
 
-    //                 // FIXED: Only show approved reviews for THIS specific order line
+    //                 // Only show approved reviews for THIS specific order line
     //                 'product_reviews' => $productReviews,
 
     //                 // Order Financial Info
@@ -1408,10 +1478,19 @@ class OrderController extends Controller
     //                 // Returns
     //                 'returns' => $returns,
 
-    //                 // ============================================================
-    //                 // CREDIT NOTES
-    //                 // ============================================================
+    //                 // Credit Notes
     //                 'credit_notes' => $itemCreditNotes,
+
+    //                 // ============================================================
+    //                 // RETURN / REFUND ESTIMATE
+    //                 // ============================================================
+    //                 'return_method' => $returnMethod,
+    //                 'is_buyback_enabled' => $buybackActivate,
+    //                 'deducted_shipping_charges' => round($deductedShippingCharges, 2),
+    //                 'gateway_charges' => round($gatewayCharges, 2),
+    //                 'gateway_charges_percent' => $gatewayChargesPercent,
+    //                 'tax_amount' => round($taxAmount, 2),
+    //                 'total_returnable_amount' => round($totalReturnableAmount, 2),
     //             ];
     //         }
 
@@ -1432,6 +1511,29 @@ class OrderController extends Controller
     public function getOrder()
     {
         try {
+            // ============================================================
+            // AUTO-EXPIRE: pending + unpaid orders older than 30 min -> failed
+            // (created_at + 30 min window)
+            // ============================================================
+            $expiredOrderIds = Order::where('user_id', auth()->id())
+                ->where('status', 'pending')
+                ->where('amount_paid', 0)
+                ->where('created_at', '<', now()->subMinutes(30))
+                ->pluck('id');
+
+            if ($expiredOrderIds->isNotEmpty()) {
+                DB::transaction(function () use ($expiredOrderIds) {
+                    Order::whereIn('id', $expiredOrderIds)
+                        ->update(['status' => 'failed']);
+
+                    OrderLine::whereIn('order_id', $expiredOrderIds)
+                        ->update(['delivery_status' => 'failed']);
+                });
+            }
+
+            // ============================================================
+            // FETCH ORDER LINES (unchanged)
+            // ============================================================
             $orderLines = OrderLine::with([
                 'order.user',
                 'order.billingAddress',
@@ -1460,6 +1562,7 @@ class OrderController extends Controller
             $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
             $buybackActivate = Setting::where('key', 'buyback_activate')->value('value');
             $returnWindowDays = (int) setting('return_window_days', 30);
+
             foreach ($orderLines as $line) {
                 $order = $line->order;
                 $product = $line->product;
@@ -1472,10 +1575,12 @@ class OrderController extends Controller
                         Log::info('Review: ID=' . $review->id . ', order_line_id=' . $review->order_line_id . ', order_id=' . $review->order_id . ', status=' . $review->status);
                     }
                 }
+
                 $completedRefunds = $line->refunds->where('status', 'completed');
                 $refundedAmount = $completedRefunds->isNotEmpty()
-                    ? (float) $completedRefunds->sum('amount')   // use 'amount' or 'adjusted_amount'
+                    ? (float) $completedRefunds->sum('amount')
                     : null;
+
                 // Get product images
                 $images = [];
                 $primaryImage = null;
@@ -1684,7 +1789,6 @@ class OrderController extends Controller
                     if (is_array($returnItems)) {
                         foreach ($returnItems as $rItem) {
                             if (($rItem['order_line_id'] ?? null) == $line->id) {
-                                // return_method could be on the return or on the item itself
                                 $returnMethod = $rItem['return_method']
                                     ?? $return->return_method
                                     ?? null;
@@ -1694,10 +1798,7 @@ class OrderController extends Controller
                     }
                 }
 
-                // Deducted shipping charges:
-                //   doorstep -> 2 * (quantity * per-unit shipping)
-                //   courier  -> 1 * (quantity * per-unit shipping)
-                //   no return -> 0
+                // Deducted shipping charges
                 $totalShippingForLine = $quantity * $shippingPerUnit;
                 $deductedShippingCharges = 0;
 
@@ -1714,8 +1815,6 @@ class OrderController extends Controller
                 $taxAmount = $gstAmount;
 
                 // Total returnable amount (approx)
-                // = final amount - deducted shipping - gateway charges
-                // (tax is included inside line_total / final amount, so we don't add separately)
                 $totalReturnableAmount = $finalAmount
                     - $deductedShippingCharges
                     - $gatewayCharges;
@@ -1723,6 +1822,15 @@ class OrderController extends Controller
                 if ($totalReturnableAmount < 0) {
                     $totalReturnableAmount = 0;
                 }
+
+                // ============================================================
+                // CAN REPAY (created_at + 30 min window — no DB column needed)
+                // ============================================================
+                $repayDeadline = $order->created_at?->copy()->addMinutes(30);
+                $canRepay = $order->status === 'pending'
+                    && (float) $order->amount_paid === 0.0
+                    && $repayDeadline
+                    && now()->lessThan($repayDeadline);
 
                 // Build formatted item
                 $formattedItems[] = [
@@ -1802,6 +1910,15 @@ class OrderController extends Controller
                     'coin_redeemed' => (int) $order->coin_redeemed,
                     'coin_redeemed_amount' => (float) $order->coin_redeemed_amount,
                     'total_payable' => (float) $order->total_payable,
+
+                    // ============================================================
+                    // NEW: Repayment fields (created_at + 30 min window)
+                    // ============================================================
+                    'can_repay' => $canRepay,
+                    'payment_expires_at' => $repayDeadline?->toDateTimeString(),
+                    'payment_expires_in' => $canRepay
+                        ? now()->diffInSeconds($repayDeadline, false)
+                        : 0,
 
                     // Tax Breakdown
                     'tax_breakdown' => !empty($order->tax_breakdown)
