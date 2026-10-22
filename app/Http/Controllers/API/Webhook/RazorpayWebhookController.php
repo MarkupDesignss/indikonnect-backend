@@ -83,11 +83,30 @@ class RazorpayWebhookController extends Controller
                     ]);
                     return response()->json(['status' => 'success', 'data' => $result]);
 
+                    // case 'payment.failed':
+                    //     Log::warning('Payment failed', [
+                    //         'reference' => $orderReference,
+                    //     ]);
+                    //     return response()->json(['status' => 'failed', 'message' => 'Payment failed']);
                 case 'payment.failed':
-                    Log::warning('Payment failed', [
+                    $result = $this->failOrderFromWebhook($orderReference, [
+                        'gateway'        => 'razorpay',
+                        'transaction_id' => $paymentEntity['id'] ?? null,
+                        'amount'         => isset($paymentEntity['amount'])
+                            ? $paymentEntity['amount'] / 100
+                            : 0,
+                        'method'         => $paymentEntity['method'] ?? 'unknown',
+                        'status'         => 'payment_failed',
+                    ]);
+
+                    Log::warning('Order payment failed via webhook', [
                         'reference' => $orderReference,
                     ]);
-                    return response()->json(['status' => 'failed', 'message' => 'Payment failed']);
+
+                    return response()->json([
+                        'status' => 'failed',
+                        'data' => $result,
+                    ]);
 
                 case 'order.paid':
                     $result = $this->confirmFromWebhook($orderReference, [
@@ -145,5 +164,42 @@ class RazorpayWebhookController extends Controller
     private function confirmFromWebhook(string $orderReference, array $gatewayData): array
     {
         return $this->checkoutService->confirmOrder($orderReference, $gatewayData);
+    }
+
+    /**
+     * Mark order and all order lines as payment failed.
+     */
+
+    private function failOrderFromWebhook(
+        string $orderReference,
+        array $gatewayData
+    ): array {
+        $order = Order::where('order_reference', $orderReference)->first();
+
+        if (!$order) {
+            throw new \Illuminate\Database\Eloquent\ModelNotFoundException(
+                "Order not found for reference: {$orderReference}"
+            );
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($order, $gatewayData) {
+            $order->update([
+                'status' => 'payment_failed',
+                'payment_gateway' => $gatewayData['gateway'] ?? 'razorpay',
+                'gateway_transaction_id' => $gatewayData['transaction_id'] ?? null,
+            ]);
+
+            \App\Models\OrderLine::where('order_id', $order->id)
+                ->update([
+                    'delivery_status' => 'payment_failed',
+                ]);
+        });
+
+        return [
+            'order_id' => $order->id,
+            'order_reference' => $order->order_reference,
+            'order_status' => $order->fresh()->status,
+            'order_lines_status' => 'payment_failed',
+        ];
     }
 }
