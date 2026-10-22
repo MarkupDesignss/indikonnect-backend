@@ -10524,7 +10524,6 @@ class ProductController extends Controller
     public function checkCartStock($id)
     {
         try {
-            // Cart with items load karo
             $cart = \App\Models\Cart::with('items')->find($id);
 
             if (!$cart) {
@@ -10543,90 +10542,109 @@ class ProductController extends Controller
                 ], 422);
             }
 
-            $result = [];
-            $allAvailable = true;
+            $result          = [];
+            $allAvailable    = true;
+            $availableCount  = 0;
+            $unavailableCount = 0;
 
             foreach ($items as $item) {
+                $requestedQty = (int) $item->quantity;
 
-                // Variant ya product — jo bhi ho
+                // ---------- Variant item ----------
                 if (!empty($item->variant_id)) {
                     $variant = \App\Models\ProductVariant::select('id', 'product_id', 'stock_quantity')
                         ->find($item->variant_id);
 
                     if (!$variant) {
                         $allAvailable = false;
+                        $unavailableCount++;
                         $result[] = [
-                            'cart_item_id' => $item->id,
-                            'product_id' => $item->product_id,
-                            'variant_id' => $item->variant_id,
-                            'requested_quantity' => (int) $item->quantity,
-                            'stock_quantity' => 0,
-                            'available' => false,
-                            'message' => 'Variant not found.',
+                            'cart_item_id'       => $item->id,
+                            'product_id'         => $item->product_id,
+                            'variant_id'         => $item->variant_id,
+                            'requested_quantity' => $requestedQty,
+                            'stock_quantity'     => 0,
+                            'available'          => false,
+                            'status'             => 'not_found',
+                            'message'            => 'Variant not found.',
                         ];
                         continue;
                     }
 
-                    $stock = (int) $variant->stock_quantity;
-                    $isAvailable = $stock > 0 && $stock >= (int) $item->quantity;
+                    $stock       = (int) $variant->stock_quantity;
+                    $isAvailable = $stock > 0 && $stock >= $requestedQty;
 
+                    $isAvailable ? $availableCount++ : $unavailableCount++;
                     if (!$isAvailable) {
                         $allAvailable = false;
                     }
 
                     $result[] = [
-                        'cart_item_id' => $item->id,
-                        'product_id' => $variant->product_id,
-                        'variant_id' => $variant->id,
-                        'requested_quantity' => (int) $item->quantity,
-                        'stock_quantity' => $stock,
-                        'available' => $isAvailable,
+                        'cart_item_id'       => $item->id,
+                        'product_id'         => $variant->product_id,
+                        'variant_id'         => $variant->id,
+                        'requested_quantity' => $requestedQty,
+                        'stock_quantity'     => $stock,
+                        'available'          => $isAvailable,
+                        'status'             => $isAvailable ? 'available' : 'out_of_stock',
                     ];
-                } else {
-                    $product = \App\Models\Product::select('id', 'stock_quantity')
-                        ->find($item->product_id);
-
-                    if (!$product) {
-                        $allAvailable = false;
-                        $result[] = [
-                            'cart_item_id' => $item->id,
-                            'product_id' => $item->product_id,
-                            'variant_id' => null,
-                            'requested_quantity' => (int) $item->quantity,
-                            'stock_quantity' => 0,
-                            'available' => false,
-                            'message' => 'Product not found.',
-                        ];
-                        continue;
-                    }
-
-                    $stock = (int) $product->stock_quantity;
-                    $isAvailable = $stock > 0 && $stock >= (int) $item->quantity;
-
-                    if (!$isAvailable) {
-                        $allAvailable = false;
-                    }
-
-                    $result[] = [
-                        'cart_item_id' => $item->id,
-                        'product_id' => $product->id,
-                        'variant_id' => null,
-                        'requested_quantity' => (int) $item->quantity,
-                        'stock_quantity' => $stock,
-                        'available' => $isAvailable,
-                    ];
+                    continue;
                 }
+
+                // ---------- Simple product ----------
+                $product = \App\Models\Product::select('id', 'stock_quantity')
+                    ->find($item->product_id);
+
+                if (!$product) {
+                    $allAvailable = false;
+                    $unavailableCount++;
+                    $result[] = [
+                        'cart_item_id'       => $item->id,
+                        'product_id'         => $item->product_id,
+                        'variant_id'         => null,
+                        'requested_quantity' => $requestedQty,
+                        'stock_quantity'     => 0,
+                        'available'          => false,
+                        'status'             => 'not_found',
+                        'message'            => 'Product not found.',
+                    ];
+                    continue;
+                }
+
+                $stock       = (int) $product->stock_quantity;
+                $isAvailable = $stock > 0 && $stock >= $requestedQty;
+
+                $isAvailable ? $availableCount++ : $unavailableCount++;
+                if (!$isAvailable) {
+                    $allAvailable = false;
+                }
+
+                $result[] = [
+                    'cart_item_id'       => $item->id,
+                    'product_id'         => $product->id,
+                    'variant_id'         => null,
+                    'requested_quantity' => $requestedQty,
+                    'stock_quantity'     => $stock,
+                    'available'          => $isAvailable,
+                    'status'             => $isAvailable ? 'available' : 'out_of_stock',
+                ];
             }
 
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'cart_id' => $cart->id,
-                    'all_available' => $allAvailable,
-                    'items' => $result,
+                    'cart_id'            => $cart->id,
+                    'all_available'      => $allAvailable,
+                    'total_items'        => $items->count(),
+                    'available_items'    => $availableCount,
+                    'unavailable_items'  => $unavailableCount,
+                    'items'              => $result,
                 ],
+                'message' => $allAvailable
+                    ? 'All items are available.'
+                    : 'Some items are unavailable. Please update your cart.',
             ]);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
