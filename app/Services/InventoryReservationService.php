@@ -14,7 +14,7 @@ class InventoryReservationService
      * Reserve stock atomically. Throws if insufficient.
      * MUST be called inside an existing DB::transaction.
      */
-      public function reserve(int $orderId, array $items, int $ttlMinutes = 20): array
+    public function reserve(int $orderId, array $items, int $ttlMinutes = 20): array
     {
         $token     = (string) Str::uuid();
         $expiresAt = now()->addMinutes($ttlMinutes);
