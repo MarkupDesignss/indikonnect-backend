@@ -2,17 +2,12 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Schedule; // <-- IMPORT THIS
+use Illuminate\Support\Facades\Schedule;
 
 /*
 |--------------------------------------------------------------------------
 | Console Routes
 |--------------------------------------------------------------------------
-|
-| This file is where you may define all of your Closure based console
-| commands. Each Closure is bound to a command instance allowing a
-| simple approach to interacting with each command's IO methods.
-|
 */
 
 Artisan::command('inspire', function () {
@@ -24,22 +19,21 @@ Artisan::command('inspire', function () {
 | Scheduled Tasks
 |--------------------------------------------------------------------------
 |
-| Define all scheduled tasks here using Laravel's Schedule facade.
-| These tasks will be run by the scheduler based on the configured
-| schedule frequency.
+| These tasks are driven by a single system cron job calling:
+|   php artisan schedule:run
+|
+| cPanel is limited to once every 5 minutes, so all tasks use
+| everyFiveMinutes() to align with the system trigger.
 |
 */
 
 Schedule::command('commission:process --limit=50')
-    ->everyMinute()
+    ->everyFiveMinutes()          // Changed from everyMinute()
     ->withoutOverlapping()
     ->runInBackground()
-    ->onOneServer(); // Prevents multiple servers from running the same job
-
-// Optional: If you want to run it less frequently in production,
-// you can use ->everyFiveMinutes() instead.
+    ->onOneServer();
 
 Schedule::command('reservations:release-expired')
-    ->everySecond()
+    ->everyFiveMinutes()          // Changed from everySecond()
     ->withoutOverlapping(1)
     ->runInBackground();
