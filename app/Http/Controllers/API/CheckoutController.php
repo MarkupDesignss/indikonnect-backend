@@ -124,7 +124,7 @@ class CheckoutController extends Controller
                     ], 404);
                 }
 
-                if ($product->stock <= 0) {
+                if ($product->stock_quantity <= 0) {
                     return response()->json([
                         'success' => false,
                         'message' => 'This product is out of stock.',
