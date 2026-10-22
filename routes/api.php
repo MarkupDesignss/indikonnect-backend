@@ -365,6 +365,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/checkout/summary', [CheckoutController::class, 'summary']);
     Route::post('/checkout/apply-coins', [CheckoutController::class, 'applyCoins']);
     Route::post('/checkout/place-order', [CheckoutController::class, 'placeOrder']);
+    Route::post('/repay-order/{orderReference}', [CheckoutController::class, 'repayOrder']);
     Route::get('/order/history', [OrderController::class, 'history']);
     Route::get('/order/{id}', [OrderController::class, 'show']);
     Route::post('/checkout/apply-coupon', [CheckoutController::class, 'applyCoupon']);
