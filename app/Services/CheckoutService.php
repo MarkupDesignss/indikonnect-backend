@@ -2079,7 +2079,6 @@ class CheckoutService
             foreach ($order->lines()->get() as $line) {
                 $reservationItems[] = [
                     'product_id'        => $line->product_id,
-                    'variant_id'        => $line->variant_id,
                     'quantity'          => $line->quantity,
                     'item_reference_id' => $line->item_reference_id,
                 ];
