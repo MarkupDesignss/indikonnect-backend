@@ -38,3 +38,8 @@ Schedule::command('commission:process --limit=50')
 
 // Optional: If you want to run it less frequently in production,
 // you can use ->everyFiveMinutes() instead.
+
+Schedule::command('reservations:release-expired')
+    ->everySecond()
+    ->withoutOverlapping(1)
+    ->runInBackground();
