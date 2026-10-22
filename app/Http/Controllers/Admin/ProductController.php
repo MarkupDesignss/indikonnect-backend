@@ -11,6 +11,7 @@ use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\Product;
 use App\Models\ProductImage;
+use Exception;
 use App\Models\ProductReview;
 use App\Models\ProductVariant;
 use Throwable;
