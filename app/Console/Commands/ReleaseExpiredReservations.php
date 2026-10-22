@@ -15,6 +15,7 @@ class ReleaseExpiredReservations extends Command
 
     public function handle(InventoryReservationService $service): int
     {
+        
         $batch = (int) $this->option('batch');
         $total = 0;
 

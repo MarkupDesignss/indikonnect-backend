@@ -41,7 +41,6 @@ class InventoryReservationService
                 'reservation_token' => $token,
                 'order_id'          => $orderId,
                 'product_id'        => $productId,
-                'variant_id'        => $item['variant_id'] ?? null,
                 'item_reference_id' => $item['item_reference_id'] ?? null,
                 'quantity'          => $qty,
                 'status'            => 'held',
