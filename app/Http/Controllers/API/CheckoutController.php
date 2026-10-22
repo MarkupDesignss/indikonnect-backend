@@ -448,7 +448,7 @@ class CheckoutController extends Controller
             ], 422);
         }
 
-        if (!in_array($order->status, ['pending', 'failed'], true)) {
+        if (!in_array($order->status, ['pending', 'failed', 'payment_failed'], true)) {
             return response()->json([
                 'success' => false,
                 'message' => "Order cannot be repaid in status: {$order->status}",
