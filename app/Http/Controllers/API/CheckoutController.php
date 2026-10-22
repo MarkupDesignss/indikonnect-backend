@@ -11,6 +11,8 @@ use Illuminate\Http\JsonResponse;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\DB;
+use App\Services\InventoryReservationService;
 
 class CheckoutController extends Controller
 {
@@ -327,7 +329,6 @@ class CheckoutController extends Controller
     /**
      * FR-CO-005: Place order and initiate Razorpay payment
      */
-
     // public function placeOrder(Request $request): JsonResponse
     // {
     //     $validated = $request->validate([
@@ -390,7 +391,6 @@ class CheckoutController extends Controller
 
             'checkout_type' => 'nullable|in:cart,buy_now',
 
-            // Buy Now items
             'summary_data' => 'required|array',
             'summary_data.items' => 'required_if:checkout_type,buy_now|array|min:1',
             'summary_data.items.*.product_id' => 'required_if:checkout_type,buy_now|integer|exists:products,id',
@@ -419,10 +419,19 @@ class CheckoutController extends Controller
                 $validated
             );
 
+            // checkoutService must return 'order_ids' / 'order_references'
+            // and internally have called InventoryReservationService::reserve()
+            // within the same DB::transaction.
+
             return response()->json([
                 'success' => true,
-                'data' => $result,
+                'data' => array_merge($result, [
+                    'reservation_expires_at'  => $result['reservation_expires_at'] ?? null,
+                    'reservation_ttl_seconds' => 1200, // 20 minutes
+                ]),
             ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -431,11 +440,20 @@ class CheckoutController extends Controller
         }
     }
 
-    public function repayOrder(string $orderReference): JsonResponse
+    public function repayOrder(Request $request, string $orderReference): JsonResponse
     {
+        // ----------------------------------------------------------
+        // 0. Validate request (inline, no FormRequest needed)
+        // ----------------------------------------------------------
+        $validated = $request->validate([
+            'payment_gateway' => 'required|in:razorpay,hdfc_sg,hdfc_ie',
+        ]);
+
+        $gateway = $validated['payment_gateway'];
+
         $order = Order::where('order_reference', $orderReference)
             ->where('user_id', auth()->id())
-            ->with(['lines', 'user'])
+            ->with(['lines', 'user', 'deliveryAddress'])
             ->firstOrFail();
 
         // ----------------------------------------------------------
@@ -448,7 +466,7 @@ class CheckoutController extends Controller
             ], 422);
         }
 
-        if (!in_array($order->status, ['pending', 'failed', 'payment_failed'], true)) {
+        if (!in_array($order->status, ['pending', 'failed'], true)) {
             return response()->json([
                 'success' => false,
                 'message' => "Order cannot be repaid in status: {$order->status}",
@@ -475,21 +493,9 @@ class CheckoutController extends Controller
             ], 410);
         }
 
-        // ----------------------------------------------------------
-        // 3. Gateway validation (jaisa placeOrder me tha)
-        // ----------------------------------------------------------
-        $gateway = $order->payment_gateway;
-
-        if (!$gateway || !in_array($gateway, ['razorpay', 'hdfc_sg', 'hdfc_ie'], true)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Payment gateway not available for this order.',
-            ], 422);
-        }
-
         try {
             // ------------------------------------------------------
-            // 4. Re-create gateway session (same shape as placeOrder)
+            // 3. Re-create gateway session (same shape as placeOrder)
             // ------------------------------------------------------
             $gatewayPayload = [];
 
@@ -521,22 +527,22 @@ class CheckoutController extends Controller
             }
 
             // ------------------------------------------------------
-            // 5. Re-open order + lines (failed -> pending)
-            //    NOTE: created_at nahi badal raha, isliye 30-min
-            //          window same rehti hai (jo original thi).
-            //    Agar repay ke baad naya window chahiye to yahan
-            //    'created_at' => now() karna padega — par usse
-            //    order ka "placed on" date badal jayega, isliye
-            //    maine nahi kiya. Aapke requirement ke hisaab se
-            //    repay ka window same 30-min wala hi rahega.
+            // 4. Re-open order + lines AND update gateway
+            //    (gateway update zaroori hai — kyunki webhook isi
+            //    gateway se aayega, aur confirmOrder consistency
+            //    ke liye order->payment_gateway bhi match karna
+            //    chahiye.)
             // ------------------------------------------------------
-            DB::transaction(function () use ($order) {
-                $order->update(['status' => 'pending']);
+            DB::transaction(function () use ($order, $gateway) {
+                $order->update([
+                    'status'          => 'pending',
+                    'payment_gateway' => $gateway,
+                ]);
                 $order->lines()->update(['delivery_status' => 'pending']);
             });
 
             // ------------------------------------------------------
-            // 6. Same response shape as placeOrder()
+            // 5. Same response shape as placeOrder()
             // ------------------------------------------------------
             return response()->json([
                 'success' => true,

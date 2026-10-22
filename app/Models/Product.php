@@ -45,6 +45,11 @@ class Product extends Model
         return $this->belongsTo(Brand::class);
     }
 
+    public function getAvailableStockAttribute(): int
+    {
+        return max(0, (int) $this->stock_quantity - (int) $this->reserved_quantity);
+    }
+
     public function taxCategory()
     {
         return $this->belongsTo(TaxCategory::class);

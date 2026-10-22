@@ -13,6 +13,7 @@ use App\Models\Address;
 use App\Models\User;
 use App\Models\Product;
 use Illuminate\Support\Facades\Storage;
+use App\Services\InventoryReservationService;
 use App\Services\PaymentGateway\RazorpayService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -37,6 +38,7 @@ class CheckoutService
 {
     use AuditLogTrait;
     protected HdfcService $hdfcService;
+    protected InventoryReservationService $inventoryReservationService;
     protected GSTCalculator $gstCalculator;
     protected InvoiceService $invoiceService;
     protected RazorpayService $razorpayService;
@@ -54,16 +56,18 @@ class CheckoutService
         PdfInvoiceService $pdfInvoiceService,
         NotificationService $notificationService,
         ReturnService $returnService,
-        ProformaInvoiceService $proformaInvoiceService
+        ProformaInvoiceService $proformaInvoiceService,
+        InventoryReservationService $reservationService
     ) {
         $this->gstCalculator = $gstCalculator;
-        $this->hdfcService     = $hdfcService;
+        $this->hdfcService = $hdfcService;
         $this->invoiceService = $invoiceService;
         $this->razorpayService = $razorpayService;
         $this->pdfInvoiceService = $pdfInvoiceService;
         $this->notificationService = $notificationService;
         $this->returnService = $returnService;
         $this->proformaInvoiceService = $proformaInvoiceService;
+        $this->inventoryReservationService = $reservationService;
     }
 
     /**
@@ -1350,18 +1354,16 @@ class CheckoutService
     //     $address = Address::findOrFail($data['address_id']);
     //     $user = User::findOrFail($userId);
 
-    //     // Extract summary data
     //     $summary = $data['summary_data'] ?? [];
     //     $checkoutType = $data['checkout_type'] ?? 'cart';
 
-    //     // Get supplier state from config
     //     $supplierState = strtolower(config('app.supplier_state', 'Maharashtra'));
     //     $deliveryState = $address ? strtolower($address->state) : null;
 
-    //     // Get cart or buy now items
     //     $cartItems = [];
     //     $isBuyNow = $checkoutType === 'buy_now';
 
+    //     // ---------- Fetch cart / buy-now items (same as before) ----------
     //     if ($isBuyNow) {
     //         if (!isset($summary['items']) || empty($summary['items'])) {
     //             throw new Exception('No items found for Buy Now');
@@ -1374,7 +1376,7 @@ class CheckoutService
     //             }
 
     //             $variant = null;
-    //             if (isset($itemData['variant_id']) && $itemData['variant_id']) {
+    //             if (!empty($itemData['variant_id'])) {
     //                 $variant = ProductVariant::find($itemData['variant_id']);
     //                 if (!$variant) {
     //                     throw new Exception("Variant not found: {$itemData['variant_id']}");
@@ -1389,16 +1391,15 @@ class CheckoutService
     //             }
 
     //             $cartItems[] = (object) [
-    //                 'product_id' => $product->id,
-    //                 'product' => $product,
-    //                 'variant_id' => $variant ? $variant->id : null,
-    //                 'variant' => $variant,
-    //                 'quantity' => $itemData['quantity'],
-    //                 'unit_price' => $itemData['unit_price'] ?? 0,
+    //                 'product_id'  => $product->id,
+    //                 'product'     => $product,
+    //                 'variant_id'  => $variant?->id,
+    //                 'variant'     => $variant,
+    //                 'quantity'    => $itemData['quantity'],
+    //                 'unit_price'  => $itemData['unit_price'] ?? 0,
     //             ];
     //         }
     //     } else {
-    //         // Cart flow
     //         $cart = Cart::with(['items.product.taxCategory', 'items.variant'])
     //             ->where('user_id', $userId)
     //             ->firstOrFail();
@@ -1407,7 +1408,6 @@ class CheckoutService
     //             throw new Exception('Cart is empty');
     //         }
 
-    //         // Check stock for all items
     //         foreach ($cart->items as $item) {
     //             if ($item->variant_id) {
     //                 $variant = $item->variant;
@@ -1427,7 +1427,7 @@ class CheckoutService
     //         $cartItems = $cart->items;
     //     }
 
-    //     // Handle coin redemption
+    //     // ---------- Coin redemption (same as before) ----------
     //     $coinRedemption = null;
     //     $coinsUsed = 0;
     //     $coinRedeemedAmount = 0;
@@ -1437,6 +1437,7 @@ class CheckoutService
     //             ->where('user_id', $userId)
     //             ->where('status', 'authorized')
     //             ->first();
+
     //         if (!$coinRedemption) {
     //             throw new Exception('Invalid or expired coin redemption');
     //         }
@@ -1445,9 +1446,8 @@ class CheckoutService
     //         $coinRedeemedAmount = $coinRedemption->amount_redeemed ?? 0;
     //     }
 
-    //     // Get coupon discount from summary
     //     $couponDiscount = $summary['coupon_discount'] ?? 0;
-    //     $couponCode = $summary['coupon_code'] ?? null;
+    //     $couponCode     = $summary['coupon_code'] ?? null;
 
     //     return DB::transaction(function () use (
     //         $user,
@@ -1464,8 +1464,7 @@ class CheckoutService
     //         $couponDiscount,
     //         $couponCode
     //     ) {
-
-    //         // First pass: Calculate subtotal
+    //         // ============ PASS 1: Subtotal ============
     //         $itemsWithPrices = [];
     //         $totalSubtotal = 0;
 
@@ -1486,319 +1485,275 @@ class CheckoutService
     //             $totalSubtotal += $lineTotal;
 
     //             $itemsWithPrices[] = [
-    //                 'item' => $item,
-    //                 'has_variant' => $hasVariant,
-    //                 'unitPrice' => $unitPrice,
-    //                 'lineTotal' => $lineTotal,
+    //                 'item'         => $item,
+    //                 'has_variant'  => $hasVariant,
+    //                 'unitPrice'    => $unitPrice,
+    //                 'lineTotal'    => $lineTotal,
     //             ];
     //         }
 
-    //         // Second pass: Apply coupon proportionally and calculate tax with split
+    //         // ============ PASS 2: Coupon + Tax split ============
     //         $itemsWithTaxSplit = [];
+    //         $totals = [
+    //             'subtotal'       => 0,
+    //             'coupon_discount' => 0,
+    //             'tax'            => 0,
+    //             'cgst'           => 0,
+    //             'sgst'           => 0,
+    //             'igst'           => 0,
+    //             'shipping'       => 0,
+    //         ];
 
-    //         foreach ($itemsWithPrices as $itemData) {
-    //             $item = $itemData['item'];
-    //             $hasVariant = $itemData['has_variant'];
-    //             $unitPrice = $itemData['unitPrice'];
-    //             $lineTotal = $itemData['lineTotal'];
+    //         foreach ($itemsWithPrices as $row) {
+    //             $item      = $row['item'];
+    //             $hasVariant = $row['has_variant'];
+    //             $unitPrice = $row['unitPrice'];
+    //             $lineTotal = $row['lineTotal'];
 
-    //             // Calculate proportional discount for this item
-    //             $proportion = $totalSubtotal > 0 ? $lineTotal / $totalSubtotal : 0;
+    //             $proportion   = $totalSubtotal > 0 ? $lineTotal / $totalSubtotal : 0;
     //             $itemDiscount = $couponDiscount * $proportion;
-
-    //             // Apply discount to get discounted line total
     //             $discountedLineTotal = $lineTotal - $itemDiscount;
 
-    //             // Calculate tax on discounted amount
-    //             $taxRate = $item->product->taxCategory?->rate ?? 0;
+    //             $taxRate   = $item->product->taxCategory?->rate ?? 0;
     //             $taxAmount = ($discountedLineTotal * $taxRate) / 100;
 
-    //             // =============================================
-    //             // TAX SPLIT LOGIC - PERCENTAGE BASED
-    //             // =============================================
-    //             $cgstRate = 0;
-    //             $sgstRate = 0;
-    //             $igstRate = 0;
-    //             $cgstAmount = 0;
-    //             $sgstAmount = 0;
-    //             $igstAmount = 0;
+    //             $cgstRate = $sgstRate = $igstRate = 0;
+    //             $cgstAmount = $sgstAmount = $igstAmount = 0;
 
-    //             $isPunjab = $deliveryState && $deliveryState === 'punjab';
+    //             $isPunjab    = $deliveryState && $deliveryState === 'punjab';
     //             $isInterState = $deliveryState && $deliveryState !== $supplierState;
 
     //             if ($deliveryState) {
-    //                 if ($isPunjab) {
-    //                     $cgstRate = $taxRate / 2;
-    //                     $sgstRate = $taxRate / 2;
-    //                     $igstRate = 0;
-
-    //                     $cgstAmount = ($discountedLineTotal * $cgstRate) / 100;
-    //                     $sgstAmount = ($discountedLineTotal * $sgstRate) / 100;
-    //                     $igstAmount = 0;
-    //                 } elseif ($isInterState) {
-    //                     $igstRate = $taxRate;
-    //                     $cgstRate = 0;
-    //                     $sgstRate = 0;
-
-    //                     $igstAmount = $taxAmount;
-    //                     $cgstAmount = 0;
-    //                     $sgstAmount = 0;
+    //                 if ($isPunjab || !$isInterState) {
+    //                     $cgstRate = $sgstRate = $taxRate / 2;
+    //                     $cgstAmount = $sgstAmount = $taxAmount / 2;
     //                 } else {
-    //                     $cgstRate = $taxRate / 2;
-    //                     $sgstRate = $taxRate / 2;
-    //                     $igstRate = 0;
-
-    //                     $cgstAmount = ($discountedLineTotal * $cgstRate) / 100;
-    //                     $sgstAmount = ($discountedLineTotal * $sgstRate) / 100;
-    //                     $igstAmount = 0;
+    //                     $igstRate   = $taxRate;
+    //                     $igstAmount = $taxAmount;
     //                 }
     //             } else {
-    //                 $igstRate = $taxRate;
+    //                 $igstRate   = $taxRate;
     //                 $igstAmount = $taxAmount;
-    //                 $cgstRate = 0;
-    //                 $sgstRate = 0;
-    //                 $cgstAmount = 0;
-    //                 $sgstAmount = 0;
     //             }
 
-    //             // Product shipping charge
     //             $productShippingCharge = $item->product->shipping_charge ?? 0;
-    //             $lineShippingCharge = $productShippingCharge * $item->quantity;
+    //             $lineShippingCharge    = $productShippingCharge * $item->quantity;
+    //             $finalLineTotal        = $discountedLineTotal + $taxAmount;
 
-    //             $finalLineTotal = $discountedLineTotal + $taxAmount;
-
-    //             $variantSku = $hasVariant ? $item->variant->sku : null;
-    //             $variantAttributes = $hasVariant ? $item->variant->attributes : null;
+    //             $totals['subtotal']        += $lineTotal;
+    //             $totals['coupon_discount'] += $itemDiscount;
+    //             $totals['tax']             += $taxAmount;
+    //             $totals['cgst']            += $cgstAmount;
+    //             $totals['sgst']            += $sgstAmount;
+    //             $totals['igst']            += $igstAmount;
+    //             $totals['shipping']        += $lineShippingCharge;
 
     //             $itemsWithTaxSplit[] = [
-    //                 'product_id' => $item->product_id,
-    //                 'product' => $item->product,
-    //                 'variant_id' => $item->variant_id ?? null,
-    //                 'variant' => $item->variant ?? null,
-    //                 'quantity' => $item->quantity,
-    //                 'unit_price' => $unitPrice,
-    //                 'line_total' => $lineTotal,
-    //                 'discounted_line_total' => $discountedLineTotal,
-    //                 'item_discount' => $itemDiscount,
-    //                 'tax_rate' => $taxRate,
-    //                 'cgst_rate' => $cgstRate,
-    //                 'sgst_rate' => $sgstRate,
-    //                 'igst_rate' => $igstRate,
-    //                 'cgst_amount' => $cgstAmount,
-    //                 'sgst_amount' => $sgstAmount,
-    //                 'igst_amount' => $igstAmount,
-    //                 'tax_amount' => $taxAmount,
-    //                 'final_line_total' => $finalLineTotal,
+    //                 'product_id'              => $item->product_id,
+    //                 'product'                 => $item->product,
+    //                 'variant_id'              => $item->variant_id ?? null,
+    //                 'variant'                 => $item->variant ?? null,
+    //                 'quantity'                => $item->quantity,
+    //                 'unit_price'              => $unitPrice,
+    //                 'line_total'              => $lineTotal,
+    //                 'discounted_line_total'   => $discountedLineTotal,
+    //                 'item_discount'           => $itemDiscount,
+    //                 'tax_rate'                => $taxRate,
+    //                 'cgst_rate'               => $cgstRate,
+    //                 'sgst_rate'               => $sgstRate,
+    //                 'igst_rate'               => $igstRate,
+    //                 'cgst_amount'             => $cgstAmount,
+    //                 'sgst_amount'             => $sgstAmount,
+    //                 'igst_amount'             => $igstAmount,
+    //                 'tax_amount'              => $taxAmount,
+    //                 'final_line_total'        => $finalLineTotal,
     //                 'product_shipping_charge' => $productShippingCharge,
-    //                 'line_shipping_charge' => $lineShippingCharge,
-    //                 'variant_sku' => $variantSku,
-    //                 'variant_attributes' => $variantAttributes,
+    //                 'line_shipping_charge'    => $lineShippingCharge,
+    //                 'variant_sku'             => $hasVariant ? $item->variant->sku : null,
+    //                 'variant_attributes'      => $hasVariant ? $item->variant->attributes : null,
     //             ];
     //         }
 
-    //         // =============================================
-    //         // CREATE SEPARATE ORDER PER ITEM
-    //         // =============================================
-    //         $orders = [];
-    //         $totalOrderCount = count($itemsWithTaxSplit);
+    //         // ============ Grand total ============
+    //         $grandTotal = round(
+    //             $totals['subtotal']
+    //                 - $totals['coupon_discount']
+    //                 + $totals['tax']
+    //                 + $totals['shipping']
+    //                 - $coinRedeemedAmount,
+    //             2
+    //         );
 
-    //         // Distribute coins proportionally across orders
-    //         $totalCoinsToDistribute = $coinsUsed;
-    //         $totalAmountToDistribute = $coinRedeemedAmount;
-    //         $distributedCoins = 0;
-    //         $distributedAmount = 0;
+    //         // ============ Tax breakdown summary ============
+    //         $taxBreakdown = [
+    //             'items' => array_map(function ($row) {
+    //                 return [
+    //                     'product_id'                => $row['product_id'],
+    //                     'product_name'              => $row['product']->name,
+    //                     'product_code'              => $row['product']->product_code ?? null,
+    //                     'variant_id'                => $row['variant_id'],
+    //                     'variant_sku'               => $row['variant_sku'],
+    //                     'variant_attributes'        => $row['variant_attributes'],
+    //                     'quantity'                  => $row['quantity'],
+    //                     'unit_price'                => $row['unit_price'],
+    //                     'line_total_before_discount' => round($row['line_total'], 2),
+    //                     'line_total_after_discount' => round($row['discounted_line_total'], 2),
+    //                     'tax_category'              => $row['product']->taxCategory?->name ?? 'Default',
+    //                     'tax_rate'                  => $row['tax_rate'],
+    //                     'cgst_rate'                 => round($row['cgst_rate'], 2),
+    //                     'sgst_rate'                 => round($row['sgst_rate'], 2),
+    //                     'igst_rate'                 => round($row['igst_rate'], 2),
+    //                     'cgst_amount'               => round($row['cgst_amount'], 2),
+    //                     'sgst_amount'               => round($row['sgst_amount'], 2),
+    //                     'igst_amount'               => round($row['igst_amount'], 2),
+    //                     'tax_amount'                => round($row['tax_amount'], 2),
+    //                     'line_total_after_tax'      => round($row['discounted_line_total'] + $row['tax_amount'], 2),
+    //                     'shipping_charge'           => round($row['line_shipping_charge'], 2),
+    //                 ];
+    //             }, $itemsWithTaxSplit),
+    //             'summary' => [
+    //                 'subtotal'                => round($totals['subtotal'], 2),
+    //                 'coupon_discount'         => round($totals['coupon_discount'], 2),
+    //                 'subtotal_after_discount' => round($totals['subtotal'] - $totals['coupon_discount'], 2),
+    //                 'total_tax'               => round($totals['tax'], 2),
+    //                 'total_cgst'              => round($totals['cgst'], 2),
+    //                 'total_sgst'              => round($totals['sgst'], 2),
+    //                 'total_igst'              => round($totals['igst'], 2),
+    //                 'shipping_charge'         => round($totals['shipping'], 2),
+    //                 'coin_redeemed'           => $coinsUsed,
+    //                 'coin_redeemed_amount'    => round($coinRedeemedAmount, 2),
+    //                 'grand_total'             => $grandTotal,
+    //             ],
+    //             'tax_by_category' => $this->calculateTaxByCategory(
+    //                 array_map(fn($r) => [
+    //                     'product_name'              => $r['product']->name,
+    //                     'tax_category'              => $r['product']->taxCategory?->name ?? 'Default',
+    //                     'tax_rate'                  => $r['tax_rate'],
+    //                     'line_total_after_disc  ount' => $r['discounted_line_total'],
+    //                     'tax_amount'                => $r['tax_amount'],
+    //                     'cgst_amount'               => $r['cgst_amount'],
+    //                     'sgst_amount'               => $r['sgst_amount'],
+    //                     'igst_amount'               => $r['igst_amount'],
+    //                 ], $itemsWithTaxSplit)
+    //             ),
+    //             'delivery_state' => $deliveryState,
+    //             'supplier_state' => $supplierState,
+    //         ];
 
-    //         foreach ($itemsWithTaxSplit as $index => $itemData) {
-    //             $item = $itemData['product'];
-    //             $lineShippingCharge = $itemData['line_shipping_charge'];
-    //             $lineSubtotal = $itemData['line_total'];
-    //             $lineDiscount = $itemData['item_discount'];
-    //             $discountedLineTotal = $itemData['discounted_line_total'];
-    //             $taxAmount = $itemData['tax_amount'];
-    //             $cgstAmount = $itemData['cgst_amount'];
-    //             $sgstAmount = $itemData['sgst_amount'];
-    //             $igstAmount = $itemData['igst_amount'];
+    //         // ============ CREATE SINGLE ORDER ============
+    //         $order = Order::create([
+    //             'order_reference'       => 'ORD' . strtoupper(uniqid()),
+    //             'user_id'               => $user->id,
+    //             'billing_address_id'    => $data['address_id'],
+    //             'delivery_address_id'   => $data['address_id'],
+    //             'order_type'            => $user->isDistributor() ? 'distributor' : 'retail',
+    //             'subtotal'              => round($totals['subtotal'], 2),
+    //             'total_gst'             => round($totals['tax'], 2),
+    //             'total_cgst'            => round($totals['cgst'], 2),
+    //             'total_sgst'            => round($totals['sgst'], 2),
+    //             'total_igst'            => round($totals['igst'], 2),
+    //             'shipping_charge'       => round($totals['shipping'], 2),
+    //             'shipping_method_id'    => null,
+    //             'coupon_code'           => $couponCode,
+    //             'coupon_discount'       => round($totals['coupon_discount'], 2),
+    //             'coin_redeemed'         => $coinsUsed,
+    //             'coin_redeemed_amount'  => round($coinRedeemedAmount, 2),
+    //             'total_payable'         => $grandTotal,
+    //             'amount_paid'           => 0,
+    //             'status'                => 'pending',
+    //             'tax_breakdown'         => json_encode($taxBreakdown),
+    //             'summary_data'          => json_encode($summary),
+    //             'payment_gateway'       => $data['payment_gateway'] ?? null,
+    //             'checkout_type'         => $isBuyNow ? 'buy_now' : 'cart',
+    //         ]);
 
-    //             // Distribute coins proportionally (last item gets the remainder)
-    //             if ($index === $totalOrderCount - 1) {
-    //                 $orderCoinsUsed = $totalCoinsToDistribute - $distributedCoins;
-    //                 $orderAmountRedeemed = $totalAmountToDistribute - $distributedAmount;
-    //             } else {
-    //                 $proportion = $totalSubtotal > 0 ? $lineSubtotal / $totalSubtotal : 0;
-    //                 $orderCoinsUsed = (int) round($totalCoinsToDistribute * $proportion);
-    //                 $orderAmountRedeemed = round($totalAmountToDistribute * $proportion, 2);
-    //                 $distributedCoins += $orderCoinsUsed;
-    //                 $distributedAmount += $orderAmountRedeemed;
+    //         // ============ CREATE ORDER LINES (with unique item_reference) ============
+    //         foreach ($itemsWithTaxSplit as $row) {
+    //             OrderLine::create([
+    //                 'order_id'              => $order->id,
+    //                 'item_reference_id'     => $this->generateItemReference(), // <-- per-line ref
+    //                 'product_id'            => $row['product_id'],
+    //                 'variant_id'            => $row['variant_id'],
+    //                 'quantity'              => $row['quantity'],
+    //                 'unit_price'            => round($row['unit_price'], 2),
+    //                 'shipping_charge'       => round($row['product_shipping_charge'], 2),
+    //                 'gst_rate'              => $row['tax_rate'],
+    //                 'cgst_rate'             => round($row['cgst_rate'], 2),
+    //                 'sgst_rate'             => round($row['sgst_rate'], 2),
+    //                 'igst_rate'             => round($row['igst_rate'], 2),
+    //                 'gst_amount'            => round($row['tax_amount'], 2),
+    //                 'cgst_amount'           => round($row['cgst_amount'], 2),
+    //                 'sgst_amount'           => round($row['sgst_amount'], 2),
+    //                 'igst_amount'           => round($row['igst_amount'], 2),
+    //                 'line_total'            => round($row['final_line_total'], 2),
+    //                 'commissionable_volume' => $row['product']->commissionable_volume ?? 0,
+    //             ]);
+    //         }
+
+    //         // Update coin redemption
+    //         if ($coinRedemption) {
+    //             $coinRedemption->update([
+    //                 'order_id' => $order->id,
+    //                 'status'   => 'used',
+    //             ]);
+    //         }
+
+    //         // ---------- Gateway order creation ----------
+    //         // ---------- Gateway order creation ----------
+    //         $gateway = $data['payment_gateway'] ?? null;   // 'razorpay' | 'hdfc_sg' | 'hdfc_ie'
+    //         $gatewayPayload = [];
+
+    //         if ($gateway === 'razorpay') {
+    //             $razorpayService = app(\App\Services\PaymentGateway\RazorpayService::class);
+    //             $razorpayOrder   = $razorpayService->createOrder($order);
+    //             $gatewayPayload  = [
+    //                 'razorpay_order_id' => $razorpayOrder['id'],
+    //                 'razorpay_key'      => config('services.razorpay.key_id'),
+    //             ];
+    //         } elseif (in_array($gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
+
+    //             $configKey = $gateway === 'hdfc_sg' ? 'sg' : 'ie';
+    //             $config = config("services.hdfc.{$configKey}");
+
+    //             if (!$config || empty($config['api_key'])) {
+    //                 throw new \Exception(
+    //                     "HDFC merchant [{$gateway}] is not configured."
+    //                 );
     //             }
 
-    //             // Per-order grand total
-    //             $orderGrandTotal = round(
-    //                 $discountedLineTotal + $taxAmount + $lineShippingCharge - $orderAmountRedeemed,
-    //                 2
+    //             $hdfcService = new \App\Services\PaymentGateway\HdfcService(
+    //                 $config,
+    //                 $gateway
     //             );
 
-    //             // Per-order tax breakdown summary
-    //             $orderTaxBreakdownSummary = [
-    //                 'items' => [
-    //                     [
-    //                         'product_id' => $itemData['product_id'],
-    //                         'product_name' => $item->name,
-    //                         'product_code' => $item->product_code ?? null,
-    //                         'variant_id' => $itemData['variant_id'],
-    //                         'variant_sku' => $itemData['variant_sku'],
-    //                         'variant_attributes' => $itemData['variant_attributes'],
-    //                         'quantity' => $itemData['quantity'],
-    //                         'unit_price' => $itemData['unit_price'],
-    //                         'line_total_before_discount' => $itemData['line_total'],
-    //                         'line_total_after_discount' => round($discountedLineTotal, 2),
-    //                         'tax_category' => $item->taxCategory?->name ?? 'Default',
-    //                         'tax_rate' => $itemData['tax_rate'],
-    //                         'cgst_rate' => round($itemData['cgst_rate'], 2),
-    //                         'sgst_rate' => round($itemData['sgst_rate'], 2),
-    //                         'igst_rate' => round($itemData['igst_rate'], 2),
-    //                         'cgst_amount' => round($cgstAmount, 2),
-    //                         'sgst_amount' => round($sgstAmount, 2),
-    //                         'igst_amount' => round($igstAmount, 2),
-    //                         'tax_amount' => round($taxAmount, 2),
-    //                         'line_total_after_tax' => round($discountedLineTotal + $taxAmount, 2),
-    //                         'shipping_charge' => round($lineShippingCharge, 2),
-    //                     ]
-    //                 ],
-    //                 'summary' => [
-    //                     'subtotal' => round($lineSubtotal, 2),
-    //                     'coupon_discount' => round($lineDiscount, 2),
-    //                     'subtotal_after_discount' => round($discountedLineTotal, 2),
-    //                     'total_tax' => round($taxAmount, 2),
-    //                     'total_cgst' => round($cgstAmount, 2),
-    //                     'total_sgst' => round($sgstAmount, 2),
-    //                     'total_igst' => round($igstAmount, 2),
-    //                     'shipping_charge' => round($lineShippingCharge, 2),
-    //                     'coin_redeemed' => $orderCoinsUsed,
-    //                     'coin_redeemed_amount' => round($orderAmountRedeemed, 2),
-    //                     'grand_total' => $orderGrandTotal,
-    //                 ],
-    //                 'tax_by_category' => $this->calculateTaxByCategory([
-    //                     [
-    //                         'product_name' => $item->name,
-    //                         'tax_category' => $item->taxCategory?->name ?? 'Default',
-    //                         'tax_rate' => $itemData['tax_rate'],
-    //                         'line_total_after_discount' => $discountedLineTotal,
-    //                         'tax_amount' => $taxAmount,
-    //                         'cgst_amount' => $cgstAmount,
-    //                         'sgst_amount' => $sgstAmount,
-    //                         'igst_amount' => $igstAmount,
-    //                     ]
-    //                 ]),
-    //                 'delivery_state' => $deliveryState,
-    //                 'supplier_state' => $supplierState,
+    //             $hdfcOrder = $hdfcService->createOrder($order);
+
+    //             $gatewayPayload = [
+    //                 'hdfc_order_id'     => $hdfcOrder['id'],
+    //                 'hdfc_payment_link' => $hdfcOrder['payment_link'],
+    //                 'hdfc_sdk_payload'  => $hdfcOrder['sdk_payload'],
+    //                 'hdfc_merchant_id'  => $config['merchant_id'],
+    //                 'hdfc_gateway_key'  => $gateway,
     //             ];
-
-    //             // Create one Order per item
-    //             $order = Order::create([
-    //                 'order_reference' => 'ORD-' . strtoupper(uniqid()),
-    //                 'user_id' => $user->id,
-    //                 'billing_address_id' => $data['address_id'],
-    //                 'delivery_address_id' => $data['address_id'],
-    //                 'order_type' => $user->isDistributor() ? 'distributor' : 'retail',
-    //                 'subtotal' => round($lineSubtotal, 2),
-    //                 'total_gst' => round($taxAmount, 2),
-    //                 'total_cgst' => round($cgstAmount, 2),
-    //                 'total_sgst' => round($sgstAmount, 2),
-    //                 'total_igst' => round($igstAmount, 2),
-    //                 'shipping_charge' => round($lineShippingCharge, 2),
-    //                 'shipping_method_id' => null,
-    //                 'coupon_code' => $couponCode,
-    //                 'coupon_discount' => round($lineDiscount, 2),
-    //                 'coin_redeemed' => $orderCoinsUsed,
-    //                 'coin_redeemed_amount' => round($orderAmountRedeemed, 2),
-    //                 'total_payable' => $orderGrandTotal,
-    //                 'amount_paid' => 0,
-    //                 'status' => 'pending',
-    //                 'tax_breakdown' => json_encode($orderTaxBreakdownSummary),
-    //                 'summary_data' => json_encode($summary),
-    //                 'payment_gateway' => $data['payment_gateway'] ?? null,
-    //                 'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
-    //             ]);
-
-    //             // Create order line with product shipping charge
-    //             OrderLine::create([
-    //                 'order_id' => $order->id,
-    //                 'product_id' => $itemData['product_id'],
-    //                 'variant_id' => $itemData['variant_id'],
-    //                 'quantity' => $itemData['quantity'],
-    //                 'unit_price' => round($itemData['unit_price'], 2),
-
-    //                 // Shipping charge per line
-    //                 'shipping_charge' => round($itemData['product_shipping_charge'], 2),
-
-    //                 // Tax rates
-    //                 'gst_rate' => $itemData['tax_rate'],
-    //                 'cgst_rate' => round($itemData['cgst_rate'], 2),
-    //                 'sgst_rate' => round($itemData['sgst_rate'], 2),
-    //                 'igst_rate' => round($itemData['igst_rate'], 2),
-
-    //                 // Tax amounts
-    //                 'gst_amount' => round($itemData['tax_amount'], 2),
-    //                 'cgst_amount' => round($itemData['cgst_amount'], 2),
-    //                 'sgst_amount' => round($itemData['sgst_amount'], 2),
-    //                 'igst_amount' => round($itemData['igst_amount'], 2),
-
-    //                 // Line totals
-    //                 'line_total' => round($itemData['final_line_total'], 2),
-    //                 'commissionable_volume' => $itemData['product']->commissionable_volume ?? 0,
-    //             ]);
-
-    //             $orders[] = $order;
+    //         } else {
+    //             throw new \Exception('Unsupported payment gateway: ' . $gateway);
     //         }
-
-    //         // Update coin redemption with the FIRST order (or all orders if needed)
-    //         if ($coinRedemption && !empty($orders)) {
-    //             $coinRedemption->update([
-    //                 'order_id' => $orders[0]->id,
-    //                 'status' => 'used'
-    //             ]);
-    //         }
-
-    //         // Create Razorpay order for the TOTAL amount (combined)
-    //         // OR create one per order — here we create one for the combined total
-    //         $razorpayTotalAmount = 0;
-    //         foreach ($orders as $order) {
-    //             $razorpayTotalAmount += $order->total_payable;
-    //         }
-
-    //         // Create a combined Razorpay order
-    //         // NOTE: razorpayService->createOrder() typically takes an Order model.
-    //         // If you need a combined amount, you may need to adjust the service.
-    //         // For now, we create razorpay order for the FIRST order (or modify as needed).
-    //         $razorpayOrder = $this->razorpayService->createOrder($orders[0]);
-
-    //         return [
-    //             'order_ids' => array_map(fn($o) => $o->id, $orders),
-    //             'order_references' => array_map(fn($o) => $o->order_reference, $orders),
-    //             'total_orders' => count($orders),
-    //             'total_amount' => round(array_sum(array_map(fn($o) => $o->total_payable, $orders)), 2),
-    //             'razorpay_order_id' => $razorpayOrder['id'],
-    //             'razorpay_key' => config('services.razorpay.key_id'),
-    //             'status' => 'pending',
-    //             'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
-    //             'tax_split' => [
+    //         return array_merge([
+    //             'order_id'        => $order->id,
+    //             'order_reference' => $order->order_reference,
+    //             'total_items'     => count($itemsWithTaxSplit),
+    //             'total_amount'    => $grandTotal,
+    //             'status'          => 'pending',
+    //             'checkout_type'   => $isBuyNow ? 'buy_now' : 'cart',
+    //             'gateway'         => $gateway,
+    //             'tax_split'       => [
     //                 'delivery_state' => $deliveryState,
     //                 'supplier_state' => $supplierState,
-    //                 'total_cgst' => round(array_sum(array_map(fn($o) => $o->total_cgst, $orders)), 2),
-    //                 'total_sgst' => round(array_sum(array_map(fn($o) => $o->total_sgst, $orders)), 2),
-    //                 'total_igst' => round(array_sum(array_map(fn($o) => $o->total_igst, $orders)), 2),
+    //                 'total_cgst'     => round($totals['cgst'], 2),
+    //                 'total_sgst'     => round($totals['sgst'], 2),
+    //                 'total_igst'     => round($totals['igst'], 2),
     //             ],
-    //             'orders' => array_map(function ($o) {
-    //                 return [
-    //                     'order_id' => $o->id,
-    //                     'order_reference' => $o->order_reference,
-    //                     'subtotal' => $o->subtotal,
-    //                     'shipping_charge' => $o->shipping_charge,
-    //                     'total_tax' => $o->total_gst,
-    //                     'total_payable' => $o->total_payable,
-    //                 ];
-    //             }, $orders),
-    //         ];
+    //         ], $gatewayPayload);
     //     });
     // }
     public function placeOrder(int $userId, array $data): array
@@ -1815,7 +1770,7 @@ class CheckoutService
         $cartItems = [];
         $isBuyNow = $checkoutType === 'buy_now';
 
-        // ---------- Fetch cart / buy-now items (same as before) ----------
+        // ---------- Fetch cart / buy-now items ----------
         if ($isBuyNow) {
             if (!isset($summary['items']) || empty($summary['items'])) {
                 throw new Exception('No items found for Buy Now');
@@ -1833,13 +1788,7 @@ class CheckoutService
                     if (!$variant) {
                         throw new Exception("Variant not found: {$itemData['variant_id']}");
                     }
-                    if ($variant->stock_quantity < $itemData['quantity']) {
-                        throw new Exception("Insufficient stock for variant: {$variant->sku}");
-                    }
-                } else {
-                    if ($product->stock_quantity < $itemData['quantity']) {
-                        throw new Exception("Insufficient stock for: {$product->name}");
-                    }
+                    // Stock check hata diya — reservation service handle karega
                 }
 
                 $cartItems[] = (object) [
@@ -1860,26 +1809,10 @@ class CheckoutService
                 throw new Exception('Cart is empty');
             }
 
-            foreach ($cart->items as $item) {
-                if ($item->variant_id) {
-                    $variant = $item->variant;
-                    if (!$variant) {
-                        throw new Exception("Variant not found for product: {$item->product->name}");
-                    }
-                    if ($variant->stock_quantity < $item->quantity) {
-                        throw new Exception("Insufficient stock for variant: {$variant->sku}");
-                    }
-                } else {
-                    if ($item->product->stock_quantity < $item->quantity) {
-                        throw new Exception("Insufficient stock for: {$item->product->name}");
-                    }
-                }
-            }
-
             $cartItems = $cart->items;
         }
 
-        // ---------- Coin redemption (same as before) ----------
+        // ---------- Coin redemption ----------
         $coinRedemption = null;
         $coinsUsed = 0;
         $coinRedeemedAmount = 0;
@@ -2028,11 +1961,7 @@ class CheckoutService
 
             // ============ Grand total ============
             $grandTotal = round(
-                $totals['subtotal']
-                    - $totals['coupon_discount']
-                    + $totals['tax']
-                    + $totals['shipping']
-                    - $coinRedeemedAmount,
+                $totals['subtotal'] - $totals['coupon_discount'] + $totals['tax'] + $totals['shipping'] - $coinRedeemedAmount,
                 2
             );
 
@@ -2081,7 +2010,7 @@ class CheckoutService
                         'product_name'              => $r['product']->name,
                         'tax_category'              => $r['product']->taxCategory?->name ?? 'Default',
                         'tax_rate'                  => $r['tax_rate'],
-                        'line_total_after_disc  ount' => $r['discounted_line_total'],
+                        'line_total_after_discount' => $r['discounted_line_total'],
                         'tax_amount'                => $r['tax_amount'],
                         'cgst_amount'               => $r['cgst_amount'],
                         'sgst_amount'               => $r['sgst_amount'],
@@ -2119,11 +2048,11 @@ class CheckoutService
                 'checkout_type'         => $isBuyNow ? 'buy_now' : 'cart',
             ]);
 
-            // ============ CREATE ORDER LINES (with unique item_reference) ============
+            // ============ CREATE ORDER LINES ============
             foreach ($itemsWithTaxSplit as $row) {
                 OrderLine::create([
                     'order_id'              => $order->id,
-                    'item_reference_id'     => $this->generateItemReference(), // <-- per-line ref
+                    'item_reference_id'     => $this->generateItemReference(),
                     'product_id'            => $row['product_id'],
                     'variant_id'            => $row['variant_id'],
                     'quantity'              => $row['quantity'],
@@ -2142,6 +2071,27 @@ class CheckoutService
                 ]);
             }
 
+        // ============ RESERVE INVENTORY (atomic) ============
+            /** @var InventoryReservationService $reservationService */
+            $reservationService = app(InventoryReservationService::class);
+
+            $reservationItems = [];
+            foreach ($order->lines()->get() as $line) {
+                $reservationItems[] = [
+                    'product_id'        => $line->product_id,
+                    'variant_id'        => $line->variant_id,
+                    'quantity'          => $line->quantity,
+                    'item_reference_id' => $line->item_reference_id,
+                ];
+            }
+
+            $reservation = $reservationService->reserve($order->id, $reservationItems, 20);
+
+            $order->update([
+                'reservation_token'      => $reservation['token'],
+                'reservation_expires_at' => $reservation['expires_at'],
+            ]);
+
             // Update coin redemption
             if ($coinRedemption) {
                 $coinRedemption->update([
@@ -2151,8 +2101,7 @@ class CheckoutService
             }
 
             // ---------- Gateway order creation ----------
-            // ---------- Gateway order creation ----------
-            $gateway = $data['payment_gateway'] ?? null;   // 'razorpay' | 'hdfc_sg' | 'hdfc_ie'
+            $gateway = $data['payment_gateway'] ?? null;
             $gatewayPayload = [];
 
             if ($gateway === 'razorpay') {
@@ -2163,21 +2112,14 @@ class CheckoutService
                     'razorpay_key'      => config('services.razorpay.key_id'),
                 ];
             } elseif (in_array($gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
-
                 $configKey = $gateway === 'hdfc_sg' ? 'sg' : 'ie';
                 $config = config("services.hdfc.{$configKey}");
 
                 if (!$config || empty($config['api_key'])) {
-                    throw new \Exception(
-                        "HDFC merchant [{$gateway}] is not configured."
-                    );
+                    throw new \Exception("HDFC merchant [{$gateway}] is not configured.");
                 }
 
-                $hdfcService = new \App\Services\PaymentGateway\HdfcService(
-                    $config,
-                    $gateway
-                );
-
+                $hdfcService = new \App\Services\PaymentGateway\HdfcService($config, $gateway);
                 $hdfcOrder = $hdfcService->createOrder($order);
 
                 $gatewayPayload = [
@@ -2190,15 +2132,17 @@ class CheckoutService
             } else {
                 throw new \Exception('Unsupported payment gateway: ' . $gateway);
             }
+
             return array_merge([
-                'order_id'        => $order->id,
-                'order_reference' => $order->order_reference,
-                'total_items'     => count($itemsWithTaxSplit),
-                'total_amount'    => $grandTotal,
-                'status'          => 'pending',
-                'checkout_type'   => $isBuyNow ? 'buy_now' : 'cart',
-                'gateway'         => $gateway,
-                'tax_split'       => [
+                'order_id'               => $order->id,
+                'order_reference'        => $order->order_reference,
+                'total_items'            => count($itemsWithTaxSplit),
+                'total_amount'           => $grandTotal,
+                'status'                 => 'pending',
+                'checkout_type'          => $isBuyNow ? 'buy_now' : 'cart',
+                'gateway'                => $gateway,
+                'reservation_expires_at' => $reservation['expires_at']->toIso8601String(),
+                'tax_split'              => [
                     'delivery_state' => $deliveryState,
                     'supplier_state' => $supplierState,
                     'total_cgst'     => round($totals['cgst'], 2),
@@ -2300,9 +2244,285 @@ class CheckoutService
     /**
      * FR-CO-006: Confirm order via webhook
      */
+    // public function confirmOrder(string|array $orderReferences, array $gatewayData): array
+    // {
+    //     // Normalize input to array
+    //     if (is_string($orderReferences)) {
+    //         $orderReferences = array_filter(array_map('trim', explode(',', $orderReferences)));
+    //     }
+
+    //     if (empty($orderReferences)) {
+    //         throw new Exception('No order references provided for confirmation');
+    //     }
+
+    //     $orders = Order::whereIn('order_reference', $orderReferences)
+    //         ->with(['lines.product', 'lines.variant', 'user'])
+    //         ->get();
+
+    //     if ($orders->isEmpty()) {
+    //         throw new Exception('No orders found for the provided references');
+    //     }
+
+    //     // If ALL orders are already confirmed, return early
+    //     if ($orders->every(fn($o) => $o->status === 'confirmed')) {
+    //         return [
+    //             'success'          => true,
+    //             'message'          => 'Orders already confirmed',
+    //             'order_references' => $orders->pluck('order_reference')->toArray(),
+    //         ];
+    //     }
+
+    //     return DB::transaction(function () use ($orders, $gatewayData) {
+    //         $confirmedOrders   = [];
+    //         $allLowStockAlerts = [];
+
+    //         foreach ($orders as $order) {
+    //             // Skip already confirmed orders (idempotency)
+    //             if ($order->status === 'confirmed') {
+    //                 $confirmedOrders[] = $order;
+    //                 continue;
+    //             }
+
+    //             $oldStatus = $order->status;
+
+    //             // =============================================
+    //             // UPDATE ORDER STATUS
+    //             // =============================================
+    //             $order->update([
+    //                 'status'                 => 'confirmed',
+    //                 'confirmed_at'           => now(),
+    //                 'payment_gateway'        => $gatewayData['gateway'] ?? $order->payment_gateway,
+    //                 'gateway_transaction_id' => $gatewayData['transaction_id'] ?? null,
+    //                 'amount_paid'            => $order->total_payable,
+    //             ]);
+
+    //             // =============================================
+    //             // RECORD COUPON USAGE
+    //             // =============================================
+    //             if ($order->coupon_code) {
+    //                 $coupon = Coupon::where('code', $order->coupon_code)->first();
+
+    //                 if ($coupon) {
+    //                     $existingUsage = CouponUsage::where('order_id', $order->id)->first();
+
+    //                     if (!$existingUsage) {
+    //                         CouponUsage::create([
+    //                             'coupon_id'       => $coupon->id,
+    //                             'user_id'         => $order->user_id,
+    //                             'order_id'        => $order->id,
+    //                             'discount_amount' => $order->coupon_discount,
+    //                         ]);
+
+    //                         $coupon->increment('used_count');
+    //                     }
+    //                 }
+    //             }
+
+    //             $lowStockAlerts = [];
+
+    //             // =============================================
+    //             // DECREMENT STOCK FOR EACH ORDER LINE
+    //             // =============================================
+    //             foreach ($order->lines as $line) {
+    //                 if ($line->variant_id) {
+    //                     $variant = $line->variant;
+
+    //                     if ($variant) {
+    //                         $variant->decrement('stock_quantity', $line->quantity);
+
+    //                         $product = $line->product;
+    //                         if ($product) {
+    //                             $product->decrement('stock_quantity', $line->quantity);
+    //                         }
+
+    //                         StockMovement::create([
+    //                             'product_id'               => $line->product_id,
+    //                             'variant_id'               => $line->variant_id,
+    //                             'item_reference_id'        => $line->item_reference_id,
+    //                             'quantity'                 => -$line->quantity,
+    //                             'available_quantity_after' => $variant->stock_quantity,
+    //                             'reason'                   => 'Order confirmed (variant): ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
+    //                             'order_id'                 => $order->id,
+    //                         ]);
+
+    //                         $variant->refresh();
+    //                         if ($variant->stock_quantity <= $variant->low_stock_threshold) {
+    //                             $this->sendLowStockNotification($order, $line, 'variant');
+    //                             $alert = [
+    //                                 'product_id'        => $line->product_id,
+    //                                 'variant_id'        => $line->variant_id,
+    //                                 'item_reference_id' => $line->item_reference_id,
+    //                                 'product_name'      => $line->product?->name ?? 'Unknown',
+    //                                 'stock'             => $variant->stock_quantity,
+    //                                 'threshold'         => $variant->low_stock_threshold,
+    //                                 'alert_type'        => 'variant_low_stock',
+    //                             ];
+    //                             $lowStockAlerts[]    = $alert;
+    //                             $allLowStockAlerts[] = $alert;
+    //                         }
+    //                     }
+    //                 } else {
+    //                     $product = $line->product;
+
+    //                     if ($product) {
+    //                         $product->decrement('stock_quantity', $line->quantity);
+
+    //                         StockMovement::create([
+    //                             'product_id'               => $line->product_id,
+    //                             'variant_id'               => null,
+    //                             'item_reference_id'        => $line->item_reference_id,
+    //                             'quantity'                 => -$line->quantity,
+    //                             'available_quantity_after' => $product->stock_quantity,
+    //                             'reason'                   => 'Order confirmed: ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
+    //                             'order_id'                 => $order->id,
+    //                         ]);
+
+    //                         $product->refresh();
+    //                         if ($product->stock_quantity <= $product->low_stock_threshold) {
+    //                             $this->sendLowStockNotification($order, $line, 'product');
+    //                             $alert = [
+    //                                 'product_id'        => $line->product_id,
+    //                                 'item_reference_id' => $line->item_reference_id,
+    //                                 'product_name'      => $product->name,
+    //                                 'stock'             => $product->stock_quantity,
+    //                                 'threshold'         => $product->low_stock_threshold,
+    //                                 'alert_type'        => 'product_low_stock',
+    //                             ];
+    //                             $lowStockAlerts[]    = $alert;
+    //                             $allLowStockAlerts[] = $alert;
+    //                         }
+    //                     }
+    //                 }
+
+    //                 $line->update([
+    //                     'delivery_status' => 'confirmed',
+    //                 ]);
+    //             }
+
+    //             // =============================================
+    //             // AUDIT LOG: ORDER CONFIRM
+    //             // =============================================
+    //             $this->logAudit(
+    //                 'order_confirm',
+    //                 'orders',
+    //                 [
+    //                     'order_reference' => $order->order_reference,
+    //                     'status'          => $oldStatus,
+    //                     'total_amount'    => $order->total_payable,
+    //                     'user_id'         => $order->user_id ?? Auth::id(),
+    //                 ],
+    //                 [
+    //                     'order_reference'  => $order->order_reference,
+    //                     'status'           => 'confirmed',
+    //                     'confirmed_at'     => now()->toDateTimeString(),
+    //                     'payment_gateway'  => $gatewayData['gateway'] ?? null,
+    //                     'transaction_id'   => $gatewayData['transaction_id'] ?? null,
+    //                     'amount_paid'      => $order->total_payable,
+    //                     'low_stock_alerts' => $lowStockAlerts,
+    //                     'confirmed_by'     => $this->getAdminId(),
+    //                 ]
+    //             );
+
+    //             // =============================================
+    //             // AUDIT LOG: LOW STOCK ALERTS
+    //             // =============================================
+    //             foreach ($lowStockAlerts as $alert) {
+    //                 $this->logAudit(
+    //                     'low_stock_alert',
+    //                     'inventory',
+    //                     null,
+    //                     $alert,
+    //                     null,
+    //                     $this->getClientIp()
+    //                 );
+    //             }
+
+    //             // =============================================
+    //             // COMMISSION API EVENT
+    //             // =============================================
+    //             $payload = $this->buildCommissionPayload($order);
+
+    //             // =============================================
+    //             // SEND ORDER CONFIRMATION SMS (TWILIO)
+    //             // =============================================
+    //             $phone = $order->user?->phone;
+
+    //             if ($phone) {
+    //                 $message = "Hi {$order->user->name}! Your order {$order->order_reference} "
+    //                     . "has been confirmed. Total: " . number_format((float) $order->total_payable, 2)
+    //                     . ". Thank you for your purchase!";
+
+    //                 try {
+    //                     app(TwilioSmsService::class)->send($phone, $message);
+    //                 } catch (\Throwable $e) {
+    //                     Log::error('Order confirmation SMS failed', [
+    //                         'order_reference' => $order->order_reference,
+    //                         'error'           => $e->getMessage(),
+    //                     ]);
+    //                 }
+    //             }
+
+    //             CommissionApiEvent::create([
+    //                 'event_type'    => 'order_post',
+    //                 'order_id'      => $order->id,
+    //                 'payload'       => $payload,
+    //                 'status'        => 'pending',
+    //                 'retry_count'   => 0,
+    //                 'max_retries'   => 5,
+    //                 'last_attempt'  => null,
+    //                 'error_message' => null,
+    //                 'response_data' => null,
+    //             ]);
+
+    //             // IGNITE: Post order to Ignite (queued after commit — see note below)
+    //             $orderIdForIgnite = $order->id;
+    //             DB::afterCommit(function () use ($orderIdForIgnite) {
+    //                 \App\Jobs\PostOrderToIgniteJob::dispatch($orderIdForIgnite);
+    //             });
+
+    //             // =============================================
+    //             // SEND ORDER CONFIRMATION NOTIFICATION
+    //             // =============================================
+    //             $this->sendOrderConfirmationNotification($order, $gatewayData);
+
+    //             $confirmedOrders[] = $order;
+    //         }
+
+    //         // =============================================
+    //         // DELETE CART (only once, for cart checkout)
+    //         // =============================================
+    //         $firstOrder = $confirmedOrders[0] ?? null;
+    //         if ($firstOrder && $firstOrder->checkout_type !== 'buy_now') {
+    //             $cart = Cart::where('user_id', $firstOrder->user_id)->first();
+    //             if ($cart) {
+    //                 $cart->items()->delete();
+    //                 $cart->delete();
+    //             }
+    //         }
+
+    //         // =============================================
+    //         // PROFORMA INVOICE — per confirmed order
+    //         // =============================================
+    //         foreach ($confirmedOrders as $confirmedOrder) {
+    //             if ($confirmedOrder->user?->account_type === 'distributor') {
+    //                 $this->proformaInvoiceService->generateForOrder($confirmedOrder);
+    //             }
+    //         }
+
+    //         return [
+    //             'success'          => true,
+    //             'order_ids'        => array_map(fn($o) => $o->id, $confirmedOrders),
+    //             'order_references' => array_map(fn($o) => $o->order_reference, $confirmedOrders),
+    //             'total_orders'     => count($confirmedOrders),
+    //             'total_amount'     => round(collect($confirmedOrders)->sum('total_payable'), 2),
+    //             'status'           => 'confirmed',
+    //             'low_stock_alerts' => $allLowStockAlerts,
+    //             'invoice_number'   => null,
+    //         ];
+    //     });
+    // }
     public function confirmOrder(string|array $orderReferences, array $gatewayData): array
     {
-        // Normalize input to array
         if (is_string($orderReferences)) {
             $orderReferences = array_filter(array_map('trim', explode(',', $orderReferences)));
         }
@@ -2312,14 +2532,13 @@ class CheckoutService
         }
 
         $orders = Order::whereIn('order_reference', $orderReferences)
-            ->with(['lines.product', 'lines.variant', 'user'])
+            ->with(['lines.product', 'user'])
             ->get();
 
         if ($orders->isEmpty()) {
             throw new Exception('No orders found for the provided references');
         }
 
-        // If ALL orders are already confirmed, return early
         if ($orders->every(fn($o) => $o->status === 'confirmed')) {
             return [
                 'success'          => true,
@@ -2329,17 +2548,70 @@ class CheckoutService
         }
 
         return DB::transaction(function () use ($orders, $gatewayData) {
+            /** @var InventoryReservationService $reservationService */
+            $reservationService = app(InventoryReservationService::class);
+
             $confirmedOrders   = [];
             $allLowStockAlerts = [];
+            $stockFailures     = [];
 
             foreach ($orders as $order) {
-                // Skip already confirmed orders (idempotency)
                 if ($order->status === 'confirmed') {
                     $confirmedOrders[] = $order;
                     continue;
                 }
 
                 $oldStatus = $order->status;
+
+                // =============================================
+                // CONSUME RESERVATIONS (atomic)
+                // =============================================
+                $consumed = $reservationService->consume($order->id);
+
+                if (!$consumed) {
+                    // Reservation expired / missing — payment late.
+                    foreach ($order->lines as $line) {
+                        if (!$reservationService->hasAvailability(
+                            $line->product_id,
+                            $line->quantity
+                        )) {
+                            $stockFailures[] = [
+                                'order_reference' => $order->order_reference,
+                                'product_id'      => $line->product_id,
+                                'product_name'    => $line->product?->name,
+                                'quantity'        => $line->quantity,
+                            ];
+                        }
+                    }
+
+                    if (!empty($stockFailures)) {
+                        $order->update([
+                            'status'                 => 'stock_unavailable',
+                            'payment_gateway'        => $gatewayData['gateway'] ?? $order->payment_gateway,
+                            'gateway_transaction_id' => $gatewayData['transaction_id'] ?? null,
+                            'amount_paid'            => $order->total_payable,
+                        ]);
+
+                        $this->logAudit(
+                            'order_confirm_failed_no_stock',
+                            'orders',
+                            ['order_reference' => $order->order_reference, 'status' => $oldStatus],
+                            ['failures' => $stockFailures, 'gateway' => $gatewayData],
+                            null,
+                            $this->getClientIp()
+                        );
+
+                        continue; // refund/manual handle
+                    }
+
+                    // No reservation, but stock available → decrement directly
+                    foreach ($order->lines as $line) {
+                        DB::table('products')
+                            ->where('id', $line->product_id)
+                            ->whereRaw('(stock_quantity - reserved_inventory) >= ?', [$line->quantity])
+                            ->update(['stock_quantity' => DB::raw('stock_quantity - ' . $line->quantity)]);
+                    }
+                }
 
                 // =============================================
                 // UPDATE ORDER STATUS
@@ -2353,14 +2625,12 @@ class CheckoutService
                 ]);
 
                 // =============================================
-                // RECORD COUPON USAGE
+                // COUPON USAGE
                 // =============================================
                 if ($order->coupon_code) {
                     $coupon = Coupon::where('code', $order->coupon_code)->first();
-
                     if ($coupon) {
                         $existingUsage = CouponUsage::where('order_id', $order->id)->first();
-
                         if (!$existingUsage) {
                             CouponUsage::create([
                                 'coupon_id'       => $coupon->id,
@@ -2368,7 +2638,6 @@ class CheckoutService
                                 'order_id'        => $order->id,
                                 'discount_amount' => $order->coupon_discount,
                             ]);
-
                             $coupon->increment('used_count');
                         }
                     }
@@ -2377,86 +2646,41 @@ class CheckoutService
                 $lowStockAlerts = [];
 
                 // =============================================
-                // DECREMENT STOCK FOR EACH ORDER LINE
+                // STOCK MOVEMENTS + LOW STOCK CHECK
+                // (stock already decremented by consume())
                 // =============================================
                 foreach ($order->lines as $line) {
-                    if ($line->variant_id) {
-                        $variant = $line->variant;
+                    $product = Product::find($line->product_id);
+                    if ($product) {
+                        StockMovement::create([
+                            'product_id'               => $line->product_id,
+                            'item_reference_id'        => $line->item_reference_id,
+                            'quantity'                 => -$line->quantity,
+                            'available_quantity_after' => $product->stock_quantity,
+                            'reason'                   => 'Order confirmed: ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
+                            'order_id'                 => $order->id,
+                        ]);
 
-                        if ($variant) {
-                            $variant->decrement('stock_quantity', $line->quantity);
-
-                            $product = $line->product;
-                            if ($product) {
-                                $product->decrement('stock_quantity', $line->quantity);
-                            }
-
-                            StockMovement::create([
-                                'product_id'               => $line->product_id,
-                                'variant_id'               => $line->variant_id,
-                                'item_reference_id'        => $line->item_reference_id,
-                                'quantity'                 => -$line->quantity,
-                                'available_quantity_after' => $variant->stock_quantity,
-                                'reason'                   => 'Order confirmed (variant): ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
-                                'order_id'                 => $order->id,
-                            ]);
-
-                            $variant->refresh();
-                            if ($variant->stock_quantity <= $variant->low_stock_threshold) {
-                                $this->sendLowStockNotification($order, $line, 'variant');
-                                $alert = [
-                                    'product_id'        => $line->product_id,
-                                    'variant_id'        => $line->variant_id,
-                                    'item_reference_id' => $line->item_reference_id,
-                                    'product_name'      => $line->product?->name ?? 'Unknown',
-                                    'stock'             => $variant->stock_quantity,
-                                    'threshold'         => $variant->low_stock_threshold,
-                                    'alert_type'        => 'variant_low_stock',
-                                ];
-                                $lowStockAlerts[]    = $alert;
-                                $allLowStockAlerts[] = $alert;
-                            }
-                        }
-                    } else {
-                        $product = $line->product;
-
-                        if ($product) {
-                            $product->decrement('stock_quantity', $line->quantity);
-
-                            StockMovement::create([
-                                'product_id'               => $line->product_id,
-                                'variant_id'               => null,
-                                'item_reference_id'        => $line->item_reference_id,
-                                'quantity'                 => -$line->quantity,
-                                'available_quantity_after' => $product->stock_quantity,
-                                'reason'                   => 'Order confirmed: ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
-                                'order_id'                 => $order->id,
-                            ]);
-
-                            $product->refresh();
-                            if ($product->stock_quantity <= $product->low_stock_threshold) {
-                                $this->sendLowStockNotification($order, $line, 'product');
-                                $alert = [
-                                    'product_id'        => $line->product_id,
-                                    'item_reference_id' => $line->item_reference_id,
-                                    'product_name'      => $product->name,
-                                    'stock'             => $product->stock_quantity,
-                                    'threshold'         => $product->low_stock_threshold,
-                                    'alert_type'        => 'product_low_stock',
-                                ];
-                                $lowStockAlerts[]    = $alert;
-                                $allLowStockAlerts[] = $alert;
-                            }
+                        if ($product->stock_quantity <= $product->low_stock_threshold) {
+                            $this->sendLowStockNotification($order, $line, 'product');
+                            $alert = [
+                                'product_id'        => $line->product_id,
+                                'item_reference_id' => $line->item_reference_id,
+                                'product_name'      => $product->name,
+                                'stock'             => $product->stock_quantity,
+                                'threshold'         => $product->low_stock_threshold,
+                                'alert_type'        => 'product_low_stock',
+                            ];
+                            $lowStockAlerts[]    = $alert;
+                            $allLowStockAlerts[] = $alert;
                         }
                     }
 
-                    $line->update([
-                        'delivery_status' => 'confirmed',
-                    ]);
+                    $line->update(['delivery_status' => 'confirmed']);
                 }
 
                 // =============================================
-                // AUDIT LOG: ORDER CONFIRM
+                // AUDIT LOG
                 // =============================================
                 $this->logAudit(
                     'order_confirm',
@@ -2479,35 +2703,20 @@ class CheckoutService
                     ]
                 );
 
-                // =============================================
-                // AUDIT LOG: LOW STOCK ALERTS
-                // =============================================
                 foreach ($lowStockAlerts as $alert) {
-                    $this->logAudit(
-                        'low_stock_alert',
-                        'inventory',
-                        null,
-                        $alert,
-                        null,
-                        $this->getClientIp()
-                    );
+                    $this->logAudit('low_stock_alert', 'inventory', null, $alert, null, $this->getClientIp());
                 }
 
                 // =============================================
-                // COMMISSION API EVENT
+                // COMMISSION + SMS + NOTIFICATIONS
                 // =============================================
                 $payload = $this->buildCommissionPayload($order);
 
-                // =============================================
-                // SEND ORDER CONFIRMATION SMS (TWILIO)
-                // =============================================
                 $phone = $order->user?->phone;
-
                 if ($phone) {
                     $message = "Hi {$order->user->name}! Your order {$order->order_reference} "
                         . "has been confirmed. Total: " . number_format((float) $order->total_payable, 2)
                         . ". Thank you for your purchase!";
-
                     try {
                         app(TwilioSmsService::class)->send($phone, $message);
                     } catch (\Throwable $e) {
@@ -2530,22 +2739,18 @@ class CheckoutService
                     'response_data' => null,
                 ]);
 
-                // IGNITE: Post order to Ignite (queued after commit — see note below)
                 $orderIdForIgnite = $order->id;
                 DB::afterCommit(function () use ($orderIdForIgnite) {
                     \App\Jobs\PostOrderToIgniteJob::dispatch($orderIdForIgnite);
                 });
 
-                // =============================================
-                // SEND ORDER CONFIRMATION NOTIFICATION
-                // =============================================
                 $this->sendOrderConfirmationNotification($order, $gatewayData);
 
                 $confirmedOrders[] = $order;
             }
 
             // =============================================
-            // DELETE CART (only once, for cart checkout)
+            // DELETE CART
             // =============================================
             $firstOrder = $confirmedOrders[0] ?? null;
             if ($firstOrder && $firstOrder->checkout_type !== 'buy_now') {
@@ -2557,7 +2762,7 @@ class CheckoutService
             }
 
             // =============================================
-            // PROFORMA INVOICE — per confirmed order
+            // PROFORMA INVOICE
             // =============================================
             foreach ($confirmedOrders as $confirmedOrder) {
                 if ($confirmedOrder->user?->account_type === 'distributor') {
@@ -2574,6 +2779,7 @@ class CheckoutService
                 'status'           => 'confirmed',
                 'low_stock_alerts' => $allLowStockAlerts,
                 'invoice_number'   => null,
+                'stock_failures'   => $stockFailures,
             ];
         });
     }
