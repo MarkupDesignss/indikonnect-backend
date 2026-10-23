@@ -56,15 +56,11 @@ class HdfcWebhookController extends Controller
 
         if (!$order) {
             Log::warning('HDFC webhook has no matching order');
-
-            return response()->json([
-                'acknowledged' => true,
-            ]);
+            return response()->json(['acknowledged' => true]);
         }
 
         try {
             $result = $this->reconcile($order);
-
             return response()->json([
                 'acknowledged' => true,
                 'payment_status' => $result['payment_status'],
@@ -74,27 +70,16 @@ class HdfcWebhookController extends Controller
                 'order_id' => $order->id,
                 'reason' => $e->getMessage(),
             ]);
-
-            return response()->json([
-                'acknowledged' => false,
-            ], 503);
+            return response()->json(['acknowledged' => false], 503);
         }
     }
 
     /**
-     * Handle browser return.
+     * Handle browser return (Success, Failure, Cancel sab yahin aayega).
      */
     public function return(LaravelHttpRequest $request): Response
     {
         return $this->browserResult($request, 'return');
-    }
-
-    /**
-     * Handle browser cancellation.
-     */
-    public function cancel(LaravelHttpRequest $request): Response
-    {
-        return $this->browserResult($request, 'cancel');
     }
 
     /**
@@ -106,37 +91,53 @@ class HdfcWebhookController extends Controller
     ): Response {
         $order = $this->findOrder($request);
 
+        // Default response
         $result = [
             'payment_status' => 'pending',
         ];
 
         if ($order) {
             try {
+                // 1. HDFC se actual status fetch karein (reconcile ke through)
                 $result = $this->reconcile($order);
+                $paymentStatus = $result['payment_status'];
+
+                // 2. Agar status CANCELLED ya FAILED hai, toh HDFC session end karein
+                if (in_array($paymentStatus, ['cancelled', 'failed'], true)) {
+                    try {
+                        $configKey = $order->payment_gateway === 'hdfc_ie' ? 'ie' : 'sg';
+                        $hdfcService = new HdfcService(
+                            config("services.hdfc.{$configKey}"),
+                            $order->payment_gateway
+                        );
+                        // HDFC side par session cancel karein
+                        $hdfcService->cancelOrder($order->order_reference);
+                    } catch (Throwable $e) {
+                        Log::error('HDFC Cancel API Failed', [
+                            'order_id' => $order->id,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
             } catch (Throwable $e) {
                 Log::error('HDFC return verification failed', [
                     'order_id' => $order->id,
                     'error' => $e->getMessage(),
                 ]);
+                $result['payment_status'] = 'pending';
             }
         }
 
-        $configKey = $order?->payment_gateway === 'hdfc_ie'
-            ? 'ie'
-            : 'sg';
-
-        $frontendUrl = (string) config(
-            "services.hdfc.{$configKey}.frontend_result_url"
-        );
+        // 3. Redirect to Frontend
+        $configKey = $order?->payment_gateway === 'hdfc_ie' ? 'ie' : 'sg';
+        $frontendUrl = (string) config("services.hdfc.{$configKey}.frontend_result_url");
 
         if (!$frontendUrl) {
-            Log::error('HDFC frontend URL missing', [
-                'merchant' => $configKey,
-            ]);
-
+            Log::error('HDFC frontend URL missing', ['merchant' => $configKey]);
             abort(500, 'Payment result URL not configured');
         }
 
+        // Allowed URL check
         $allowedUrls = array_filter([
             config('services.hdfc.sg.frontend_result_url'),
             config('services.hdfc.ie.frontend_result_url'),
@@ -158,17 +159,8 @@ class HdfcWebhookController extends Controller
 
         $destination = rtrim($frontendUrl, '/') . '/?' . $query;
 
-        $safeUrl = htmlspecialchars(
-            $destination,
-            ENT_QUOTES | ENT_SUBSTITUTE,
-            'UTF-8'
-        );
-
-        $jsUrl = json_encode(
-            $destination,
-            JSON_HEX_TAG | JSON_HEX_AMP |
-                JSON_HEX_APOS | JSON_HEX_QUOT
-        );
+        $safeUrl = htmlspecialchars($destination, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $jsUrl = json_encode($destination, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
         $html = '<!doctype html>
 <html>
@@ -203,17 +195,12 @@ window.location.replace(' . $jsUrl . ');
             abort(403);
         }
 
-        if (!in_array(
-            $order->payment_gateway,
-            ['hdfc_sg', 'hdfc_ie'],
-            true
-        )) {
+        if (!in_array($order->payment_gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
             abort(422, 'Not an HDFC order');
         }
 
         try {
             $state = $this->reconcile($order);
-
             return response()->json([
                 'success' => true,
                 'order_reference' => $order->order_reference,
@@ -224,7 +211,6 @@ window.location.replace(' . $jsUrl . ');
                 'order_id' => $order->id,
                 'reason' => $e->getMessage(),
             ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'Payment verification temporarily unavailable',
@@ -235,9 +221,8 @@ window.location.replace(' . $jsUrl . ');
     /**
      * Find the local order using its reference.
      */
-    private function findOrder(
-        LaravelHttpRequest $request
-    ): ?Order {
+    private function findOrder(LaravelHttpRequest $request): ?Order
+    {
         $ids = array_values(array_unique(array_filter(
             array_map('strval', [
                 $request->input('order_id'),
@@ -254,7 +239,6 @@ window.location.replace(' . $jsUrl . ');
                 'method' => $request->method(),
                 'keys' => array_keys($request->all()),
             ]);
-
             return null;
         }
 
@@ -269,30 +253,19 @@ window.location.replace(' . $jsUrl . ');
      */
     private function reconcile(Order $order): array
     {
-        if (!in_array(
-            $order->payment_gateway,
-            ['hdfc_sg', 'hdfc_ie'],
-            true
-        )) {
+        if (!in_array($order->payment_gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
             throw new \RuntimeException('Unexpected gateway');
         }
 
-        $configKey = $order->payment_gateway === 'hdfc_ie'
-            ? 'ie'
-            : 'sg';
-
+        $configKey = $order->payment_gateway === 'hdfc_ie' ? 'ie' : 'sg';
         $service = new HdfcService(
             config("services.hdfc.{$configKey}"),
             $order->payment_gateway
         );
 
-        // Our order reference was used as the HDFC gateway order ID.
         $gatewayOrderId = (string) $order->order_reference;
 
-        $data = $service->getOrderStatus(
-            $gatewayOrderId,
-            (string) $order->user_id
-        );
+        $data = $service->getOrderStatus($gatewayOrderId, (string) $order->user_id);
 
         $status = strtoupper((string) (
             data_get($data, 'status')
@@ -307,15 +280,11 @@ window.location.replace(' . $jsUrl . ');
         );
 
         if (!$returnedId || $returnedId !== $gatewayOrderId) {
-            throw new \RuntimeException(
-                'HDFC returned a mismatching order ID'
-            );
+            throw new \RuntimeException('HDFC returned a mismatching order ID');
         }
 
-        // Verify amount before updating any local payment status.
-        $amount = data_get($data, 'amount')
-            ?? data_get($data, 'order.amount');
-
+        // Verify amount
+        $amount = data_get($data, 'amount') ?? data_get($data, 'order.amount');
         $expected = $order->total_payable;
 
         if (
@@ -323,9 +292,7 @@ window.location.replace(' . $jsUrl . ');
             || $expected === null
             || abs((float) $amount - (float) $expected) > 0.009
         ) {
-            throw new \RuntimeException(
-                'Gateway amount does not match local order'
-            );
+            throw new \RuntimeException('Gateway amount does not match local order');
         }
 
         $currency = strtoupper((string) (
@@ -335,9 +302,7 @@ window.location.replace(' . $jsUrl . ');
         ));
 
         if ($currency !== 'INR') {
-            throw new \RuntimeException(
-                'Gateway currency missing or mismatch'
-            );
+            throw new \RuntimeException('Gateway currency missing or mismatch');
         }
 
         // Successful payment.
@@ -350,23 +315,12 @@ window.location.replace(' . $jsUrl . ');
             );
 
             Cache::lock('hdfc-confirm-' . $order->id, 90)
-                ->block(12, function () use (
-                    $order,
-                    $transactionId,
-                    $amount,
-                    $data
-                ) {
+                ->block(12, function () use ($order, $transactionId, $amount, $data) {
                     $fresh = Order::findOrFail($order->id);
 
-                    // Do not confirm the order twice.
-                    if (
-                        $fresh->status !== 'confirmed'
-                        && $fresh->confirmed_at === null
-                    ) {
+                    if ($fresh->status !== 'confirmed' && $fresh->confirmed_at === null) {
                         if ($fresh->status !== 'pending') {
-                            throw new \RuntimeException(
-                                'Refusing to confirm an order in unexpected state'
-                            );
+                            throw new \RuntimeException('Refusing to confirm an order in unexpected state');
                         }
 
                         $this->checkoutService->confirmOrder(
@@ -398,18 +352,19 @@ window.location.replace(' . $jsUrl . ');
                 'status' => $status,
             ]);
 
+            // DB Update yahan call karein
+            $result = $this->failOrderFromWebhook($order, $status);
+
             return [
                 'payment_status' => 'cancelled',
                 'gateway_status' => $status,
+                ...$result,
             ];
         }
 
-        // Failed payment: call the separate function.
+        // Failed payment.
         if (in_array($status, self::FAILED, true)) {
-            $result = $this->failOrderFromWebhook(
-                $order,
-                $status
-            );
+            $result = $this->failOrderFromWebhook($order, $status);
 
             return [
                 'payment_status' => 'failed',
@@ -427,32 +382,18 @@ window.location.replace(' . $jsUrl . ');
     /**
      * Mark an order and all its order lines as payment_failed.
      */
-    private function failOrderFromWebhook(
-        Order $order,
-        string $gatewayStatus
-    ): array {
+    private function failOrderFromWebhook(Order $order, string $gatewayStatus): array
+    {
         return Cache::lock('hdfc-confirm-' . $order->id, 90)
             ->block(12, function () use ($order, $gatewayStatus) {
-                return DB::transaction(function () use (
-                    $order,
-                    $gatewayStatus
-                ) {
-                    $fresh = Order::whereKey($order->id)
-                        ->lockForUpdate()
-                        ->firstOrFail();
+                return DB::transaction(function () use ($order, $gatewayStatus) {
+                    $fresh = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
 
-                    // Never overwrite an already confirmed/paid order.
-                    if (
-                        $fresh->status === 'confirmed'
-                        || $fresh->confirmed_at !== null
-                    ) {
-                        Log::warning(
-                            'HDFC failure received for an already confirmed order',
-                            [
-                                'order_id' => $fresh->id,
-                                'gateway_status' => $gatewayStatus,
-                            ]
-                        );
+                    if ($fresh->status === 'confirmed' || $fresh->confirmed_at !== null) {
+                        Log::warning('HDFC failure received for an already confirmed order', [
+                            'order_id' => $fresh->id,
+                            'gateway_status' => $gatewayStatus,
+                        ]);
 
                         return [
                             'order_updated' => false,
@@ -460,28 +401,18 @@ window.location.replace(' . $jsUrl . ');
                         ];
                     }
 
-                    // Update order status.
-                    $fresh->update([
-                        'status' => 'payment_failed',
-                    ]);
+                    $fresh->update(['status' => 'payment_failed']);
 
-                    // Update every line belonging to this order.
-                    $updatedLines = OrderLine::where(
-                        'order_id',
-                        $fresh->id
-                    )->update([
+                    $updatedLines = OrderLine::where('order_id', $fresh->id)->update([
                         'delivery_status' => 'payment_failed',
                     ]);
 
-                    Log::warning(
-                        'HDFC failed payment: order and order lines updated',
-                        [
-                            'order_id' => $fresh->id,
-                            'order_reference' => $fresh->order_reference,
-                            'gateway_status' => $gatewayStatus,
-                            'order_lines_updated' => $updatedLines,
-                        ]
-                    );
+                    Log::warning('HDFC failed payment: order and order lines updated', [
+                        'order_id' => $fresh->id,
+                        'order_reference' => $fresh->order_reference,
+                        'gateway_status' => $gatewayStatus,
+                        'order_lines_updated' => $updatedLines,
+                    ]);
 
                     return [
                         'order_updated' => true,

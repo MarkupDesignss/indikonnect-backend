@@ -307,4 +307,42 @@ class HdfcService
 
         return $json;
     }
+
+    /**
+     * Cancel the HDFC payment session/order.
+     */
+    public function cancelOrder(string $orderReference): array
+    {
+        // HDFC cancel endpoint requires merchantId in the path
+        $path = '/merchants/' . $this->merchantId . '/order/' . rawurlencode($orderReference) . '/cancel';
+
+        // HDFC requires a specific version header for this endpoint
+        $headers = [
+            'Accept'       => 'application/json',
+            'Content-Type' => 'application/json',
+            'x-merchantid' => $this->merchantId,
+            'version'      => '2019-08-19', // Required by HDFC for this API
+        ];
+
+        if ($this->resellerId !== '') {
+            $headers['x-resellerid'] = $this->resellerId;
+        }
+
+        $url = $this->baseUrl . $path;
+
+        $response = Http::withBasicAuth($this->apiKey, '')
+            ->withHeaders($headers)
+            ->timeout(30)
+            ->post($url, [
+                'cancel_reason' => 'User cancelled on payment page',
+            ]);
+
+        // Reuse your existing response handler
+        return $this->handleResponse(
+            $response,
+            'POST',
+            $url,
+            ['order_id' => $orderReference]
+        );
+    }
 }
