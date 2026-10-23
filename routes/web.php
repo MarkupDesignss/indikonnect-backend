@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\API\CorrectionLinkController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
@@ -37,3 +38,4 @@ Route::get('/test-ignite', function (IgniteClient $ignite) {
 
 Route::get('/correction/{token}',  [CorrectionLinkController::class, 'form'])->name('correction.form');
 Route::post('/correction/{token}', [CorrectionLinkController::class, 'update'])->name('correction.update');
+Route::get('/distributor/{id}', [AuthController::class, 'showHtml']);
