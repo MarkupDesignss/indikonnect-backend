@@ -1282,256 +1282,14 @@ class AuthController extends Controller
      * Simplified version with better user linking
      */
 
-    // public function sendVerificationOtp(Request $request)
-    // {
-    //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'type' => 'required|in:phone,email',
-    //             'phone' => 'required_if:type,phone|min:10|max:15',
-    //             'email' => 'required_if:type,email|email',
-    //             'temp_token' => 'nullable|string',
-    //         ]);
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'errors' => $validator->errors()
-    //             ], 422);
-    //         }
-
-    //         // Try to find user by temp_token first
-    //         $userByToken = null;
-    //         if ($request->filled('temp_token')) {
-    //             $userByToken = User::where('temp_token', $request->temp_token)
-    //                 ->where('is_registered', 0)
-    //                 ->first();
-    //         }
-
-    //         // ========== STATIC OTP MAPPING ==========
-    //         $staticOtps = [
-    //             '+919980980980'           => '111111',   // Customer phone
-    //             '+918800880088'           => '222222',   // Distributor phone
-    //             'qatest02md@gmail.com' => '333333',   // Distributor email
-    //         ];
-    //         // ========================================
-
-    //         // For phone OTP
-    //         if ($request->type === 'phone') {
-    //             // Check if phone exists and is registered as customer
-    //             $user = User::where('phone', $request->phone)
-    //                 ->where('account_type', 'customer')
-    //                 ->first();
-
-    //             if ($user && $user->is_registered == 1) {
-    //                 return response()->json([
-    //                     'status' => false,
-    //                     'message' => 'This phone number is already registered as a customer.'
-    //                 ], 422);
-    //             }
-
-    //             // Check if phone exists with any other role (admin, vendor, etc.)
-    //             $userOtherRole = User::where('phone', $request->phone)
-    //                 ->where('account_type', '!=', 'customer')
-    //                 ->where('is_registered', 1)
-    //                 ->first();
-
-    //             if ($userOtherRole) {
-    //                 return response()->json([
-    //                     'status' => false,
-    //                     'message' => 'This phone number is already registered with a different account type.'
-    //                 ], 422);
-    //             }
-
-    //             // Generate OTP (static or random)
-    //             if (array_key_exists($request->phone, $staticOtps)) {
-    //                 $otp = $staticOtps[$request->phone];
-    //             } else {
-    //                 $otp = rand(100000, 999999);
-    //             }
-
-    //             // Case 1: User exists with this phone
-    //             if ($user) {
-    //                 $user->update([
-    //                     'otp' => $otp,
-    //                     'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
-    //                     'phone_verified' => 0,
-    //                 ]);
-    //                 $foundUser = $user;
-    //             }
-    //             // Case 2: User exists with temp_token
-    //             elseif ($userByToken) {
-    //                 $userByToken->update([
-    //                     'phone' => $request->phone,
-    //                     'otp' => $otp,
-    //                     'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
-    //                     'phone_verified' => 0,
-    //                 ]);
-    //                 $foundUser = $userByToken;
-    //             }
-    //             // Case 3: Check if phone exists in any unregistered user with email
-    //             else {
-    //                 $existingUser = User::where(function ($query) use ($request) {
-    //                     $query->where('email', $request->email)
-    //                         ->orWhere('phone', $request->phone);
-    //                 })->where('is_registered', 0)->first();
-
-    //                 if ($existingUser) {
-    //                     $existingUser->update([
-    //                         'phone' => $request->phone,
-    //                         'otp' => $otp,
-    //                         'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
-    //                         'phone_verified' => 0,
-    //                     ]);
-    //                     $foundUser = $existingUser;
-    //                 }
-    //                 // Case 4: Create new user
-    //                 else {
-    //                     $foundUser = User::create([
-    //                         'phone' => $request->phone,
-    //                         'otp' => $otp,
-    //                         'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
-    //                         'is_registered' => 0,
-    //                         'registration_step' => 0,
-    //                         'account_type' => 'customer',
-    //                         'temp_token' => Str::random(60),
-    //                     ]);
-    //                 }
-    //             }
-
-    //             if (empty($foundUser->temp_token)) {
-    //                 $foundUser->update([
-    //                     'temp_token' => Str::random(60)
-    //                 ]);
-    //                 $foundUser->refresh();
-    //             }
-
-    //             // Send SMS OTP
-    //             // $this->twilioService->sendOtp($foundUser->phone, $otp);
-
-    //             return response()->json([
-    //                 'status' => true,
-    //                 'message' => 'Phone OTP sent successfully',
-    //                 'phone' => $foundUser->phone,
-    //                 'otp' => $otp, // Remove in production
-    //                 'expires_in' => 10,
-    //                 'temp_token' => $foundUser->temp_token,
-    //             ]);
-    //         }
-    //         // For email OTP
-    //         else {
-    //             // Check if email exists and is registered as customer
-    //             $user = User::where('email', $request->email)
-    //                 ->where('account_type', 'customer')
-    //                 ->first();
-
-    //             if ($user && $user->is_registered == 1) {
-    //                 return response()->json([
-    //                     'status' => false,
-    //                     'message' => 'This email is already registered as a customer.'
-    //                 ], 422);
-    //             }
-
-    //             // Check if email exists with any other role (admin, vendor, etc.)
-    //             $userOtherRole = User::where('email', $request->email)
-    //                 ->where('account_type', '!=', 'customer')
-    //                 ->where('is_registered', 1)
-    //                 ->first();
-
-    //             if ($userOtherRole) {
-    //                 return response()->json([
-    //                     'status' => false,
-    //                     'message' => 'This email is already registered with a different account type.'
-    //                 ], 422);
-    //             }
-
-    //             // Generate OTP (static or random) for email
-    //             if (array_key_exists($request->email, $staticOtps)) {
-    //                 $emailOtp = $staticOtps[$request->email];
-    //             } else {
-    //                 $emailOtp = rand(100000, 999999);
-    //             }
-
-    //             // Case 1: User exists with this email
-    //             if ($user) {
-    //                 $user->update([
-    //                     'email_otp' => $emailOtp,
-    //                     'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
-    //                 ]);
-    //                 $foundUser = $user;
-    //             }
-    //             // Case 2: User exists with temp_token
-    //             elseif ($userByToken) {
-    //                 $userByToken->update([
-    //                     'email' => $request->email,
-    //                     'email_otp' => $emailOtp,
-    //                     'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
-    //                 ]);
-    //                 $foundUser = $userByToken;
-    //             }
-    //             // Case 3: Check if email or phone exists in any unregistered user
-    //             else {
-    //                 $existingUser = User::where(function ($query) use ($request) {
-    //                     $query->where('email', $request->email)
-    //                         ->orWhere('phone', $request->phone);
-    //                 })->where('is_registered', 0)->first();
-
-    //                 if ($existingUser) {
-    //                     $existingUser->update([
-    //                         'email' => $request->email,
-    //                         'email_otp' => $emailOtp,
-    //                         'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
-    //                     ]);
-    //                     $foundUser = $existingUser;
-    //                 }
-    //                 // Case 4: Create new user
-    //                 else {
-    //                     $foundUser = User::create([
-    //                         'email' => $request->email,
-    //                         'email_otp' => $emailOtp,
-    //                         'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
-    //                         'is_registered' => 0,
-    //                         'registration_step' => 0,
-    //                         'account_type' => 'customer',
-    //                         'temp_token' => Str::random(60),
-    //                     ]);
-    //                 }
-    //             }
-
-    //             if (empty($foundUser->temp_token)) {
-    //                 $foundUser->update([
-    //                     'temp_token' => Str::random(60)
-    //                 ]);
-    //                 $foundUser->refresh();
-    //             }
-
-    //             // Send email OTP
-    //             // Mail::to($foundUser->email)->send(new EmailVerificationMail($emailOtp));
-
-    //             return response()->json([
-    //                 'status' => true,
-    //                 'message' => 'Email OTP sent successfully',
-    //                 'email' => $foundUser->email,
-    //                 'otp' => $emailOtp,
-    //                 'expires_in' => 10,
-    //                 'temp_token' => $foundUser->temp_token,
-    //             ]);
-    //         }
-    //     } catch (\Exception $e) {
-    //         Log::error('Send verification OTP error: ' . $e->getMessage());
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
-
     public function sendVerificationOtp(Request $request)
     {
         try {
             $validator = Validator::make($request->all(), [
-                'type'  => 'required|in:phone,email',
+                'type' => 'required|in:phone,email',
                 'phone' => 'required_if:type,phone|min:10|max:15',
                 'email' => 'required_if:type,email|email',
+                'temp_token' => 'nullable|string',
             ]);
 
             if ($validator->fails()) {
@@ -1541,111 +1299,221 @@ class AuthController extends Controller
                 ], 422);
             }
 
+            // Try to find user by temp_token first
+            $userByToken = null;
+            if ($request->filled('temp_token')) {
+                $userByToken = User::where('temp_token', $request->temp_token)
+                    ->where('is_registered', 0)
+                    ->first();
+            }
+
             // ========== STATIC OTP MAPPING ==========
             $staticOtps = [
-                '+919980980980'        => '111111',
-                '+918800880088'        => '222222',
-                'qatest02md@gmail.com' => '333333',
+                '+919980980980'           => '111111',   // Customer phone
+                '+918800880088'           => '222222',   // Distributor phone
+                'qatest02md@gmail.com' => '333333',   // Distributor email
             ];
             // ========================================
 
-            $expiryMinutes = (int) setting('otp_expiry_minutes', 5);
-
-            // ================= PHONE OTP =================
+            // For phone OTP
             if ($request->type === 'phone') {
-                // ✅ Sirf REGISTERED users ko block karo (partial users nahi)
-                $registeredUser = User::where('phone', $request->phone)
-                    ->where('is_registered', 1)
+                // Check if phone exists and is registered as customer
+                $user = User::where('phone', $request->phone)
+                    ->where('account_type', 'customer')
                     ->first();
 
-                if ($registeredUser) {
+                if ($user && $user->is_registered == 1) {
                     return response()->json([
                         'status' => false,
-                        'message' => 'This phone number is already registered.'
+                        'message' => 'This phone number is already registered as a customer.'
                     ], 422);
                 }
 
-                // ✅ Verified flag check — agar flag hai to matlab abhi kisi flow mein use ho raha hai
-                // TTL 3 min hai, isliye stale nahi rahega
-                $verifiedKey = 'phone_verified_' . $request->phone;
-                if (Cache::has($verifiedKey)) {
-                    // Agar verified flag abhi bhi hai, matlab user ne OTP verify kiya
-                    // lekin step1 complete nahi kiya. User ko allow karo dobara OTP lene ka
-                    // (kyunki ho sakta hai usne step1 fail kiya ho)
-                    Cache::forget($verifiedKey);
+                // Check if phone exists with any other role (admin, vendor, etc.)
+                $userOtherRole = User::where('phone', $request->phone)
+                    ->where('account_type', '!=', 'customer')
+                    ->where('is_registered', 1)
+                    ->first();
+
+                if ($userOtherRole) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'This phone number is already registered with a different account type.'
+                    ], 422);
                 }
 
-                // ✅ Purana OTP cache clear karo (re-send allow)
-                $otpKey = 'otp_phone_' . $request->phone;
-                Cache::forget($otpKey);
+                // Generate OTP (static or random)
+                if (array_key_exists($request->phone, $staticOtps)) {
+                    $otp = $staticOtps[$request->phone];
+                } else {
+                    $otp = rand(100000, 999999);
+                }
 
-                // Generate OTP
-                $otp = array_key_exists($request->phone, $staticOtps)
-                    ? $staticOtps[$request->phone]
-                    : rand(100000, 999999);
+                // Case 1: User exists with this phone
+                if ($user) {
+                    $user->update([
+                        'otp' => $otp,
+                        'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
+                        'phone_verified' => 0,
+                    ]);
+                    $foundUser = $user;
+                }
+                // Case 2: User exists with temp_token
+                elseif ($userByToken) {
+                    $userByToken->update([
+                        'phone' => $request->phone,
+                        'otp' => $otp,
+                        'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
+                        'phone_verified' => 0,
+                    ]);
+                    $foundUser = $userByToken;
+                }
+                // Case 3: Check if phone exists in any unregistered user with email
+                else {
+                    $existingUser = User::where(function ($query) use ($request) {
+                        $query->where('email', $request->email)
+                            ->orWhere('phone', $request->phone);
+                    })->where('is_registered', 0)->first();
 
-                // Store OTP in cache (NO DB entry)
-                Cache::put($otpKey, [
-                    'otp'        => $otp,
-                    'expires_at' => now()->addMinutes($expiryMinutes),
-                ], now()->addMinutes($expiryMinutes));
+                    if ($existingUser) {
+                        $existingUser->update([
+                            'phone' => $request->phone,
+                            'otp' => $otp,
+                            'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
+                            'phone_verified' => 0,
+                        ]);
+                        $foundUser = $existingUser;
+                    }
+                    // Case 4: Create new user
+                    else {
+                        $foundUser = User::create([
+                            'phone' => $request->phone,
+                            'otp' => $otp,
+                            'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
+                            'is_registered' => 0,
+                            'registration_step' => 0,
+                            'account_type' => 'customer',
+                            'temp_token' => Str::random(60),
+                        ]);
+                    }
+                }
+
+                if (empty($foundUser->temp_token)) {
+                    $foundUser->update([
+                        'temp_token' => Str::random(60)
+                    ]);
+                    $foundUser->refresh();
+                }
 
                 // Send SMS OTP
-                // $this->twilioService->sendOtp($request->phone, $otp);
+                // $this->twilioService->sendOtp($foundUser->phone, $otp);
 
                 return response()->json([
-                    'status'     => true,
-                    'message'    => 'Phone OTP sent successfully',
-                    'phone'      => $request->phone,
-                    'otp'        => $otp, // Remove in production
-                    'expires_in' => $expiryMinutes,
+                    'status' => true,
+                    'message' => 'Phone OTP sent successfully',
+                    'phone' => $foundUser->phone,
+                    'otp' => $otp, // Remove in production
+                    'expires_in' => 10,
+                    'temp_token' => $foundUser->temp_token,
                 ]);
             }
-
-            // ================= EMAIL OTP =================
+            // For email OTP
             else {
-                // ✅ Sirf REGISTERED users ko block karo
-                $registeredUser = User::where('email', $request->email)
-                    ->where('is_registered', 1)
+                // Check if email exists and is registered as customer
+                $user = User::where('email', $request->email)
+                    ->where('account_type', 'customer')
                     ->first();
 
-                if ($registeredUser) {
+                if ($user && $user->is_registered == 1) {
                     return response()->json([
                         'status' => false,
-                        'message' => 'This email is already registered.'
+                        'message' => 'This email is already registered as a customer.'
                     ], 422);
                 }
 
-                // ✅ Verified flag clear (stale na rahe)
-                $verifiedKey = 'email_verified_' . $request->email;
-                if (Cache::has($verifiedKey)) {
-                    Cache::forget($verifiedKey);
+                // Check if email exists with any other role (admin, vendor, etc.)
+                $userOtherRole = User::where('email', $request->email)
+                    ->where('account_type', '!=', 'customer')
+                    ->where('is_registered', 1)
+                    ->first();
+
+                if ($userOtherRole) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'This email is already registered with a different account type.'
+                    ], 422);
                 }
 
-                // ✅ Purana OTP cache clear karo
-                $otpKey = 'otp_email_' . $request->email;
-                Cache::forget($otpKey);
+                // Generate OTP (static or random) for email
+                if (array_key_exists($request->email, $staticOtps)) {
+                    $emailOtp = $staticOtps[$request->email];
+                } else {
+                    $emailOtp = rand(100000, 999999);
+                }
 
-                // Generate OTP
-                $otp = array_key_exists($request->email, $staticOtps)
-                    ? $staticOtps[$request->email]
-                    : rand(100000, 999999);
+                // Case 1: User exists with this email
+                if ($user) {
+                    $user->update([
+                        'email_otp' => $emailOtp,
+                        'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
+                    ]);
+                    $foundUser = $user;
+                }
+                // Case 2: User exists with temp_token
+                elseif ($userByToken) {
+                    $userByToken->update([
+                        'email' => $request->email,
+                        'email_otp' => $emailOtp,
+                        'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
+                    ]);
+                    $foundUser = $userByToken;
+                }
+                // Case 3: Check if email or phone exists in any unregistered user
+                else {
+                    $existingUser = User::where(function ($query) use ($request) {
+                        $query->where('email', $request->email)
+                            ->orWhere('phone', $request->phone);
+                    })->where('is_registered', 0)->first();
 
-                // Store OTP in cache
-                Cache::put($otpKey, [
-                    'otp'        => $otp,
-                    'expires_at' => now()->addMinutes($expiryMinutes),
-                ], now()->addMinutes($expiryMinutes));
+                    if ($existingUser) {
+                        $existingUser->update([
+                            'email' => $request->email,
+                            'email_otp' => $emailOtp,
+                            'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
+                        ]);
+                        $foundUser = $existingUser;
+                    }
+                    // Case 4: Create new user
+                    else {
+                        $foundUser = User::create([
+                            'email' => $request->email,
+                            'email_otp' => $emailOtp,
+                            'email_otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
+                            'is_registered' => 0,
+                            'registration_step' => 0,
+                            'account_type' => 'customer',
+                            'temp_token' => Str::random(60),
+                        ]);
+                    }
+                }
+
+                if (empty($foundUser->temp_token)) {
+                    $foundUser->update([
+                        'temp_token' => Str::random(60)
+                    ]);
+                    $foundUser->refresh();
+                }
 
                 // Send email OTP
-                // Mail::to($request->email)->send(new EmailVerificationMail($otp));
+                // Mail::to($foundUser->email)->send(new EmailVerificationMail($emailOtp));
 
                 return response()->json([
-                    'status'     => true,
-                    'message'    => 'Email OTP sent successfully',
-                    'email'      => $request->email,
-                    'otp'        => $otp, // Remove in production
-                    'expires_in' => $expiryMinutes,
+                    'status' => true,
+                    'message' => 'Email OTP sent successfully',
+                    'email' => $foundUser->email,
+                    'otp' => $emailOtp,
+                    'expires_in' => 10,
+                    'temp_token' => $foundUser->temp_token,
                 ]);
             }
         } catch (\Exception $e) {
@@ -1656,6 +1524,138 @@ class AuthController extends Controller
             ], 500);
         }
     }
+
+    // public function sendVerificationOtp(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'type'  => 'required|in:phone,email',
+    //             'phone' => 'required_if:type,phone|min:10|max:15',
+    //             'email' => 'required_if:type,email|email',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         // ========== STATIC OTP MAPPING ==========
+    //         $staticOtps = [
+    //             '+919980980980'        => '111111',
+    //             '+918800880088'        => '222222',
+    //             'qatest02md@gmail.com' => '333333',
+    //         ];
+    //         // ========================================
+
+    //         $expiryMinutes = (int) setting('otp_expiry_minutes', 5);
+
+    //         // ================= PHONE OTP =================
+    //         if ($request->type === 'phone') {
+    //             // ✅ Sirf REGISTERED users ko block karo (partial users nahi)
+    //             $registeredUser = User::where('phone', $request->phone)
+    //                 ->where('is_registered', 1)
+    //                 ->first();
+
+    //             if ($registeredUser) {
+    //                 return response()->json([
+    //                     'status' => false,
+    //                     'message' => 'This phone number is already registered.'
+    //                 ], 422);
+    //             }
+
+    //             // ✅ Verified flag check — agar flag hai to matlab abhi kisi flow mein use ho raha hai
+    //             // TTL 3 min hai, isliye stale nahi rahega
+    //             $verifiedKey = 'phone_verified_' . $request->phone;
+    //             if (Cache::has($verifiedKey)) {
+    //                 // Agar verified flag abhi bhi hai, matlab user ne OTP verify kiya
+    //                 // lekin step1 complete nahi kiya. User ko allow karo dobara OTP lene ka
+    //                 // (kyunki ho sakta hai usne step1 fail kiya ho)
+    //                 Cache::forget($verifiedKey);
+    //             }
+
+    //             // ✅ Purana OTP cache clear karo (re-send allow)
+    //             $otpKey = 'otp_phone_' . $request->phone;
+    //             Cache::forget($otpKey);
+
+    //             // Generate OTP
+    //             $otp = array_key_exists($request->phone, $staticOtps)
+    //                 ? $staticOtps[$request->phone]
+    //                 : rand(100000, 999999);
+
+    //             // Store OTP in cache (NO DB entry)
+    //             Cache::put($otpKey, [
+    //                 'otp'        => $otp,
+    //                 'expires_at' => now()->addMinutes($expiryMinutes),
+    //             ], now()->addMinutes($expiryMinutes));
+
+    //             // Send SMS OTP
+    //             // $this->twilioService->sendOtp($request->phone, $otp);
+
+    //             return response()->json([
+    //                 'status'     => true,
+    //                 'message'    => 'Phone OTP sent successfully',
+    //                 'phone'      => $request->phone,
+    //                 'otp'        => $otp, // Remove in production
+    //                 'expires_in' => $expiryMinutes,
+    //             ]);
+    //         }
+
+    //         // ================= EMAIL OTP =================
+    //         else {
+    //             // ✅ Sirf REGISTERED users ko block karo
+    //             $registeredUser = User::where('email', $request->email)
+    //                 ->where('is_registered', 1)
+    //                 ->first();
+
+    //             if ($registeredUser) {
+    //                 return response()->json([
+    //                     'status' => false,
+    //                     'message' => 'This email is already registered.'
+    //                 ], 422);
+    //             }
+
+    //             // ✅ Verified flag clear (stale na rahe)
+    //             $verifiedKey = 'email_verified_' . $request->email;
+    //             if (Cache::has($verifiedKey)) {
+    //                 Cache::forget($verifiedKey);
+    //             }
+
+    //             // ✅ Purana OTP cache clear karo
+    //             $otpKey = 'otp_email_' . $request->email;
+    //             Cache::forget($otpKey);
+
+    //             // Generate OTP
+    //             $otp = array_key_exists($request->email, $staticOtps)
+    //                 ? $staticOtps[$request->email]
+    //                 : rand(100000, 999999);
+
+    //             // Store OTP in cache
+    //             Cache::put($otpKey, [
+    //                 'otp'        => $otp,
+    //                 'expires_at' => now()->addMinutes($expiryMinutes),
+    //             ], now()->addMinutes($expiryMinutes));
+
+    //             // Send email OTP
+    //             // Mail::to($request->email)->send(new EmailVerificationMail($otp));
+
+    //             return response()->json([
+    //                 'status'     => true,
+    //                 'message'    => 'Email OTP sent successfully',
+    //                 'email'      => $request->email,
+    //                 'otp'        => $otp, // Remove in production
+    //                 'expires_in' => $expiryMinutes,
+    //             ]);
+    //         }
+    //     } catch (\Exception $e) {
+    //         Log::error('Send verification OTP error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
 
     public function resendOtp(Request $request)
     {
@@ -1718,76 +1718,6 @@ class AuthController extends Controller
     /**
      * Verify Phone OTP
      */
-    // public function verifyPhoneOtp(Request $request)
-    // {
-    //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'phone' => 'required|min:10|max:15',
-    //             'otp' => 'required|digits:6',
-    //         ]);
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'errors' => $validator->errors()
-    //             ], 422);
-    //         }
-
-    //         $user = User::where('phone', $request->phone)->first();
-
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'User not found.'
-    //             ], 422);
-    //         }
-
-    //         // Check if already registered
-    //         if ($user->is_registered == 1) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'This phone is already registered.'
-    //             ], 422);
-    //         }
-
-    //         // Verify OTP
-    //         if ($user->otp != $request->otp) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Invalid OTP.'
-    //             ], 422);
-    //         }
-
-    //         if (now()->gt($user->otp_expires_at)) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'OTP has expired. Please request a new one.'
-    //             ], 422);
-    //         }
-
-    //         // Mark phone as verified
-    //         $user->update([
-    //             'phone_verified' => 1,
-    //             'phone_verified_at' => now(),
-    //             'otp' => null,
-    //             'otp_expires_at' => null,
-    //         ]);
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'message' => 'Phone verified successfully.',
-    //             'phone_verified' => true,
-    //             'user' => $user,
-    //             'temp_token' => $user->temp_token, // Return temp token
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('Verify phone OTP error: ' . $e->getMessage());
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
     public function verifyPhoneOtp(Request $request)
     {
         try {
@@ -1803,40 +1733,52 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            $cacheKey = 'otp_phone_' . $request->phone;
-            $cached = Cache::get($cacheKey);
+            $user = User::where('phone', $request->phone)->first();
 
-            if (!$cached) {
+            if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'OTP not found or expired. Please request a new one.'
+                    'message' => 'User not found.'
                 ], 422);
             }
 
-            if ($cached['otp'] != $request->otp) {
+            // Check if already registered
+            if ($user->is_registered == 1) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'This phone is already registered.'
+                ], 422);
+            }
+
+            // Verify OTP
+            if ($user->otp != $request->otp) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Invalid OTP.'
                 ], 422);
             }
 
-            if (now()->gt($cached['expires_at'])) {
+            if (now()->gt($user->otp_expires_at)) {
                 return response()->json([
                     'status' => false,
                     'message' => 'OTP has expired. Please request a new one.'
                 ], 422);
             }
 
-            // OTP cache clear karo
-            Cache::forget($cacheKey);
-
-            // ✅ Verified flag sirf 3 minute ke liye (step1 complete karne ke liye kaafi)
-            Cache::put('phone_verified_' . $request->phone, true, now()->addMinutes(3));
+            // Mark phone as verified
+            $user->update([
+                'phone_verified' => 1,
+                'phone_verified_at' => now(),
+                'otp' => null,
+                'otp_expires_at' => null,
+            ]);
 
             return response()->json([
                 'status' => true,
                 'message' => 'Phone verified successfully.',
                 'phone_verified' => true,
+                'user' => $user,
+                'temp_token' => $user->temp_token, // Return temp token
             ]);
         } catch (\Exception $e) {
             Log::error('Verify phone OTP error: ' . $e->getMessage());
@@ -1846,15 +1788,11 @@ class AuthController extends Controller
             ], 500);
         }
     }
-
-    /**
-     * Verify Email OTP
-     */
-    // public function verifyEmailOtp(Request $request)
+    // public function verifyPhoneOtp(Request $request)
     // {
     //     try {
     //         $validator = Validator::make($request->all(), [
-    //             'email' => 'required|email',
+    //             'phone' => 'required|min:10|max:15',
     //             'otp' => 'required|digits:6',
     //         ]);
 
@@ -1865,59 +1803,53 @@ class AuthController extends Controller
     //             ], 422);
     //         }
 
-    //         $user = User::where('email', $request->email)->first();
+    //         $cacheKey = 'otp_phone_' . $request->phone;
+    //         $cached = Cache::get($cacheKey);
 
-    //         if (!$user) {
+    //         if (!$cached) {
     //             return response()->json([
     //                 'status' => false,
-    //                 'message' => 'User not found.'
+    //                 'message' => 'OTP not found or expired. Please request a new one.'
     //             ], 422);
     //         }
 
-    //         // Check if already registered
-    //         if ($user->is_registered == 1) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'This email is already registered.'
-    //             ], 422);
-    //         }
-
-    //         // Verify OTP
-    //         if ($user->email_otp != $request->otp) {
+    //         if ($cached['otp'] != $request->otp) {
     //             return response()->json([
     //                 'status' => false,
     //                 'message' => 'Invalid OTP.'
     //             ], 422);
     //         }
 
-    //         if (now()->gt($user->email_otp_expires_at)) {
+    //         if (now()->gt($cached['expires_at'])) {
     //             return response()->json([
     //                 'status' => false,
     //                 'message' => 'OTP has expired. Please request a new one.'
     //             ], 422);
     //         }
 
-    //         // Mark email as verified
-    //         $user->update([
-    //             'email_verified_at' => now(),
-    //             'email_otp' => null,
-    //             'email_otp_expires_at' => null,
-    //         ]);
+    //         // OTP cache clear karo
+    //         Cache::forget($cacheKey);
+
+    //         // ✅ Verified flag sirf 3 minute ke liye (step1 complete karne ke liye kaafi)
+    //         Cache::put('phone_verified_' . $request->phone, true, now()->addMinutes(3));
 
     //         return response()->json([
     //             'status' => true,
-    //             'message' => 'Email verified successfully.',
-    //             'email_verified' => true,
-    //             'temp_token' => $user->temp_token, // Return temp token
+    //             'message' => 'Phone verified successfully.',
+    //             'phone_verified' => true,
     //         ]);
     //     } catch (\Exception $e) {
-    //         Log::error('Verify email OTP error: ' . $e->getMessage());
+    //         Log::error('Verify phone OTP error: ' . $e->getMessage());
     //         return response()->json([
     //             'status' => false,
     //             'message' => $e->getMessage()
     //         ], 500);
     //     }
     // }
+
+    /**
+     * Verify Email OTP
+     */
     public function verifyEmailOtp(Request $request)
     {
         try {
@@ -1933,38 +1865,50 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            $cacheKey = 'otp_email_' . $request->email;
-            $cached = Cache::get($cacheKey);
+            $user = User::where('email', $request->email)->first();
 
-            if (!$cached) {
+            if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'OTP not found or expired. Please request a new one.'
+                    'message' => 'User not found.'
                 ], 422);
             }
 
-            if ($cached['otp'] != $request->otp) {
+            // Check if already registered
+            if ($user->is_registered == 1) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'This email is already registered.'
+                ], 422);
+            }
+
+            // Verify OTP
+            if ($user->email_otp != $request->otp) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Invalid OTP.'
                 ], 422);
             }
 
-            if (now()->gt($cached['expires_at'])) {
+            if (now()->gt($user->email_otp_expires_at)) {
                 return response()->json([
                     'status' => false,
                     'message' => 'OTP has expired. Please request a new one.'
                 ], 422);
             }
 
-            Cache::forget($cacheKey);
-
-            Cache::put('email_verified_' . $request->email, true, now()->addMinutes(3));
+            // Mark email as verified
+            $user->update([
+                'email_verified_at' => now(),
+                'email_otp' => null,
+                'email_otp_expires_at' => null,
+            ]);
 
             return response()->json([
                 'status' => true,
                 'message' => 'Email verified successfully.',
                 'email_verified' => true,
+                'temp_token' => $user->temp_token, // Return temp token
             ]);
         } catch (\Exception $e) {
             Log::error('Verify email OTP error: ' . $e->getMessage());
@@ -1974,139 +1918,74 @@ class AuthController extends Controller
             ], 500);
         }
     }
+    // public function verifyEmailOtp(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'email' => 'required|email',
+    //             'otp' => 'required|digits:6',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $cacheKey = 'otp_email_' . $request->email;
+    //         $cached = Cache::get($cacheKey);
+
+    //         if (!$cached) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'OTP not found or expired. Please request a new one.'
+    //             ], 422);
+    //         }
+
+    //         if ($cached['otp'] != $request->otp) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Invalid OTP.'
+    //             ], 422);
+    //         }
+
+    //         if (now()->gt($cached['expires_at'])) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'OTP has expired. Please request a new one.'
+    //             ], 422);
+    //         }
+
+    //         Cache::forget($cacheKey);
+
+    //         Cache::put('email_verified_' . $request->email, true, now()->addMinutes(3));
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Email verified successfully.',
+    //             'email_verified' => true,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Verify email OTP error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
 
     /**
      * DISTRIBUTOR: Step 1 - Personal Info (After Phone & Email Verification)
      */
-    public function distributorStep1Personal(Request $request)
-    {
-        try {
-            // ✅ Agar request mein phone/email aaye to verified flags turant utha lo
-            // taaki error case mein bhi cache stale na rahe
-            $phoneCacheKey = $request->phone ? 'phone_verified_' . $request->phone : null;
-            $emailCacheKey = $request->email ? 'email_verified_' . $request->email : null;
-
-            $validator = Validator::make($request->all(), [
-                'phone' => 'required|min:10|max:15',
-                'email' => [
-                    'required',
-                    'email',
-                    Rule::unique('users', 'email')->where(function ($query) {
-                        return $query->where('is_registered', 1);
-                    })
-                ],
-                'full_name' => 'required|string|max:255',
-                'account_type' => 'nullable',
-                'country' => 'nullable|string|max:255',
-                'password' => 'nullable|string|min:8',
-                'date_of_birth' => 'required|date|before:-18 years',
-                'terms_condition' => 'required|in:0,1',
-            ]);
-
-            if ($validator->fails()) {
-                // ❌ Validation fail → verified flags clear karo
-                if ($phoneCacheKey) Cache::forget($phoneCacheKey);
-                if ($emailCacheKey) Cache::forget($emailCacheKey);
-
-                return response()->json([
-                    'status' => false,
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            // ========== VERIFY FLAGS CHECK (ek hi baar) ==========
-            if (!Cache::has($phoneCacheKey)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Please verify your phone number first.'
-                ], 422);
-            }
-
-            if (!Cache::has($emailCacheKey)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Please verify your email first.'
-                ], 422);
-            }
-
-            // ✅ Flags turant clear karo — ab inki zaroorat nahi
-            Cache::forget($phoneCacheKey);
-            Cache::forget($emailCacheKey);
-
-            // Check phone already registered
-            $existingPhone = User::where('phone', $request->phone)
-                ->where('is_registered', 1)
-                ->first();
-
-            if ($existingPhone) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'This phone number is already registered.'
-                ], 422);
-            }
-
-            // Check email already registered
-            $existingEmail = User::where('email', $request->email)
-                ->where('is_registered', 1)
-                ->first();
-
-            if ($existingEmail) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'This email is already registered.'
-                ], 422);
-            }
-
-            // ========== USER CREATE ==========
-            $user = User::create([
-                'phone' => $request->phone,
-                'phone_verified' => 1,
-                'phone_verified_at' => now(),
-                'email' => $request->email,
-                'email_verified_at' => now(),
-                'full_name' => $request->full_name,
-                'country' => $request->country,
-                'account_type' => 'distributor',
-                'terms_condition' => $request->terms_condition,
-                'date_of_birth' => $request->date_of_birth,
-                'password' => $request->filled('password')
-                    ? Hash::make($request->password)
-                    : null,
-                'is_registered' => 0,
-                'registration_step' => 1,
-                'temp_token' => Str::random(60),
-            ]);
-
-            DistributorProfile::create([
-                'user_id' => $user->id,
-                'kyc_status' => 'pending',
-            ]);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Personal information saved successfully',
-                'step' => 1,
-                'next_step' => 2,
-                'user' => $user,
-                'phone_verified' => true,
-                'email_verified' => true,
-                'temp_token' => $user->temp_token,
-            ]);
-        } catch (\Exception $e) {
-            // ✅ Exception case mein bhi flags clear
-            if (isset($phoneCacheKey) && $phoneCacheKey) Cache::forget($phoneCacheKey);
-            if (isset($emailCacheKey) && $emailCacheKey) Cache::forget($emailCacheKey);
-
-            Log::error('Distributor step 1 error: ' . $e->getMessage());
-            return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
     // public function distributorStep1Personal(Request $request)
     // {
     //     try {
+    //         // ✅ Agar request mein phone/email aaye to verified flags turant utha lo
+    //         // taaki error case mein bhi cache stale na rahe
+    //         $phoneCacheKey = $request->phone ? 'phone_verified_' . $request->phone : null;
+    //         $emailCacheKey = $request->email ? 'email_verified_' . $request->email : null;
+
     //         $validator = Validator::make($request->all(), [
     //             'phone' => 'required|min:10|max:15',
     //             'email' => [
@@ -2117,7 +1996,6 @@ class AuthController extends Controller
     //                 })
     //             ],
     //             'full_name' => 'required|string|max:255',
-
     //             'account_type' => 'nullable',
     //             'country' => 'nullable|string|max:255',
     //             'password' => 'nullable|string|min:8',
@@ -2126,76 +2004,83 @@ class AuthController extends Controller
     //         ]);
 
     //         if ($validator->fails()) {
+    //             // ❌ Validation fail → verified flags clear karo
+    //             if ($phoneCacheKey) Cache::forget($phoneCacheKey);
+    //             if ($emailCacheKey) Cache::forget($emailCacheKey);
+
     //             return response()->json([
     //                 'status' => false,
     //                 'errors' => $validator->errors()
     //             ], 422);
     //         }
 
-    //         // Find user by phone
-    //         $user = User::where('phone', $request->phone)->first();
-
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'User not found. Please verify your phone first.'
-    //             ], 422);
-    //         }
-
-    //         // Check if phone is verified
-    //         if (!$user->phone_verified) {
+    //         // ========== VERIFY FLAGS CHECK (ek hi baar) ==========
+    //         if (!Cache::has($phoneCacheKey)) {
     //             return response()->json([
     //                 'status' => false,
     //                 'message' => 'Please verify your phone number first.'
     //             ], 422);
     //         }
 
-    //         // Check if email is verified
-    //         if (!$user->email_verified_at) {
+    //         if (!Cache::has($emailCacheKey)) {
     //             return response()->json([
     //                 'status' => false,
     //                 'message' => 'Please verify your email first.'
     //             ], 422);
     //         }
 
-    //         // Check if email is already used by another registered user
+    //         // ✅ Flags turant clear karo — ab inki zaroorat nahi
+    //         Cache::forget($phoneCacheKey);
+    //         Cache::forget($emailCacheKey);
+
+    //         // Check phone already registered
+    //         $existingPhone = User::where('phone', $request->phone)
+    //             ->where('is_registered', 1)
+    //             ->first();
+
+    //         if ($existingPhone) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'This phone number is already registered.'
+    //             ], 422);
+    //         }
+
+    //         // Check email already registered
     //         $existingEmail = User::where('email', $request->email)
     //             ->where('is_registered', 1)
-    //             ->where('id', '!=', $user->id)
     //             ->first();
 
     //         if ($existingEmail) {
     //             return response()->json([
     //                 'status' => false,
-    //                 'message' => 'This email is already registered with another account.'
+    //                 'message' => 'This email is already registered.'
     //             ], 422);
     //         }
 
-    //         // Update user with personal information
-    //         $user->update([
-    //             'full_name' => $request->full_name,
+    //         // ========== USER CREATE ==========
+    //         $user = User::create([
+    //             'phone' => $request->phone,
+    //             'phone_verified' => 1,
+    //             'phone_verified_at' => now(),
     //             'email' => $request->email,
+    //             'email_verified_at' => now(),
+    //             'full_name' => $request->full_name,
     //             'country' => $request->country,
-
     //             'account_type' => 'distributor',
     //             'terms_condition' => $request->terms_condition,
     //             'date_of_birth' => $request->date_of_birth,
     //             'password' => $request->filled('password')
     //                 ? Hash::make($request->password)
-    //                 : $user->password,
+    //                 : null,
     //             'is_registered' => 0,
-    //             'registration_step' => max($user->registration_step ?? 0, 1),
+    //             'registration_step' => 1,
+    //             'temp_token' => Str::random(60),
     //         ]);
 
-    //         // Create distributor profile if not exists
-    //         $businessProfile = DistributorProfile::where('user_id', $user->id)->first();
-    //         if (!$businessProfile) {
-    //             $businessProfile = DistributorProfile::create([
-    //                 'user_id' => $user->id,
-    //                 'kyc_status' => 'pending',
-
-    //             ]);
-    //         }
+    //         DistributorProfile::create([
+    //             'user_id' => $user->id,
+    //             'kyc_status' => 'pending',
+    //         ]);
 
     //         return response()->json([
     //             'status' => true,
@@ -2205,8 +2090,13 @@ class AuthController extends Controller
     //             'user' => $user,
     //             'phone_verified' => true,
     //             'email_verified' => true,
+    //             'temp_token' => $user->temp_token,
     //         ]);
     //     } catch (\Exception $e) {
+    //         // ✅ Exception case mein bhi flags clear
+    //         if (isset($phoneCacheKey) && $phoneCacheKey) Cache::forget($phoneCacheKey);
+    //         if (isset($emailCacheKey) && $emailCacheKey) Cache::forget($emailCacheKey);
+
     //         Log::error('Distributor step 1 error: ' . $e->getMessage());
     //         return response()->json([
     //             'status' => false,
@@ -2214,6 +2104,116 @@ class AuthController extends Controller
     //         ], 500);
     //     }
     // }
+    public function distributorStep1Personal(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'phone' => 'required|min:10|max:15',
+                'email' => [
+                    'required',
+                    'email',
+                    Rule::unique('users', 'email')->where(function ($query) {
+                        return $query->where('is_registered', 1);
+                    })
+                ],
+                'full_name' => 'required|string|max:255',
+
+                'account_type' => 'nullable',
+                'country' => 'nullable|string|max:255',
+                'password' => 'nullable|string|min:8',
+                'date_of_birth' => 'required|date|before:-18 years',
+                'terms_condition' => 'required|in:0,1',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Find user by phone
+            $user = User::where('phone', $request->phone)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found. Please verify your phone first.'
+                ], 422);
+            }
+
+            // Check if phone is verified
+            if (!$user->phone_verified) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please verify your phone number first.'
+                ], 422);
+            }
+
+            // Check if email is verified
+            if (!$user->email_verified_at) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please verify your email first.'
+                ], 422);
+            }
+
+            // Check if email is already used by another registered user
+            $existingEmail = User::where('email', $request->email)
+                ->where('is_registered', 1)
+                ->where('id', '!=', $user->id)
+                ->first();
+
+            if ($existingEmail) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'This email is already registered with another account.'
+                ], 422);
+            }
+
+            // Update user with personal information
+            $user->update([
+                'full_name' => $request->full_name,
+                'email' => $request->email,
+                'country' => $request->country,
+
+                'account_type' => 'distributor',
+                'terms_condition' => $request->terms_condition,
+                'date_of_birth' => $request->date_of_birth,
+                'password' => $request->filled('password')
+                    ? Hash::make($request->password)
+                    : $user->password,
+                'is_registered' => 0,
+                'registration_step' => max($user->registration_step ?? 0, 1),
+            ]);
+
+            // Create distributor profile if not exists
+            $businessProfile = DistributorProfile::where('user_id', $user->id)->first();
+            if (!$businessProfile) {
+                $businessProfile = DistributorProfile::create([
+                    'user_id' => $user->id,
+                    'kyc_status' => 'pending',
+
+                ]);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Personal information saved successfully',
+                'step' => 1,
+                'next_step' => 2,
+                'user' => $user,
+                'phone_verified' => true,
+                'email_verified' => true,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Distributor step 1 error: ' . $e->getMessage());
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
 
 
     public function checkDistributorAndGenerateSponsor(Request $request)
