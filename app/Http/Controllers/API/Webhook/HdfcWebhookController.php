@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\OrderLine;
 use App\Services\CheckoutService;
 use App\Services\PaymentGateway\HdfcService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
 use Illuminate\Http\Request as LaravelHttpRequest;
@@ -70,6 +71,36 @@ class HdfcWebhookController extends Controller
                 'order_id' => $order->id,
                 'reason' => $e->getMessage(),
             ]);
+
+            // Fallback: webhook payload se status nikaal kar fail/cancel mark karein
+            // (Signature verification ke baad hi trust karein — neeche dekhein)
+            $webhookStatus = strtoupper((string) (
+                $request->input('status')
+                ?? $request->input('order.status')
+                ?? ''
+            ));
+
+            if (
+                in_array($webhookStatus, self::FAILED, true)
+                || in_array($webhookStatus, self::CANCELLED, true)
+            ) {
+                try {
+                    $this->failOrderFromWebhook($order, $webhookStatus);
+
+                    return response()->json([
+                        'acknowledged' => true,
+                        'payment_status' => in_array($webhookStatus, self::CANCELLED, true)
+                            ? 'cancelled'
+                            : 'failed',
+                    ]);
+                } catch (Throwable $e2) {
+                    Log::error('HDFC webhook fallback fail-order failed', [
+                        'order_id' => $order->id,
+                        'error' => $e2->getMessage(),
+                    ]);
+                }
+            }
+
             return response()->json(['acknowledged' => false], 503);
         }
     }
@@ -91,18 +122,16 @@ class HdfcWebhookController extends Controller
     ): Response {
         $order = $this->findOrder($request);
 
-        // Default response
         $result = [
             'payment_status' => 'pending',
         ];
 
         if ($order) {
             try {
-                // 1. HDFC se actual status fetch karein (reconcile ke through)
                 $result = $this->reconcile($order);
                 $paymentStatus = $result['payment_status'];
 
-                // 2. Agar status CANCELLED ya FAILED hai, toh HDFC session end karein
+                // Agar status CANCELLED ya FAILED hai, toh HDFC session end karein
                 if (in_array($paymentStatus, ['cancelled', 'failed'], true)) {
                     try {
                         $configKey = $order->payment_gateway === 'hdfc_ie' ? 'ie' : 'sg';
@@ -110,7 +139,6 @@ class HdfcWebhookController extends Controller
                             config("services.hdfc.{$configKey}"),
                             $order->payment_gateway
                         );
-                        // HDFC side par session cancel karein
                         $hdfcService->cancelOrder($order->order_reference);
                     } catch (Throwable $e) {
                         Log::error('HDFC Cancel API Failed', [
@@ -124,11 +152,39 @@ class HdfcWebhookController extends Controller
                     'order_id' => $order->id,
                     'error' => $e->getMessage(),
                 ]);
-                $result['payment_status'] = 'pending';
+
+                // SAFETY NET: agar order abhi bhi pending hai aur gateway
+                // return fail/cancel signal de raha hai, to local state fail karein.
+                $returnStatus = strtoupper((string) (
+                    $request->input('status')
+                    ?? $request->input('order.status')
+                    ?? ''
+                ));
+
+                if (
+                    in_array($returnStatus, self::FAILED, true)
+                    || in_array($returnStatus, self::CANCELLED, true)
+                ) {
+                    try {
+                        $fallback = $this->failOrderFromWebhook($order, $returnStatus);
+                        $result['payment_status'] = in_array($returnStatus, self::CANCELLED, true)
+                            ? 'cancelled'
+                            : 'failed';
+                        $result = array_merge($result, $fallback);
+                    } catch (Throwable $e2) {
+                        Log::error('HDFC return fallback fail-order failed', [
+                            'order_id' => $order->id,
+                            'error' => $e2->getMessage(),
+                        ]);
+                        $result['payment_status'] = 'pending';
+                    }
+                } else {
+                    $result['payment_status'] = 'pending';
+                }
             }
         }
 
-        // 3. Redirect to Frontend
+        // Redirect to Frontend
         $configKey = $order?->payment_gateway === 'hdfc_ie' ? 'ie' : 'sg';
         $frontendUrl = (string) config("services.hdfc.{$configKey}.frontend_result_url");
 
@@ -137,7 +193,6 @@ class HdfcWebhookController extends Controller
             abort(500, 'Payment result URL not configured');
         }
 
-        // Allowed URL check
         $allowedUrls = array_filter([
             config('services.hdfc.sg.frontend_result_url'),
             config('services.hdfc.ie.frontend_result_url'),
@@ -196,7 +251,10 @@ window.location.replace(' . $jsUrl . ');
         }
 
         if (!in_array($order->payment_gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
-            abort(422, 'Not an HDFC order');
+            return response()->json([
+                'success' => false,
+                'message' => 'Not an HDFC order',
+            ], 422);
         }
 
         try {
@@ -250,6 +308,10 @@ window.location.replace(' . $jsUrl . ');
 
     /**
      * Verify HDFC payment status and process the appropriate action.
+     *
+     * IMPORTANT: Amount/currency validation sirf PAID branch ke andar hai.
+     * Failed/cancelled orders me HDFC yeh fields guarantee nahi karta —
+     * pehle validation throw karti thi aur order pending reh jata tha.
      */
     private function reconcile(Order $order): array
     {
@@ -283,30 +345,31 @@ window.location.replace(' . $jsUrl . ');
             throw new \RuntimeException('HDFC returned a mismatching order ID');
         }
 
-        // Verify amount
-        $amount = data_get($data, 'amount') ?? data_get($data, 'order.amount');
-        $expected = $order->total_payable;
-
-        if (
-            $amount === null
-            || $expected === null
-            || abs((float) $amount - (float) $expected) > 0.009
-        ) {
-            throw new \RuntimeException('Gateway amount does not match local order');
-        }
-
-        $currency = strtoupper((string) (
-            data_get($data, 'currency')
-            ?? data_get($data, 'order.currency')
-            ?? ''
-        ));
-
-        if ($currency !== 'INR') {
-            throw new \RuntimeException('Gateway currency missing or mismatch');
-        }
-
-        // Successful payment.
+        // -----------------------------------------------------------------
+        // SUCCESSFUL PAYMENT — yahan amount/currency strict validate karein
+        // -----------------------------------------------------------------
         if (in_array($status, self::PAID, true)) {
+            $amount = data_get($data, 'amount') ?? data_get($data, 'order.amount');
+            $expected = $order->total_payable;
+
+            if (
+                $amount === null
+                || $expected === null
+                || abs((float) $amount - (float) $expected) > 0.009
+            ) {
+                throw new \RuntimeException('Gateway amount does not match local order');
+            }
+
+            $currency = strtoupper((string) (
+                data_get($data, 'currency')
+                ?? data_get($data, 'order.currency')
+                ?? ''
+            ));
+
+            if ($currency !== 'INR') {
+                throw new \RuntimeException('Gateway currency missing or mismatch');
+            }
+
             $transactionId = (string) (
                 data_get($data, 'txn_id')
                 ?? data_get($data, 'transaction_id')
@@ -345,14 +408,15 @@ window.location.replace(' . $jsUrl . ');
             ];
         }
 
-        // Cancelled payment.
+        // -----------------------------------------------------------------
+        // CANCELLED PAYMENT — amount/currency validate NA karein
+        // -----------------------------------------------------------------
         if (in_array($status, self::CANCELLED, true)) {
             Log::info('HDFC payment cancelled', [
                 'order_id' => $order->id,
                 'status' => $status,
             ]);
 
-            // DB Update yahan call karein
             $result = $this->failOrderFromWebhook($order, $status);
 
             return [
@@ -362,8 +426,15 @@ window.location.replace(' . $jsUrl . ');
             ];
         }
 
-        // Failed payment.
+        // -----------------------------------------------------------------
+        // FAILED PAYMENT — amount/currency validate NA karein
+        // -----------------------------------------------------------------
         if (in_array($status, self::FAILED, true)) {
+            Log::info('HDFC payment failed', [
+                'order_id' => $order->id,
+                'status' => $status,
+            ]);
+
             $result = $this->failOrderFromWebhook($order, $status);
 
             return [
@@ -381,48 +452,86 @@ window.location.replace(' . $jsUrl . ');
 
     /**
      * Mark an order and all its order lines as payment_failed.
+     *
+     * - Idempotent (dobara call karne par safe)
+     * - Confirmed order ko overwrite nahi karta
+     * - Lock timeout gracefully handle karta hai
+     * - DB transaction + row lock use karta hai
      */
     private function failOrderFromWebhook(Order $order, string $gatewayStatus): array
     {
-        return Cache::lock('hdfc-confirm-' . $order->id, 90)
-            ->block(12, function () use ($order, $gatewayStatus) {
-                return DB::transaction(function () use ($order, $gatewayStatus) {
-                    $fresh = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+        try {
+            return Cache::lock('hdfc-confirm-' . $order->id, 90)
+                ->block(12, function () use ($order, $gatewayStatus) {
+                    return DB::transaction(function () use ($order, $gatewayStatus) {
+                        $fresh = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
 
-                    if ($fresh->status === 'confirmed' || $fresh->confirmed_at !== null) {
-                        Log::warning('HDFC failure received for an already confirmed order', [
+                        // Confirmed order kabhi fail na karein
+                        if ($fresh->status === 'confirmed' || $fresh->confirmed_at !== null) {
+                            Log::warning('HDFC failure received for an already confirmed order', [
+                                'order_id' => $fresh->id,
+                                'gateway_status' => $gatewayStatus,
+                            ]);
+
+                            return [
+                                'order_updated' => false,
+                                'message' => 'Order is already confirmed; status was not changed.',
+                            ];
+                        }
+
+                        // Idempotent: already payment_failed ho to dobara update na karein
+                        if ($fresh->status === 'payment_failed') {
+                            Log::info('HDFC failure: order already payment_failed', [
+                                'order_id' => $fresh->id,
+                                'gateway_status' => $gatewayStatus,
+                            ]);
+
+                            return [
+                                'order_updated' => false,
+                                'order_id' => $fresh->id,
+                                'order_reference' => $fresh->order_reference,
+                                'order_status' => 'payment_failed',
+                                'order_lines_status' => 'payment_failed',
+                            ];
+                        }
+
+                        // Order update
+                        $fresh->update(['status' => 'payment_failed']);
+
+                        // Order lines update (sabhi lines jinpe abhi payment_failed nahi hai)
+                        $updatedLines = OrderLine::where('order_id', $fresh->id)
+                            ->where('delivery_status', '!=', 'payment_failed')
+                            ->update([
+                                'delivery_status' => 'payment_failed',
+                            ]);
+
+                        Log::warning('HDFC failed payment: order and order lines updated', [
                             'order_id' => $fresh->id,
+                            'order_reference' => $fresh->order_reference,
                             'gateway_status' => $gatewayStatus,
+                            'order_lines_updated' => $updatedLines,
                         ]);
 
                         return [
-                            'order_updated' => false,
-                            'message' => 'Order is already confirmed; status was not changed.',
+                            'order_updated' => true,
+                            'order_id' => $fresh->id,
+                            'order_reference' => $fresh->order_reference,
+                            'order_status' => 'payment_failed',
+                            'order_lines_status' => 'payment_failed',
+                            'order_lines_updated' => $updatedLines,
                         ];
-                    }
-
-                    $fresh->update(['status' => 'payment_failed']);
-
-                    $updatedLines = OrderLine::where('order_id', $fresh->id)->update([
-                        'delivery_status' => 'payment_failed',
-                    ]);
-
-                    Log::warning('HDFC failed payment: order and order lines updated', [
-                        'order_id' => $fresh->id,
-                        'order_reference' => $fresh->order_reference,
-                        'gateway_status' => $gatewayStatus,
-                        'order_lines_updated' => $updatedLines,
-                    ]);
-
-                    return [
-                        'order_updated' => true,
-                        'order_id' => $fresh->id,
-                        'order_reference' => $fresh->order_reference,
-                        'order_status' => 'payment_failed',
-                        'order_lines_status' => 'payment_failed',
-                        'order_lines_updated' => $updatedLines,
-                    ];
+                    });
                 });
-            });
+        } catch (LockTimeoutException $e) {
+            Log::error('HDFC fail-order lock timeout', [
+                'order_id' => $order->id,
+                'gateway_status' => $gatewayStatus,
+            ]);
+
+            return [
+                'order_updated' => false,
+                'message' => 'Lock timeout; another process is reconciling this order.',
+            ];
+        }
     }
 }

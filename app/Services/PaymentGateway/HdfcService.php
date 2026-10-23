@@ -66,9 +66,6 @@ class HdfcService
 
     /**
      * Create a hosted payment session.
-     *
-     * The webhook is configured in the HDFC dashboard.
-     * No return_url or webhook_url is sent in this request.
      */
     public function createOrder(Order $order): array
     {
@@ -114,7 +111,11 @@ class HdfcService
             );
         }
 
-        if (!filter_var($this->returnUrl, FILTER_VALIDATE_URL) || !str_starts_with($this->returnUrl, 'https://') || parse_url($this->returnUrl, PHP_URL_QUERY)) {
+        if (
+            !filter_var($this->returnUrl, FILTER_VALIDATE_URL)
+            || !str_starts_with($this->returnUrl, 'https://')
+            || parse_url($this->returnUrl, PHP_URL_QUERY)
+        ) {
             throw new Exception('HDFC return_url must be public HTTPS with no query parameters.');
         }
 
@@ -181,8 +182,7 @@ class HdfcService
     }
 
     /**
-     * Verify a signed response only when the configured
-     * response key matches the gateway's documented signing scheme.
+     * Verify a signed response.
      */
     public function verifySignature(
         array $payload,
@@ -314,14 +314,16 @@ class HdfcService
     public function cancelOrder(string $orderReference): array
     {
         // HDFC cancel endpoint requires merchantId in the path
-        $path = '/merchants/' . $this->merchantId . '/order/' . rawurlencode($orderReference) . '/cancel';
+        $path = '/merchants/' . $this->merchantId
+            . '/order/' . rawurlencode($orderReference)
+            . '/cancel';
 
         // HDFC requires a specific version header for this endpoint
         $headers = [
             'Accept'       => 'application/json',
             'Content-Type' => 'application/json',
             'x-merchantid' => $this->merchantId,
-            'version'      => '2019-08-19', // Required by HDFC for this API
+            'version'      => '2019-08-19',
         ];
 
         if ($this->resellerId !== '') {
@@ -337,7 +339,6 @@ class HdfcService
                 'cancel_reason' => 'User cancelled on payment page',
             ]);
 
-        // Reuse your existing response handler
         return $this->handleResponse(
             $response,
             'POST',
