@@ -377,7 +377,7 @@ class GenealogyController extends Controller
         //    NOTE: adjust named args if SDK signature differs.
         $response = $this->ignite->setPlacement(
             baId:              $request->ba_id,
-            placementMemberId: (int) $slotId,
+            placementParent: (int) $slotId,
             side:              $side,
         );
 
