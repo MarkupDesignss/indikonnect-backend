@@ -4665,7 +4665,7 @@ class AuthController extends Controller
             // Extra distributor link (only for distributor account type)
             $extra = [];
             if ($user->account_type === 'distributor') {
-                $extra['distributor_link'] = 'https://www.markupdesigns.net/indikonnect/distributor/' . $user->id;
+                $extra['distributor_link'] = 'https://www.markupdesigns.net/indikonnect/distributor/' . $user->distributor_id;
             }
 
             return response()->json([
