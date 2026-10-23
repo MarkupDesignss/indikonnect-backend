@@ -15,7 +15,35 @@ class DistributorProfile extends Model
     /**
      * The attributes that are mass assignable.
      */
+<<<<<<< Updated upstream
     protected $guarded = [];
+=======
+    protected $fillable = [
+        'user_id',
+        'encrypted_aadhaar',
+        'aadhaar_verified',
+        'aadhaar_verified_at',
+        'aadhaar_consent',
+        'encrypted_pan',
+        'pan_verified',
+        'pan_verified_at',
+        'encrypted_bank_account',
+        'bank_ifsc',
+        'bank_name',
+        'branch_name',
+        'account_type',
+        'bank_verified',
+        'bank_holder_name',
+        'kyc_status',
+        'location_consent',
+        'location_consent_at',
+        'latitude',
+        'longitude',
+        'registration_completed',
+        'submitted_at',
+        'terms_accepted_at',
+    ];
+>>>>>>> Stashed changes
 
     /**
      * The attributes that should be cast.
@@ -32,6 +60,7 @@ class DistributorProfile extends Model
         'registration_completed' => 'boolean',
         'submitted_at' => 'datetime',
         'terms_accepted_at' => 'datetime',
+<<<<<<< Updated upstream
         // ========== NEW FOR TASK 2 ==========
         'reviewed_at' => 'datetime',
         'application_status' => 'string',
@@ -39,6 +68,10 @@ class DistributorProfile extends Model
 
     // ================== RELATIONSHIPS ==================
 
+=======
+    ];
+
+>>>>>>> Stashed changes
     /**
      * Get the user that owns the profile.
      */
@@ -48,6 +81,7 @@ class DistributorProfile extends Model
     }
 
     /**
+<<<<<<< Updated upstream
      * Get the admin who reviewed this application.
      * FR-ON-011: Records who approved/rejected/returned the application.
      */
@@ -58,25 +92,48 @@ class DistributorProfile extends Model
 
     // ================== EXISTING KYC HELPERS ==================
 
+=======
+     * Check if KYC is verified.
+     */
+>>>>>>> Stashed changes
     public function isKycVerified(): bool
     {
         return $this->kyc_status === 'verified';
     }
 
+<<<<<<< Updated upstream
+=======
+    /**
+     * Check if KYC is pending.
+     */
+>>>>>>> Stashed changes
     public function isKycPending(): bool
     {
         return $this->kyc_status === 'pending';
     }
 
+<<<<<<< Updated upstream
+=======
+    /**
+     * Check if KYC is rejected.
+     */
+>>>>>>> Stashed changes
     public function isKycRejected(): bool
     {
         return $this->kyc_status === 'rejected';
     }
 
+<<<<<<< Updated upstream
+=======
+    /**
+     * Check if the distributor has completed registration.
+     */
+>>>>>>> Stashed changes
     public function isRegistrationComplete(): bool
     {
         return (bool) $this->registration_completed;
     }
+<<<<<<< Updated upstream
 
     // ================== NEW APPLICATION STATUS HELPERS ==================
 
@@ -219,3 +276,6 @@ class DistributorProfile extends Model
         return $this->reviewedByAdmin?->name;
     }
 }
+=======
+}
+>>>>>>> Stashed changes

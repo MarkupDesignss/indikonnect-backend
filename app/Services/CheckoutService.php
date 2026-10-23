@@ -3685,6 +3685,7 @@ class CheckoutService
      */
     protected function getCoinBalance(int $userId): int
     {
+<<<<<<< Updated upstream
         $user = User::find($userId);
         if (!$user || empty($user->distributor_id)) {
             return 0;
@@ -3706,6 +3707,10 @@ class CheckoutService
             ]);
             return 0;
         }
+=======
+        // TODO: Call Commission API or use cached value
+        return 500; // mock
+>>>>>>> Stashed changes
     }
 
     /**

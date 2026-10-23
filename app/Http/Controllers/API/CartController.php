@@ -5,9 +5,15 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\Coupon;
+use App\Models\CouponUsage;
 use App\Models\Product;
+<<<<<<< Updated upstream
 use App\Models\ProductVariant;
 use App\Models\Wishlist;
+=======
+use App\Models\User;
+>>>>>>> Stashed changes
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -483,5 +489,296 @@ class CartController extends Controller
                 return $key . ': ' . $value;
             })
             ->implode(' | ');
+    }
+
+    public function applyCoupon(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'coupon_code' => ['required', 'string', 'max:50'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        try {
+            $user = auth('sanctum')->user();
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not authenticated'
+                ], 401);
+            }
+
+            $couponCode = strtoupper($request->coupon_code);
+
+            // Get cart with items
+            $cart = Cart::with(['items.product'])->where('user_id', $user->id)->first();
+
+            if (!$cart || $cart->items->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cart is empty'
+                ], 400);
+            }
+
+            // Find coupon
+            $coupon = Coupon::where('code', $couponCode)->first();
+
+            if (!$coupon) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid coupon code'
+                ], 404);
+            }
+
+            // Validate coupon
+            $validationResult = $this->validateCoupon($coupon, $user->id);
+            if ($validationResult !== true) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $validationResult
+                ], 400);
+            }
+
+            // Calculate cart total
+            $cartTotal = $this->calculateCartTotal($cart, $user);
+
+            // Check minimum order requirement
+            if ($coupon->min_order && $cartTotal < $coupon->min_order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Minimum order amount of ₹" . number_format($coupon->min_order, 2) . " required for this coupon"
+                ], 400);
+            }
+
+            // Calculate discount
+            $discount = $this->calculateDiscount($coupon, $cartTotal);
+
+            // Store applied coupon in session or cache
+            $this->storeAppliedCoupon($user->id, $coupon, $discount);
+
+            // Get updated cart with coupon applied
+            $cartWithDiscount = $this->getCartWithDiscount($user->id);
+
+            return response()->json([
+                'success' => true,
+                'message' => "Coupon '{$coupon->code}' applied successfully!",
+                'data' => $cartWithDiscount,
+                'coupon_details' => [
+                    'code' => $coupon->code,
+                    'title' => $coupon->title,
+                    'type' => $coupon->type,
+                    'value' => (float) $coupon->value,
+                    'discount_amount' => round($discount, 2),
+                    'min_order' => $coupon->min_order,
+                    'max_discount' => $coupon->max_order,
+                ],
+                'savings' => round($discount, 2),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to apply coupon',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Remove coupon from cart
+     */
+    public function removeCoupon(Request $request)
+    {
+        try {
+            $user = auth('sanctum')->user();
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not authenticated'
+                ], 401);
+            }
+
+            // Remove applied coupon
+            $removed = $this->removeAppliedCoupon($user->id);
+
+            if (!$removed) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No coupon applied to remove'
+                ], 400);
+            }
+
+            // Get updated cart without coupon
+            $cartWithDiscount = $this->getCartWithDiscount($user->id);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Coupon removed successfully',
+                'data' => $cartWithDiscount,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to remove coupon',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    protected function removeAppliedCoupon($userId)
+    {
+        $key = 'applied_coupon_' . $userId;
+
+        // Remove from cache
+        cache()->forget($key);
+
+        // Remove from session
+        session()->forget($key);
+
+        return true;
+    }
+
+    protected function validateCoupon($coupon, $userId)
+    {
+        // Check if coupon is active
+        if (!$coupon->is_active) {
+            return 'This coupon is no longer active';
+        }
+
+        // Check expiry
+        if ($coupon->expires_at && $coupon->expires_at->isPast()) {
+            return 'This coupon has expired';
+        }
+
+        // Check usage limit
+        if ($coupon->max_uses && $coupon->used_count >= $coupon->max_uses) {
+            return 'This coupon has reached its usage limit';
+        }
+
+        // Check if user has already used this coupon
+        $userUsage = CouponUsage::where('coupon_id', $coupon->id)
+            ->where('user_id', $userId)
+            ->count();
+
+        if ($userUsage > 0) {
+            return 'You have already used this coupon';
+        }
+
+        return true;
+    }
+
+    protected function calculateCartTotal($cart, $user)
+    {
+        $isDistributor = $user && $user->account_type === 'distributor';
+        $total = 0;
+
+        foreach ($cart->items as $item) {
+            $product = $item->product;
+            if ($product) {
+                $price = $isDistributor
+                    ? ($product->distributor_price ?? $product->retail_price)
+                    : $product->retail_price;
+                $total += $price * $item->quantity;
+            }
+        }
+
+        return $total;
+    }
+
+    protected function calculateDiscount($coupon, $cartTotal)
+    {
+        $discount = 0;
+
+        if ($coupon->type === 'percentage') {
+            $discount = ($cartTotal * $coupon->value) / 100;
+        } else { // fixed
+            $discount = $coupon->value;
+        }
+
+        // Apply maximum discount limit if set
+        if ($coupon->max_order && $discount > $coupon->max_order) {
+            $discount = $coupon->max_order;
+        }
+
+        return $discount;
+    }
+
+    protected function storeAppliedCoupon($userId, $coupon, $discount)
+    {
+        // Store in cache or session
+        $key = 'applied_coupon_' . $userId;
+        cache()->put($key, [
+            'coupon_id' => $coupon->id,
+            'code' => $coupon->code,
+            'discount' => $discount,
+            'applied_at' => now(),
+        ], 3600); // 1 hour expiry
+
+        // Also store in session
+        session()->put($key, [
+            'coupon_id' => $coupon->id,
+            'code' => $coupon->code,
+            'discount' => $discount,
+            'applied_at' => now(),
+        ]);
+
+        return true;
+    }
+
+    protected function getAppliedCoupon($userId)
+    {
+        $key = 'applied_coupon_' . $userId;
+
+        // Try cache first
+        $couponData = cache()->get($key);
+
+        // If not in cache, try session
+        if (!$couponData) {
+            $couponData = session()->get($key);
+        }
+
+        return $couponData;
+    }
+
+    protected function getCartWithDiscount($userId)
+    {
+        $user = User::find($userId);
+        $cart = Cart::with(['items.product.images'])->where('user_id', $userId)->first();
+
+        if (!$cart) {
+            return [
+                'items' => [],
+                'total' => 0,
+                'total_formatted' => '0.00',
+                'total_items' => 0,
+            ];
+        }
+
+        // Get formatted cart
+        $formattedCart = $this->formatCart($cart, $user);
+
+        // Get applied coupon
+        $appliedCoupon = $this->getAppliedCoupon($userId);
+
+        if ($appliedCoupon) {
+            $formattedCart['applied_coupon'] = [
+                'code' => $appliedCoupon['code'],
+                'discount_amount' => round($appliedCoupon['discount'], 2),
+                'discount_amount_formatted' => number_format($appliedCoupon['discount'], 2),
+            ];
+            $formattedCart['discounted_total'] = round($formattedCart['total'] - $appliedCoupon['discount'], 2);
+            $formattedCart['discounted_total_formatted'] = number_format($formattedCart['total'] - $appliedCoupon['discount'], 2);
+            $formattedCart['savings'] = round($appliedCoupon['discount'], 2);
+            $formattedCart['savings_formatted'] = number_format($appliedCoupon['discount'], 2);
+        } else {
+            $formattedCart['applied_coupon'] = null;
+            $formattedCart['discounted_total'] = $formattedCart['total'];
+            $formattedCart['discounted_total_formatted'] = $formattedCart['total_formatted'];
+            $formattedCart['savings'] = 0;
+            $formattedCart['savings_formatted'] = '0.00';
+        }
+
+        return $formattedCart;
     }
 }
