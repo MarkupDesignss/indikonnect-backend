@@ -618,8 +618,8 @@ class CheckoutController extends Controller
         if (!$deadline || now()->greaterThanOrEqualTo($deadline)) {
             if ($order->status === 'pending') {
                 DB::transaction(function () use ($order) {
-                    $order->update(['status' => 'failed']);
-                    $order->lines()->update(['delivery_status' => 'failed']);
+                    $order->update(['status' => 'cancelled']);
+                    $order->lines()->update(['delivery_status' => 'cancelled']);
                 });
             }
 

@@ -1524,10 +1524,10 @@ class OrderController extends Controller
             if ($expiredOrderIds->isNotEmpty()) {
                 DB::transaction(function () use ($expiredOrderIds) {
                     Order::whereIn('id', $expiredOrderIds)
-                        ->update(['status' => 'failed']);
+                        ->update(['status' => 'cancelled']);
 
                     OrderLine::whereIn('order_id', $expiredOrderIds)
-                        ->update(['delivery_status' => 'failed']);
+                        ->update(['delivery_status' => 'cancelled']);
                 });
             }
 
