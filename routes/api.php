@@ -80,7 +80,7 @@ Route::get('/login', function () {
         'message' => 'Authentication token is required to access this API.'
     ], 401);
 })->name('login');
-
+Route::get('/distributor/{distributor_id}', [AuthController::class, 'show']);
 // ============================
 // ADMIN AUTH ROUTES
 // ============================

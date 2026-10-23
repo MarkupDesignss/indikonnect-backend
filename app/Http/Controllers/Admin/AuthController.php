@@ -1897,4 +1897,52 @@ class AuthController extends Controller
             Log::error('Failed to send KYC status email: ' . $e->getMessage());
         }
     }
+
+    public function show(Request $request, $distributor_id)
+    {
+        $user = User::with([
+            'distributorProfile',
+            'addresses',
+        ])
+            ->where('id', $distributor_id)
+            ->where('account_type', 'distributor')
+            ->first();
+
+        if (!$user) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Distributor not found.',
+            ], 404);
+        }
+
+        // Optional: hide sensitive fields
+        $user->makeHidden([
+            'password',
+            'remember_token',
+            'otp',
+            'otp_expires_at',
+            'temp_verification_token',
+            'temp_token',
+            'email_otp',
+            'email_otp_expires_at',
+        ]);
+
+        // Hide sensitive columns from profile too
+        if ($user->distributorProfile) {
+            $user->distributorProfile->makeHidden([
+                'encrypted_aadhaar',
+                'encrypted_pan',
+                'encrypted_bank_account',
+            ]);
+        }
+
+        return response()->json([
+            'status' => true,
+            'data'   => [
+                'user'              => $user,
+                'distributor_profile' => $user->distributorProfile,
+                'addresses'         => $user->addresses,
+            ],
+        ]);
+    }
 }
