@@ -4602,6 +4602,42 @@ class AuthController extends Controller
     /**
      * Get user profile
      */
+    // public function profile()
+    // {
+    //     try {
+    //         $user = Auth::user();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Unauthorized'
+    //             ], 422);
+    //         }
+
+    //         $user->load('roles');
+
+    //         // Load business profile if distributor
+    //         if ($user->account_type === 'distributor') {
+    //             $user->load('distributorProfile');
+    //         }
+
+    //         // Profile picture full URL
+    //         if (!empty($user->profile_picture)) {
+    //             $user->profile_picture = asset('storage/profile_pictures/' . basename($user->profile_picture));
+    //         }
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Profile fetched successfully',
+    //             'user' => $user,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
     public function profile()
     {
         try {
@@ -4626,10 +4662,17 @@ class AuthController extends Controller
                 $user->profile_picture = asset('storage/profile_pictures/' . basename($user->profile_picture));
             }
 
+            // Extra distributor link (only for distributor account type)
+            $extra = [];
+            if ($user->account_type === 'distributor') {
+                $extra['distributor_link'] = 'https://www.markupdesigns.net/indikonnect/distributor/' . $user->id;
+            }
+
             return response()->json([
                 'status' => true,
                 'message' => 'Profile fetched successfully',
                 'user' => $user,
+                'extra' => $extra,
             ]);
         } catch (\Exception $e) {
             return response()->json([

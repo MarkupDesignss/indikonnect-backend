@@ -449,7 +449,14 @@ class AuthController extends Controller
     //     }
     // }
 
+    public function showHtml($id)
+    {
+        $user = \App\Models\User::with('distributorProfile')
+            ->where('account_type', 'distributor')
+            ->findOrFail($id);
 
+        return view('distributor.profile', compact('user'));
+    }
 
     public function logout(Request $request)
     {
