@@ -8,12 +8,9 @@ use App\Models\CartItem;
 use App\Models\Coupon;
 use App\Models\CouponUsage;
 use App\Models\Product;
-<<<<<<< Updated upstream
 use App\Models\ProductVariant;
-use App\Models\Wishlist;
-=======
 use App\Models\User;
->>>>>>> Stashed changes
+use App\Models\Wishlist;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;

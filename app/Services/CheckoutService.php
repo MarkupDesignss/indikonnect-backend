@@ -3685,32 +3685,8 @@ class CheckoutService
      */
     protected function getCoinBalance(int $userId): int
     {
-<<<<<<< Updated upstream
-        $user = User::find($userId);
-        if (!$user || empty($user->distributor_id)) {
-            return 0;
-        }
-
-        try {
-            $member = Cache::remember(
-                "ignite_member_{$user->distributor_id}",
-                60,
-                fn() => app(\App\Sdks\Partner\IgniteClient::class)->memberDetails($user->distributor_id)['data'] ?? []
-            );
-
-            // Yellow + Blue are the two redeemable types (Green is auto-settled weekly)
-            return (int) ($member['yellow_bal'] ?? 0) + (int) ($member['blue_bal'] ?? 0);
-        } catch (\Throwable $e) {
-            Log::warning('Ignite getCoinBalance failed', [
-                'user_id' => $userId,
-                'error'   => $e->getMessage(),
-            ]);
-            return 0;
-        }
-=======
         // TODO: Call Commission API or use cached value
         return 500; // mock
->>>>>>> Stashed changes
     }
 
     /**
