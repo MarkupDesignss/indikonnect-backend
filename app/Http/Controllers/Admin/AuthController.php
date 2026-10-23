@@ -1915,7 +1915,7 @@ class AuthController extends Controller
             ], 404);
         }
 
-        // Optional: hide sensitive fields
+        // Hide sensitive fields
         $user->makeHidden([
             'password',
             'remember_token',
@@ -1927,7 +1927,6 @@ class AuthController extends Controller
             'email_otp_expires_at',
         ]);
 
-        // Hide sensitive columns from profile too
         if ($user->distributorProfile) {
             $user->distributorProfile->makeHidden([
                 'encrypted_aadhaar',
@@ -1936,10 +1935,14 @@ class AuthController extends Controller
             ]);
         }
 
+        if (!empty($user->profile_picture)) {
+            $user->profile_picture = url('storage/' . ltrim($user->profile_picture, '/'));
+        }
+
         return response()->json([
             'status' => true,
             'data'   => [
-                'user'              => $user,
+                'user'                => $user,
                 'distributor_profile' => $user->distributorProfile,
             ],
         ]);
