@@ -1904,7 +1904,7 @@ class AuthController extends Controller
             'distributorProfile',
             'addresses',
         ])
-            ->where('id', $distributor_id)
+            ->where('distributor_id', $distributor_id)
             ->where('account_type', 'distributor')
             ->first();
 
@@ -1941,7 +1941,6 @@ class AuthController extends Controller
             'data'   => [
                 'user'              => $user,
                 'distributor_profile' => $user->distributorProfile,
-                'addresses'         => $user->addresses,
             ],
         ]);
     }
