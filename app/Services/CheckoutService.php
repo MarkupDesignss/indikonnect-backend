@@ -2084,7 +2084,7 @@ class CheckoutService
                 ];
             }
 
-            $reservation = $reservationService->reserve($order->id, $reservationItems, 5);
+            $reservation = $reservationService->reserve($order->id, $reservationItems, 1);
 
             $order->update([
                 'reservation_token'      => $reservation['token'],

@@ -708,7 +708,7 @@ class CheckoutController extends Controller
                 }
 
                 if (!empty($reservationItems)) {
-                    $reservation = $reservationService->reserve($order->id, $reservationItems, 5);
+                    $reservation = $reservationService->reserve($order->id, $reservationItems, 1);
 
                     $order->update([
                         'reservation_token'      => $reservation['token'],
