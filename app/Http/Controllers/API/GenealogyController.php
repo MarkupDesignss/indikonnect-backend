@@ -299,8 +299,8 @@ class GenealogyController extends Controller
             'far_right_ba_id' => $member['far_right_ba_id'] ?? null,
             'far_left_id'     => $member['far_left_id']     ?? null,
             'far_right_id'    => $member['far_right_id']    ?? null,
-            'left_available'  => empty($member['far_left_id']),
-            'right_available' => empty($member['far_right_id']),
+            'left_available'  => empty($member['far_left_ba_id']),
+            'right_available' => empty($member['far_right_ba_id']),
         ];
 
         return response()->json([
