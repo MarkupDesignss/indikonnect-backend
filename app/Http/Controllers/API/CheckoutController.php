@@ -425,7 +425,7 @@ class CheckoutController extends Controller
                 'success' => true,
                 'data' => array_merge($result, [
                     'reservation_expires_at'  => $result['reservation_expires_at'] ?? null,
-                    'reservation_ttl_seconds' => 1200, // 20 minutes
+                    'reservation_ttl_seconds' => 300, // 5 minutes
                 ]),
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -438,10 +438,149 @@ class CheckoutController extends Controller
         }
     }
 
+    // public function repayOrder(Request $request, string $orderReference): JsonResponse
+    // {
+    //     // ----------------------------------------------------------
+    //     // 0. Validate request (inline, no FormRequest needed)
+    //     // ----------------------------------------------------------
+    //     $validated = $request->validate([
+    //         'payment_gateway' => 'required|in:razorpay,hdfc_sg,hdfc_ie',
+    //     ]);
+
+    //     $gateway = $validated['payment_gateway'];
+
+    //     $order = Order::where('order_reference', $orderReference)
+    //         ->where('user_id', auth()->id())
+    //         ->with(['lines', 'user', 'deliveryAddress'])
+    //         ->firstOrFail();
+
+    //     // ----------------------------------------------------------
+    //     // 1. Basic guards
+    //     // ----------------------------------------------------------
+    //     if ((float) $order->amount_paid > 0 || $order->status === 'confirmed') {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Order is already paid.',
+    //         ], 422);
+    //     }
+
+    //     if (!in_array($order->status, ['pending', 'failed'], true)) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => "Order cannot be repaid in status: {$order->status}",
+    //         ], 422);
+    //     }
+
+    //     // ----------------------------------------------------------
+    //     // 2. 30-min window check (created_at + 30 min)
+    //     // ----------------------------------------------------------
+    //     $deadline = $order->created_at?->copy()->addMinutes(30);
+
+    //     if (!$deadline || now()->greaterThanOrEqualTo($deadline)) {
+    //         // Auto mark failed agar abhi pending hai
+    //         if ($order->status === 'pending') {
+    //             DB::transaction(function () use ($order) {
+    //                 $order->update(['status' => 'failed']);
+    //                 $order->lines()->update(['delivery_status' => 'failed']);
+    //             });
+    //         }
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Repayment window has expired. Please place a new order.',
+    //         ], 410);
+    //     }
+
+    //     try {
+    //         // ------------------------------------------------------
+    //         // 3. Re-create gateway session (same shape as placeOrder)
+    //         // ------------------------------------------------------
+    //         $gatewayPayload = [];
+
+    //         if ($gateway === 'razorpay') {
+    //             $razorpayService = app(\App\Services\PaymentGateway\RazorpayService::class);
+    //             $razorpayOrder   = $razorpayService->createOrder($order);
+    //             $gatewayPayload  = [
+    //                 'razorpay_order_id' => $razorpayOrder['id'],
+    //                 'razorpay_key'      => config('services.razorpay.key_id'),
+    //             ];
+    //         } elseif (in_array($gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
+    //             $configKey = $gateway === 'hdfc_sg' ? 'sg' : 'ie';
+    //             $config    = config("services.hdfc.{$configKey}");
+
+    //             if (!$config || empty($config['api_key'])) {
+    //                 throw new \Exception("HDFC merchant [{$gateway}] is not configured.");
+    //             }
+
+    //             $hdfcService = new \App\Services\PaymentGateway\HdfcService($config, $gateway);
+    //             $hdfcOrder   = $hdfcService->createOrder($order);
+
+    //             $gatewayPayload = [
+    //                 'hdfc_order_id'     => $hdfcOrder['id'],
+    //                 'hdfc_payment_link' => $hdfcOrder['payment_link'],
+    //                 'hdfc_sdk_payload'  => $hdfcOrder['sdk_payload'],
+    //                 'hdfc_merchant_id'  => $config['merchant_id'],
+    //                 'hdfc_gateway_key'  => $gateway,
+    //             ];
+    //         }
+
+    //         // ------------------------------------------------------
+    //         // 4. Re-open order + lines AND update gateway
+    //         //    (gateway update zaroori hai — kyunki webhook isi
+    //         //    gateway se aayega, aur confirmOrder consistency
+    //         //    ke liye order->payment_gateway bhi match karna
+    //         //    chahiye.)
+    //         // ------------------------------------------------------
+    //         DB::transaction(function () use ($order, $gateway) {
+    //             $order->update([
+    //                 'status'          => 'pending',
+    //                 'payment_gateway' => $gateway,
+    //             ]);
+    //             $order->lines()->update(['delivery_status' => 'pending']);
+    //         });
+
+    //         // ------------------------------------------------------
+    //         // 5. Same response shape as placeOrder()
+    //         // ------------------------------------------------------
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Repayment session created.',
+    //             'data'    => array_merge([
+    //                 'order_id'           => $order->id,
+    //                 'order_reference'    => $order->order_reference,
+    //                 'total_items'        => $order->lines()->count(),
+    //                 'total_amount'       => (float) $order->total_payable,
+    //                 'status'             => 'pending',
+    //                 'checkout_type'      => $order->checkout_type ?? 'cart',
+    //                 'gateway'            => $gateway,
+    //                 'payment_expires_at' => $deadline->toDateTimeString(),
+    //                 'tax_split'          => [
+    //                     'delivery_state' => strtolower(optional($order->deliveryAddress)->state ?? ''),
+    //                     'supplier_state' => strtolower(config('app.supplier_state', 'Maharashtra')),
+    //                     'total_cgst'     => (float) $order->total_cgst,
+    //                     'total_sgst'     => (float) $order->total_sgst,
+    //                     'total_igst'     => (float) $order->total_igst,
+    //                 ],
+    //             ], $gatewayPayload),
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('repayOrder failed', [
+    //             'order_reference' => $orderReference,
+    //             'gateway'         => $gateway,
+    //             'error'           => $e->getMessage(),
+    //             'trace'           => $e->getTraceAsString(),
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
     public function repayOrder(Request $request, string $orderReference): JsonResponse
     {
         // ----------------------------------------------------------
-        // 0. Validate request (inline, no FormRequest needed)
+        // 0. Validate request
         // ----------------------------------------------------------
         $validated = $request->validate([
             'payment_gateway' => 'required|in:razorpay,hdfc_sg,hdfc_ie',
@@ -451,7 +590,7 @@ class CheckoutController extends Controller
 
         $order = Order::where('order_reference', $orderReference)
             ->where('user_id', auth()->id())
-            ->with(['lines', 'user', 'deliveryAddress'])
+            ->with(['lines.product', 'user', 'deliveryAddress'])
             ->firstOrFail();
 
         // ----------------------------------------------------------
@@ -464,7 +603,7 @@ class CheckoutController extends Controller
             ], 422);
         }
 
-        if (!in_array($order->status, ['pending', 'failed'], true)) {
+        if (!in_array($order->status, ['pending', 'failed', 'payment_failed'], true)) {
             return response()->json([
                 'success' => false,
                 'message' => "Order cannot be repaid in status: {$order->status}",
@@ -477,7 +616,6 @@ class CheckoutController extends Controller
         $deadline = $order->created_at?->copy()->addMinutes(30);
 
         if (!$deadline || now()->greaterThanOrEqualTo($deadline)) {
-            // Auto mark failed agar abhi pending hai
             if ($order->status === 'pending') {
                 DB::transaction(function () use ($order) {
                     $order->update(['status' => 'failed']);
@@ -491,9 +629,106 @@ class CheckoutController extends Controller
             ], 410);
         }
 
+        /** @var InventoryReservationService $reservationService */
+        $reservationService = app(InventoryReservationService::class);
+
         try {
             // ------------------------------------------------------
-            // 3. Re-create gateway session (same shape as placeOrder)
+            // 3. PRE-CHECK: verify stock availability for ALL lines
+            //    (before creating gateway session)
+            // ------------------------------------------------------
+            $stockFailures = [];
+
+            foreach ($order->lines as $line) {
+                // If this line still has a held reservation, stock is already
+                // reserved → available check should pass automatically.
+                $hasHeld = \App\Models\InventoryReservation::where('order_id', $order->id)
+                    ->where('product_id', $line->product_id)
+                    ->where('status', 'held')
+                    ->where('expires_at', '>', now())
+                    ->exists();
+
+                if ($hasHeld) {
+                    continue; // already reserved
+                }
+
+                if (!$reservationService->hasAvailability($line->product_id, $line->quantity)) {
+                    $stockFailures[] = [
+                        'product_id'   => $line->product_id,
+                        'product_name' => $line->product?->name,
+                        'quantity'     => $line->quantity,
+                    ];
+                }
+            }
+
+            if (!empty($stockFailures)) {
+                return response()->json([
+                    'success'        => false,
+                    'message'        => 'Insufficient stock for some items. Please place a new order.',
+                    'stock_failures' => $stockFailures,
+                ], 409);
+            }
+
+            // ------------------------------------------------------
+            // 4. RE-RESERVE stock atomically (inside a transaction)
+            //    Only reserve lines that don't already have a valid held reservation.
+            // ------------------------------------------------------
+            DB::transaction(function () use ($order, $reservationService) {
+                // Release any stale held reservations (expired but not yet cron-released)
+                $staleHeld = \App\Models\InventoryReservation::where('order_id', $order->id)
+                    ->where('status', 'held')
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($staleHeld as $res) {
+                    if ($res->expires_at && $res->expires_at->isPast()) {
+                        $reservationService->release($res);
+                    }
+                }
+
+                // Determine which lines still need reservation
+                $alreadyHeldProductIds = \App\Models\InventoryReservation::where('order_id', $order->id)
+                    ->where('status', 'held')
+                    ->where('expires_at', '>', now())
+                    ->pluck('product_id')
+                    ->toArray();
+
+                $reservationItems = [];
+                foreach ($order->lines as $line) {
+                    if (in_array($line->product_id, $alreadyHeldProductIds, true)) {
+                        continue; // still reserved
+                    }
+
+                    $reservationItems[] = [
+                        'product_id'        => $line->product_id,
+                        'variant_id'        => $line->variant_id,
+                        'quantity'          => $line->quantity,
+                        'item_reference_id' => $line->item_reference_id,
+                    ];
+                }
+
+                if (!empty($reservationItems)) {
+                    $reservation = $reservationService->reserve($order->id, $reservationItems, 5);
+
+                    $order->update([
+                        'reservation_token'      => $reservation['token'],
+                        'reservation_expires_at' => $reservation['expires_at'],
+                    ]);
+                } else {
+                    // Extend expiry of existing held reservations by 5 min
+                    $newExpiry = now()->addMinutes(5);
+
+                    \App\Models\InventoryReservation::where('order_id', $order->id)
+                        ->where('status', 'held')
+                        ->where('expires_at', '>', now())
+                        ->update(['expires_at' => $newExpiry]);
+
+                    $order->update(['reservation_expires_at' => $newExpiry]);
+                }
+            });
+
+            // ------------------------------------------------------
+            // 5. Re-create gateway session (same shape as placeOrder)
             // ------------------------------------------------------
             $gatewayPayload = [];
 
@@ -525,11 +760,7 @@ class CheckoutController extends Controller
             }
 
             // ------------------------------------------------------
-            // 4. Re-open order + lines AND update gateway
-            //    (gateway update zaroori hai — kyunki webhook isi
-            //    gateway se aayega, aur confirmOrder consistency
-            //    ke liye order->payment_gateway bhi match karna
-            //    chahiye.)
+            // 6. Re-open order + lines AND update gateway
             // ------------------------------------------------------
             DB::transaction(function () use ($order, $gateway) {
                 $order->update([
@@ -540,21 +771,22 @@ class CheckoutController extends Controller
             });
 
             // ------------------------------------------------------
-            // 5. Same response shape as placeOrder()
+            // 7. Same response shape as placeOrder()
             // ------------------------------------------------------
             return response()->json([
                 'success' => true,
                 'message' => 'Repayment session created.',
                 'data'    => array_merge([
-                    'order_id'           => $order->id,
-                    'order_reference'    => $order->order_reference,
-                    'total_items'        => $order->lines()->count(),
-                    'total_amount'       => (float) $order->total_payable,
-                    'status'             => 'pending',
-                    'checkout_type'      => $order->checkout_type ?? 'cart',
-                    'gateway'            => $gateway,
-                    'payment_expires_at' => $deadline->toDateTimeString(),
-                    'tax_split'          => [
+                    'order_id'               => $order->id,
+                    'order_reference'        => $order->order_reference,
+                    'total_items'            => $order->lines()->count(),
+                    'total_amount'           => (float) $order->total_payable,
+                    'status'                 => 'pending',
+                    'checkout_type'          => $order->checkout_type ?? 'cart',
+                    'gateway'                => $gateway,
+                    'payment_expires_at'     => $deadline->toDateTimeString(),
+                    'reservation_expires_at' => $order->reservation_expires_at?->toIso8601String(),
+                    'tax_split'              => [
                         'delivery_state' => strtolower(optional($order->deliveryAddress)->state ?? ''),
                         'supplier_state' => strtolower(config('app.supplier_state', 'Maharashtra')),
                         'total_cgst'     => (float) $order->total_cgst,
