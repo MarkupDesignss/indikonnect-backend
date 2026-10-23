@@ -453,7 +453,8 @@ class AuthController extends Controller
     {
         $user = \App\Models\User::with('distributorProfile')
             ->where('account_type', 'distributor')
-            ->findOrFail($id);
+            ->where('distributor_id', $id)
+            ->firstOrFail();
 
         return view('distributor.profile', compact('user'));
     }
