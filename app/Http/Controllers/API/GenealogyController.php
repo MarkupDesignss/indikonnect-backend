@@ -281,26 +281,34 @@ class GenealogyController extends Controller
         // 1) Pending placements
         $response = $this->ignite->pendingPlacements($mainBaId);
 
-        if ($response['code'] !== ResultCode::OK->value) {
+        if (($response['code'] ?? null) !== ResultCode::OK->value) {
             return response()->json([
                 'success' => false,
                 'message' => $response['msg'] ?? 'Failed to fetch pending placements',
-                'code'    => $response['code'],
+                'code'    => $response['code'] ?? null,
             ], 422);
         }
 
         $rows = $response['data']['rows'] ?? [];
 
-        // 2) Slot availability from memberDetails
-        $member = $this->fetchMemberDetails($mainBaId);
+        // 2) Slot availability from binaryTree (far_left_ba_id / far_right_ba_id live here)
+        $treeResp = $this->ignite->binaryTree($mainBaId, 1);
+
+        if (($treeResp['code'] ?? null) !== ResultCode::OK->value) {
+            return response()->json([
+                'success' => false,
+                'message' => $treeResp['msg'] ?? 'Failed to read binary tree for slot availability',
+                'code'    => $treeResp['code'] ?? null,
+            ], 422);
+        }
+
+        $root = collect($treeResp['data']['rows'] ?? [])->firstWhere('level', 0);
 
         $slots = [
-            'far_left_ba_id'  => $member['far_left_ba_id']  ?? null,
-            'far_right_ba_id' => $member['far_right_ba_id'] ?? null,
-            'far_left_id'     => $member['far_left_id']     ?? null,
-            'far_right_id'    => $member['far_right_id']    ?? null,
-            'left_available'  => empty($member['far_left_ba_id']),
-            'right_available' => empty($member['far_right_ba_id']),
+            'far_left_ba_id'  => $root['far_left_ba_id']  ?? null,
+            'far_right_ba_id' => $root['far_right_ba_id'] ?? null,
+            'left_available'  => empty($root['far_left_ba_id']),
+            'right_available' => empty($root['far_right_ba_id']),
         ];
 
         return response()->json([
@@ -328,6 +336,93 @@ class GenealogyController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
+    // public function setPlacement(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'ba_id' => 'required|string',
+    //         'side'  => 'required|in:1,2',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'errors'  => $validator->errors(),
+    //         ], 422);
+    //     }
+
+    //     $user = Auth::user();
+
+    //     if (!$user->distributor_id) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'You are not registered on Ignite yet.',
+    //         ], 422);
+    //     }
+
+    //     $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+    //     $side     = (int) $request->side;
+
+    //     // 1) Read sponsor's member details to get the free slot
+    //     $sponsor = $this->fetchMemberDetails($mainBaId);
+
+    //     $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
+    //     $slotBa  = $side === 1 ? 'far_left_ba_id' : 'far_right_ba_id';
+    //     $slotId  = $sponsor[$slotKey] ?? null;
+
+    //     if (empty($slotId)) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'That side is not available for placement (already occupied or belongs to a member outside IDK).',
+    //             'slot'    => [
+    //                 'side'     => $side,
+    //                 'ba_id'    => $sponsor[$slotBa] ?? null,
+    //                 'member_id'=> $slotId,
+    //             ],
+    //         ], 422);
+    //     }
+
+    //     // 2) Call Ignite setPlacement with placement_member_id
+    //     //    NOTE: adjust named args if SDK signature differs.
+    //     $response = $this->ignite->setPlacement(
+    //         baId:              $request->ba_id,
+    //         placementParent: (int) $slotId,
+    //         side:              $side,
+    //     );
+
+    //     if ($response['code'] !== ResultCode::OK->value) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $response['msg'] ?? 'Placement failed',
+    //             'code'    => $response['code'],
+    //         ], 422);
+    //     }
+
+    //     // 3) Invalidate caches so tree/memberDetails reflect placement
+    //     Cache::forget("ignite_member_{$mainBaId}");
+    //     Cache::forget("ignite_member_{$request->ba_id}");
+    //     Cache::forget("ignite_binary_tree_{$mainBaId}");
+
+    //     // 4) Re-dispatch any parked orders for this newly-placed member
+    //     $placedUser = User::where('distributor_id', $request->ba_id)->first();
+    //     if ($placedUser) {
+    //         \App\Models\Order::where('user_id', $placedUser->id)
+    //             ->where('ignite_sync_status', 'pending_placement')
+    //             ->get()
+    //             ->each(function ($order) {
+    //                 \App\Jobs\PostOrderToIgniteJob::dispatch($order->id);
+    //                 Log::info('Re-dispatched parked Ignite job after placement', [
+    //                     'order' => $order->order_reference,
+    //                 ]);
+    //             });
+    //     }
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'Placement successful.',
+    //         'data'    => $response['data'] ?? null,
+    //     ]);
+    // }
+
     public function setPlacement(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -336,65 +431,64 @@ class GenealogyController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors'  => $validator->errors(),
-            ], 422);
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
 
         $user = Auth::user();
-
         if (!$user->distributor_id) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You are not registered on Ignite yet.',
-            ], 422);
+            return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);
         }
 
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
         $side     = (int) $request->side;
 
-        // 1) Read sponsor's member details to get the free slot
-        $sponsor = $this->fetchMemberDetails($mainBaId);
+        // Get sponsor's binary tree to find the free slot
+        $treeResp = $this->ignite->binaryTree($mainBaId, 1);
+        if (($treeResp['code'] ?? null) !== ResultCode::OK->value) {
+            return response()->json(['success' => false, 'message' => 'Failed to read binary tree'], 422);
+        }
 
-        $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
-        $slotBa  = $side === 1 ? 'far_left_ba_id' : 'far_right_ba_id';
-        $slotId  = $sponsor[$slotKey] ?? null;
+        $root = collect($treeResp['data']['rows'] ?? [])->firstWhere('level', 0);
+        $slotBaId = $side === 1
+            ? ($root['far_left_ba_id']  ?? null)
+            : ($root['far_right_ba_id'] ?? null);
 
-        if (empty($slotId)) {
+        if (empty($slotBaId)) {
             return response()->json([
                 'success' => false,
-                'message' => 'That side is not available for placement (already occupied or belongs to a member outside IDK).',
-                'slot'    => [
-                    'side'     => $side,
-                    'ba_id'    => $sponsor[$slotBa] ?? null,
-                    'member_id'=> $slotId,
-                ],
+                'message' => 'That side is not available for placement.',
             ], 422);
         }
 
-        // 2) Call Ignite setPlacement with placement_member_id
-        //    NOTE: adjust named args if SDK signature differs.
-        $response = $this->ignite->setPlacement(
-            baId:              $request->ba_id,
-            placementParent: (int) $slotId,
-            side:              $side,
-        );
+        // setPlacement: string = BA ID
+        try {
+            $response = $this->ignite->setPlacement(
+                baId:            $request->ba_id,
+                placementParent: $slotBaId,   // string → placement_ba_id
+                side:            $side,
+            );
+        } catch (\Throwable $e) {
+            Log::error('Ignite setPlacement threw', [
+                'ba_id' => $request->ba_id,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json(['success' => false, 'message' => 'Ignite unreachable'], 503);
+        }
 
-        if ($response['code'] !== ResultCode::OK->value) {
+        if (($response['code'] ?? null) !== ResultCode::OK->value) {
             return response()->json([
                 'success' => false,
                 'message' => $response['msg'] ?? 'Placement failed',
-                'code'    => $response['code'],
+                'code'    => $response['code'] ?? null,
             ], 422);
         }
 
-        // 3) Invalidate caches so tree/memberDetails reflect placement
+        // Cache invalidation
         Cache::forget("ignite_member_{$mainBaId}");
         Cache::forget("ignite_member_{$request->ba_id}");
         Cache::forget("ignite_binary_tree_{$mainBaId}");
 
-        // 4) Re-dispatch any parked orders for this newly-placed member
+        // Re-dispatch parked orders
         $placedUser = User::where('distributor_id', $request->ba_id)->first();
         if ($placedUser) {
             \App\Models\Order::where('user_id', $placedUser->id)
@@ -402,9 +496,6 @@ class GenealogyController extends Controller
                 ->get()
                 ->each(function ($order) {
                     \App\Jobs\PostOrderToIgniteJob::dispatch($order->id);
-                    Log::info('Re-dispatched parked Ignite job after placement', [
-                        'order' => $order->order_reference,
-                    ]);
                 });
         }
 
@@ -460,4 +551,66 @@ class GenealogyController extends Controller
         if ($right < $left) return 'right';
         return 'equal';
     }
+
+    /**
+     * Pairing commission results for one settled sales week.
+     *
+     * GET /distributor/pairings?year=2026&week_no=42
+     *
+     * Query params:
+     *   - year      (required, int)   sales year
+     *   - week_no   (required, int)   week number within that sales year
+     *   - ba_id     (optional, string) one node only; omit for all of this partner's nodes
+     */
+    public function pairings(Request $request)
+    {
+        $user = Auth::user();
+
+        if (!$user->distributor_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You are not registered on Ignite yet.',
+            ], 422);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'year'    => 'required|integer|min:2020|max:2100',
+            'week_no' => 'required|integer|min:1|max:53',
+            'ba_id'   => 'nullable|string|max:50',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $year   = (int) $request->year;
+        $weekNo = (int) $request->week_no;
+        $baId   = $request->filled('ba_id') ? trim($request->ba_id) : null;
+
+        try {
+            $response = $this->ignite->pairings($year, $weekNo, $baId);
+        } catch (\Throwable $e) {
+            Log::error('Ignite pairings threw', ['error' => $e->getMessage()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Ignite unreachable',
+            ], 503);
+        }
+
+        if (($response['code'] ?? null) !== ResultCode::OK->value) {
+            return response()->json([
+                'success' => false,
+                'message' => $response['msg'] ?? 'Failed to fetch pairings',
+                'code'    => $response['code'] ?? null,
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => $response['data']['rows'] ?? [],
+            'total'   => count($response['data']['rows'] ?? []),
+            'week'    => ['year' => $year, 'week_no' => $weekNo],
+        ]);
+    }
+
 }

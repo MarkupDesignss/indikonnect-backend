@@ -599,6 +599,7 @@ Route::middleware('auth:sanctum')->prefix('distributor/genealogy')->group(functi
     Route::get('/downline', [GenealogyController::class, 'downlineList']);
     Route::get('/pending-placements', [GenealogyController::class, 'pendingPlacements']);
     Route::post('/set-placement', [GenealogyController::class, 'setPlacement']);
+    Route::get('/pairings', [GenealogyController::class, 'pairings']);
 });
 
 Route::middleware('auth:sanctum')->group(function () {

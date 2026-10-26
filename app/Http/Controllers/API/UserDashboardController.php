@@ -14,6 +14,8 @@ use App\Services\DistributorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use App\Sdks\Partner\IgniteClient;
 use App\Sdks\Partner\ResultCode;
 
@@ -57,6 +59,11 @@ class UserDashboardController extends Controller
             $igniteData = $this->getIgniteMemberDetails($user->distributor_id);
         }
 
+        $salesCalendar = null;
+        if ($user->isDistributor() && $user->distributor_id) {
+            $salesCalendar = $this->getSalesCalendar((int) now()->year);
+        }
+        
         return response()->json([
             'success' => true,
             'data' => [
@@ -72,6 +79,7 @@ class UserDashboardController extends Controller
                 'wishlist' => $wishlistItems,
                 'cart' => $cartItems,
                 'ignite' => $igniteData,
+                'sales_calendar' => $salesCalendar, 
             ]
         ]);
     }
@@ -117,6 +125,61 @@ class UserDashboardController extends Controller
                 'placement_leg'     => $data['binary_side'] ?? null,
             ];
         } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Get sales calendar for one year, cached for 6 hours.
+     */
+    private function getSalesCalendar(int $year): ?array
+    {
+        try {
+            $resp = Cache::remember("ignite_sales_calendar_{$year}", 21600, function () use ($year) {
+                return $this->ignite->salesCalendar($year);
+            });
+
+            if (($resp['code'] ?? null) !== ResultCode::OK->value) {
+                return null;
+            }
+
+            $data = $resp['data'] ?? [];
+
+            // Find current month + current week
+            $currentMonth = null;
+            $currentWeek  = null;
+
+            foreach (($data['months'] ?? []) as $month) {
+                if (!empty($month['is_current'])) {
+                    $currentMonth = [
+                        'year'      => $month['year']      ?? null,
+                        'month_no'  => $month['month_no']  ?? null,
+                        'label'     => $month['label']     ?? null,
+                        'start'     => $month['start_date'] ?? null,
+                        'end'       => $month['end_date']   ?? null,
+                    ];
+
+                    foreach (($month['weeks'] ?? []) as $week) {
+                        if (!empty($week['is_current'])) {
+                            $currentWeek = [
+                                'year'        => $week['year']        ?? null,
+                                'week_no'     => $week['week_no']     ?? null,
+                                'start'       => $week['start_date']  ?? null,
+                                'end'         => $week['end_date']    ?? null,
+                                'is_settled'  => (bool) ($week['is_settled'] ?? false),
+                            ];
+                        }
+                    }
+                }
+            }
+
+            return [
+                'year'          => $data['year'] ?? $year,
+                'current_month' => $currentMonth,
+                'current_week'  => $currentWeek,
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
             return null;
         }
     }
