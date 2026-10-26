@@ -323,6 +323,11 @@ Route::prefix('user')->group(function () {
     });
 });
 
+Route::middleware('auth:sanctum')->get(
+    '/distributor-card/profile-photo',
+    [\App\Http\Controllers\API\DistributorCardController::class, 'profilePhoto']
+);
+
 // ============================
 // WISHLIST
 // ============================
