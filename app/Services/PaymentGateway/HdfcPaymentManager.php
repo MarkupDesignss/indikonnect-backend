@@ -91,11 +91,27 @@ class HdfcPaymentManager
             $existing = HdfcPaymentAttempt::where('order_id', $order->id)->latest('id')->first();
             if ($existing && in_array($existing->status, ['creating','active','cancel_requested','unknown'], true)) {
                 // Do NOT issue a second payable link when the first is uncertain.
-                if ($existing->status === 'active' && $existing->payment_link &&
-                    (!$existing->expires_at || $existing->expires_at->isFuture())) {
-                    return $this->publicSession($existing);
+                if ($existing->status === 'active' && $existing->payment_link) {
+                    // Never create a second payment attempt to resume. Verify the
+                    // existing bank order, then return its original URL if approved.
+                    $verified = $this->latest($order, $userId);
+                    if (($verified['payment_status'] ?? null) === 'paid') {
+                        abort(409, 'Payment is already completed. Open order confirmation.');
+                    }
+                    if (($verified['can_resume'] ?? false) === true && !empty($verified['payment_url'])) {
+                        return [
+                            'success' => true,
+                            'attempt_id' => $existing->id,
+                            'order_id' => $order->id,
+                            'payment_url' => $verified['payment_url'],
+                            'status' => 'active',
+                            'payment_status' => 'pending',
+                            'resumed' => true,
+                        ];
+                    }
                 }
-                // Don't automatically expire gateway session just because local TTL passed.
+                // Unknown, cancellation-requested and unverified attempts cannot
+                // be replaced by new sessions without reconciliation.
                 abort(409, 'Previous payment session unresolved. Verify or cancel it first.');
             }
             // Validate configuration and local order data BEFORE persisting an attempt.
@@ -155,7 +171,28 @@ class HdfcPaymentManager
         $attempt = HdfcPaymentAttempt::where('order_id', $order->id)->latest('id')->first();
         if (!$attempt) return ['success' => true, 'order_id' => $order->id, 'payment_status' => 'not_started'];
         // IMPORTANT: orders.id is LOCAL; only gateway_order_id goes to HDFC.
-        return $this->reconcile($attempt);
+        $result = $this->reconcile($attempt);
+        // A local 15-minute TTL is NOT proof that the BANK has expired
+        // its hosted link. Only provide the SAME already-issued link to the
+        // authenticated owner after a successful fresh bank-side status check.
+        // Never offer a link once cancellation was requested, or for unknown
+        // / unverified / terminal attempts. HDFC may still reject an old link;
+        // in that case the customer must request bank-side cancellation.
+        $attempt->refresh();
+        $bankStatus = strtoupper((string) ($result['gateway_status'] ?? ''));
+        $canResume = ($result['payment_status'] ?? null) === 'pending'
+            && $attempt->status === 'active'
+            && !empty($attempt->payment_link)
+            && in_array($bankStatus, ['NEW', 'PENDING', 'CREATED', 'STARTED'], true);
+        $result['can_resume'] = $canResume;
+        $result['order_id'] = $order->id;
+        if ($canResume) {
+            $result['payment_url'] = $attempt->payment_link;
+            $result['attempt_id'] = $attempt->id;
+            $result['local_link_expires_at'] = optional($attempt->expires_at)->toIso8601String();
+            $result['local_ttl_elapsed'] = (bool) ($attempt->expires_at && $attempt->expires_at->isPast());
+        }
+        return $result;
     }
 
     public function cancel(Order $order, int $userId): array
