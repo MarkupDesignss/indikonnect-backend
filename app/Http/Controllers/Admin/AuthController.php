@@ -1792,6 +1792,7 @@ class AuthController extends Controller
 
             // Update KYC status
             $businessProfile->kyc_status = $newKycStatus;
+            $businessProfile->kyc_status_updated_at = now();
 
             // Store rejection reason if rejected
             if ($newKycStatus === 'rejected') {

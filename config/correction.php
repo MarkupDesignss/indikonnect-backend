@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'admin_email' => env('ADMIN_EMAIL', 'admin@gmail.com'),
     'reasons' => [
         'wrong_name_at_signup'  => 'Wrong name entered during signup',
         'wrong_dob_at_signup'   => 'Wrong date of birth entered during signup',
