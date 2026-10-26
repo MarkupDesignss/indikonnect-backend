@@ -2845,6 +2845,7 @@ class ReturnService
                     if ($orderLine) {
                         $orderLine->update([
                             'return_status'   => 'returned',
+                            'return_completed_at' => now(),
                             'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'refund'),
                         ]);
                     }
