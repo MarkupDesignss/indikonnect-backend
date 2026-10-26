@@ -2310,10 +2310,10 @@ class AuthController extends Controller
     // {
     //     try {
     //         $validator = Validator::make($request->all(), [
-    //             'phone'                 => 'required|min:10|max:15',
-    //             'sponsor_id'            => 'nullable|max:20|unique:users,sponsor_id',
-    //             'placement_leg'         => 'nullable|in:left,right',
-    //             'is_custom_sponsor_id'  => 'nullable|boolean',
+    //             'phone'         => 'required|min:10|max:15',
+    //             'ba_id'         => 'nullable|string|max:50',
+    //             'sponsor_id'    => 'required|string|max:50',
+    //             'placement_leg' => 'nullable|in:left,right',
     //         ]);
 
     //         if ($validator->fails()) {
@@ -2336,48 +2336,63 @@ class AuthController extends Controller
     //         if (!$user->phone_verified || !$user->email_verified_at) {
     //             return response()->json([
     //                 'status'  => false,
-    //                 'message' => 'Please complete step 1 (Personal Info & Verification) first.'
+    //                 'message' => 'Please complete step 1 first.'
     //             ], 422);
     //         }
 
-    //         // Determine sponsor_id (custom or auto)
-    //         $sponsorId = $request->sponsor_id;
+    //         $sponsorId = trim($request->sponsor_id);
 
-    //         if (empty($sponsorId)) {
-    //             $sponsorId = $this->generateUniqueSponsorId();
-    //         } else {
-    //             // Uniqueness excluding current user
-    //             $taken = User::where('sponsor_id', $sponsorId)
-    //                 ->where('id', '!=', $user->id)
-    //                 ->exists();
+    //         // ============ IGNITE: Validate Sponsor ============
+    //         try {
+    //             $response = $this->ignite->memberDetails($sponsorId);
+    //         } catch (\Exception $e) {
+    //             Log::error('[Step2-Sponsor] Ignite call failed', [
+    //                 'user_id' => $user->id,
+    //                 'error'   => $e->getMessage(),
+    //             ]);
 
-    //             if ($taken) {
-    //                 return response()->json([
-    //                     'status'               => false,
-    //                     'message'              => 'This Sponsor ID is already taken. Please choose another one.',
-    //                     'suggested_sponsor_id' => $this->generateUniqueSponsorId(),
-    //                 ], 422);
-    //             }
+    //             return response()->json([
+    //                 'status'  => false,
+    //                 'message' => 'Unable to validate sponsor right now. Please try again.',
+    //             ], 503);
     //         }
 
-    //         // Update user's sponsor info (only existing columns)
-    //         $user->update([
+    //         if ($response['code'] !== 0) {
+    //             return response()->json([
+    //                 'status'  => false,
+    //                 'message' => 'Invalid sponsor ID: ' . ($response['msg'] ?? 'Not found'),
+    //             ], 422);
+    //         }
+
+    //         $sponsorData = $response['data'];
+
+    //         // ============ SAVE ============
+    //         $updateData = [
     //             'sponsor_id'        => $sponsorId,
     //             'placement_leg'     => $request->placement_leg,
     //             'registration_step' => max($user->registration_step ?? 0, 2),
-    //         ]);
+    //         ];
+
+    //         // If ba_id is provided, save it as distributor_id
+    //         if ($request->filled('ba_id')) {
+    //             $updateData['distributor_id'] = trim($request->ba_id);
+    //         }
+
+    //         $user->update($updateData);
 
     //         return response()->json([
-    //             'status'               => true,
-    //             'message'              => 'Sponsor information saved successfully',
-    //             'step'                 => 2,
-    //             'next_step'            => 3,
-    //             'sponsor_id'           => $sponsorId,
-    //             'is_custom_sponsor_id' => $request->boolean('is_custom_sponsor_id'),
-    //             'user'                 => $user->fresh(),
+    //             'status'    => true,
+    //             'message'   => 'Sponsor validated and saved.',
+    //             'step'      => 2,
+    //             'next_step' => 3,
+    //             'sponsor'   => [
+    //                 'ba_id'     => $sponsorData['ba_id'],
+    //                 'member_id' => $sponsorData['member_id'],
+    //             ],
+    //             'user' => $user->fresh(),
     //         ]);
     //     } catch (\Exception $e) {
-    //         Log::error('Distributor step 2 error: ' . $e->getMessage());
+    //         Log::error('[Step2-Sponsor] Error: ' . $e->getMessage());
     //         return response()->json([
     //             'status'  => false,
     //             'message' => 'Something went wrong. Please try again.'
@@ -2421,12 +2436,13 @@ class AuthController extends Controller
 
             $sponsorId = trim($request->sponsor_id);
 
-            // ============ IGNITE: Validate Sponsor ============
+            // ============ IGNITE: Validate Sponsor (accepts world plan too) ============
             try {
-                $response = $this->ignite->memberDetails($sponsorId);
+                $response = $this->ignite->validateSponsor($sponsorId);
             } catch (\Exception $e) {
-                Log::error('[Step2-Sponsor] Ignite call failed', [
+                Log::error('[Step2-Sponsor] Ignite validateSponsor threw', [
                     'user_id' => $user->id,
+                    'sponsor' => $sponsorId,
                     'error'   => $e->getMessage(),
                 ]);
 
@@ -2436,14 +2452,22 @@ class AuthController extends Controller
                 ], 503);
             }
 
-            if ($response['code'] !== 0) {
+            if (($response['code'] ?? null) !== ResultCode::OK->value) {
+                Log::warning('[Step2-Sponsor] validateSponsor rejected', [
+                    'user_id' => $user->id,
+                    'sponsor' => $sponsorId,
+                    'code'    => $response['code'] ?? null,
+                    'msg'     => $response['msg'] ?? null,
+                ]);
+
                 return response()->json([
                     'status'  => false,
                     'message' => 'Invalid sponsor ID: ' . ($response['msg'] ?? 'Not found'),
+                    'code'    => $response['code'] ?? null,
                 ], 422);
             }
 
-            $sponsorData = $response['data'];
+            $sponsorData = $response['data'] ?? [];
 
             // ============ SAVE ============
             $updateData = [
@@ -2465,8 +2489,10 @@ class AuthController extends Controller
                 'step'      => 2,
                 'next_step' => 3,
                 'sponsor'   => [
-                    'ba_id'     => $sponsorData['ba_id'],
-                    'member_id' => $sponsorData['member_id'],
+                    'ba_id'      => $sponsorData['ba_id']      ?? $sponsorId,
+                    'member_id'  => $sponsorData['member_id']  ?? null,
+                    'full_name'  => $sponsorData['name']       ?? null,
+                    'plan'       => $sponsorData['plan']       ?? null,
                 ],
                 'user' => $user->fresh(),
             ]);
