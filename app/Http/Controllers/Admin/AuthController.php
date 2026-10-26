@@ -1609,12 +1609,22 @@ class AuthController extends Controller
     public function getUserDetails($id)
     {
         try {
-            $user = User::with('role', 'distributorProfile')
+            $users = User::with('role', 'distributorProfile')
                 ->where('is_registered', true)
                 ->where('id', $id)
-                ->first();
+                ->get()
+                ->map(function ($user) {
+                    if ($user->profile_picture) {
+                        $user->profile_picture = asset('storage/' . $user->profile_picture);
+                    }
 
-            if (!$user) {
+                    // Ignite payout data inject
+                    $user->setAttribute('ignite_payout', $this->buildIgnitePayoutDetail($user));
+
+                    return $user;
+                });
+
+            if ($users->isEmpty()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'User not found.',
@@ -1622,16 +1632,10 @@ class AuthController extends Controller
                 ], 404);
             }
 
-            if ($user->profile_picture) {
-                $user->profile_picture = asset('storage/' . $user->profile_picture);
-            }
-
-            $user->setAttribute('ignite_payout', $this->buildIgnitePayoutDetail($user));
-
             return response()->json([
                 'success' => true,
                 'message' => 'User details fetched successfully.',
-                'data'    => $user
+                'data'    => $users
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
