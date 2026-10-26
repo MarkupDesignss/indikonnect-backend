@@ -32,7 +32,6 @@ class CancellationApprovalController extends Controller
     /**
      * Get all pending cancellation requests
      */
-
     // public function getPendingRequests(Request $request): JsonResponse
     // {
     //     $gatewayChargesPercent = (float) Setting::where('key', 'gateway_charges')
@@ -43,7 +42,13 @@ class CancellationApprovalController extends Controller
     //         'cancelled',
     //         'cancelled_rejected'
     //     ])
-    //         ->with(['order', 'order.user', 'product', 'variant'])
+    //         ->with([
+    //             'order',
+    //             'order.user',
+    //             'product',
+    //             'variant',
+    //             'refunds'
+    //         ])
     //         ->orderBy('cancellation_requested_at', 'asc')
     //         ->paginate($request->get('per_page', 20));
 
@@ -56,20 +61,16 @@ class CancellationApprovalController extends Controller
     //             2
     //         );
 
-    //         // Add gateway charge as separate response key
     //         $orderLine->gateway_charge = $gatewayCharge;
 
-    //         // Add gateway charge to line total
     //         $orderLine->line_total = round(
     //             $lineTotal + $gatewayCharge,
     //             2
     //         );
 
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | Timeline — single object (start → end)
-    //     |--------------------------------------------------------------------------
-    //     */
+    //         // Refund amount from refunds table; null if no refund exists
+    //         $orderLine->refund_amount = $orderLine->refunds->first()?->amount;
+
     //         $orderLine->timeline = [
     //             'created_at'                => optional($orderLine->created_at)->toDateTimeString(),
     //             'dispatched_at'             => optional($orderLine->dispatched_at)->toDateTimeString(),
@@ -112,16 +113,23 @@ class CancellationApprovalController extends Controller
         $pendingRequests->getCollection()->transform(function ($orderLine) use ($gatewayChargesPercent) {
 
             $lineTotal = (float) $orderLine->line_total;
+            $shippingCharge = (float) ($orderLine->shipping_charge ?? 0);
 
+            // Add shipping charge to line total
+            $totalWithShipping = $lineTotal + $shippingCharge;
+
+            // Calculate gateway charges on line total + shipping
             $gatewayCharge = round(
-                ($lineTotal * $gatewayChargesPercent) / 100,
+                ($totalWithShipping * $gatewayChargesPercent) / 100,
                 2
             );
 
+            $orderLine->shipping_charge = $shippingCharge;
             $orderLine->gateway_charge = $gatewayCharge;
 
+            // Deduct gateway charges from total including shipping
             $orderLine->line_total = round(
-                $lineTotal + $gatewayCharge,
+                $totalWithShipping - $gatewayCharge - $orderLine->gst_amount,
                 2
             );
 
@@ -141,7 +149,6 @@ class CancellationApprovalController extends Controller
 
             return $orderLine;
         });
-
         return response()->json([
             'success' => true,
             'data' => $pendingRequests,
