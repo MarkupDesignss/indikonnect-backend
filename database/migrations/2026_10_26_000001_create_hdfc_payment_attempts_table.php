@@ -9,8 +9,10 @@ return new class extends Migration {
     {
         Schema::create('hdfc_payment_attempts', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('order_id')->constrained('orders');
-            $table->foreignId('user_id')->constrained('users');
+
+            $table->unsignedBigInteger('order_id');
+            $table->unsignedBigInteger('user_id');
+
             $table->string('gateway', 16);
             $table->string('gateway_order_id', 20)->unique();
             $table->string('session_id')->nullable();
@@ -23,10 +25,15 @@ return new class extends Migration {
             $table->timestamp('expires_at')->nullable();
             $table->timestamp('cancel_requested_at')->nullable();
             $table->timestamp('completed_at')->nullable();
+
             $table->timestamps();
+
             $table->index(['order_id', 'status']);
         });
     }
 
-    public function down(): void { Schema::dropIfExists('hdfc_payment_attempts'); }
+    public function down(): void
+    {
+        Schema::dropIfExists('hdfc_payment_attempts');
+    }
 };
