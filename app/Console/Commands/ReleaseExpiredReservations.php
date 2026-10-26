@@ -12,7 +12,7 @@ use Throwable;
 class ReleaseExpiredReservations extends Command
 {
     protected $signature   = 'reservations:release-expired {--batch=200}';
-    protected $description = 'Release held inventory reservations past their expiry.';
+    protected $description = 'Release held inventory reservations past their expiry and mark orders as payment_failed.';
 
     public function handle(InventoryReservationService $service): int
     {
@@ -20,10 +20,11 @@ class ReleaseExpiredReservations extends Command
         $total = 0;
 
         // counters for final summary
-        $releasedCount  = 0;
-        $skippedCount   = 0;
-        $failedCount    = 0;
-        $ordersExpired  = 0;
+        $releasedCount   = 0;
+        $skippedCount    = 0;
+        $failedCount     = 0;
+        $ordersFailed    = 0;
+        $linesFailed     = 0;
 
         Log::info('reservations:release-expired started', ['batch' => $batch]);
 
@@ -55,7 +56,8 @@ class ReleaseExpiredReservations extends Command
                     &$releasedCount,
                     &$skippedCount,
                     &$failedCount,
-                    &$ordersExpired
+                    &$ordersFailed,
+                    &$linesFailed
                 ) {
                     foreach ($expired as $res) {
                         try {
@@ -85,7 +87,7 @@ class ReleaseExpiredReservations extends Command
                                 'quantity'       => $fresh->quantity,
                             ]);
 
-                            // Order status expire karo agar koi held reservation nahi bachi
+                            // Order status ko payment_failed karo agar koi held reservation nahi bachi
                             if ($fresh->order_id) {
                                 $remainingHeld = InventoryReservation::where('order_id', $fresh->order_id)
                                     ->where('status', 'held')
@@ -95,12 +97,35 @@ class ReleaseExpiredReservations extends Command
                                     $updated = DB::table('orders')
                                         ->where('id', $fresh->order_id)
                                         ->whereIn('status', ['pending', 'initiated', 'payment_pending'])
-                                        ->update(['status' => 'expired', 'updated_at' => now()]);
+                                        ->update([
+                                            'status'     => 'payment_failed',
+                                            'updated_at' => now(),
+                                        ]);
 
                                     if ($updated > 0) {
-                                        $ordersExpired++;
-                                        Log::info('reservations:release-expired — order marked expired', [
-                                            'order_id' => $fresh->order_id,
+                                        $ordersFailed++;
+
+                                        // Order lines ka delivery_status bhi payment_failed karo.
+                                        // Sirf wahi lines jo is reservation se tied hain.
+                                        $linesQuery = DB::table('order_lines')
+                                            ->where('order_id', $fresh->order_id);
+
+                                        if (!empty($fresh->item_reference_id)) {
+                                            $linesQuery->where('id', $fresh->item_reference_id);
+                                        } else {
+                                            $linesQuery->where('product_id', $fresh->product_id);
+                                        }
+
+                                        $linesUpdated = $linesQuery->update([
+                                            'delivery_status' => 'payment_failed',
+                                            'updated_at'      => now(),
+                                        ]);
+
+                                        $linesFailed += $linesUpdated;
+
+                                        Log::info('reservations:release-expired — order marked payment_failed', [
+                                            'order_id'         => $fresh->order_id,
+                                            'order_lines_hit'  => $linesUpdated,
                                         ]);
                                     } else {
                                         Log::warning('reservations:release-expired — order status not changed (already moved on)', [
@@ -120,8 +145,7 @@ class ReleaseExpiredReservations extends Command
                                 'error'          => $e->getMessage(),
                                 'trace'          => $e->getTraceAsString(),
                             ]);
-                            // rethrow only if you want the whole batch transaction to rollback;
-                            // we intentionally swallow so other reservations still process.
+                            // intentionally swallowed so other reservations still process
                         }
                     }
                 });
@@ -139,15 +163,16 @@ class ReleaseExpiredReservations extends Command
 
         // Final summary log
         Log::info('reservations:release-expired finished', [
-            'total_processed'     => $total,
-            'released'            => $releasedCount,
-            'skipped'             => $skippedCount,
-            'failed'              => $failedCount,
-            'orders_marked_expired' => $ordersExpired,
+            'total_processed'       => $total,
+            'released'              => $releasedCount,
+            'skipped'               => $skippedCount,
+            'failed'                => $failedCount,
+            'orders_marked_failed'  => $ordersFailed,
+            'order_lines_marked_failed' => $linesFailed,
         ]);
 
         if ($total > 0) {
-            $this->info("Processed {$total} expired reservations. Released: {$releasedCount}, Skipped: {$skippedCount}, Failed: {$failedCount}, Orders expired: {$ordersExpired}");
+            $this->info("Processed {$total} expired reservations. Released: {$releasedCount}, Skipped: {$skippedCount}, Failed: {$failedCount}, Orders payment_failed: {$ordersFailed}, Order lines payment_failed: {$linesFailed}");
         } else {
             $this->info('No expired reservations found.');
         }
