@@ -844,7 +844,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('subcategories')->group(fun
 // ============================
 Route::prefix('testimonials')->group(function () {
     Route::get('/', [TestimonialController::class, 'index']);
-});
+}); 
 
 Route::middleware(['auth:sanctum', 'admin'])->prefix('testimonials')->group(function () {
     Route::post('/', [TestimonialController::class, 'store']);
