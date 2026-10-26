@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\NotificationTemplateController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\Admin\PayoutController;
+use App\Http\Controllers\Admin\IgniteExportController;
 use App\Http\Controllers\Admin\ReconciliationController;
 use App\Http\Controllers\Admin\KycController;
 use App\Http\Controllers\Admin\AttributeController;
@@ -114,6 +115,10 @@ Route::prefix('admin')->group(function () {
         // Ignite withdrawal hold/release
         Route::post('/distributors/{userId}/withdraw-hold',   [PayoutController::class, 'holdWithdraw']);
         Route::post('/distributors/{userId}/withdraw-release',[PayoutController::class, 'releaseWithdraw']);
+
+        // Ignite exports
+        Route::get('/ignite/exports',          [IgniteExportController::class, 'list']);
+        Route::get('/ignite/exports/download', [IgniteExportController::class, 'download']);
 
         // Orders
         Route::get('/all-orders', [OrderController::class, 'allOrder']);
