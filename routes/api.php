@@ -66,12 +66,24 @@ use App\Http\Controllers\API\CorrectionApiController;
 use App\Http\Controllers\API\SubcategoryController;
 use App\Http\Controllers\API\TestimonialController;
 use App\Http\Controllers\API\Webhook\HdfcWebhookController;
+use App\Http\Controllers\API\HdfcPaymentController;
 
 /*
 |--------------------------------------------------------------------------
 | API Routes
 |--------------------------------------------------------------------------
 */
+
+// ------------------------------------------------------------------
+// HDFC Payment Routes (defined ONCE at top — duplicates removed)
+// ------------------------------------------------------------------
+Route::middleware('auth:sanctum')->prefix('payments/hdfc')->group(function () {
+    Route::post('orders/{order}/initiate', [HdfcPaymentController::class, 'initiate'])->middleware('throttle:10,1');
+    Route::post('orders/{order}/cancel', [HdfcPaymentController::class, 'cancel'])->middleware('throttle:10,1');
+    Route::get('orders/{order}/status', [HdfcPaymentController::class, 'status'])->middleware('throttle:30,1');
+});
+Route::post('payments/hdfc/webhook', [HdfcWebhookController::class, 'handle'])->middleware('throttle:120,1');
+Route::match(['get', 'post'], 'payments/hdfc/return', [HdfcWebhookController::class, 'browserReturn']);
 
 // Fallback login route (for unauthenticated API access)
 Route::get('/login', function () {
@@ -80,7 +92,9 @@ Route::get('/login', function () {
         'message' => 'Authentication token is required to access this API.'
     ], 401);
 })->name('login');
+
 Route::get('/distributor/{distributor_id}', [AuthController::class, 'show']);
+
 // ============================
 // ADMIN AUTH ROUTES
 // ============================
@@ -130,7 +144,7 @@ Route::prefix('admin')->group(function () {
     });
 });
 
-// Payment Management (should be admin protected)
+// Payment Management (admin protected)
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get('/payment-management', [PayoutController::class, 'paymentManagement']);
 });
@@ -154,12 +168,10 @@ Route::prefix('header')->group(function () {
 // CONTENTS (PAGES)
 // ============================
 Route::prefix('contents')->group(function () {
-    // Public routes
     Route::get('/', [ContentController::class, 'index']);
     Route::get('/landing-page', [ContentController::class, 'landingindex']);
     Route::get('/{slug}', [ContentController::class, 'show']);
 
-    // Admin routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/admins/all', [ContentController::class, 'adminindex']);
         Route::get('/admin/{slug}', [ContentController::class, 'adminindex']);
@@ -174,11 +186,9 @@ Route::prefix('contents')->group(function () {
 // CATEGORIES
 // ============================
 Route::prefix('categories')->group(function () {
-    // Public routes
     Route::get('/', [CategoryController::class, 'index']);
     Route::get('/{id}', [CategoryController::class, 'show']);
 
-    // Admin routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/add', [CategoryController::class, 'store']);
         Route::post('/update/{id}', [CategoryController::class, 'update']);
@@ -220,23 +230,22 @@ Route::prefix('subscribers')->group(function () {
 // ============================
 // PRODUCTS
 // ============================
-Route::patch('best-seller/products/{id}', [ProductController::class, 'toggleBestSeller',]);
+Route::patch('best-seller/products/{id}', [ProductController::class, 'toggleBestSeller']);
 Route::post('/create/variants', [ProductController::class, 'createVariant']);
 Route::post('/products/{productId}/set-primary', [ProductController::class, 'setPrimaryProduct']);
 Route::post('move-product-image/{product}', [ProductController::class, 'swapImageOrder']);
+
 Route::prefix('products')->group(function () {
-    // Public routes with optional auth
     Route::middleware('optional.auth:sanctum')->group(function () {
         Route::get('/', [ProductController::class, 'index']);
         Route::get('/trending', [ProductController::class, 'trending']);
         Route::get('/slug/{slug}', [ProductController::class, 'showBySlug']);
         Route::get('/code/{code}', [ProductController::class, 'showByCode']);
-        Route::get('/{product}', [ProductController::class, 'show']);
+        Route::get('/{product}', [ProductController::class, 'show'])->whereNumber('product');
         Route::get('/category/{categoryId}', [ProductController::class, 'productsByCategory']);
         Route::get('/brands/{brandId}', [ProductController::class, 'productsByBrand']);
     });
 
-    // Admin protected routes
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::post('/', [ProductController::class, 'store']);
         Route::post('/update/{id}', [ProductController::class, 'update']);
@@ -251,7 +260,6 @@ Route::prefix('products')->group(function () {
 });
 
 Route::post('/stock/update', [ProductController::class, 'updateStock']);
-// Product extra routes
 Route::post('/global-search', [ProductController::class, 'globalSearch']);
 Route::get('/products-deal-of-the-day', [ProductController::class, 'getDealOfTheDayProducts']);
 Route::get('/products-top-discounted', [ProductController::class, 'getTopDiscountedProducts']);
@@ -296,14 +304,12 @@ Route::prefix('distributor')->group(function () {
     Route::post('login', [APIAuthController::class, 'distributorLogin'])->middleware('throttle:distributor-login');
     Route::get('location-by-pincode', [APIAuthController::class, 'getLocationByPincode']);
 
-    // Password reset
     Route::post('forgot-password', [APIAuthController::class, 'forgotPassword']);
     Route::post('verify-reset-otp', [APIAuthController::class, 'verifyResetOtp']);
     Route::post('reset-password', [APIAuthController::class, 'resetPassword']);
 });
 
 Route::prefix('user')->group(function () {
-    // Public routes
     Route::post('send-otp', [APIAuthController::class, 'sendOtp']);
     Route::post('verify-otp', [APIAuthController::class, 'verifyOtp']);
     Route::post('confirm_registration', [APIAuthController::class, 'completeCustomerRegistration']);
@@ -312,7 +318,6 @@ Route::prefix('user')->group(function () {
     Route::post('verify-login-otp', [APIAuthController::class, 'verifyLoginOtp']);
     Route::post('refresh-token', [APIAuthController::class, 'refreshToken'])->name('refresh-token');
 
-    // Protected routes
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('profile', [APIAuthController::class, 'profile'])->name('profile');
         Route::post('profile', [APIAuthController::class, 'updateProfile'])->name('update-profile');
@@ -349,12 +354,13 @@ Route::prefix('cart')->middleware('auth:sanctum')->group(function () {
     Route::post('/update/{itemId}', [CartController::class, 'update']);
     Route::delete('/remove/{itemId}', [CartController::class, 'remove']);
     Route::delete('/clear', [CartController::class, 'clear']);
-    Route::post('/merge', [CartController::class, 'mergeCart'])->middleware('auth:sanctum');
+    Route::post('/merge', [CartController::class, 'mergeCart']); // duplicate auth:sanctum removed
 });
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/products/{id}/check-stock', [ProductController::class, 'getStock']);
     Route::get('/carts/{id}/check-stock', [ProductController::class, 'checkCartStock']);
 });
+
 // ============================
 // ADDRESSES
 // ============================
@@ -380,12 +386,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/checkout/apply-shipping', [CheckoutController::class, 'applyShipping']);
     Route::post('/checkout/remove-coupon', [CheckoutController::class, 'removeCoupon']);
 
-    // Credit Notes (User)
     Route::get('/orders/{orderReference}/credit-notes', [CreditNoteController::class, 'getByOrder']);
     Route::get('/credit-notes/{id}', [CreditNoteController::class, 'userShow']);
     Route::get('/credit-notes/{id}/download-data', [CreditNoteController::class, 'downloadData']);
 
-    // Order actions
     Route::get('/orders/confirmed/{order_reference}', [OrderController::class, 'getConfirmedOrder']);
     Route::get('/my-orders', [OrderController::class, 'getOrder']);
     Route::post('/orders/{orderReference}/cancel/{id}', [OrderController::class, 'requestCancellation']);
@@ -417,25 +421,15 @@ Route::middleware('auth:sanctum')->group(function () {
 // WEBHOOKS
 // ============================
 Route::post('/webhook/razorpay', [RazorpayWebhookController::class, 'handle']);
-// hdfc_sg merchant webhook
 
-Route::post('/webhook/hdfc', [HdfcWebhookController::class, 'handle'])
-    ->name('hdfc.webhook.sg');
+Route::post('/webhook/hdfc', [HdfcWebhookController::class, 'handle'])->name('hdfc.webhook.sg');
+Route::post('/webhook/hdfc1', [HdfcWebhookController::class, 'handle'])->name('hdfc.webhook.ie');
 
-Route::post('/webhook/hdfc1', [HdfcWebhookController::class, 'handle'])
-    ->name('hdfc.webhook.ie');
+Route::match(['GET', 'POST'], '/hdfc/return', [HdfcWebhookController::class, 'return'])->name('hdfc.return.sg');
+Route::match(['GET', 'POST'], '/hdfc/return1', [HdfcWebhookController::class, 'return'])->name('hdfc.return.ie');
 
-Route::match(['GET', 'POST'], '/hdfc/return', [HdfcWebhookController::class, 'return'])
-    ->name('hdfc.return.sg');
-
-Route::match(['GET', 'POST'], '/hdfc/return1', [HdfcWebhookController::class, 'return'])
-    ->name('hdfc.return.ie');
-
-Route::match(['GET', 'POST'], '/hdfc/cancel', [HdfcWebhookController::class, 'cancel'])
-    ->name('hdfc.cancel.sg');
-
-Route::match(['GET', 'POST'], '/hdfc/cancel1', [HdfcWebhookController::class, 'cancel'])
-    ->name('hdfc.cancel.ie');
+Route::match(['GET', 'POST'], '/hdfc/cancel', [HdfcWebhookController::class, 'cancel'])->name('hdfc.cancel.sg');
+Route::match(['GET', 'POST'], '/hdfc/cancel1', [HdfcWebhookController::class, 'cancel'])->name('hdfc.cancel.ie');
 
 Route::middleware('auth:sanctum')->get(
     '/hdfc/orders/{order}/status',
@@ -523,14 +517,12 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('footer')->group(function (
 // RETURNS
 // ============================
 Route::middleware('auth:sanctum')->group(function () {
-    // User routes
     Route::get('/returns/eligibility', [ReturnController::class, 'eligibility']);
     Route::post('/returns/initiate', [ReturnController::class, 'initiate']);
     Route::get('/returns/my-returns', [ReturnController::class, 'myReturns']);
     Route::get('/returns/{id}', [ReturnController::class, 'show']);
     Route::post('/returns/{returnId}/cancel', [ReturnController::class, 'cancel']);
 
-    // Admin routes
     Route::middleware('admin')->prefix('admin')->group(function () {
         Route::post('/cooling-off/{returnId}/approve', [ReturnController::class, 'approveCoolingOff']);
         Route::post('/cooling-off/{returnId}/reject', [ReturnController::class, 'rejectCoolingOff']);
@@ -603,8 +595,8 @@ Route::middleware('auth:sanctum')->prefix('distributor/genealogy')->group(functi
 });
 
 Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/ignite/point-txs',       [\App\Http\Controllers\API\IgniteHistoryController::class, 'pointTxs']);
-    Route::get('/ignite/floating-cv-txs', [\App\Http\Controllers\API\IgniteHistoryController::class, 'floatingCvTxs']);
+    Route::get('/ignite/point-txs', [IgniteHistoryController::class, 'pointTxs']);
+    Route::get('/ignite/floating-cv-txs', [IgniteHistoryController::class, 'floatingCvTxs']);
 });
 
 // ============================
@@ -714,14 +706,12 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
     Route::post('/update/{id}', [AdminController::class, 'update']);
     Route::delete('/delete/{id}', [AdminController::class, 'destroy']);
 
-    // Roles
     Route::get('/roles', [RoleController::class, 'index']);
     Route::get('/roles/{id}', [RoleController::class, 'show']);
     Route::post('/roles', [RoleController::class, 'store']);
     Route::post('/roles/{id}', [RoleController::class, 'update']);
     Route::delete('/roles/{id}', [RoleController::class, 'destroy']);
 
-    // Permissions
     Route::get('/permissions', [PermissionController::class, 'index']);
     Route::get('/permissions/modules', [PermissionController::class, 'getModules']);
     Route::post('/permissions', [PermissionController::class, 'store']);
@@ -745,13 +735,11 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
     Route::post('attributes/{attributeId}/values/bulk', [AttributeController::class, 'bulkStoreValues']);
     Route::get('attributes-dropdown', [AttributeController::class, 'getForDropdown']);
 
-    // Credit Notes (Admin)
     Route::get('/credit-notes', [CreditNoteController::class, 'index']);
     Route::get('/credit-notes/{id}', [CreditNoteController::class, 'show']);
     Route::get('/credit-notes/{id}/download-data', [CreditNoteController::class, 'downloadAdminData']);
     Route::get('/credit-notes/export', [CreditNoteController::class, 'export']);
 
-    // Admin User Management
     Route::post('/users', [AdminUserController::class, 'store']);
 });
 
@@ -770,10 +758,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('orders')->group(function (
     Route::post('/ship', [OrderController::class, 'ship']);
     Route::post('/deliver', [OrderController::class, 'deliver']);
     Route::get('/{orderReference}/shipping-details', [OrderController::class, 'getShippingDetails']);
-    Route::post(
-        'order-lines/{orderLine}/cancel',
-        [OrderController::class, 'adminCancel']
-    );
+    Route::post('order-lines/{orderLine}/cancel', [OrderController::class, 'adminCancel']);
 });
 
 // ============================
@@ -813,7 +798,6 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('faqs')->group(function () 
     Route::post('/bulk-delete', [FAQController::class, 'bulkDestroy']);
 });
 
-// FAQ Sections
 Route::get('faq-sections/dropdown', [FaqSectionController::class, 'dropdown']);
 Route::get('faq-sections', [FaqSectionController::class, 'index']);
 Route::get('faq-sections/{id}', [FaqSectionController::class, 'show']);
@@ -850,7 +834,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('subcategories')->group(fun
 // ============================
 Route::prefix('testimonials')->group(function () {
     Route::get('/', [TestimonialController::class, 'index']);
-}); 
+});
 
 Route::middleware(['auth:sanctum', 'admin'])->prefix('testimonials')->group(function () {
     Route::post('/', [TestimonialController::class, 'store']);
@@ -949,10 +933,10 @@ Route::post('/upload-products/csv', [ProductController::class, 'upload']);
 Route::get('/reports/sales', [ProductController::class, 'salesReport']);
 
 Route::post('/correction/request', [CorrectionApiController::class, 'store']);
-Route::get('/correction/reasons',  [CorrectionApiController::class, 'reasons']);
+Route::get('/correction/reasons', [CorrectionApiController::class, 'reasons']);
 
 // Admin
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
-    Route::get('/correction/requests',                 [AdminCorrectionApiController::class, 'index']);
+    Route::get('/correction/requests', [AdminCorrectionApiController::class, 'index']);
     Route::post('/correction/requests/{id}/send-link', [AdminCorrectionApiController::class, 'sendLink']);
 });

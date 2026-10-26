@@ -1,355 +1,216 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services\PaymentGateway;
 
 use App\Models\Order;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Exception;
+use RuntimeException;
 
 class HdfcService
 {
-    protected string $baseUrl;
-    protected string $apiKey;
-    protected string $merchantId;
-    protected string $resellerId;
-    protected string $paymentPageClientId;
-    protected string $responseKey;
-    protected string $cardEncodingKey;
-    protected string $environment;
-    protected bool $enableLogging;
-    protected string $gatewayKey;
-    protected string $returnUrl;
+    private array $config;
+    private string $base;
+    private string $merchant;
+    private string $key;
+    private string $gatewayKey;
 
-    public function __construct(
-        array $config = [],
-        string $gatewayKey = 'hdfc_sg'
-    ) {
-        if (empty($config)) {
-            $config = config('services.hdfc.sg', []);
+    /**
+     * $config is optional so Laravel's container can resolve the service.
+     * Explicit config remains supported for merchant-specific instances.
+     */
+    public function __construct(array $config = [], string $gatewayKey = 'hdfc_sg')
+    {
+        if (!in_array($gatewayKey, ['hdfc_sg', 'hdfc_ie'], true)) {
+            throw new RuntimeException('Unsupported HDFC gateway');
         }
 
         $this->gatewayKey = $gatewayKey;
-        $this->returnUrl  = (string) ($config['return_url'] ?? '');
-        $this->baseUrl    = rtrim((string) ($config['base_url'] ?? ''), '/');
-        $this->apiKey     = (string) ($config['api_key'] ?? '');
-        $this->merchantId = (string) ($config['merchant_id'] ?? '');
-        $this->resellerId = (string) ($config['reseller_id'] ?? '');
-        $this->paymentPageClientId = (string) (
-            $config['payment_page_client_id'] ?? $this->merchantId
-        );
-        $this->responseKey = (string) ($config['response_key'] ?? '');
-        $this->cardEncodingKey = (string) ($config['card_encoding_key'] ?? '');
-        $this->environment = (string) ($config['environment'] ?? 'live');
-        $this->enableLogging = (bool) ($config['enable_logging'] ?? false);
+        $merchantConfigKey = $gatewayKey === 'hdfc_ie' ? 'ie' : 'sg';
+        $this->config = $config !== []
+            ? $config
+            : (array) config('services.hdfc.' . $merchantConfigKey, []);
 
-        if (
-            $this->baseUrl === '' ||
-            $this->apiKey === '' ||
-            $this->merchantId === ''
-        ) {
-            throw new Exception(
-                'HDFC configuration is incomplete. Check base_url, api_key and merchant_id.'
-            );
+        $this->base = rtrim((string) ($this->config['base_url'] ?? ''), '/');
+        $this->merchant = (string) ($this->config['merchant_id'] ?? '');
+        $this->key = (string) ($this->config['api_key'] ?? '');
+
+        if ($this->base === '' || $this->merchant === '' || $this->key === '') {
+            throw new RuntimeException('HDFC merchant configuration missing for ' . $gatewayKey);
+        }
+        if (!filter_var($this->base, FILTER_VALIDATE_URL) || parse_url($this->base, PHP_URL_SCHEME) !== 'https') {
+            throw new RuntimeException('HDFC base_url must be a valid HTTPS URL');
         }
     }
 
-    /**
-     * Create a hosted payment session.
-     */
-    public function createOrder(Order $order): array
+    private function client(string $customerId = ''): PendingRequest
     {
-        $orderId = (string) $order->order_reference;
-
-        if (
-            $orderId === '' ||
-            strlen($orderId) > 20 ||
-            !preg_match('/^[a-zA-Z0-9]+$/', $orderId)
-        ) {
-            throw new Exception(
-                'HDFC order_reference must be alphanumeric and no longer than 20 characters.'
-            );
+        $headers = [
+            'Accept' => 'application/json',
+            'x-merchantid' => $this->merchant,
+        ];
+        if ($customerId !== '') {
+            $headers['x-customerid'] = $customerId;
+            $headers['x-routing-id'] = $customerId;
         }
+        if (!empty($this->config['reseller_id'])) {
+            $headers['x-resellerid'] = (string) $this->config['reseller_id'];
+        }
+
+        return Http::withBasicAuth($this->key, '')
+            ->acceptJson()
+            ->asJson()
+            ->withHeaders($headers)
+            ->timeout(30);
+    }
+
+    private function decode(Response $response, string $operation): array
+    {
+        if ($response->failed()) {
+            Log::warning('HDFC gateway API request failed', [
+                'gateway' => $this->gatewayKey,
+                'operation' => $operation,
+                'http_status' => $response->status(),
+            ]);
+            // Gateway bodies can include sensitive customer/payment details.
+            throw new RuntimeException('HDFC ' . $operation . ' HTTP ' . $response->status());
+        }
+
+        $data = $response->json();
+        if (!is_array($data)) {
+            throw new RuntimeException('Invalid HDFC JSON response for ' . $operation);
+        }
+        return $data;
+    }
+
+    private function assertGatewayOrderId(string $gatewayOrderId): void
+    {
+        if (!preg_match('/^[A-Za-z0-9]{1,20}$/D', $gatewayOrderId)) {
+            throw new RuntimeException('Invalid HDFC gateway order ID');
+        }
+    }
+
+    /** Local preflight only: guarantees no gateway request has been attempted. */
+    public function validateCreateOrder(Order $order): void
+    {
+        $customer = $order->user;
+        if (!$customer) {
+            throw new RuntimeException('Order customer missing');
+        }
+        if (empty($customer->email) && empty($customer->phone)) {
+            throw new RuntimeException('Customer email or phone is required');
+        }
+        $amount = (float) $order->total_payable;
+        if (!is_finite($amount) || $amount <= 0) {
+            throw new RuntimeException('HDFC payment amount must be positive');
+        }
+        $returnUrl = (string) ($this->config['return_url'] ?? '');
+        if (!filter_var($returnUrl, FILTER_VALIDATE_URL)
+            || parse_url($returnUrl, PHP_URL_SCHEME) !== 'https'
+            || parse_url($returnUrl, PHP_URL_QUERY) !== null) {
+            throw new RuntimeException('HDFC return_url must be HTTPS without a query string');
+        }
+    }
+
+    public function createOrder(Order $order, string $gatewayOrderId): array
+    {
+        $this->assertGatewayOrderId($gatewayOrderId);
+        $this->validateCreateOrder($order);
 
         $customer = $order->user;
-
-        if (!$customer) {
-            throw new Exception('Customer not found for HDFC payment.');
-        }
-
-        $email = $customer->email;
-        $phone = $customer->phone;
-
-        if (empty($email) && empty($phone)) {
-            throw new Exception(
-                'Customer email or phone is required for HDFC payment.'
-            );
-        }
-
-        $amount = number_format((float) $order->total_payable, 2, '.', '');
-
-        if ((float) $amount <= 0) {
-            throw new Exception(
-                'HDFC payment amount must be greater than zero.'
-            );
-        }
-
-        if (
-            !filter_var($this->returnUrl, FILTER_VALIDATE_URL)
-            || !str_starts_with($this->returnUrl, 'https://')
-            || parse_url($this->returnUrl, PHP_URL_QUERY)
-        ) {
-            throw new Exception(
-                'HDFC return_url must be public HTTPS with no query parameters.'
-            );
-        }
+        $amount = (float) $order->total_payable;
+        $returnUrl = (string) $this->config['return_url'];
 
         $payload = [
-            'return_url'             => $this->returnUrl,
-            'order_id'               => $orderId,
-            'amount'                 => $amount,
-            'currency'               => 'INR',
-            'customer_id'            => (string) $order->user_id,
-            'payment_page_client_id' => $this->paymentPageClientId,
-            'action'                 => 'paymentPage',
-            'description'            => 'Order ' . $orderId,
-            'first_name'             => $customer->name ?: 'Customer',
-            'last_name'              => '',
-            'udf1'                   => $orderId,
+            'return_url' => $returnUrl,
+            'order_id' => $gatewayOrderId,
+            'amount' => number_format($amount, 2, '.', ''),
+            'currency' => 'INR',
+            'customer_id' => (string) $order->user_id,
+            'payment_page_client_id' => (string) ($this->config['payment_page_client_id'] ?? $this->merchant),
+            'action' => 'paymentPage',
+            'description' => 'Order ' . (string) $order->order_reference,
+            'first_name' => (string) ($customer->name ?: 'Customer'),
+            'udf1' => (string) $order->order_reference,
         ];
-
-        if (!empty($email)) {
-            $payload['customer_email'] = $email;
+        if (!empty($customer->email)) {
+            $payload['customer_email'] = (string) $customer->email;
+        }
+        if (!empty($customer->phone)) {
+            $payload['customer_phone'] = (string) $customer->phone;
         }
 
-        if (!empty($phone)) {
-            $payload['customer_phone'] = $phone;
-        }
+        $sessionPath = '/' . ltrim((string) ($this->config['session_path'] ?? '/session'), '/');
+        $result = $this->decode(
+            $this->client((string) $order->user_id)->post($this->base . $sessionPath, $payload),
+            'create-session'
+        );
 
-        $response = $this->post('/session', $payload, (string) $order->user_id);
-
-        if (empty($response['id'])) {
-            throw new Exception(
-                'HDFC session creation failed: ' .
-                    json_encode($response, JSON_UNESCAPED_SLASHES)
-            );
+        $sessionId = $result['id'] ?? null;
+        $link = $result['payment_links']['web'] ?? null;
+        if (!is_string($sessionId) || $sessionId === ''
+            || !is_string($link) || !filter_var($link, FILTER_VALIDATE_URL)
+            || parse_url($link, PHP_URL_SCHEME) !== 'https') {
+            throw new RuntimeException('HDFC response missing a valid session ID or HTTPS payment link');
         }
 
         return [
-            'id'           => $response['id'],
-            'status'       => $response['status'] ?? 'CREATED',
-            'payment_link' => $response['payment_links']['web'] ?? null,
-            'sdk_payload'  => $response['sdk_payload'] ?? null,
-            'raw'          => $response,
+            'id' => $sessionId,
+            'payment_link' => $link,
+            'status' => (string) ($result['status'] ?? 'CREATED'),
         ];
     }
 
-    /**
-     * Fetch the latest order status from HDFC/Juspay.
-     *
-     * Automatically retries on transient failures (network, 5xx, 404).
-     */
-    public function getOrderStatus(string $orderReference, ?string $customerId = null): array
+    /** Read authoritative gateway state; do not treat 404 as cancellation. */
+    public function getOrderStatus(string $gatewayOrderId, string $customerId): array
     {
-        return $this->get(
-            '/orders/' . rawurlencode($orderReference),
-            $customerId,
-            [
-                'retries'     => 2,
-                'retry_delay' => 1000,
-                'tolerate_404' => true,
-            ]
+        $this->assertGatewayOrderId($gatewayOrderId);
+        return $this->decode(
+            $this->client($customerId)->get($this->base . '/orders/' . rawurlencode($gatewayOrderId)),
+            'get-order-status'
         );
     }
 
     /**
-     * Fetch transaction details.
+     * Requests cancellation. A successful HTTP response is NOT proof that
+     * an already opened HDFC hosted payment link is unusable.
+     * The caller must reconcile order status before marking the attempt cancelled.
      */
-    public function getTransaction(string $transactionId): array
+    public function cancelOrder(string $gatewayOrderId, string $customerId): array
     {
-        return $this->get('/transactions/' . rawurlencode($transactionId));
-    }
-
-    /**
-     * Verify a signed response.
-     */
-    public function verifySignature(array $payload, ?string $signature): bool
-    {
-        if (empty($signature) || $this->responseKey === '') {
-            return false;
+        $this->assertGatewayOrderId($gatewayOrderId);
+        if ($customerId === '') {
+            throw new RuntimeException('HDFC cancellation requires customer ID');
         }
 
-        $responseData = $payload['response'] ?? null;
+        $path = '/merchants/' . rawurlencode($this->merchant)
+            . '/order/' . rawurlencode($gatewayOrderId) . '/cancel';
 
-        if (!is_string($responseData)) {
-            return false;
+        $response = $this->client($customerId)
+            ->withHeaders(['version' => '2019-08-19'])
+            ->post($this->base . $path, [
+                'cancel_reason' => 'Customer requested cancellation',
+            ]);
+
+        // 404 and 409 are errors here, never "already cancelled" confirmations.
+        $data = $this->decode($response, 'cancel-order');
+        if (isset($data['order_id']) && (string) $data['order_id'] !== $gatewayOrderId) {
+            throw new RuntimeException('HDFC cancel response order ID mismatch');
         }
 
-        $computed = base64_encode(
-            hash_hmac('sha256', $responseData, $this->responseKey, true)
-        );
-
-        return hash_equals($computed, $signature);
-    }
-
-    protected function post(string $path, array $body, string $customerId): array
-    {
-        $url = $this->baseUrl . $path;
-
-        $response = Http::withBasicAuth($this->apiKey, '')
-            ->withHeaders($this->headers($customerId))
-            ->timeout(30)
-            ->post($url, $body);
-
-        return $this->handleResponse($response, 'POST', $url, $body);
-    }
-
-    /**
-     * GET request with optional retry + 404 tolerance.
-     */
-    protected function get(string $path, ?string $customerId = null, array $options = []): array
-    {
-        $url = $this->baseUrl . $path;
-
-        $retries      = (int) ($options['retries'] ?? 0);
-        $retryDelay   = (int) ($options['retry_delay'] ?? 1000);
-        $tolerate404  = (bool) ($options['tolerate_404'] ?? false);
-
-        $request = Http::withBasicAuth($this->apiKey, '')
-            ->withHeaders($this->headers($customerId ?? ''))
-            ->timeout(30);
-
-        if ($retries > 0) {
-            $request = $request->retry(
-                $retries,
-                $retryDelay,
-                function ($exception) {
-                    // Retry only on connection errors or 5xx
-                    if ($exception instanceof \Illuminate\Http\Client\ConnectionException) {
-                        return true;
-                    }
-                    if ($exception instanceof \Illuminate\Http\Client\RequestException) {
-                        return $exception->response
-                            && $exception->response->serverError();
-                    }
-                    return false;
-                },
-                throw: false
-            );
-        }
-
-        $response = $request->get($url);
-
-        return $this->handleResponse($response, 'GET', $url, [], $tolerate404);
-    }
-
-    protected function headers(string $customerId): array
-    {
-        $headers = [
-            'Accept'       => 'application/json',
-            'Content-Type' => 'application/json',
-            'x-merchantid' => $this->merchantId,
-            'x-customerid' => $customerId,
+        // Exact payload can vary by merchant integration. Do not claim a
+        // terminal state based only on HTTP 200 or an undocumented status.
+        return [
+            'gateway_order_id' => $gatewayOrderId,
+            'cancel_request_accepted' => true,
+            'cancelled' => false,
+            'verification_pending' => true,
+            'gateway_response_status' => (string) ($data['status'] ?? ''),
         ];
-
-        if ($customerId !== '') {
-            $headers['x-routing-id'] = $customerId;
-        }
-        if ($this->resellerId !== '') {
-            $headers['x-resellerid'] = $this->resellerId;
-        }
-
-        return $headers;
-    }
-
-    protected function handleResponse(
-        Response $response,
-        string $method,
-        string $url,
-        array $payload,
-        bool $tolerate404 = false
-    ): array {
-        $json = $response->json();
-
-        if (!is_array($json)) {
-            $json = ['raw_response' => $response->body()];
-        }
-
-        if ($this->enableLogging) {
-            Log::info('HDFC API Call', [
-                'method'  => $method,
-                'url'     => $url,
-                'gateway' => $this->gatewayKey,
-                'payload' => [
-                    'order_id' => $payload['order_id'] ?? null,
-                    'amount'   => $payload['amount'] ?? null,
-                    'currency' => $payload['currency'] ?? null,
-                ],
-                'status'   => $response->status(),
-                'response' => $json,
-            ]);
-        }
-
-        // Tolerate 404 for status fetches — failed/cancelled orders pe HDFC
-        // aksar 404 deta hai. Caller (reconcile) khud handle karega.
-        if ($tolerate404 && $response->status() === 404) {
-            return $json; // empty array or whatever — caller will see missing status
-        }
-
-        if ($response->failed()) {
-            throw new Exception(
-                'HDFC API error (' . $response->status() . '): ' .
-                    json_encode($json, JSON_UNESCAPED_SLASHES)
-            );
-        }
-
-        return $json;
-    }
-
-    /**
-     * Cancel the HDFC payment session/order.
-     */
-    public function cancelOrder(string $orderReference): array
-    {
-        $path = '/merchants/' . $this->merchantId
-            . '/order/' . rawurlencode($orderReference)
-            . '/cancel';
-
-        $headers = [
-            'Accept'       => 'application/json',
-            'Content-Type' => 'application/json',
-            'x-merchantid' => $this->merchantId,
-            'version'      => '2019-08-19',
-        ];
-
-        if ($this->resellerId !== '') {
-            $headers['x-resellerid'] = $this->resellerId;
-        }
-
-        $url = $this->baseUrl . $path;
-
-        $response = Http::withBasicAuth($this->apiKey, '')
-            ->withHeaders($headers)
-            ->timeout(30)
-            ->post($url, [
-                'cancel_reason' => 'User cancelled on payment page',
-            ]);
-
-        // Cancel pe 404/409 tolerant — order already terminal ho sakta hai
-        if (in_array($response->status(), [404, 409], true)) {
-            Log::info('HDFC cancel: order already terminal or not found', [
-                'order_reference' => $orderReference,
-                'status'          => $response->status(),
-            ]);
-            return ['raw_response' => $response->body(), 'status' => $response->status()];
-        }
-
-        return $this->handleResponse(
-            $response,
-            'POST',
-            $url,
-            ['order_id' => $orderReference]
-        );
     }
 }

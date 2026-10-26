@@ -46,6 +46,9 @@ return [
         // Common frontend result URL
         'frontend_result_url' => env('HDFC_FRONTEND_RESULT_URL'),
 
+        // Local payment-link TTL (minutes)
+        'local_link_ttl_minutes' => (int) env('HDFC_LOCAL_LINK_TTL_MINUTES', 15),
+
         // Indiekonnect Enterprises (SG)
         'sg' => [
             'base_url' => env(
@@ -66,6 +69,11 @@ return [
 
             'return_url' => env('HDFC_SG_RETURN_URL'),
             'frontend_result_url' => env('HDFC_FRONTEND_RESULT_URL'),
+
+            // --- merged ---
+            'session_path' => env('HDFC_SESSION_PATH', '/session'),
+            'webhook_username' => env('HDFC_SG_WEBHOOK_USERNAME'),
+            'webhook_password' => env('HDFC_SG_WEBHOOK_PASSWORD'),
         ],
 
         // Indiekonnect Enterprises Pvt Ltd (IE)
@@ -88,8 +96,14 @@ return [
 
             'return_url' => env('HDFC_IE_RETURN_URL'),
             'frontend_result_url' => env('HDFC_FRONTEND_RESULT_URL', "https://www.markupdesigns.net/indikonnect/payment-result"),
+
+            // --- merged ---
+            'session_path' => env('HDFC_IE_SESSION_PATH', '/session'),
+            'webhook_username' => env('HDFC_IE_WEBHOOK_USERNAME'),
+            'webhook_password' => env('HDFC_IE_WEBHOOK_PASSWORD'),
         ],
     ],
+
     'kyc' => [
         'base_url'    => env('KYC_BASE_URL', 'https://test-api.sandbox.co.in'),
         'api_key'     => env('KYC_API_KEY'),
@@ -108,6 +122,7 @@ return [
         'dlt_template_id' => env('AIRTEL_SMS_DLT_TEMPLATE_ID'),
         'timeout'         => 30,
     ],
+
     'twilio' => [
         'sid'   => env('TWILIO_ACCOUNT_SID'),
         'token' => env('TWILIO_AUTH_TOKEN'),

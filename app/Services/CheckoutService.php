@@ -2111,22 +2111,17 @@ class CheckoutService
                     'razorpay_key'      => config('services.razorpay.key_id'),
                 ];
             } elseif (in_array($gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
-                $configKey = $gateway === 'hdfc_sg' ? 'sg' : 'ie';
-                $config = config("services.hdfc.{$configKey}");
-
-                if (!$config || empty($config['api_key'])) {
-                    throw new \Exception("HDFC merchant [{$gateway}] is not configured.");
-                }
-
-                $hdfcService = new \App\Services\PaymentGateway\HdfcService($config, $gateway);
-                $hdfcOrder = $hdfcService->createOrder($order);
-
+                // HDFC session creation is handled separately by the authenticated
+                // POST /api/payments/hdfc/orders/{orderId}/initiate endpoint.
+                // Do not call HdfcService::createOrder() in place-order:
+                //  - it requires a unique per-attempt gatewayOrderId;
+                //  - generating a session here would duplicate gateway attempts;
+                //  - gateway network calls should not happen in this DB transaction.
+                // The frontend uses the *actual database* order_id returned below.
                 $gatewayPayload = [
-                    'hdfc_order_id'     => $hdfcOrder['id'],
-                    'hdfc_payment_link' => $hdfcOrder['payment_link'],
-                    'hdfc_sdk_payload'  => $hdfcOrder['sdk_payload'],
-                    'hdfc_merchant_id'  => $config['merchant_id'],
-                    'hdfc_gateway_key'  => $gateway,
+                    'payment_status'  => 'pending',
+                    'hdfc_gateway_key' => $gateway,
+                    'payment_initiation_required' => true,
                 ];
             } else {
                 throw new \Exception('Unsupported payment gateway: ' . $gateway);
