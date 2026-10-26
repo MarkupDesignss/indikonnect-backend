@@ -932,4 +932,30 @@ class IgniteClient
 
         return $body;
     }
+
+    /**
+     * Hold or release a member's weekly commission withdrawal.
+     *
+     * When held (allow = false), the Saturday run skips the member:
+     * the balance carries and no `wd` line appears in that week's export.
+     * When released (allow = true), the next run pays out the whole balance.
+     *
+     * POST /members/setAllowWithdraw
+     * body: { "ba_id": "DIA7918383-001", "allow_withdraw": false }
+     *
+     * data: the memberDetails shape, after the change
+     *
+     * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND
+     * NETWORK_BUSY (Saturday commission run in progress; retry every 30 seconds)
+     *
+     * @param  string  $baId  the main account BA ID (-001)
+     * @param  bool    $allow true = allow withdrawal, false = hold
+     */
+    public function setAllowWithdraw(string $baId, bool $allow): array
+    {
+        return $this->post('/members/setAllowWithdraw', [
+            'ba_id'          => $baId,
+            'allow_withdraw' => $allow,
+        ]);
+    }
 }

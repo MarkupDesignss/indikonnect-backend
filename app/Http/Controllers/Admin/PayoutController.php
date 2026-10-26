@@ -10,6 +10,11 @@ use App\Services\Commission\CommissionServiceInterface;
 use Illuminate\Http\Request;
 use App\Notifications\PayoutReleasedNotification;
 use Illuminate\Support\Facades\Response;
+use App\Models\User;
+use App\Sdks\Partner\IgniteClient;
+use App\Sdks\Partner\ResultCode;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class PayoutController extends Controller
 {
@@ -364,4 +369,91 @@ class PayoutController extends Controller
             ], 500);
         }
     }
+
+    /**
+ * Hold a member's weekly commission withdrawal.
+ * Ignite's Saturday run skips this member until released.
+ */
+public function holdWithdraw(Request $request, int $userId)
+{
+    return $this->toggleWithdraw($userId, false);
+}
+
+/**
+ * Release a member's weekly commission withdrawal.
+ */
+public function releaseWithdraw(Request $request, int $userId)
+{
+    return $this->toggleWithdraw($userId, true);
+}
+
+/**
+ * Shared helper — call Ignite setAllowWithdraw.
+ */
+protected function toggleWithdraw(int $userId, bool $allow)
+{
+    $user = User::findOrFail($userId);
+
+    if (empty($user->distributor_id)) {
+        return response()->json([
+            'success' => false,
+            'message' => 'This user is not registered on Ignite.',
+        ], 422);
+    }
+
+    try {
+        $response = app(IgniteClient::class)->setAllowWithdraw(
+            $user->distributor_id,
+            $allow
+        );
+    } catch (\Throwable $e) {
+        Log::error('Ignite setAllowWithdraw threw', [
+            'user_id' => $userId,
+            'ba_id'   => $user->distributor_id,
+            'allow'   => $allow,
+            'error'   => $e->getMessage(),
+        ]);
+        return response()->json([
+            'success' => false,
+            'message' => 'Ignite unreachable. Please try again.',
+        ], 503);
+    }
+
+    $code = $response['code'] ?? null;
+
+    // NETWORK_BUSY = Saturday payout run → retry 30s
+    if ($code === 5013) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Saturday payout run in progress. Please retry in 30 seconds.',
+            'code'    => 5013,
+        ], 429);
+    }
+
+    if ($code !== ResultCode::OK->value) {
+        return response()->json([
+            'success' => false,
+            'message' => $response['msg'] ?? 'Ignite refused the change.',
+            'code'    => $code,
+        ], 422);
+    }
+
+    // Invalidate member cache so dashboard reflects new allow_withdraw
+    Cache::forget("ignite_member_{$user->distributor_id}");
+
+    Log::info('Ignite withdraw toggle', [
+        'user_id' => $userId,
+        'ba_id'   => $user->distributor_id,
+        'allow'   => $allow,
+    ]);
+
+    return response()->json([
+        'success'         => true,
+        'message'         => $allow
+            ? 'Withdrawal released. Ignite will pay this member next Saturday.'
+            : 'Withdrawal held. Ignite will skip this member until released.',
+        'data'            => $response['data'] ?? null,
+        'allow_withdraw'  => $allow,
+    ]);
+}
 }

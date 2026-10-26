@@ -125,6 +125,10 @@ Route::prefix('admin')->group(function () {
         Route::get('/payouts/{id}/export', [PayoutController::class, 'export']);
         Route::post('/payouts/{id}/notify', [PayoutController::class, 'sendNotifications']);
 
+        // Ignite withdrawal hold/release
+        Route::post('/distributors/{userId}/withdraw-hold',   [PayoutController::class, 'holdWithdraw']);
+        Route::post('/distributors/{userId}/withdraw-release',[PayoutController::class, 'releaseWithdraw']);
+
         // Orders
         Route::get('/all-orders', [OrderController::class, 'allOrder']);
         Route::get('/get-order-details/{id}', [OrderController::class, 'getOrderDetails']);

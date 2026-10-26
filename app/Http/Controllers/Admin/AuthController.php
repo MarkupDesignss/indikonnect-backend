@@ -1461,13 +1461,20 @@ class AuthController extends Controller
         }
     }
 
-
     // public function getRegisteredUsers()
     // {
     //     try {
-    //         $users = User::with('role', 'businessProfile')->where('is_registered', true)
+    //         $users = User::with('role', 'distributorProfile')
+    //             ->where('is_registered', true)
     //             ->orderBy('id', 'desc')
-    //             ->get();
+    //             ->get()
+    //             ->map(function ($user) {
+    //                 if ($user->profile_picture) {
+    //                     $user->profile_picture = asset('storage/' . $user->profile_picture);
+    //                 }
+
+    //                 return $user;
+    //             });
 
     //         return response()->json([
     //             'success' => true,
@@ -1495,52 +1502,287 @@ class AuthController extends Controller
                         $user->profile_picture = asset('storage/' . $user->profile_picture);
                     }
 
+                    // Ignite payout summary (only for distributors on Ignite)
+                    $user->setAttribute(
+                        'ignite_payout_summary',
+                        $this->buildIgnitePayoutSummary($user)
+                    );
+
                     return $user;
                 });
 
             return response()->json([
                 'success' => true,
                 'message' => 'Registered users fetched successfully.',
-                'data' => $users
+                'data'    => $users
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch registered users.',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
 
+    /**
+     * Lightweight Ignite snapshot for the list view.
+     * Only cash_bal + allow_withdraw + last payout — no CV, no pairings.
+     * Returns null when the user is not on Ignite.
+     */
+    private function buildIgnitePayoutSummary(User $user): ?array
+    {
+        if ($user->account_type !== 'distributor' || empty($user->distributor_id)) {
+            return null;
+        }
+
+        $baId = $user->distributor_id;
+
+        try {
+            $resp = \Illuminate\Support\Facades\Cache::remember(
+                "ignite_member_{$baId}",
+                60,
+                fn() => app(\App\Sdks\Partner\IgniteClient::class)->memberDetails($baId)
+            );
+
+            if (($resp['code'] ?? null) !== 0) {
+                return [
+                    'ba_id'        => $baId,
+                    'ignite_error' => $resp['msg'] ?? 'Ignite refused',
+                    'code'         => $resp['code'] ?? null,
+                ];
+            }
+
+            $m = $resp['data'];
+
+            return [
+                'ba_id'             => $m['ba_id']             ?? $baId,
+                'cash_bal'          => $m['cash_bal']          ?? '0.0000',
+                'allow_withdraw'    => $m['allow_withdraw']    ?? null,
+                'membership_status' => $m['membership_status'] ?? null,
+                'ignite_error'      => null,
+            ];
+        } catch (\Throwable $e) {
+            \Log::warning('buildIgnitePayoutSummary failed', [
+                'user_id' => $user->id,
+                'ba_id'   => $baId,
+                'error'   => $e->getMessage(),
+            ]);
+            return [
+                'ba_id'        => $baId,
+                'ignite_error' => 'Ignite unreachable',
+            ];
+        }
+    }
+
+    // public function getUserDetails($id)
+    // {
+    //     try {
+    //         $user = User::with('role', 'distributorProfile')->where('is_registered', true)
+    //             ->where('id', $id)
+    //             ->get();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'User not found.',
+    //                 'errors' => [
+    //                     'user_id' => ['User not found.']
+    //                 ]
+    //             ], 404);
+    //         }
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'User details fetched successfully.',
+    //             'data' => $user
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to fetch user details.',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function getUserDetails($id)
     {
         try {
-            $user = User::with('role', 'distributorProfile')->where('is_registered', true)
+            $user = User::with('role', 'distributorProfile')
+                ->where('is_registered', true)
                 ->where('id', $id)
-                ->get();
+                ->first();
 
             if (!$user) {
                 return response()->json([
                     'success' => false,
                     'message' => 'User not found.',
-                    'errors' => [
-                        'user_id' => ['User not found.']
-                    ]
+                    'errors'  => ['user_id' => ['User not found.']]
                 ], 404);
             }
+
+            if ($user->profile_picture) {
+                $user->profile_picture = asset('storage/' . $user->profile_picture);
+            }
+
+            $user->setAttribute('ignite_payout', $this->buildIgnitePayoutDetail($user));
 
             return response()->json([
                 'success' => true,
                 'message' => 'User details fetched successfully.',
-                'data' => $user
+                'data'    => $user
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch user details.',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Full Ignite payout detail for one distributor.
+     * Called only from getUserDetails() — one user, one page load, so 3 Ignite calls are OK.
+     */
+    private function buildIgnitePayoutDetail(User $user): ?array
+    {
+        if ($user->account_type !== 'distributor' || empty($user->distributor_id)) {
+            return null;
+        }
+
+        $baId   = $user->distributor_id;
+        $ignite = app(\App\Sdks\Partner\IgniteClient::class);
+
+        try {
+            // 1) Member snapshot
+            $memberResp = $ignite->memberDetails($baId);
+
+            if (($memberResp['code'] ?? null) !== 0) {
+                return [
+                    'ba_id'        => $baId,
+                    'ignite_error' => $memberResp['msg'] ?? 'memberDetails refused',
+                    'code'         => $memberResp['code'] ?? null,
+                ];
+            }
+
+            $m = $memberResp['data'];
+
+            // 2) Last payout from pointTxs (last 50 rows)
+            $lastPayoutAt     = null;
+            $lastPayoutAmount = null;
+
+            try {
+                $txResp = $ignite->pointTxs($baId, 0, 50);
+                if (($txResp['code'] ?? null) === 0) {
+                    foreach (($txResp['data']['rows'] ?? []) as $row) {
+                        if ($row['point_type'] === 'cash_bal' && $row['tx_type'] === 'wd') {
+                            $lastPayoutAt     = $row['created_at'];
+                            $lastPayoutAmount = ltrim($row['amount'], '-');
+                            break;
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                \Log::warning('pointTxs failed', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+            }
+
+            // 3) Current settled week pairings (optional)
+            $lastWeekPayout = null;
+            $currentWeek    = $this->currentSalesWeek();
+            if ($currentWeek) {
+                try {
+                    $pairResp = $ignite->pairings($currentWeek['year'], $currentWeek['week_no'], $baId);
+                    if (($pairResp['code'] ?? null) === 0) {
+                        $row = ($pairResp['data']['rows'] ?? [])[0] ?? null;
+                        if ($row) {
+                            $lastWeekPayout = [
+                                'week'         => $currentWeek,
+                                'cash_amount'  => $row['cash_amount']  ?? '0.0000',
+                                'steps_paid'   => $row['steps_paid']   ?? 0,
+                                'steps_burned' => $row['steps_burned'] ?? 0,
+                                'steps_yellow' => $row['steps_yellow'] ?? 0,
+                            ];
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    // silent
+                }
+            }
+
+            return [
+                'ba_id'              => $m['ba_id']              ?? $baId,
+                'member_id'          => $m['member_id']          ?? null,
+                'rank_no'            => $m['rank_no']            ?? 0,
+                'membership_status'  => $m['membership_status']  ?? null,
+
+                'cash_bal'           => $m['cash_bal']           ?? '0.0000',
+                'green_bal'          => $m['green_bal']          ?? '0.0000',
+                'yellow_bal'         => $m['yellow_bal']         ?? '0.0000',
+                'blue_bal'           => $m['blue_bal']           ?? '0.0000',
+
+                'allow_withdraw'     => $m['allow_withdraw']     ?? null,
+                'qualified_at'       => $m['qualified_at']       ?? null,
+                'total_steps'        => $m['total_steps']        ?? 0,
+
+                'cv_left'            => $m['cv_left']            ?? '0.0000',
+                'cv_right'           => $m['cv_right']           ?? '0.0000',
+                'floating_cv_left'   => $m['floating_cv_left']   ?? '0.0000',
+                'floating_cv_right'  => $m['floating_cv_right']  ?? '0.0000',
+
+                'last_payout_at'     => $lastPayoutAt,
+                'last_payout_amount' => $lastPayoutAmount,
+                'last_week_payout'   => $lastWeekPayout,
+
+                'ignite_error'       => null,
+            ];
+        } catch (\Throwable $e) {
+            \Log::error('buildIgnitePayoutDetail failed', [
+                'user_id' => $user->id,
+                'ba_id'   => $baId,
+                'error'   => $e->getMessage(),
+            ]);
+            return [
+                'ba_id'        => $baId,
+                'ignite_error' => 'Ignite unreachable: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Resolve current sales week (cached 6h).
+     */
+    private function currentSalesWeek(): ?array
+    {
+        $ignite = app(\App\Sdks\Partner\IgniteClient::class);
+        $year   = (int) now()->year;
+
+        foreach ([$year, $year - 1] as $y) {
+            try {
+                $resp = \Illuminate\Support\Facades\Cache::remember(
+                    "ignite_sales_calendar_{$y}",
+                    21600,
+                    fn() => $ignite->salesCalendar($y)
+                );
+            } catch (\Throwable $e) {
+                continue;
+            }
+
+            if (($resp['code'] ?? null) !== 0) continue;
+
+            foreach (($resp['data']['months'] ?? []) as $month) {
+                foreach (($month['weeks'] ?? []) as $week) {
+                    if (!empty($week['is_current'])) {
+                        return [
+                            'year'    => (int) $week['year'],
+                            'week_no' => (int) $week['week_no'],
+                        ];
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     // public function toggleUserStatus($id)
