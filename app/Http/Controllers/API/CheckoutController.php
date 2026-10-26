@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 use App\Services\InventoryReservationService;
+use Illuminate\Support\Facades\Log;
 
 class CheckoutController extends Controller
 {
