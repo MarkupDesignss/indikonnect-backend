@@ -96,4 +96,18 @@ class HdfcWebhookController extends Controller
             ->header('Cache-Control', 'no-store')
             ->header('Referrer-Policy', 'no-referrer');
     }
+
+    public function return(Request $request): \Illuminate\Http\RedirectResponse
+    {
+        $user = $request->user();
+        $isDistributor = $user && ($user->account_type ?? null) === 'distributor';
+
+        $base = $isDistributor
+            ? (string) config('services.hdfc.distributor_frontend_url')
+            : (string) config('services.hdfc.customer_frontend_url');
+
+        $url = rtrim($base, '/') . '/checkout/';
+
+        return redirect($url);
+    }
 }
