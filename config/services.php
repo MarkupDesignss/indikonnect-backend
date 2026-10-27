@@ -42,7 +42,8 @@ return [
     ],
 
     'hdfc' => [
-
+        'customer_frontend_url' => env('CUSTOMER_FRONTEND_URL', 'https://www.markupdesigns.net/indiekonnect-web/'),
+        'distributor_frontend_url' => env('DISTRIBUTOR_FRONTEND_URL', 'https://www.markupdesigns.net/indiekonnect-distributor/'),
         // Common frontend result URL
         'frontend_result_url' => env('HDFC_FRONTEND_RESULT_URL'),
 
