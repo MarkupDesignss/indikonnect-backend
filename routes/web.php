@@ -39,3 +39,8 @@ Route::get('/test-ignite', function (IgniteClient $ignite) {
 Route::get('/correction/{token}',  [CorrectionLinkController::class, 'form'])->name('correction.form');
 Route::post('/correction/{token}', [CorrectionLinkController::class, 'update'])->name('correction.update');
 Route::get('/distributor/{id}', [AuthController::class, 'showHtml']);
+
+Route::get('/test-axispg-signature', function () {
+    $service = new \App\Services\PaymentGateway\AxisPgService(config('services.axispg'));
+    return response()->json(['signature' => $service->testSignature()]);
+});
