@@ -128,7 +128,7 @@ Route::prefix('admin')->group(function () {
 
         // Ignite withdrawal hold/release
         Route::post('/distributors/{userId}/withdraw-hold',   [PayoutController::class, 'holdWithdraw']);
-        Route::post('/distributors/{userId}/withdraw-release',[PayoutController::class, 'releaseWithdraw']);
+        Route::post('/distributors/{userId}/withdraw-release', [PayoutController::class, 'releaseWithdraw']);
 
         // Ignite exports
         Route::get('/ignite/exports',          [IgniteExportController::class, 'list']);
@@ -152,6 +152,7 @@ Route::prefix('admin')->group(function () {
         Route::delete('/settings/{key}', [SettingController::class, 'destroy']);
     });
 });
+Route::get('/settings/payment-gateways', [SettingController::class, 'paymentGateways']);
 
 // Payment Management (admin protected)
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {

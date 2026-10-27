@@ -70,14 +70,45 @@ class SettingController extends Controller
             'is_editable' => 'sometimes|boolean',
         ]);
 
+        // ============ PAYMENT GATEWAY EXCLUSIVITY CHECK ============
+        if (
+            $setting->group === 'payment_gateway'
+            && $this->isActivating($validated['value'], $setting->data_type)
+        ) {
+
+            $activeGateway = Setting::where('group', 'payment_gateway')
+                ->where('key', '!=', $key)
+                ->whereIn('value', ['1', 'true', 'on'])   // active markers
+                ->first();
+
+            if ($activeGateway) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Another payment gateway '{$activeGateway->key}' is already active. Please deactivate it first before activating '{$key}'.",
+                    'active_gateway' => $activeGateway->key,
+                ], 422);
+            }
+        }
+        // ==========================================================
+
         $setting->update($validated);
-        // Cache clears automatically via Model booted() method
 
         return response()->json([
             'success' => true,
             'data' => $setting,
             'message' => 'Setting updated successfully.'
         ]);
+    }
+
+    /**
+     * Check karta hai ki naya value "active" state represent karta hai ya nahi.
+     */
+    private function isActivating($value, string $dataType = 'boolean'): bool
+    {
+        if ($dataType === 'boolean') {
+            return in_array($value, [true, 1, '1', 'true', 'on'], true);
+        }
+        return false;
     }
 
     // Delete a setting (only if editable)
@@ -96,6 +127,31 @@ class SettingController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Setting deleted successfully.'
+        ]);
+    }
+
+    public function paymentGateways()
+    {
+        $settings = Setting::where('group', 'payment_gateway')
+            ->orderBy('key')
+            ->get()
+            ->map(function ($setting) {
+                return [
+                    'key'         => $setting->key,
+                    'value'       => $setting->value,
+                    'data_type'   => $setting->data_type,
+                    'description' => $setting->description,
+                    'is_editable' => (bool) $setting->is_editable,
+                    'is_active'   => $this->isActivating($setting->value, $setting->data_type),
+                ];
+            });
+
+        $activeGateway = $settings->firstWhere('is_active', true);
+
+        return response()->json([
+            'success'         => true,
+            'active_gateway'  => $activeGateway['key'] ?? null,
+            'data'            => $settings->values(),
         ]);
     }
 }
