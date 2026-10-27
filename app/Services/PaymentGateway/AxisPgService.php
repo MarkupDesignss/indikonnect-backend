@@ -48,7 +48,7 @@ class AxisPgService
     {
         // Document Page 31 का example
         $payload = [
-            'merchantId'     => 'MERMER581d32b',
+            'merchantId'     => 'MERa840524842',
             'merchantTxnId'  => 'txnid24Jan01',
             'txnReferenceId' => '5463f732d7e3002',
         ];
