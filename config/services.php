@@ -105,6 +105,12 @@ return [
         ],
     ],
 
+    'axispg' => [
+        'merchant_id'  => env('AXISPG_MERCHANT_ID'),
+        'merchant_key' => env('AXISPG_MERCHANT_KEY'),
+        'base_url'     => env('AXISPG_BASE_URL'),
+    ],
+
     'kyc' => [
         'base_url'    => env('KYC_BASE_URL', 'https://test-api.sandbox.co.in'),
         'api_key'     => env('KYC_API_KEY'),
