@@ -64,6 +64,7 @@ use App\Http\Controllers\Admin\WarehouseController;
 use App\Http\Controllers\Admin\WarehouseStockController;
 use App\Http\Controllers\API\BrandController;
 use App\Http\Controllers\API\CorrectionApiController;
+use App\Http\Controllers\API\CorrectionRequestController;
 use App\Http\Controllers\API\SubcategoryController;
 use App\Http\Controllers\API\TestimonialController;
 use App\Http\Controllers\API\Webhook\HdfcWebhookController;
@@ -953,4 +954,14 @@ Route::get('/correction/reasons', [CorrectionApiController::class, 'reasons']);
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
     Route::get('/correction/requests', [AdminCorrectionApiController::class, 'index']);
     Route::post('/correction/requests/{id}/send-link', [AdminCorrectionApiController::class, 'sendLink']);
+});
+Route::middleware('auth:sanctum')->group(function () {
+    // User: request bhejna
+    Route::post('/correction-requests', [CorrectionRequestController::class, 'store']);
+});
+
+// Admin
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::get('/admin/correction-requests', [CorrectionRequestController::class, 'index']);
+    Route::post('/admin/correction-requests/{id}/send-link', [CorrectionRequestController::class, 'sendLink']);
 });

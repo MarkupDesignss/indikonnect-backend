@@ -2702,9 +2702,15 @@ class AuthController extends Controller
                     ]
                 );
 
+                // $user->update([
+                //     'registration_step' => max($user->registration_step ?? 0, 3),
+                //     'aadhaar_last4'     => substr($aadhaarNumber, -4),
+                // ]);
+
                 $user->update([
-                    'registration_step' => max($user->registration_step ?? 0, 3),
-                    'aadhaar_last4'     => substr($aadhaarNumber, -4),
+                    'registration_step'    => max($user->registration_step ?? 0, 3),
+                    'aadhaar_last4'        => substr($aadhaarNumber, -4),
+                    'complete_aadhar_card' => $request->encrypted_aadhaar,
                 ]);
 
                 // Confirm what was saved
@@ -3031,6 +3037,7 @@ class AuthController extends Controller
             $user->update([
                 'registration_step' => max($user->registration_step ?? 0, 4),
                 'pan_last4'         => substr($pan, -4),
+                'complete_pan_card' => strtoupper($request->encrypted_pan),
             ]);
 
             $distributorProfile->refresh();
