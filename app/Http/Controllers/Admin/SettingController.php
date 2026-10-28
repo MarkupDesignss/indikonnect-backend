@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class SettingController extends Controller
 {
@@ -70,26 +71,56 @@ class SettingController extends Controller
             'is_editable' => 'sometimes|boolean',
         ]);
 
-        // ============ PAYMENT GATEWAY EXCLUSIVITY CHECK ============
-        if (
-            $setting->group === 'payment_gateway'
-            && $this->isActivating($validated['value'], $setting->data_type)
-        ) {
+        // ============ PAYMENT GATEWAY RULES ============
+        if ($setting->group === 'payment_gateway') {
 
-            $activeGateway = Setting::where('group', 'payment_gateway')
-                ->where('key', '!=', $key)
-                ->whereIn('value', ['1', 'true', 'on'])   // active markers
-                ->first();
+            $newValue       = $validated['value'];
+            $dataType       = $validated['data_type'] ?? $setting->data_type;
+            $isActivating   = $this->isActivating($newValue, $dataType);
+            $currentlyActive = $this->isActivating($setting->value, $setting->data_type);
 
-            if ($activeGateway) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "Another payment gateway '{$activeGateway->key}' is already active. Please deactivate it first before activating '{$key}'.",
-                    'active_gateway' => $activeGateway->key,
-                ], 422);
+            // Rule 1: Deactivate karte waqt — last active gateway ko band mat hone do
+            if (!$isActivating && $currentlyActive) {
+                $otherActiveExists = Setting::where('group', 'payment_gateway')
+                    ->where('key', '!=', $key)
+                    ->whereIn('value', ['1', 'true', 'on'])
+                    ->exists();
+
+                if (!$otherActiveExists) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "At least one payment gateway must remain active. Activate another gateway first before deactivating '{$key}'.",
+                    ], 422);
+                }
             }
+
+            // Rule 2: Activate karte waqt — baaki sab gateways ko auto-off kar do
+            if ($isActivating) {
+                DB::transaction(function () use ($setting, $validated, $key) {
+                    Setting::where('group', 'payment_gateway')
+                        ->where('key', '!=', $key)
+                        ->whereIn('value', ['1', 'true', 'on'])
+                        ->each(function (Setting $other) {
+                            // data_type ke hisaab se OFF value set karo
+                            $offValue = match ($other->data_type) {
+                                'boolean' => false,
+                                'integer' => 0,
+                                default   => '0',
+                            };
+                            $other->update(['value' => $offValue]);
+                        });
+
+                    $setting->update($validated);
+                });
+
+                return response()->json([
+                    'success' => true,
+                    'data'    => $setting->fresh(),
+                    'message' => "Setting updated successfully. Only '{$key}' is now active.",
+                ]);
+            }
+            // ==============================================
         }
-        // ==========================================================
 
         $setting->update($validated);
 
