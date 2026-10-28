@@ -13,21 +13,21 @@ use Illuminate\Support\Str;
 
 class CorrectionRequestController extends Controller
 {
-    // 🔹 USER: request bhejna (sirf reason)
+    // USER: Submit a correction request
     public function store(Request $request)
     {
         $data = $request->validate([
             'reason' => 'required|string|max:1000',
         ]);
 
-        // ek pending request already ho to rok do
+        // Prevent duplicate pending requests
         $exists = CorrectionRequest::where('user_id', $request->user()->id)
             ->where('status', 'pending')
             ->exists();
 
         if ($exists) {
             return response()->json([
-                'message' => 'Aapki ek request already pending hai.',
+                'message' => 'You already have a pending correction request.',
             ], 422);
         }
 
@@ -39,15 +39,15 @@ class CorrectionRequestController extends Controller
         ]);
 
         return response()->json([
-            'message' => 'Request submit ho gayi.',
+            'message' => 'Your correction request has been submitted successfully.',
             'data'    => $cr,
         ], 201);
     }
 
-    // 🔹 ADMIN: list
+    // ADMIN: List correction requests
     public function index(Request $request)
     {
-        $requests = CorrectionRequest::with('user:id,name,email,phone')
+        $requests = CorrectionRequest::with('user:id,full_name,email,phone')
             ->when($request->status, fn($q, $s) => $q->where('status', $s))
             ->latest()
             ->paginate(20);
@@ -55,13 +55,16 @@ class CorrectionRequestController extends Controller
         return response()->json($requests);
     }
 
-    // 🔹 ADMIN: link generate + mail
+    // ADMIN: Generate correction link and send email
     public function sendLink($id)
     {
-        $cr = CorrectionRequest::with('user:id,name,email,phone')->findOrFail($id);
+        $cr = CorrectionRequest::with('user:id,full_name,email,phone')
+            ->findOrFail($id);
 
         if (!in_array($cr->status, ['pending', 'approved'])) {
-            return response()->json(['message' => 'Ye request closed hai.'], 422);
+            return response()->json([
+                'message' => 'This correction request is already closed.',
+            ], 422);
         }
 
         $token = Str::random(64);
@@ -75,6 +78,8 @@ class CorrectionRequestController extends Controller
 
         Mail::to($cr->email)->send(new PhoneUpdateLinkMail($cr, $token));
 
-        return response()->json(['message' => 'Link email pe bhej diya.']);
+        return response()->json([
+            'message' => 'The correction link has been sent to your email address.',
+        ]);
     }
 }
