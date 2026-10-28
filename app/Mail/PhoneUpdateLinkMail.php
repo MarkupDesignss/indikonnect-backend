@@ -20,7 +20,7 @@ class PhoneUpdateLinkMail extends Mailable
     public function __construct(public CorrectionRequest $correctionRequest, string $token)
     {
         $this->link = url("/phone-update/{$token}");
-        $this->userName = $correctionRequest->user->name ?? 'User';
+        $this->userName = $correctionRequest->user->full_name ?? 'User';
         $this->expiresInMinutes = 10;
     }
 
