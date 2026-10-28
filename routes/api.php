@@ -67,6 +67,7 @@ use App\Http\Controllers\API\CorrectionApiController;
 use App\Http\Controllers\API\SubcategoryController;
 use App\Http\Controllers\API\TestimonialController;
 use App\Http\Controllers\API\Webhook\HdfcWebhookController;
+use App\Http\Controllers\API\Webhook\AxisPgWebhookController;
 use App\Http\Controllers\API\HdfcPaymentController;
 
 /*
@@ -85,6 +86,9 @@ Route::middleware('auth:sanctum')->prefix('payments/hdfc')->group(function () {
 });
 Route::post('payments/hdfc/webhook', [HdfcWebhookController::class, 'handle'])->middleware('throttle:120,1');
 Route::match(['get', 'post'], 'payments/hdfc/return', [HdfcWebhookController::class, 'browserReturn']);
+
+// AxisPG webhook (server-to-server callback from AxisPG)
+Route::post('/webhook/axispg', [AxisPgWebhookController::class, 'handle'])->name('axispg.webhook');
 
 // Fallback login route (for unauthenticated API access)
 Route::get('/login', function () {

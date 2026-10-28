@@ -108,7 +108,8 @@ return [
     'axispg' => [
         'merchant_id'  => env('AXISPG_MERCHANT_ID'),
         'merchant_key' => env('AXISPG_MERCHANT_KEY'),
-        'base_url'     => env('AXISPG_BASE_URL'),
+        'base_url'     => env('AXISPG_BASE_URL', 'https://sandbox-axispg.freecharge.in'),
+        'callback_url' => env('AXISPG_CALLBACK_URL'),
     ],
 
     'kyc' => [
