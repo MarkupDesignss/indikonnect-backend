@@ -882,12 +882,14 @@ class CheckoutService
 
             // Product Information
             $productName = $product['item']->product->name;
+            $productQuantity = $product['item']->product->stock_quantity;
             $productKey = 'product_' . ($index + 1) . '_' . str_replace(' ', '_', strtolower($productName));
 
             // Product Tax Breakdown (with shipping)
             $productTaxBreakdown[$productKey] = [
                 'product_id' => $product['item']->product_id,
                 'product_name' => $productName,
+                'max_stock' => $productQuantity,
                 'product_code' => $product['item']->product->product_code,
                 'variant_id' => $product['variant_id'] ?? null,
                 'variant_sku' => $product['variant_sku'] ?? null,
@@ -2116,7 +2118,7 @@ class CheckoutService
                     'hdfc_gateway_key' => $gateway,
                     'payment_initiation_required' => true,
                 ];
-           } elseif ($gateway === 'axispg') {
+            } elseif ($gateway === 'axispg') {
                 $axispg = new \App\Services\PaymentGateway\AxisPgService(
                     config('services.axispg')
                 );
