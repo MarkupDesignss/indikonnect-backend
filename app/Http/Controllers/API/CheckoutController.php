@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 use App\Services\InventoryReservationService;
+use App\Services\PaymentGateway\AxisPgService;
 use Illuminate\Support\Facades\Log;
 
 class CheckoutController extends Controller
@@ -384,7 +385,7 @@ class CheckoutController extends Controller
         $validated = $request->validate([
             'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
             'grand_total' => 'required|numeric|min:0',
-            'payment_gateway' => 'required|in:razorpay,hdfc_sg,hdfc_ie',
+            'payment_gateway' => 'required|in:razorpay,hdfc_sg,hdfc_ie,axispg',
 
             'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
 
@@ -412,24 +413,20 @@ class CheckoutController extends Controller
             'summary_data.tax_breakdown.*.rate' => 'required_with:summary_data.tax_breakdown|min:0',
         ]);
 
-        try {
+       try {
             $result = $this->checkoutService->placeOrder(
                 Auth::user()->id,
                 $validated
             );
 
-            // checkoutService must return 'order_ids' / 'order_references'
-            // and internally have called InventoryReservationService::reserve()
-            // within the same DB::transaction.
-
             return response()->json([
                 'success' => true,
                 'data' => array_merge($result, [
                     'reservation_expires_at'  => $result['reservation_expires_at'] ?? null,
-                    'reservation_ttl_seconds' => 300, // 5 minutes
+                    'reservation_ttl_seconds' => 300,
                 ]),
             ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (\ValidationException $e) {
             throw $e;
         } catch (\Exception $e) {
             return response()->json([

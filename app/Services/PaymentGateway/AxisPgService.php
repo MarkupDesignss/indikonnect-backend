@@ -2,6 +2,7 @@
 
 namespace App\Services\PaymentGateway;
 
+use App\Models\Order;
 use Exception;
 
 class AxisPgService
@@ -9,16 +10,18 @@ class AxisPgService
     protected string $merchantId;
     protected string $merchantKey;
     protected string $baseUrl;
+    protected string $callbackUrl;
 
     public function __construct(array $config)
     {
         $this->merchantId  = $config['merchant_id'];
         $this->merchantKey = $config['merchant_key'];
         $this->baseUrl     = rtrim($config['base_url'], '/');
+        $this->callbackUrl = $config['callback_url'] ?? '';
     }
 
     /**
-     * Signature generate करें (Document Page 31-32)
+     * Generate signature (Document Page 31-32)
      */
     public function generateSignature(array $payload): string
     {
@@ -42,16 +45,29 @@ class AxisPgService
     }
 
     /**
-     * Test करने के लिए simple method
+     * Create dynamic checkout payload
      */
-    public function testSignature(): string
+    public function createCheckoutPayload(Order $order): array
     {
-        // Document Page 31 का example
         $payload = [
-            'merchantId'     => 'MERa840524842',
-            'merchantTxnId'  => 'txnid24Jan01',
-            'txnReferenceId' => '5463f732d7e3002',
+            'merchantId'        => $this->merchantId,
+            'callbackUrl'       => $this->callbackUrl,
+            'merchantTxnId'     => $order->order_reference,
+            'merchantTxnAmount' => (float) $order->total_payable,
+            'currency'          => 'INR',
+            'timestamp'         => now()->timestamp * 1000,
+            'customerId'        => (string) $order->user_id,
+            'customerName'      => $order->user->name ?? '',
+            'customerEmailId'   => $order->user->email ?? '',
+            'customerMobileNo'  => $order->user->phone ?? '',
+            'merchantOrderId'   => (string) $order->id,
         ];
-        return $this->generateSignature($payload);
+
+        $payload['signature'] = $this->generateSignature($payload);
+
+        return [
+            'clientId' => $this->merchantId,
+            'payload'  => $payload, // For debugging and sharing with the team
+        ];
     }
 }

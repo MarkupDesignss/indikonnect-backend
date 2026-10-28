@@ -2111,17 +2111,22 @@ class CheckoutService
                     'razorpay_key'      => config('services.razorpay.key_id'),
                 ];
             } elseif (in_array($gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
-                // HDFC session creation is handled separately by the authenticated
-                // POST /api/payments/hdfc/orders/{orderId}/initiate endpoint.
-                // Do not call HdfcService::createOrder() in place-order:
-                //  - it requires a unique per-attempt gatewayOrderId;
-                //  - generating a session here would duplicate gateway attempts;
-                //  - gateway network calls should not happen in this DB transaction.
-                // The frontend uses the *actual database* order_id returned below.
                 $gatewayPayload = [
                     'payment_status'  => 'pending',
                     'hdfc_gateway_key' => $gateway,
                     'payment_initiation_required' => true,
+                ];
+           } elseif ($gateway === 'axispg') {
+                $axispg = new \App\Services\PaymentGateway\AxisPgService(
+                    config('services.axispg')
+                );
+                $checkoutData = $axispg->createCheckoutPayload($order);
+
+                $gatewayPayload = [
+                    'payment_status'              => 'pending',
+                    'axispg_gateway_key'          => 'axispg',
+                    'payment_initiation_required' => true,
+                    'axispg_checkout'             => $checkoutData, // The payload + signature
                 ];
             } else {
                 throw new \Exception('Unsupported payment gateway: ' . $gateway);
