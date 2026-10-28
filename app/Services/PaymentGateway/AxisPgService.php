@@ -57,7 +57,7 @@ class AxisPgService
             'currency'          => 'INR',
             'timestamp'         => now()->timestamp * 1000,
             'customerId'        => (string) $order->user_id,
-            'customerName'      => $order->user->name ?? '',
+            'customerName'      => $order->user->full_name ?? 'Unknown',
             'customerEmailId'   => $order->user->email ?? '',
             'customerMobileNo'  => $order->user->phone ?? '',
             'merchantOrderId'   => (string) $order->id,
