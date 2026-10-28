@@ -10423,12 +10423,17 @@ class ProductController extends Controller
 
         [$startDate, $endDate, $groupBy, $labelFormat] = $this->resolvePeriod($period, $request);
 
+        // Nested chart (month -> week) for yearly / six_months, flat otherwise
+        $chart = in_array($period, ['yearly', 'six_months'], true)
+            ? $this->getChartDataNested($startDate, $endDate)
+            : $this->getChartData($startDate, $endDate, $groupBy, $labelFormat);
+
         $data = [
-            'period'    => $period,
-            'from_date' => $startDate->toDateString(),
-            'to_date'   => $endDate->toDateString(),
+            'period'                 => $period,
+            'from_date'              => $startDate->toDateString(),
+            'to_date'                => $endDate->toDateString(),
             'summary'                => $this->getSummary($startDate, $endDate),
-            'chart'                  => $this->getChartData($startDate, $endDate, $groupBy, $labelFormat),
+            'chart'                  => $chart,
             'top_products'           => $this->getTopProducts($startDate, $endDate),
             // 'order_status_breakdown' => $this->getOrderStatusBreakdown($startDate, $endDate),
             'top_distributors'       => $this->getTopDistributors($startDate, $endDate),
@@ -10440,6 +10445,84 @@ class ProductController extends Controller
             'status'  => true,
             'message' => 'Sales report fetched successfully',
             'data'    => $data,
+        ]);
+    }
+
+    /**
+     * Generates the "Sales Month Calendar" format.
+     * Year -> Sales Month (5, 6, 7...) -> Sales Week (16, 17, 18...)
+     */
+    public function getSalesMonthCalendar(Request $request)
+    {
+        $year = (int) $request->input('year', Carbon::now()->year);
+
+        // Base start date for the calendar (e.g., 18 APR 2026 as per image)
+        $calendarStart = Carbon::create($year, 4, 18)->startOfDay(); // 18 APR
+        $calendarEnd   = Carbon::create($year, 12, 31)->endOfDay();  // 31 DEC
+
+        $salesMonths   = [];
+        $currentWeekNo = 16; // Starting week number as per image
+
+        // Custom month ranges (as per image)
+        $monthRanges = [
+            5  => ['start' => "{$year}-04-18", 'end' => "{$year}-05-22"],
+            6  => ['start' => "{$year}-05-23", 'end' => "{$year}-06-26"],
+            7  => ['start' => "{$year}-06-27", 'end' => "{$year}-07-24"],
+            8  => ['start' => "{$year}-07-25", 'end' => "{$year}-08-21"],
+            9  => ['start' => "{$year}-08-22", 'end' => "{$year}-09-25"],
+            10 => ['start' => "{$year}-09-26", 'end' => "{$year}-10-23"],
+            11 => ['start' => "{$year}-10-24", 'end' => "{$year}-11-27"],
+            12 => ['start' => "{$year}-11-28", 'end' => "{$year}-12-31"],
+        ];
+
+        foreach ($monthRanges as $monthNo => $range) {
+            $monthStart = Carbon::parse($range['start'])->startOfDay();
+            $monthEnd   = Carbon::parse($range['end'])->endOfDay();
+
+            $weeks     = [];
+            $weekStart = $monthStart->copy();
+
+            while ($weekStart->lte($monthEnd)) {
+                $weekEnd = $weekStart->copy()->addDays(6)->endOfDay();
+
+                if ($weekEnd->gt($monthEnd)) {
+                    $weekEnd = $monthEnd->copy();
+                }
+
+                $payoutDate = $weekEnd->copy()->addDays(8)->format('d M Y');
+
+                if ($monthNo == 5) {
+                    $rankBasis = 'DEFAULT LAUNCH RANK';
+                } else {
+                    $rankBasis = 'SALES FROM WEEK ' . $currentWeekNo . ' TO ' . ($currentWeekNo + 2);
+                }
+
+                $weeks[] = [
+                    'week_no'           => $currentWeekNo,
+                    'start_date'        => $weekStart->format('d M Y'),
+                    'end_date'          => $weekEnd->format('d M Y'),
+                    'commission_payout' => $payoutDate,
+                    'rank_basis'        => $rankBasis,
+                ];
+
+                $currentWeekNo++;
+                $weekStart = $weekEnd->copy()->addDay()->startOfDay();
+            }
+
+            $salesMonths[] = [
+                'sales_month' => $monthNo,
+                'month_name'  => $monthStart->format('F'),
+                'weeks'       => $weeks,
+            ];
+        }
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Sales month calendar fetched successfully',
+            'data'    => [
+                'year'         => $year,
+                'sales_months' => $salesMonths,
+            ],
         ]);
     }
 
@@ -10461,7 +10544,7 @@ class ProductController extends Controller
                     $end   = $now->copy()->endOfDay();
                     break;
 
-                case 'monthly': // current month (4 weeks)
+                case 'monthly': // current month
                     $start = $now->copy()->startOfMonth()->startOfDay();
                     $end   = $now->copy()->endOfMonth()->endOfDay();
                     break;
@@ -10477,8 +10560,8 @@ class ProductController extends Controller
                     break;
 
                 default: // fallback = last 7 days
-                    $start = $now->copy()->subDays(6)->startOfDay();
-                    $end   = $now->copy()->endOfDay();
+                    $start  = $now->copy()->subDays(6)->startOfDay();
+                    $end    = $now->copy()->endOfDay();
                     $period = 'weekly';
             }
         }
@@ -10487,7 +10570,7 @@ class ProductController extends Controller
         switch ($period) {
             case 'weekly':
                 $groupBy     = 'date';
-                $labelFormat = 'D'; // Mon, Tue...
+                $labelFormat = 'D';
                 break;
 
             case 'monthly':
@@ -10497,12 +10580,12 @@ class ProductController extends Controller
 
             case 'six_months':
                 $groupBy     = 'month';
-                $labelFormat = 'M Y'; // Jan 2025
+                $labelFormat = 'M Y';
                 break;
 
             case 'yearly':
                 $groupBy     = 'month';
-                $labelFormat = 'M'; // Jan..Dec
+                $labelFormat = 'M';
                 break;
 
             default:
@@ -10551,7 +10634,8 @@ class ProductController extends Controller
     }
 
     /**
-     * Chart data (time series)
+     * Flat chart (weekly / monthly).
+     * For yearly & six_months we use getChartDataNested() instead.
      */
     private function getChartData(Carbon $start, Carbon $end, string $groupBy, string $labelFormat): array
     {
@@ -10568,7 +10652,7 @@ class ProductController extends Controller
             ->select('id', 'order_id', 'quantity')
             ->get();
 
-        $buckets = [];
+        $buckets        = [];
         $orderBucketMap = [];
 
         foreach ($orders as $order) {
@@ -10610,6 +10694,144 @@ class ProductController extends Controller
         }, $buckets));
     }
 
+    /**
+     * NESTED chart: Year -> Month -> Week (for yearly / six_months)
+     */
+    /**
+     * NESTED chart: Year -> Month -> Week -> Day
+     * Used for yearly / six_months
+     */
+    private function getChartDataNested(Carbon $start, Carbon $end): array
+    {
+        // 1. Fetch orders once
+        $orders = Order::whereBetween('created_at', [$start, $end])
+            ->whereNull('deleted_at')
+            ->whereNotIn('status', ['cancelled', 'failed'])
+            ->select('id', 'created_at', 'total_payable', 'total_gst')
+            ->get();
+
+        $lines = OrderLine::whereHas('order', function ($q) use ($start, $end) {
+            $q->whereBetween('created_at', [$start, $end])
+                ->whereNotIn('status', ['cancelled', 'failed']);
+        })
+            ->select('id', 'order_id', 'quantity')
+            ->get();
+
+        // 2. Build nested buckets keyed by date string (Y-m-d)
+        //    dayKey => ['orders','revenue','gst','items']
+        $orderDayMap = []; // order_id => 'Y-m-d'
+        $days        = [];
+
+        foreach ($orders as $order) {
+            $dayKey = $order->created_at->format('Y-m-d');
+            $orderDayMap[$order->id] = $dayKey;
+
+            if (!isset($days[$dayKey])) {
+                $days[$dayKey] = ['orders' => 0, 'revenue' => 0, 'gst' => 0, 'items' => 0];
+            }
+            $days[$dayKey]['orders']  += 1;
+            $days[$dayKey]['revenue'] += $order->total_payable;
+            $days[$dayKey]['gst']     += $order->total_gst;
+        }
+
+        foreach ($lines as $line) {
+            if (!isset($orderDayMap[$line->order_id])) continue;
+            $dayKey = $orderDayMap[$line->order_id];
+            $days[$dayKey]['items'] += $line->quantity;
+        }
+
+        // 3. Build month -> week -> day skeleton for full range
+        $result = [];
+        $cursor = $start->copy()->startOfDay();
+
+        while ($cursor->lte($end)) {
+            $monthKey = $cursor->format('Y-m');           // e.g. 2026-01
+            $monthLbl = $cursor->format('M');             // Jan
+
+            // init month
+            if (!isset($result[$monthKey])) {
+                $result[$monthKey] = [
+                    'label'   => $monthLbl,
+                    'orders'  => 0,
+                    'revenue' => 0,
+                    'gst'     => 0,
+                    'items'   => 0,
+                    'weeks'   => [],
+                ];
+            }
+
+            // week no = ceil(day / 7) -> 1..5
+            $weekNo   = (int) ceil($cursor->day / 7);
+            $weekKey  = 'Week ' . $weekNo;
+
+            if (!isset($result[$monthKey]['weeks'][$weekKey])) {
+                $result[$monthKey]['weeks'][$weekKey] = [
+                    'label'   => $weekKey,
+                    'orders'  => 0,
+                    'revenue' => 0,
+                    'gst'     => 0,
+                    'items'   => 0,
+                    'days'    => [],
+                ];
+            }
+
+            // day entry
+            $dayKey = $cursor->format('Y-m-d');
+            $d      = $days[$dayKey] ?? ['orders' => 0, 'revenue' => 0, 'gst' => 0, 'items' => 0];
+
+            $result[$monthKey]['weeks'][$weekKey]['days'][$dayKey] = [
+                'label'        => $cursor->format('D'),        // Mon, Tue...
+                'date'         => $dayKey,                      // 2026-10-06
+                'display_date' => $cursor->format('d M Y'),     // 06 Oct 2026
+                'orders'       => $d['orders'],
+                'revenue'      => round($d['revenue'], 2),
+                'gst'          => round($d['gst'], 2),
+                'items'        => $d['items'],
+            ];
+
+            // roll-up into week + month
+            $result[$monthKey]['weeks'][$weekKey]['orders']  += $d['orders'];
+            $result[$monthKey]['weeks'][$weekKey]['revenue'] += $d['revenue'];
+            $result[$monthKey]['weeks'][$weekKey]['gst']     += $d['gst'];
+            $result[$monthKey]['weeks'][$weekKey]['items']   += $d['items'];
+
+            $result[$monthKey]['orders']  += $d['orders'];
+            $result[$monthKey]['revenue'] += $d['revenue'];
+            $result[$monthKey]['gst']     += $d['gst'];
+            $result[$monthKey]['items']   += $d['items'];
+
+            $cursor->addDay();
+        }
+
+        // 4. Normalize: sort, round, unwrap associative keys -> arrays
+        $months = [];
+        foreach ($result as $m) {
+            $weeks = [];
+            foreach ($m['weeks'] as $w) {
+                // days already inserted in chronological order
+                $w['days']    = array_values($w['days']);
+                $w['revenue'] = round($w['revenue'], 2);
+                $w['gst']     = round($w['gst'], 2);
+                $weeks[]      = $w;
+            }
+            // sort weeks numerically
+            usort($weeks, function ($a, $b) {
+                return (int) filter_var($a['label'], FILTER_SANITIZE_NUMBER_INT)
+                    <=> (int) filter_var($b['label'], FILTER_SANITIZE_NUMBER_INT);
+            });
+
+            $m['weeks']   = $weeks;
+            $m['revenue'] = round($m['revenue'], 2);
+            $m['gst']     = round($m['gst'], 2);
+            $months[]     = $m;
+        }
+
+        return $months;
+    }
+
+    /**
+     * Helper: bucket key for flat chart
+     */
     private function bucketKey(Carbon $date, string $groupBy, string $labelFormat): string
     {
         switch ($groupBy) {
@@ -10624,6 +10846,9 @@ class ProductController extends Controller
         }
     }
 
+    /**
+     * Helper: sort key for flat chart
+     */
     private function bucketSortKey(Carbon $date, string $groupBy): string
     {
         switch ($groupBy) {
@@ -10638,6 +10863,9 @@ class ProductController extends Controller
         }
     }
 
+    /**
+     * Helper: fill empty buckets for flat chart
+     */
     private function fillEmptyBuckets(array $buckets, Carbon $start, Carbon $end, string $groupBy, string $labelFormat): array
     {
         if ($groupBy === 'date') {
@@ -10646,28 +10874,28 @@ class ProductController extends Controller
                 $key = $cursor->format('D');
                 if (!isset($buckets[$key])) {
                     $buckets[$key] = [
-                        'label' => $key,
-                        'orders' => 0,
-                        'revenue' => 0,
-                        'gst' => 0,
-                        'items' => 0,
+                        'label'    => $key,
+                        'orders'   => 0,
+                        'revenue'  => 0,
+                        'gst'      => 0,
+                        'items'    => 0,
                         'sort_key' => $cursor->format('Y-m-d'),
                     ];
                 }
                 $cursor->addDay();
             }
         } elseif ($groupBy === 'week') {
-            $temp = $start->copy()->startOfMonth();
+            $temp   = $start->copy()->startOfMonth();
             $weekNo = 1;
             while ($temp->lte($end)) {
                 $key = 'Week ' . $weekNo;
                 if (!isset($buckets[$key])) {
                     $buckets[$key] = [
-                        'label' => $key,
-                        'orders' => 0,
-                        'revenue' => 0,
-                        'gst' => 0,
-                        'items' => 0,
+                        'label'    => $key,
+                        'orders'   => 0,
+                        'revenue'  => 0,
+                        'gst'      => 0,
+                        'items'    => 0,
                         'sort_key' => $temp->format('Y-m') . '-' . str_pad($weekNo, 2, '0', STR_PAD_LEFT),
                     ];
                 }
@@ -10680,11 +10908,11 @@ class ProductController extends Controller
                 $key = $temp->format($labelFormat);
                 if (!isset($buckets[$key])) {
                     $buckets[$key] = [
-                        'label' => $key,
-                        'orders' => 0,
-                        'revenue' => 0,
-                        'gst' => 0,
-                        'items' => 0,
+                        'label'    => $key,
+                        'orders'   => 0,
+                        'revenue'  => 0,
+                        'gst'      => 0,
+                        'items'    => 0,
                         'sort_key' => $temp->format('Y-m'),
                     ];
                 }
@@ -10694,6 +10922,14 @@ class ProductController extends Controller
 
         return $buckets;
     }
+
+    // ------------------------------------------------------------------
+    // Existing helper methods (unchanged) — just ensure they exist
+    // ------------------------------------------------------------------
+
+
+
+
 
     // private function getTopProducts(Carbon $start, Carbon $end, int $limit = 10): array
     // {
