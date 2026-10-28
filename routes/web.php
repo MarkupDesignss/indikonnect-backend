@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\API\CorrectionLinkController;
+use App\Http\Controllers\API\PhoneChangeController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
 use App\Sdks\Partner\IgniteClient;
@@ -44,3 +45,6 @@ Route::get('/test-axispg-signature', function () {
     $service = new \App\Services\PaymentGateway\AxisPgService(config('services.axispg'));
     return response()->json(['signature' => $service->testSignature()]);
 });
+
+Route::get('/phone-update/{token}',  [PhoneChangeController::class, 'showForm']);
+Route::post('/phone-update/{token}', [PhoneChangeController::class, 'updatePhone']);

@@ -14,6 +14,7 @@ class CorrectionRequest extends Model
         'date_of_birth',
         'status',
         'token',
+        'phone',
         'token_expires_at',
         'token_used_at',
     ];
