@@ -45,21 +45,30 @@ class CartController extends Controller
     protected function getCart(Request $request)
     {
         $user = auth('sanctum')->user();
-        // If no user is authenticated, we cannot proceed
+
         if (!$user) {
             abort(response()->json([
                 'message' => 'Unauthenticated. Please login to use the cart.'
             ], 401));
         }
 
-        $cart = Cart::with(['items.product.images', 'items.variant.images'])
+        $relations = [
+            'items.product.primaryImage',
+            'items.product.images',
+            'items.product.category:id,title,slug',
+            'items.product.subcategory:id,category_id,name,slug',
+            'items.product.brand:id,category_id,title',   // <- slug hata diya
+            'items.product.taxCategory',
+            'items.variant.images',
+        ];
+
+        $cart = Cart::with($relations)
             ->where('user_id', $user->id)
             ->first();
 
         if (!$cart) {
-            $cart = Cart::create([
-                'user_id' => $user->id,
-            ]);
+            $cart = Cart::create(['user_id' => $user->id]);
+            $cart->load($relations);
         }
 
         return $cart;
@@ -367,60 +376,191 @@ class CartController extends Controller
     {
         $isDistributor = $user && $user->account_type === 'distributor';
 
-        $items = $cart->items->map(function ($item) use ($isDistributor, $user) {
+        $items = $cart->items->map(function ($item) use ($isDistributor) {
             $product = $item->product;
             $variant = $item->variant;
-            $currentPrice = 0;
-            $variantAttributes = null;
-            $imageUrl = null;
 
+            $currentPrice          = 0;
+            $variantAttributes     = null;
+            $imageUrl              = null;
+            $mrp                   = null;
+            $discountType          = null;
+            $discountValue         = null;
+            $discountAmountPerUnit = 0;
+
+            // ---------------- variant path ----------------
             if ($variant) {
                 $currentPrice = $isDistributor
                     ? ($variant->distributor_price ?? $variant->retail_price)
                     : $variant->retail_price;
+
+                $mrp = $isDistributor
+                    ? ($variant->distributor_mrp ?? $variant->retail_mrp ?? null)
+                    : ($variant->retail_mrp ?? null);
+
+                $discountType  = $isDistributor
+                    ? ($variant->distributor_discount_type ?? null)
+                    : ($variant->retail_discount_type ?? null);
+
+                $discountValue = $isDistributor
+                    ? ($variant->distributor_discount_value ?? null)
+                    : ($variant->retail_discount_value ?? null);
+
                 $variantAttributes = $variant->attributes;
 
                 $variantImage = $variant->images->where('is_primary', true)->first()
                     ?? $variant->images->first();
                 $imageUrl = $variantImage ? asset('storage/' . $variantImage->image) : null;
-            } elseif ($product) {
+            }
+            // ---------------- product fallback ----------------
+            elseif ($product) {
                 $currentPrice = $isDistributor
                     ? ($product->distributor_price ?? $product->retail_price)
                     : $product->retail_price;
 
-                $imageUrl = $product->primaryImage ?
-                    asset('storage/' . $product->primaryImage->image) : null;
+                $mrp = $isDistributor
+                    ? ($product->distributor_mrp ?? $product->retail_mrp ?? null)
+                    : ($product->retail_mrp ?? null);
+
+                $discountType  = $isDistributor
+                    ? ($product->distributor_discount_type ?? null)
+                    : ($product->retail_discount_type ?? null);
+
+                $discountValue = $isDistributor
+                    ? ($product->distributor_discount_value ?? null)
+                    : ($product->retail_discount_value ?? null);
+
+                $imageUrl = $product->primaryImage
+                    ? asset('storage/' . $product->primaryImage->image)
+                    : null;
+            }
+
+            if ($mrp !== null && $mrp > $currentPrice) {
+                $discountAmountPerUnit = $mrp - $currentPrice;
             }
 
             $subtotal = $currentPrice * $item->quantity;
+
+            // Availability = physical stock - reserved (never negative)
+            $availableStock = null;
+            if ($product && $product->stock_quantity !== null) {
+                $availableStock = max(0, (int) $product->stock_quantity - (int) $product->reserved_inventory);
+            }
 
             return [
                 'id' => $item->id,
                 'product_id' => $item->product_id,
                 'variant_id' => $item->variant_id,
+
                 'product' => $product ? [
                     'id' => $product->id,
                     'name' => $product->name,
                     'slug' => $product->slug,
                     'product_code' => $product->product_code,
+                    'hsn_code' => $product->hsn_code,
+                    'uom' => $product->uom,
+
                     'retail_price' => $product->retail_price,
+                    'retail_mrp' => $product->retail_mrp,
+                    'retail_discount_type' => $product->retail_discount_type,
+                    'retail_discount_value' => $product->retail_discount_value,
+
                     'distributor_price' => $product->distributor_price,
+                    'distributor_mrp' => $product->distributor_mrp,
+                    'distributor_discount_type' => $product->distributor_discount_type,
+                    'distributor_discount_value' => $product->distributor_discount_value,
+
+                    'stock_quantity' => $product->stock_quantity,
+                    'reserved_inventory' => $product->reserved_inventory,
+                    'available_stock' => $availableStock,
+                    'low_stock_threshold' => $product->low_stock_threshold,
+                    'is_in_stock' => $availableStock !== null ? $availableStock > 0 : null,
+                    'is_low_stock' => ($availableStock !== null && $product->low_stock_threshold !== null)
+                        ? ($availableStock > 0 && $availableStock <= (int) $product->low_stock_threshold)
+                        : false,
+
+                    'category' => $product->relationLoaded('category') && $product->category ? [
+                        'id' => $product->category->id,
+                        'title' => $product->category->title,
+                        'slug' => $product->category->slug,
+                    ] : null,
+
+                    'subcategory' => $product->relationLoaded('subcategory') && $product->subcategory ? [
+                        'id' => $product->subcategory->id,
+                        'name' => $product->subcategory->name,
+                        'slug' => $product->subcategory->slug,
+                    ] : null,
+
+                    'brand' => $product->relationLoaded('brand') && $product->brand ? [
+                        'id' => $product->brand->id,
+                        'title' => $product->brand->title,
+                        'category_id' => $product->brand->category_id,
+
+                    ] : null,
+
+                    'tax_category_id' => $product->tax_category_id,
+                    'tax_category' => ($product->relationLoaded('taxCategory') && $product->taxCategory) ? [
+                        'id' => $product->taxCategory->id,
+                        'name' => $product->taxCategory->name ?? null,
+                        'rate' => $product->taxCategory->rate ?? null,
+                    ] : null,
+
+                    'is_published' => (bool) $product->is_published,
+                    'sale_type' => $product->sale_type,
+                    'is_trending' => (bool) $product->is_trending,
+                    'is_best_seller' => (bool) $product->is_best_seller,
+                    'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+                    'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toIso8601String(),
+                    'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toIso8601String(),
+                    'is_deal_active_now' => (bool) (
+                        $product->is_deal_of_the_day
+                        && (!$product->deal_of_the_day_starts_at || $product->deal_of_the_day_starts_at->isPast())
+                        && (!$product->deal_of_the_day_ends_at || $product->deal_of_the_day_ends_at->isFuture())
+                    ),
+
+                    'shipping_charge' => $product->shipping_charge,
+                    'commission_value' => $product->commission_value,
+                    'parent_combo_id' => $product->parent_combo_id,
+                    'ignite_product_id' => $product->ignite_product_id,
                 ] : null,
+
                 'variant' => $variant ? [
                     'id' => $variant->id,
                     'sku' => $variant->sku,
                     'attributes' => $variant->attributes,
                     'attribute_string' => $this->getAttributeString($variant->attributes),
                     'retail_price' => $variant->retail_price,
+                    'retail_mrp' => $variant->retail_mrp ?? null,
+                    'retail_discount_type' => $variant->retail_discount_type ?? null,
+                    'retail_discount_value' => $variant->retail_discount_value ?? null,
                     'distributor_price' => $variant->distributor_price,
-                    'stock_quantity' => $variant->stock_quantity,
+                    'distributor_mrp' => $variant->distributor_mrp ?? null,
+                    'distributor_discount_type' => $variant->distributor_discount_type ?? null,
+                    'distributor_discount_value' => $variant->distributor_discount_value ?? null,
+                    'stock_quantity' => $variant->stock_quantity ?? null,
                 ] : null,
+
                 'variant_attributes' => $variantAttributes,
                 'quantity' => $item->quantity,
+
                 'current_unit_price' => $currentPrice,
                 'current_unit_price_formatted' => number_format($currentPrice, 2),
+
+                'mrp' => $mrp,
+                'mrp_formatted' => $mrp !== null ? number_format($mrp, 2) : null,
+                'discount_type' => $discountType,
+                'discount_value' => $discountValue,
+                'discount_amount_per_unit' => $discountAmountPerUnit,
+                'discount_amount_per_unit_formatted' => number_format($discountAmountPerUnit, 2),
+                'discount_total' => $discountAmountPerUnit * $item->quantity,
+                'discount_total_formatted' => number_format($discountAmountPerUnit * $item->quantity, 2),
+                'discount_percentage' => ($mrp !== null && $mrp > 0 && $discountAmountPerUnit > 0)
+                    ? round(($discountAmountPerUnit / $mrp) * 100, 2)
+                    : 0,
+
                 'subtotal' => $subtotal,
                 'subtotal_formatted' => number_format($subtotal, 2),
+
                 'image_url' => $imageUrl ?? null,
                 'current_price_type' => $isDistributor ? 'distributor' : 'retail',
             ];
@@ -428,12 +568,18 @@ class CartController extends Controller
 
         $total = collect($items)->sum('subtotal');
         $totalItems = collect($items)->sum('quantity');
+        $totalMrp = collect($items)->sum(fn($i) => ($i['mrp'] ?? 0) * $i['quantity']);
+        $totalDiscount = collect($items)->sum(fn($i) => $i['discount_total'] ?? 0);
 
         return [
             'id' => $cart->id,
             'items' => $items,
             'total' => $total,
             'total_formatted' => number_format($total, 2),
+            'total_mrp' => $totalMrp,
+            'total_mrp_formatted' => number_format($totalMrp, 2),
+            'total_discount' => $totalDiscount,
+            'total_discount_formatted' => number_format($totalDiscount, 2),
             'total_items' => $totalItems,
             'price_type' => $isDistributor ? 'distributor' : 'retail',
             'price_calculation' => 'dynamic',
