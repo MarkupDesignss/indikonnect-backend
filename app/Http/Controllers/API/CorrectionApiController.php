@@ -63,6 +63,7 @@ class CorrectionApiController extends Controller
                 'reason'        => $data['reason'],
                 'full_name'     => null,
                 'date_of_birth' => null,
+                'type'  => 'name_dob_request',
                 'status'        => 'pending',
             ]);
 

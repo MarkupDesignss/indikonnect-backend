@@ -35,6 +35,7 @@ class CorrectionRequestController extends Controller
             'user_id' => $request->user()->id,
             'email'   => $request->user()->email,
             'reason'  => $data['reason'],
+            'type'  => 'phone_request',
             'status'  => 'pending',
         ]);
 
