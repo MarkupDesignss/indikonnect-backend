@@ -116,7 +116,19 @@ return [
         'base_url'    => env('KYC_BASE_URL', 'https://test-api.sandbox.co.in'),
         'api_key'     => env('KYC_API_KEY'),
         'api_secret'  => env('KYC_API_SECRET'),
+        'api_version' => env('KYC_API_VERSION', '1.0.0'),
         'environment' => env('KYC_ENV', 'sandbox'),
+    ],
+
+    // Company details for GSTIN and invoice generation
+    'company' => [
+        'gstin'          => env('COMPANY_GSTIN'),
+        'name'           => env('COMPANY_NAME'),
+        'address_line_1' => env('COMPANY_ADDRESS_LINE_1'),
+        'address_line_2' => env('COMPANY_ADDRESS_LINE_2'),
+        'city'           => env('COMPANY_CITY'),
+        'pincode'        => env('COMPANY_PINCODE'),
+        'state_code'     => env('COMPANY_STATE_CODE'),
     ],
 
     'airtel_sms' => [
