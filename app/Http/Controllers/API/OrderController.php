@@ -1893,9 +1893,9 @@ class OrderController extends Controller
                         throw new Exception("Invoice missing for order line {$line->id}, cannot generate E-Way Bill.");
                     }
 
-                    if ((float) $invoice->total_value <= 50000) {
-                        continue; // Skip if below threshold
-                    }
+                    // if ((float) $invoice->total_value <= 50000) {
+                    //     continue; // Skip if below threshold
+                    // }
 
                     $result = $ewayBillService->generatePartA($invoice, $transporterId);
 
