@@ -127,6 +127,11 @@
             background: #1d4ed8;
         }
 
+        button:disabled {
+            background: #93c5fd;
+            cursor: not-allowed;
+        }
+
         .card-footer {
             background: #f9fafb;
             padding: 14px 24px;
@@ -138,6 +143,12 @@
         .card-footer a {
             color: #2563eb;
             text-decoration: none;
+        }
+
+        .hint {
+            font-size: 13px;
+            color: #6b7280;
+            margin-top: 8px;
         }
     </style>
 </head>
@@ -162,7 +173,26 @@
                 <div class="error">{{ $errors->first() }}</div>
             @endif
 
-            <form method="POST" action="{{ url("/phone-update/{$token}") }}" id="phoneUpdateForm">
+            @php
+                // Restore previous input (if any) into country code + number
+                $oldPhone = old('phone', '');
+                $oldCode = '+91';
+                $oldNumber = '';
+
+                if ($oldPhone) {
+                    // Longest matching country code wins
+                    $codes = ['+971', '+966', '+91', '+44', '+61', '+49', '+33', '+81', '+65', '+1'];
+                    foreach ($codes as $code) {
+                        if (str_starts_with($oldPhone, $code)) {
+                            $oldCode = $code;
+                            $oldNumber = substr($oldPhone, strlen($code));
+                            break;
+                        }
+                    }
+                }
+            @endphp
+
+            <form method="POST" action="{{ route('phone.send-otp', ['token' => $token]) }}" id="phoneUpdateForm">
 
                 @csrf
 
@@ -171,27 +201,29 @@
                 <div class="phone-group">
 
                     <select id="country_code" required>
-                        <option value="+91" selected>India (+91)</option>
-                        <option value="+1">USA/Canada (+1)</option>
-                        <option value="+44">UK (+44)</option>
-                        <option value="+61">Australia (+61)</option>
-                        <option value="+971">UAE (+971)</option>
-                        <option value="+966">Saudi Arabia (+966)</option>
-                        <option value="+49">Germany (+49)</option>
-                        <option value="+33">France (+33)</option>
-                        <option value="+81">Japan (+81)</option>
-                        <option value="+65">Singapore (+65)</option>
+                        <option value="+91" @selected($oldCode === '+91')>India (+91)</option>
+                        <option value="+1" @selected($oldCode === '+1')>USA/Canada (+1)</option>
+                        <option value="+44" @selected($oldCode === '+44')>UK (+44)</option>
+                        <option value="+61" @selected($oldCode === '+61')>Australia (+61)</option>
+                        <option value="+971" @selected($oldCode === '+971')>UAE (+971)</option>
+                        <option value="+966" @selected($oldCode === '+966')>Saudi Arabia (+966)</option>
+                        <option value="+49" @selected($oldCode === '+49')>Germany (+49)</option>
+                        <option value="+33" @selected($oldCode === '+33')>France (+33)</option>
+                        <option value="+81" @selected($oldCode === '+81')>Japan (+81)</option>
+                        <option value="+65" @selected($oldCode === '+65')>Singapore (+65)</option>
                     </select>
 
-                    <input type="tel" id="phone_number" placeholder="Enter phone number" value="{{ old('phone') }}"
+                    <input type="tel" id="phone_number" placeholder="Enter phone number" value="{{ $oldNumber }}"
                         required autocomplete="tel-national">
 
                 </div>
 
                 {{-- Combined country code + phone number --}}
-                <input type="hidden" name="phone" id="phone">
+                <input type="hidden" name="phone" id="phone" value="{{ $oldPhone }}">
 
-                <button type="submit">Update</button>
+                <button type="submit" id="submitBtn">Send OTP</button>
+
+                <p class="hint">We'll send a 6-digit verification code to this number via SMS.</p>
 
             </form>
 
@@ -208,23 +240,35 @@
     </div>
 
     <script>
-        document.getElementById('phoneUpdateForm').addEventListener('submit', function(e) {
-            const countryCode = document.getElementById('country_code').value;
-            const phoneNumber = document.getElementById('phone_number').value
-                .replace(/[\s()-]/g, '');
+        const form = document.getElementById('phoneUpdateForm');
+        const ccSelect = document.getElementById('country_code');
+        const numInput = document.getElementById('phone_number');
+        const hidden = document.getElementById('phone');
+        const submitBtn = document.getElementById('submitBtn');
 
-            if (!/^\d+$/.test(phoneNumber)) {
+        form.addEventListener('submit', function(e) {
+            // Strip spaces, dashes, parentheses
+            let raw = numInput.value.replace(/[\s()-]/g, '');
+
+            // Drop a single leading + if present
+            raw = raw.replace(/^\+/, '');
+
+            // Drop leading 0(s) — e.g. Indian users often type 09876543210
+            raw = raw.replace(/^0+/, '');
+
+            if (!/^\d{6,14}$/.test(raw)) {
                 e.preventDefault();
-                alert('Please enter a valid phone number using digits only.');
+                alert('Please enter a valid phone number (digits only, 6–14 digits).');
+                numInput.focus();
                 return;
             }
 
-            // Remove an optional leading + from the entered phone number.
-            const cleanPhone = phoneNumber.replace(/^\+/, '');
+            const countryCode = ccSelect.value;
+            hidden.value = countryCode + raw;
 
-            // Combine country code and phone number into a single field.
-            document.getElementById('phone').value =
-                countryCode + cleanPhone;
+            // Prevent double-submits while the request is in flight
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Sending OTP…';
         });
     </script>
 

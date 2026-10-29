@@ -46,5 +46,8 @@ Route::get('/test-axispg-signature', function () {
     return response()->json(['signature' => $service->testSignature()]);
 });
 
-Route::get('/phone-update/{token}',  [PhoneChangeController::class, 'showForm']);
-Route::post('/phone-update/{token}', [PhoneChangeController::class, 'updatePhone']);
+// Route::get('/phone-update/{token}',  [PhoneChangeController::class, 'showForm']);
+// Route::post('/phone-update/{token}', [PhoneChangeController::class, 'updatePhone']);
+Route::get('/phone-update/{token}', [PhoneChangeController::class, 'showForm'])->name('phone.form');
+Route::post('/phone-update/{token}', [PhoneChangeController::class, 'sendOtp'])->name('phone.send-otp');
+Route::post('/phone-update/{token}/verify', [PhoneChangeController::class, 'verifyOtp'])->name('phone.verify-otp');
