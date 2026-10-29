@@ -10416,14 +10416,12 @@ class ProductController extends Controller
         // Default period = weekly (last 7 days)
         $period = $request->input('period', 'weekly');
 
-        // Validate only if provided
         if (!in_array($period, ['weekly', 'monthly', 'six_months', 'yearly'])) {
             $period = 'weekly';
         }
 
         [$startDate, $endDate, $groupBy, $labelFormat] = $this->resolvePeriod($period, $request);
 
-        // Nested chart (month -> week) for yearly / six_months, flat otherwise
         $chart = in_array($period, ['yearly', 'six_months'], true)
             ? $this->getChartDataNested($startDate, $endDate)
             : $this->getChartData($startDate, $endDate, $groupBy, $labelFormat);
@@ -10434,8 +10432,11 @@ class ProductController extends Controller
             'to_date'                => $endDate->toDateString(),
             'summary'                => $this->getSummary($startDate, $endDate),
             'chart'                  => $chart,
+
+            // NEW: Category wise Weekly matrix
+            'category_weekly_sales'  => $this->getCategoryWiseWeeklyReport($startDate, $endDate, $period),
+
             'top_products'           => $this->getTopProducts($startDate, $endDate),
-            // 'order_status_breakdown' => $this->getOrderStatusBreakdown($startDate, $endDate),
             'top_distributors'       => $this->getTopDistributors($startDate, $endDate),
             'payment_breakdown'      => $this->getPaymentBreakdown($startDate, $endDate),
             'return_refund_summary'  => $this->getReturnRefundSummary($startDate, $endDate),
@@ -10446,6 +10447,131 @@ class ProductController extends Controller
             'message' => 'Sales report fetched successfully',
             'data'    => $data,
         ]);
+    }
+
+    /**
+     * Image format: Category-wise weekly sales, returns & CV matrix
+     */
+    private function getCategoryWiseWeeklyReport(Carbon $start, Carbon $end, string $period): array
+    {
+        // 1. Define Week Labels & Boundaries based on period
+        $weekMap = [];
+        $cursor = $start->copy();
+
+        if ($period === 'weekly') {
+            // For weekly, columns = last 7 days (e.g., Mon, Tue, Wed...)
+            while ($cursor->lte($end)) {
+                $key = $cursor->format('Y-m-d');
+                $weekMap[$key] = $cursor->format('D (d M)');
+                $cursor->addDay();
+            }
+        } else {
+            // For monthly/yearly, columns = Week 38, Week 37... (using weekOfYear)
+            while ($cursor->lte($end)) {
+                $weekNo = $cursor->weekOfYear;
+                $key = $cursor->format('Y-') . $weekNo;
+                $weekMap[$key] = 'Week ' . $weekNo;
+                $cursor->addWeek()->startOfWeek();
+            }
+        }
+
+        // Ensure chronological sorting (Descending as per image: 38, 37, 36...)
+        $weekMap = array_reverse($weekMap, true);
+
+        // 2. Fetch Categories (USING 'title' instead of 'name')
+        $categories = \DB::table('categories')->select('id', 'title')->get();
+
+        // 3. Init Matrix Data structure
+        $matrix = [
+            'sales' => [],
+            'returns' => [],
+            'cv' => [],
+            'total_sales' => array_fill_keys(array_keys($weekMap), 0),
+            'total_returns' => array_fill_keys(array_keys($weekMap), 0),
+            'total_cv' => array_fill_keys(array_keys($weekMap), 0),
+            'net_sales' => array_fill_keys(array_keys($weekMap), 0),
+        ];
+
+        foreach ($categories as $cat) {
+            $matrix['sales'][$cat->id] = [
+                'category_title' => $cat->title, // CHANGED to title
+                'weeks' => array_fill_keys(array_keys($weekMap), 0)
+            ];
+            $matrix['returns'][$cat->id] = [
+                'category_title' => $cat->title, // CHANGED to title
+                'weeks' => array_fill_keys(array_keys($weekMap), 0)
+            ];
+            $matrix['cv'][$cat->id] = [
+                'category_title' => $cat->title, // CHANGED to title
+                'weeks' => array_fill_keys(array_keys($weekMap), 0)
+            ];
+        }
+
+        // 4. Fetch Sales & Returns Data from order_lines
+        $reportData = \DB::table('order_lines')
+            ->join('orders', 'order_lines.order_id', '=', 'orders.id')
+            ->join('products', 'order_lines.product_id', '=', 'products.id')
+            ->whereBetween('order_lines.created_at', [$start, $end])
+            ->whereNull('orders.deleted_at')
+            ->whereNotIn('orders.status', ['cancelled', 'failed'])
+            ->select(
+                'order_lines.created_at',
+                'products.category_id',
+                \DB::raw('SUM(order_lines.line_total) as total_sales'),
+                \DB::raw('SUM(order_lines.commissionable_volume) as total_cv'),
+                // Return value calculation: returned_qty * unit_price
+                \DB::raw('SUM(order_lines.returned_quantity * order_lines.unit_price) as total_returns')
+            )
+            ->groupBy('order_lines.created_at', 'products.category_id')
+            ->get();
+
+        // 5. Populate Matrix
+        foreach ($reportData as $row) {
+            $date = Carbon::parse($row->created_at);
+
+            // Determine Column Key based on period
+            $colKey = ($period === 'weekly')
+                ? $date->format('Y-m-d')
+                : $date->format('Y-') . $date->weekOfYear;
+
+            if (isset($weekMap[$colKey]) && isset($matrix['sales'][$row->category_id])) {
+
+                // Sales
+                $sales = round($row->total_sales, 2);
+                $matrix['sales'][$row->category_id]['weeks'][$colKey] += $sales;
+                $matrix['total_sales'][$colKey] += $sales;
+
+                // Returns (kept negative as per image)
+                $returns = round($row->total_returns, 2);
+                $matrix['returns'][$row->category_id]['weeks'][$colKey] -= $returns;
+                $matrix['total_returns'][$colKey] -= $returns;
+
+                // CV
+                $cv = round($row->total_cv, 2);
+                $matrix['cv'][$row->category_id]['weeks'][$colKey] += $cv;
+                $matrix['total_cv'][$colKey] += $cv;
+            }
+        }
+
+        // 6. Calculate Net Sales (Sales - Returns)
+        foreach ($weekMap as $key => $label) {
+            // Since returns are already negative, we can just add them
+            $matrix['net_sales'][$key] = round($matrix['total_sales'][$key] + $matrix['total_returns'][$key], 2);
+        }
+
+        // 7. Format Response for Frontend Table
+        return [
+            // 'columns' => $weekMap,
+            'sales_by_category' => array_values($matrix['sales']),
+            'returns_by_category' => array_values($matrix['returns']),
+            'cv_by_category' => array_values($matrix['cv']),
+            // 'totals' => [
+            //     'total_sales' => $matrix['total_sales'],
+            //     'total_returns' => $matrix['total_returns'],
+            //     'total_cv' => $matrix['total_cv'],
+            //     'net_sales' => $matrix['net_sales'],
+            // ]
+        ];
     }
 
     /**
