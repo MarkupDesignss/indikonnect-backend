@@ -97,64 +97,17 @@ class HdfcWebhookController extends Controller
             ->header('Referrer-Policy', 'no-referrer');
     }
 
-    public function return(Request $request): \Illuminate\Http\RedirectResponse
-    {
-        $user = $request->user();
-        $isDistributor = $user && ($user->account_type ?? null) === 'distributor';
-
-        // Distributor -> config se; Customer -> fixed local checkout URL
-        if ($isDistributor) {
-            $base = rtrim((string) config('services.hdfc.distributor_frontend_url'), '/') . '/checkout/';
-        } else {
-            $base = 'http://localhost:3000/indiekonnect-web/checkout/';
-        }
-
-        // Attempt resolve karo (agar order_id/order_reference aaya hai to)
-        $attempt = $this->attemptFromRequest($request);
-
-        // Gateway se authoritative status lo (browser return ko truth mat maano)
-        $paymentStatus = 'pending';
-        if ($attempt) {
-            try {
-                $paymentStatus = $this->manager->reconcile($attempt)['payment_status'];
-            } catch (\Throwable $e) {
-                Log::warning('HDFC return status unverified', [
-                    'attempt_id' => $attempt->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        // Frontend ke liye clear instructions
-        $query = http_build_query([
-            'session'          => 'true',
-            'gateway'          => 'hdfc',
-            'payment_status'   => $paymentStatus,
-            'cancelled'        => $paymentStatus === 'pending' ? 'true' : 'false',
-            'show_repay'       => in_array($paymentStatus, ['pending', 'failed', 'cancelled'], true) ? 'true' : 'false',
-            'order_reference'  => $attempt?->order?->order_reference ?? '',
-            'attempt_id'       => $attempt?->id ?? '',
-            'reason'           => $request->input('status')
-                ?: $request->input('order.status')
-                ?: 'return',
-        ]);
-
-        $url = $base . '?' . $query;
-
-        return redirect()
-            ->away($url, 303)
-            ->header('Cache-Control', 'no-store')
-            ->header('Referrer-Policy', 'no-referrer');
-    }
-
-    //  public function return(Request $request): \Illuminate\Http\RedirectResponse
+    // public function return(Request $request): \Illuminate\Http\RedirectResponse
     // {
     //     $user = $request->user();
     //     $isDistributor = $user && ($user->account_type ?? null) === 'distributor';
 
-    //     $base = $isDistributor
-    //         ? (string) config('services.hdfc.distributor_frontend_url')
-    //         : (string) config('services.hdfc.customer_frontend_url');
+    //     // Distributor -> config se; Customer -> fixed local checkout URL
+    //     if ($isDistributor) {
+    //         $base = rtrim((string) config('services.hdfc.distributor_frontend_url'), '/') . '/checkout/';
+    //     } else {
+    //         $base = 'http://localhost:3000/indiekonnect-web/checkout/';
+    //     }
 
     //     // Attempt resolve karo (agar order_id/order_reference aaya hai to)
     //     $attempt = $this->attemptFromRequest($request);
@@ -186,11 +139,58 @@ class HdfcWebhookController extends Controller
     //             ?: 'return',
     //     ]);
 
-    //     $url = rtrim($base, '/') . '/checkout/?' . $query;
+    //     $url = $base . '?' . $query;
 
     //     return redirect()
     //         ->away($url, 303)
     //         ->header('Cache-Control', 'no-store')
     //         ->header('Referrer-Policy', 'no-referrer');
     // }
+
+    public function return(Request $request): \Illuminate\Http\RedirectResponse
+    {
+        $user = $request->user();
+        $isDistributor = $user && ($user->account_type ?? null) === 'distributor';
+
+        $base = $isDistributor
+            ? (string) config('services.hdfc.distributor_frontend_url')
+            : (string) config('services.hdfc.customer_frontend_url');
+
+        // Attempt resolve karo (agar order_id/order_reference aaya hai to)
+        $attempt = $this->attemptFromRequest($request);
+
+        // Gateway se authoritative status lo (browser return ko truth mat maano)
+        $paymentStatus = 'pending';
+        if ($attempt) {
+            try {
+                $paymentStatus = $this->manager->reconcile($attempt)['payment_status'];
+            } catch (\Throwable $e) {
+                Log::warning('HDFC return status unverified', [
+                    'attempt_id' => $attempt->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // Frontend ke liye clear instructions
+        $query = http_build_query([
+            'session'          => 'true',
+            'gateway'          => 'hdfc',
+            'payment_status'   => $paymentStatus,
+            'cancelled'        => $paymentStatus === 'pending' ? 'true' : 'false',
+            'show_repay'       => in_array($paymentStatus, ['pending', 'failed', 'cancelled'], true) ? 'true' : 'false',
+            'order_reference'  => $attempt?->order?->order_reference ?? '',
+            'attempt_id'       => $attempt?->id ?? '',
+            'reason'           => $request->input('status')
+                ?: $request->input('order.status')
+                ?: 'return',
+        ]);
+
+        $url = rtrim($base, '/') . '/checkout/?' . $query;
+
+        return redirect()
+            ->away($url, 303)
+            ->header('Cache-Control', 'no-store')
+            ->header('Referrer-Policy', 'no-referrer');
+    }
 }
