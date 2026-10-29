@@ -160,4 +160,8 @@ return [
         'node_suffix_003'   => env('IGNITE_NODE_SUFFIX_003', '-003'),
     ],
 
+    'india_post' => [
+        'transporter_id' => env('INDIA_POST_TRANSFORMER_ID'),
+    ],
+
 ];
