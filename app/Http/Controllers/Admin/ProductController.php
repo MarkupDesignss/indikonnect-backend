@@ -10565,12 +10565,12 @@ class ProductController extends Controller
             'sales_by_category' => array_values($matrix['sales']),
             'returns_by_category' => array_values($matrix['returns']),
             'cv_by_category' => array_values($matrix['cv']),
-            // 'totals' => [
-            //     'total_sales' => $matrix['total_sales'],
-            //     'total_returns' => $matrix['total_returns'],
-            //     'total_cv' => $matrix['total_cv'],
-            //     'net_sales' => $matrix['net_sales'],
-            // ]
+            'totals' => [
+                'total_sales' => $matrix['total_sales'],
+                'total_returns' => $matrix['total_returns'],
+                'total_cv' => $matrix['total_cv'],
+                'net_sales' => $matrix['net_sales'],
+            ]
         ];
     }
 
