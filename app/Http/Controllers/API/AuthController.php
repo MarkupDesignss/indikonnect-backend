@@ -4635,6 +4635,7 @@ class AuthController extends Controller
     /**
      * Get user profile
      */
+
     // public function profile()
     // {
     //     try {
@@ -4659,10 +4660,17 @@ class AuthController extends Controller
     //             $user->profile_picture = asset('storage/profile_pictures/' . basename($user->profile_picture));
     //         }
 
+    //         // Extra distributor link (only for distributor account type)
+    //         $extra = [];
+    //         if ($user->account_type === 'distributor') {
+    //             $extra['distributor_link'] = 'https://www.markupdesigns.net/indikonnect/distributor/' . $user->distributor_id;
+    //         }
+
     //         return response()->json([
     //             'status' => true,
     //             'message' => 'Profile fetched successfully',
     //             'user' => $user,
+    //             'extra' => $extra,
     //         ]);
     //     } catch (\Exception $e) {
     //         return response()->json([
@@ -4671,6 +4679,7 @@ class AuthController extends Controller
     //         ], 500);
     //     }
     // }
+
     public function profile()
     {
         try {
@@ -4680,25 +4689,34 @@ class AuthController extends Controller
                 return response()->json([
                     'status' => false,
                     'message' => 'Unauthorized'
-                ], 422);
+                ], 401);
             }
 
-            $user->load('roles');
+            // Load user relationships
+            $user->load([
+                'roles',
+                'correctionRequests'
+            ]);
 
-            // Load business profile if distributor
+            // Load distributor profile if distributor
             if ($user->account_type === 'distributor') {
                 $user->load('distributorProfile');
             }
 
             // Profile picture full URL
             if (!empty($user->profile_picture)) {
-                $user->profile_picture = asset('storage/profile_pictures/' . basename($user->profile_picture));
+                $user->profile_picture = asset(
+                    'storage/profile_pictures/' . basename($user->profile_picture)
+                );
             }
 
-            // Extra distributor link (only for distributor account type)
+            // Extra distributor link
             $extra = [];
+
             if ($user->account_type === 'distributor') {
-                $extra['distributor_link'] = 'https://www.markupdesigns.net/indikonnect/distributor/' . $user->distributor_id;
+                $extra['distributor_link'] =
+                    'https://www.markupdesigns.net/indikonnect/distributor/'
+                    . $user->distributor_id;
             }
 
             return response()->json([
@@ -4706,7 +4724,7 @@ class AuthController extends Controller
                 'message' => 'Profile fetched successfully',
                 'user' => $user,
                 'extra' => $extra,
-            ]);
+            ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,

@@ -15,6 +15,7 @@ class CorrectionRequest extends Model
         'status',
         'token',
         'phone',
+        'type',
         'token_expires_at',
         'token_used_at',
     ];

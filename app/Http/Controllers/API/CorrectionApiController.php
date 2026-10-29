@@ -56,7 +56,6 @@ class CorrectionApiController extends Controller
                     'message' => 'Unable to process your request at the moment.',
                 ], 500);
             }
-
             $req = CorrectionRequest::create([
                 'user_id'       => $user->id,
                 'email'         => $user->email,

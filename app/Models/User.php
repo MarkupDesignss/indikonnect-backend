@@ -147,6 +147,11 @@ class User extends Authenticatable
         return $this->hasMany(User::class, 'sponsor_id');
     }
 
+    public function correctionRequests()
+    {
+        return $this->hasMany(CorrectionRequest::class, 'user_id');
+    }
+
     // ============================================================
     // Scopes
     // ============================================================

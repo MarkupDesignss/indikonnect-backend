@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Mail\CorrectionLinkMail;
+use App\Mail\PhoneUpdateLinkMail;
 use App\Models\CorrectionRequest;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -29,13 +30,29 @@ class AdminCorrectionApiController extends Controller
             ], 422);
         }
 
+        $token = Str::random(64);
+
         $req->update([
             'status'           => 'approved',
-            'token'            => Str::random(64),
-            'token_expires_at' => now()->addHours(24),
+            'token'            => $token,
+            'token_expires_at' => now()->addMinutes(10),
+            'token_used_at'    => null,
         ]);
 
-        Mail::to($req->email)->send(new CorrectionLinkMail($req));
+        // Choose the correct mail based on request type
+        switch ($req->type) {
+            case 'phone_request':
+                Mail::to($req->email)->send(new PhoneUpdateLinkMail($req, $token));
+                break;
+
+            case 'name_dob_request':
+            default:
+                // Existing behaviour — pass the freshly generated token explicitly
+                // so CorrectionLinkMail doesn't rely on stale $req state.
+                $req->refresh();
+                Mail::to($req->email)->send(new CorrectionLinkMail($req, $token));
+                break;
+        }
 
         return response()->json([
             'status'  => true,
