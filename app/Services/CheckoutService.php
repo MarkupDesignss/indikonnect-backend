@@ -1830,7 +1830,7 @@ class CheckoutService
         if (isset($data['redemption_id'])) {
             $coinRedemption = CoinRedemption::where('id', $data['redemption_id'])
                 ->where('user_id', $userId)
-                ->where('status', 'authorized')
+                ->where('status', 'pending_payment')
                 ->first();
 
             if (!$coinRedemption) {
@@ -2105,7 +2105,6 @@ class CheckoutService
             if ($coinRedemption) {
                 $coinRedemption->update([
                     'order_id' => $order->id,
-                    'status'   => 'used',
                 ]);
             }
 
@@ -2253,283 +2252,7 @@ class CheckoutService
     /**
      * FR-CO-006: Confirm order via webhook
      */
-    // public function confirmOrder(string|array $orderReferences, array $gatewayData): array
-    // {
-    //     // Normalize input to array
-    //     if (is_string($orderReferences)) {
-    //         $orderReferences = array_filter(array_map('trim', explode(',', $orderReferences)));
-    //     }
-
-    //     if (empty($orderReferences)) {
-    //         throw new Exception('No order references provided for confirmation');
-    //     }
-
-    //     $orders = Order::whereIn('order_reference', $orderReferences)
-    //         ->with(['lines.product', 'lines.variant', 'user'])
-    //         ->get();
-
-    //     if ($orders->isEmpty()) {
-    //         throw new Exception('No orders found for the provided references');
-    //     }
-
-    //     // If ALL orders are already confirmed, return early
-    //     if ($orders->every(fn($o) => $o->status === 'confirmed')) {
-    //         return [
-    //             'success'          => true,
-    //             'message'          => 'Orders already confirmed',
-    //             'order_references' => $orders->pluck('order_reference')->toArray(),
-    //         ];
-    //     }
-
-    //     return DB::transaction(function () use ($orders, $gatewayData) {
-    //         $confirmedOrders   = [];
-    //         $allLowStockAlerts = [];
-
-    //         foreach ($orders as $order) {
-    //             // Skip already confirmed orders (idempotency)
-    //             if ($order->status === 'confirmed') {
-    //                 $confirmedOrders[] = $order;
-    //                 continue;
-    //             }
-
-    //             $oldStatus = $order->status;
-
-    //             // =============================================
-    //             // UPDATE ORDER STATUS
-    //             // =============================================
-    //             $order->update([
-    //                 'status'                 => 'confirmed',
-    //                 'confirmed_at'           => now(),
-    //                 'payment_gateway'        => $gatewayData['gateway'] ?? $order->payment_gateway,
-    //                 'gateway_transaction_id' => $gatewayData['transaction_id'] ?? null,
-    //                 'amount_paid'            => $order->total_payable,
-    //             ]);
-
-    //             // =============================================
-    //             // RECORD COUPON USAGE
-    //             // =============================================
-    //             if ($order->coupon_code) {
-    //                 $coupon = Coupon::where('code', $order->coupon_code)->first();
-
-    //                 if ($coupon) {
-    //                     $existingUsage = CouponUsage::where('order_id', $order->id)->first();
-
-    //                     if (!$existingUsage) {
-    //                         CouponUsage::create([
-    //                             'coupon_id'       => $coupon->id,
-    //                             'user_id'         => $order->user_id,
-    //                             'order_id'        => $order->id,
-    //                             'discount_amount' => $order->coupon_discount,
-    //                         ]);
-
-    //                         $coupon->increment('used_count');
-    //                     }
-    //                 }
-    //             }
-
-    //             $lowStockAlerts = [];
-
-    //             // =============================================
-    //             // DECREMENT STOCK FOR EACH ORDER LINE
-    //             // =============================================
-    //             foreach ($order->lines as $line) {
-    //                 if ($line->variant_id) {
-    //                     $variant = $line->variant;
-
-    //                     if ($variant) {
-    //                         $variant->decrement('stock_quantity', $line->quantity);
-
-    //                         $product = $line->product;
-    //                         if ($product) {
-    //                             $product->decrement('stock_quantity', $line->quantity);
-    //                         }
-
-    //                         StockMovement::create([
-    //                             'product_id'               => $line->product_id,
-    //                             'variant_id'               => $line->variant_id,
-    //                             'item_reference_id'        => $line->item_reference_id,
-    //                             'quantity'                 => -$line->quantity,
-    //                             'available_quantity_after' => $variant->stock_quantity,
-    //                             'reason'                   => 'Order confirmed (variant): ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
-    //                             'order_id'                 => $order->id,
-    //                         ]);
-
-    //                         $variant->refresh();
-    //                         if ($variant->stock_quantity <= $variant->low_stock_threshold) {
-    //                             $this->sendLowStockNotification($order, $line, 'variant');
-    //                             $alert = [
-    //                                 'product_id'        => $line->product_id,
-    //                                 'variant_id'        => $line->variant_id,
-    //                                 'item_reference_id' => $line->item_reference_id,
-    //                                 'product_name'      => $line->product?->name ?? 'Unknown',
-    //                                 'stock'             => $variant->stock_quantity,
-    //                                 'threshold'         => $variant->low_stock_threshold,
-    //                                 'alert_type'        => 'variant_low_stock',
-    //                             ];
-    //                             $lowStockAlerts[]    = $alert;
-    //                             $allLowStockAlerts[] = $alert;
-    //                         }
-    //                     }
-    //                 } else {
-    //                     $product = $line->product;
-
-    //                     if ($product) {
-    //                         $product->decrement('stock_quantity', $line->quantity);
-
-    //                         StockMovement::create([
-    //                             'product_id'               => $line->product_id,
-    //                             'variant_id'               => null,
-    //                             'item_reference_id'        => $line->item_reference_id,
-    //                             'quantity'                 => -$line->quantity,
-    //                             'available_quantity_after' => $product->stock_quantity,
-    //                             'reason'                   => 'Order confirmed: ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
-    //                             'order_id'                 => $order->id,
-    //                         ]);
-
-    //                         $product->refresh();
-    //                         if ($product->stock_quantity <= $product->low_stock_threshold) {
-    //                             $this->sendLowStockNotification($order, $line, 'product');
-    //                             $alert = [
-    //                                 'product_id'        => $line->product_id,
-    //                                 'item_reference_id' => $line->item_reference_id,
-    //                                 'product_name'      => $product->name,
-    //                                 'stock'             => $product->stock_quantity,
-    //                                 'threshold'         => $product->low_stock_threshold,
-    //                                 'alert_type'        => 'product_low_stock',
-    //                             ];
-    //                             $lowStockAlerts[]    = $alert;
-    //                             $allLowStockAlerts[] = $alert;
-    //                         }
-    //                     }
-    //                 }
-
-    //                 $line->update([
-    //                     'delivery_status' => 'confirmed',
-    //                 ]);
-    //             }
-
-    //             // =============================================
-    //             // AUDIT LOG: ORDER CONFIRM
-    //             // =============================================
-    //             $this->logAudit(
-    //                 'order_confirm',
-    //                 'orders',
-    //                 [
-    //                     'order_reference' => $order->order_reference,
-    //                     'status'          => $oldStatus,
-    //                     'total_amount'    => $order->total_payable,
-    //                     'user_id'         => $order->user_id ?? Auth::id(),
-    //                 ],
-    //                 [
-    //                     'order_reference'  => $order->order_reference,
-    //                     'status'           => 'confirmed',
-    //                     'confirmed_at'     => now()->toDateTimeString(),
-    //                     'payment_gateway'  => $gatewayData['gateway'] ?? null,
-    //                     'transaction_id'   => $gatewayData['transaction_id'] ?? null,
-    //                     'amount_paid'      => $order->total_payable,
-    //                     'low_stock_alerts' => $lowStockAlerts,
-    //                     'confirmed_by'     => $this->getAdminId(),
-    //                 ]
-    //             );
-
-    //             // =============================================
-    //             // AUDIT LOG: LOW STOCK ALERTS
-    //             // =============================================
-    //             foreach ($lowStockAlerts as $alert) {
-    //                 $this->logAudit(
-    //                     'low_stock_alert',
-    //                     'inventory',
-    //                     null,
-    //                     $alert,
-    //                     null,
-    //                     $this->getClientIp()
-    //                 );
-    //             }
-
-    //             // =============================================
-    //             // COMMISSION API EVENT
-    //             // =============================================
-    //             $payload = $this->buildCommissionPayload($order);
-
-    //             // =============================================
-    //             // SEND ORDER CONFIRMATION SMS (TWILIO)
-    //             // =============================================
-    //             $phone = $order->user?->phone;
-
-    //             if ($phone) {
-    //                 $message = "Hi {$order->user->name}! Your order {$order->order_reference} "
-    //                     . "has been confirmed. Total: " . number_format((float) $order->total_payable, 2)
-    //                     . ". Thank you for your purchase!";
-
-    //                 try {
-    //                     app(TwilioSmsService::class)->send($phone, $message);
-    //                 } catch (\Throwable $e) {
-    //                     Log::error('Order confirmation SMS failed', [
-    //                         'order_reference' => $order->order_reference,
-    //                         'error'           => $e->getMessage(),
-    //                     ]);
-    //                 }
-    //             }
-
-    //             CommissionApiEvent::create([
-    //                 'event_type'    => 'order_post',
-    //                 'order_id'      => $order->id,
-    //                 'payload'       => $payload,
-    //                 'status'        => 'pending',
-    //                 'retry_count'   => 0,
-    //                 'max_retries'   => 5,
-    //                 'last_attempt'  => null,
-    //                 'error_message' => null,
-    //                 'response_data' => null,
-    //             ]);
-
-    //             // IGNITE: Post order to Ignite (queued after commit — see note below)
-    //             $orderIdForIgnite = $order->id;
-    //             DB::afterCommit(function () use ($orderIdForIgnite) {
-    //                 \App\Jobs\PostOrderToIgniteJob::dispatch($orderIdForIgnite);
-    //             });
-
-    //             // =============================================
-    //             // SEND ORDER CONFIRMATION NOTIFICATION
-    //             // =============================================
-    //             $this->sendOrderConfirmationNotification($order, $gatewayData);
-
-    //             $confirmedOrders[] = $order;
-    //         }
-
-    //         // =============================================
-    //         // DELETE CART (only once, for cart checkout)
-    //         // =============================================
-    //         $firstOrder = $confirmedOrders[0] ?? null;
-    //         if ($firstOrder && $firstOrder->checkout_type !== 'buy_now') {
-    //             $cart = Cart::where('user_id', $firstOrder->user_id)->first();
-    //             if ($cart) {
-    //                 $cart->items()->delete();
-    //                 $cart->delete();
-    //             }
-    //         }
-
-    //         // =============================================
-    //         // PROFORMA INVOICE — per confirmed order
-    //         // =============================================
-    //         foreach ($confirmedOrders as $confirmedOrder) {
-    //             if ($confirmedOrder->user?->account_type === 'distributor') {
-    //                 $this->proformaInvoiceService->generateForOrder($confirmedOrder);
-    //             }
-    //         }
-
-    //         return [
-    //             'success'          => true,
-    //             'order_ids'        => array_map(fn($o) => $o->id, $confirmedOrders),
-    //             'order_references' => array_map(fn($o) => $o->order_reference, $confirmedOrders),
-    //             'total_orders'     => count($confirmedOrders),
-    //             'total_amount'     => round(collect($confirmedOrders)->sum('total_payable'), 2),
-    //             'status'           => 'confirmed',
-    //             'low_stock_alerts' => $allLowStockAlerts,
-    //             'invoice_number'   => null,
-    //         ];
-    //     });
-    // }
+    
     public function confirmOrder(string|array $orderReferences, array $gatewayData): array
     {
         if (is_string($orderReferences)) {
@@ -2632,6 +2355,17 @@ class CheckoutService
                     'gateway_transaction_id' => $gatewayData['transaction_id'] ?? null,
                     'amount_paid'            => $order->total_payable,
                 ]);
+
+                // =============================================
+                // COIN REDEMPTION (post-payment — actual Ignite call)
+                // =============================================
+                $pendingRedemption = CoinRedemption::where('order_id', $order->id)
+                    ->where('status', 'pending_payment')
+                    ->first();
+
+                if ($pendingRedemption) {
+                    $this->redeemCoinsOnIgnite($order, $pendingRedemption);
+                }
 
                 // =============================================
                 // COUPON USAGE
@@ -2791,6 +2525,124 @@ class CheckoutService
                 'stock_failures'   => $stockFailures,
             ];
         });
+    }
+
+    /**
+     * Redeem coins on Ignite after payment success.
+     * Called from confirmOrder() — only when order has coin_redemption_id.
+     */
+    private function redeemCoinsOnIgnite(Order $order, CoinRedemption $redemption): void
+    {
+        // Idempotency — already redeemed?
+        if ($redemption->status === 'authorized') {
+            Log::info('Coin already redeemed on Ignite, skipping', [
+                'order_id'      => $order->id,
+                'redemption_id' => $redemption->id,
+            ]);
+            return;
+        }
+
+        $user = $order->user;
+        if (!$user || empty($user->distributor_id)) {
+            Log::error('Cannot redeem coins — user has no BA ID', ['order_id' => $order->id]);
+            $redemption->update([
+                'status'          => 'failed',
+                'reversal_reason' => 'User has no BA ID',
+            ]);
+            return;
+        }
+
+        $ignite = app(\App\Sdks\Partner\IgniteClient::class);
+        $ref = 'RED-' . $user->distributor_id . '-' . $redemption->point_type . '-' 
+            . $redemption->coins_used . '-ORDER' . $order->id;
+
+        try {
+            $response = $ignite->redeemCoin(
+                $user->distributor_id,
+                $redemption->point_type,
+                $redemption->coins_used,
+                $ref
+            );
+
+            Log::info('Ignite redeemCoin response (post-payment)', [
+                'order_id'      => $order->id,
+                'redemption_id' => $redemption->id,
+                'ref'           => $ref,
+                'response'      => $response,
+            ]);
+
+            $errorCode = $response['error_code'] ?? null;
+
+            if ($errorCode === 'REDEMPTION_IN_PROGRESS') {
+                $redemption->update([
+                    'status'          => 'retry_needed',
+                    'reversal_reason' => 'Ignite in progress — retry',
+                ]);
+                return;
+            }
+
+            if ($errorCode === 'NETWORK_BUSY') {
+                $redemption->update([
+                    'status'          => 'retry_needed',
+                    'reversal_reason' => 'Ignite network busy — retry',
+                ]);
+                return;
+            }
+
+            if ($errorCode) {
+                $redemption->update([
+                    'status'          => 'ignite_refused',
+                    'reversal_reason' => "Ignite refused: {$errorCode}",
+                ]);
+                Log::error('Ignite refused coin redemption', [
+                    'order_id'      => $order->id,
+                    'redemption_id' => $redemption->id,
+                    'error_code'    => $errorCode,
+                ]);
+                return;
+            }
+
+            $cashAmount         = $response['data']['cash_amount'] ?? null;
+            $igniteRedemptionId = $response['data']['redemption_id'] ?? null;
+
+            if ($cashAmount === null) {
+                $redemption->update([
+                    'status'               => 'ignite_deducted_no_amount',
+                    'api_authorization_id' => (string) $igniteRedemptionId,
+                    'authorized_at'        => now(),
+                    'reversal_reason'      => 'Ignite deducted but missing cash_amount',
+                ]);
+                return;
+            }
+
+            $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+                ->where('key', 'usd_to_inr')
+                ->value('value');
+
+            $actualInr = $usdRate > 0
+                ? round((float) $cashAmount * $usdRate, 2)
+                : $redemption->amount_redeemed;
+
+            $redemption->update([
+                'status'               => 'authorized',
+                'amount_redeemed'      => $actualInr,
+                'api_authorization_id' => (string) $igniteRedemptionId,
+                'authorized_at'        => now(),
+            ]);
+
+            Cache::forget("ignite_member_{$user->distributor_id}");
+
+        } catch (\Throwable $e) {
+            Log::error('Coin redemption after payment failed', [
+                'order_id'      => $order->id,
+                'redemption_id' => $redemption->id,
+                'error'         => $e->getMessage(),
+            ]);
+            $redemption->update([
+                'status'          => 'failed',
+                'reversal_reason' => 'Exception: ' . $e->getMessage(),
+            ]);
+        }
     }
 
     /**
