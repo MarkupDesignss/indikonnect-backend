@@ -1285,7 +1285,6 @@ class CheckoutService
             throw new Exception('Coin quantity must be at least 1');
         }
 
-        // --- Band pre-check (mirror of Ignite guide) ---
         $minBand = $pointType === 'yellow_bal' ? 1 : 4;
         if ($coinsToRedeem < $minBand) {
             throw new Exception(sprintf(
@@ -1297,12 +1296,10 @@ class CheckoutService
 
         $ignite = app(\App\Sdks\Partner\IgniteClient::class);
 
-        // --- Real balance from Ignite, not a mock ---
-        $member = Cache::remember(
-            "ignite_member_{$user->distributor_id}",
-            60,
-            fn() => $ignite->memberDetails($user->distributor_id)['data'] ?? []
-        );
+        $member = Cache::remember("ignite_member_{$user->distributor_id}", 60, function () use ($ignite, $user) {
+            $resp = $ignite->memberDetails($user->distributor_id);
+            return ($resp['code'] ?? null) === ResultCode::OK->value ? ($resp['data'] ?? []) : [];
+        });
 
         $available = (int) ($member[$pointType] ?? 0);
         if ($coinsToRedeem > $available) {
@@ -1313,46 +1310,87 @@ class CheckoutService
             ));
         }
 
-        // --- Idempotency lock: block double-tap for 2 minutes ---
         $lockKey = "ignite_redeem:{$userId}:{$pointType}:{$coinsToRedeem}";
         if (!Cache::add($lockKey, 1, 120)) {
             throw new Exception('A redemption with the same details is in progress. Please wait.');
         }
 
+        // STEP 1: Create CoinRedemption FIRST
+        $redemption = CoinRedemption::create([
+            'user_id'         => $userId,
+            'point_type'      => $pointType,
+            'coins_used'      => $coinsToRedeem,
+            'amount_redeemed' => 0,
+            'status'          => 'pending',
+        ]);
+
         try {
-            $ref = 'RED-' . $user->distributor_id . '-' . $pointType . '-' . $coinsToRedeem . '-' . now()->timestamp;
+            $ref = 'RED-' . $user->distributor_id . '-' . $pointType . '-' . $coinsToRedeem . '-' . now()->format('YmdH');
 
             $response = $ignite->redeemCoin($user->distributor_id, $pointType, $coinsToRedeem, $ref);
 
-            if ($response['code'] !== ResultCode::OK->value) {
-                throw new Exception("Ignite Refused [{$response['code']}]: {$response['msg']}");
+            Log::info('Ignite redeemCoin response', [
+                'redemption_id' => $redemption->id,
+                'ba_id'         => $user->distributor_id,
+                'ref'           => $ref,
+                'response'      => $response,
+            ]);
+
+            // Ignite returns string error codes, not numeric
+            $errorCode = $response['error_code'] ?? null;
+
+            if ($errorCode === 'REDEMPTION_IN_PROGRESS') {
+                $redemption->update(['status' => 'retry']);
+                throw new Exception('Redemption in progress. Please retry after a moment.');
             }
 
-            // $usdRate = config('services.ignite.usd_to_inr_rate');
-            // if (!$usdRate) {
-            //     throw new Exception("Ignite USD to INR rate is not configured. Please set IGNITE_USD_TO_INR_RATE in .env.");
-            // }
+            if ($errorCode === 'NETWORK_BUSY') {
+                $redemption->update(['status' => 'retry']);
+                throw new Exception('Saturday commission run in progress. Please retry after 30 seconds.');
+            }
+
+            if ($errorCode) {
+                $redemption->update(['status' => 'ignite_refused']);
+                throw new Exception("Ignite Refused [{$errorCode}]: " . ($response['message'] ?? 'Unknown'));
+            }
+
+            // CORRECT KEYS: cash_amount, redemption_id
+            $cashAmount         = $response['data']['cash_amount'] ?? null;
+            $igniteRedemptionId = $response['data']['redemption_id'] ?? null;
+
+            if ($cashAmount === null) {
+                $redemption->update([
+                    'status'               => 'ignite_deducted_no_amount',
+                    'api_authorization_id' => (string) $igniteRedemptionId,
+                    'authorized_at'        => now(),
+                ]);
+                throw new Exception(
+                    'Ignite deducted coins but response missing cash_amount. ' .
+                    'Redemption ID: ' . $redemption->id . '. Contact support.'
+                );
+            }
+
             $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
                 ->where('key', 'usd_to_inr')
                 ->value('value');
 
             if (!$usdRate) {
-                throw new Exception("USD to INR exchange rate is not configured in settings.");
+                $redemption->update([
+                    'status'               => 'ignite_deducted_no_rate',
+                    'api_authorization_id' => (string) $igniteRedemptionId,
+                ]);
+                throw new Exception('Ignite deducted coins but USD→INR rate not configured. Redemption ID: ' . $redemption->id);
             }
 
-            $amountInr = round((float) $response['data']['comm_amount'] * (float) $usdRate, 2);
+            $amountInr = round((float) $cashAmount * $usdRate, 2);
 
-            $redemption = CoinRedemption::create([
-                'user_id'              => $userId,
-                'point_type'           => $pointType,
-                'coins_used'           => $coinsToRedeem,
+            $redemption->update([
                 'amount_redeemed'      => $amountInr,
                 'status'               => 'authorized',
-                'api_authorization_id' => $response['data']['txid'],
+                'api_authorization_id' => (string) $igniteRedemptionId,
                 'authorized_at'        => now(),
             ]);
 
-            // Invalidate stale member cache so next checkout sees the new balance
             Cache::forget("ignite_member_{$user->distributor_id}");
 
             return [
@@ -1363,7 +1401,10 @@ class CheckoutService
                 'redemption_id'   => $redemption->id,
             ];
         } catch (\Throwable $e) {
-            Cache::forget($lockKey); // allow retry after a real failure
+            if ($redemption->status === 'pending') {
+                $redemption->update(['status' => 'failed']);
+            }
+            Cache::forget($lockKey);
             throw $e;
         }
     }
