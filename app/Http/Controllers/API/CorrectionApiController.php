@@ -11,10 +11,18 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Mail;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class CorrectionApiController extends Controller
 {
-
+    private function getCorrectionRejectionDays(): int
+    {
+        return (int) DB::table('settings')
+            ->where('group', 'Correction')
+            ->where('key', 'correction_rejection_duation')
+            ->value('value');
+    }
     public function store(Request $request)
     {
         try {
@@ -43,20 +51,28 @@ class CorrectionApiController extends Controller
                 ], 422);
             }
 
+            // Get rejection duration from settings
+            $rejectionDays = $this->getCorrectionRejectionDays();
+
+            // Check recently rejected request
             $recentlyRejected = CorrectionRequest::where('email', $user->email)
                 ->where('status', 'rejected')
                 ->whereNotNull('rejected_at')
-                ->where('rejected_at', '>', now()->subDays(5))
+                ->where('rejected_at', '>', now()->subDays($rejectionDays))
                 ->latest('rejected_at')
                 ->first();
+
             if ($recentlyRejected) {
-                $nextAllowedAt = $recentlyRejected->rejected_at->copy()->addDays(5);
+
+                $nextAllowedAt = Carbon::parse($recentlyRejected->rejected_at)
+                    ->addDays($rejectionDays);
 
                 return response()->json([
                     'status'  => false,
                     'message' => 'Your previous request was rejected. You can submit a new request after '
                         . $nextAllowedAt->format('d M Y, h:i A') . '.',
                     'retry_after' => $nextAllowedAt->toDateTimeString(),
+                    'rejection_days' => $rejectionDays,
                 ], 422);
             }
 
@@ -73,13 +89,14 @@ class CorrectionApiController extends Controller
                     'message' => 'Unable to process your request at the moment.',
                 ], 500);
             }
+
             $req = CorrectionRequest::create([
                 'user_id'       => $user->id,
                 'email'         => $user->email,
                 'reason'        => $data['reason'],
                 'full_name'     => null,
                 'date_of_birth' => null,
-                'type'  => 'name_dob_request',
+                'type'          => 'name_dob_request',
                 'status'        => 'pending',
             ]);
 
@@ -98,6 +115,7 @@ class CorrectionApiController extends Controller
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;
         } catch (\Throwable $e) {
+
             Log::error('Correction request failed.', [
                 'email' => $request->input('email'),
                 'error' => $e->getMessage(),
