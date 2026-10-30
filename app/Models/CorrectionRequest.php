@@ -23,6 +23,7 @@ class CorrectionRequest extends Model
 
     protected $casts = [
         'date_of_birth'    => 'date',
+        'rejected_at'      => 'datetime',
         'token_expires_at' => 'datetime',
         'token_used_at'    => 'datetime',
     ];
