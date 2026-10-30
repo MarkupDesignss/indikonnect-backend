@@ -17,6 +17,7 @@ class CorrectionRequest extends Model
         'phone',
         'type',
         'token_expires_at',
+        'rejected_reason',
         'rejected_at',
         'token_used_at',
     ];
