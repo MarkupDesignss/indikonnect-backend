@@ -4697,7 +4697,9 @@ class AuthController extends Controller
                 'roles',
                 'correctionRequests'
             ]);
-
+            if ($user->date_of_birth) {
+                $user->date_of_birth = \Carbon\Carbon::parse($user->date_of_birth)->format('Y-m-d');
+            }
             // Load distributor profile if distributor
             if ($user->account_type === 'distributor') {
                 $user->load('distributorProfile');
