@@ -430,7 +430,7 @@ class WishlistController extends Controller
 
                         'user_name' => $review->user->full_name ?? 'Anonymous',
 
-                        'user_profile_picture' => $review->user->profile_picture
+                        'user_profile_picture' => $review->user && $review->user->profile_picture
                             ? asset('storage/' . $review->user->profile_picture)
                             : null,
 
