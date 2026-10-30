@@ -1032,7 +1032,7 @@ class CheckoutService
                 }
 
                 $coinsUsed = $coinsToRedeem;
-                $amountRedeemed = $coinsToRedeem * 10;
+                $amountRedeemed = 0;
 
                 $coinRedemptionData = [
                     'coins_used' => $coinsUsed,
@@ -3687,8 +3687,20 @@ class CheckoutService
      */
     protected function getCoinBalance(int $userId): int
     {
-        // TODO: Call Commission API or use cached value
-        return 500; // mock
+        $user = User::find($userId);
+        if (!$user?->isDistributor() || empty($user->distributor_id)) {
+            return 0;
+        }
+
+        $member = Cache::remember("ignite_member_{$user->distributor_id}", 60, function () use ($user) {
+            $resp = app(IgniteClient::class)->memberDetails($user->distributor_id);
+            if (($resp['code'] ?? null) !== ResultCode::OK->value) {
+                return [];
+            }
+            return $resp['data'];
+        });
+
+        return (int) ($member['yellow_bal'] ?? 0) + (int) ($member['blue_bal'] ?? 0);
     }
 
     /**
