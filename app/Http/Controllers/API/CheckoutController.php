@@ -315,7 +315,7 @@ class CheckoutController extends Controller
 
         $validated = $request->validate([
             'coins' => 'required|integer|min:1',
-            'point_type' => 'required|in:yellow_bal,blue_bal', // 🔥 Frontend se bhejna compulsory hai
+            'point_type' => 'required|in:yellow_bal,blue_bal',
         ]);
 
         try {
