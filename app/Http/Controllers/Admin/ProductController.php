@@ -3644,6 +3644,31 @@ class ProductController extends Controller
     //         ], 500);
     //     }
     // }
+
+    private function validateIgniteProductIdUniqueness($igniteProductId, $ignoreProductId = null)
+    {
+        if ($igniteProductId === null || $igniteProductId === '') {
+            return null; // handled by 'required' rule
+        }
+
+        $query = Product::where('ignite_product_id', $igniteProductId);
+
+        if ($ignoreProductId !== null) {
+            $query->where('id', '!=', $ignoreProductId);
+        }
+
+        if ($query->exists()) {
+            return response()->json([
+                'errors' => [
+                    'ignite_product_id' => [
+                        'The ignite product id has already been taken.'
+                    ]
+                ]
+            ], 422);
+        }
+
+        return null;
+    }
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -3652,6 +3677,7 @@ class ProductController extends Controller
             'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')],
             'description' => ['nullable', 'string'],
             'specification' => ['nullable', 'string'],
+            'ignite_product_id' => ['required'],
             'brand_id' => ['nullable'],
             'hsn_code' => ['nullable', 'string', 'max:50'],
             'uom' => ['nullable', 'string', 'max:50'],
@@ -3689,7 +3715,11 @@ class ProductController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
-
+        if ($duplicate = $this->validateIgniteProductIdUniqueness(
+            $request->input('ignite_product_id')
+        )) {
+            return $duplicate;
+        }
         DB::beginTransaction();
         try {
             $validated = $validator->validated();
@@ -4962,6 +4992,7 @@ class ProductController extends Controller
             'description' => ['nullable', 'string'],
             'specification' => ['nullable', 'string'],
             'brand_id' => ['nullable'],
+            'ignite_product_id' => ['sometimes', 'required'],
             'hsn_code' => ['nullable', 'string', 'max:50'],
             'uom' => ['nullable', 'string', 'max:50'],
             'category_id' => ['sometimes', 'required', 'exists:categories,id'],
@@ -5027,6 +5058,13 @@ class ProductController extends Controller
             ], 422);
         }
 
+        if ($duplicate = $this->validateIgniteProductIdUniqueness(
+            $request->input('ignite_product_id'),
+            $product->id
+        )) {
+            return $duplicate;
+        }
+
         DB::beginTransaction();
         try {
             $validated = $validator->validated();
@@ -5046,7 +5084,7 @@ class ProductController extends Controller
                 'category_id' => $product->category_id,
                 'tax_category_id' => $product->tax_category_id,
                 'subcategory_id' => $product->subcategory_id,
-
+                'ignite_product_id' => $product->ignite_product_id,
                 'retail_mrp' => $product->retail_mrp,
                 'retail_price' => $product->retail_price,
                 'retail_discount_type' => $product->retail_discount_type,
@@ -5354,7 +5392,7 @@ class ProductController extends Controller
 
                 'tax_category_id' => $product->tax_category_id,
                 'subcategory_id' => $product->subcategory_id,
-
+                'ignite_product_id' => $product->ignite_product_id,
                 'retail_mrp' => $product->retail_mrp,
                 'retail_price' => $product->retail_price,
                 'retail_discount_type' => $product->retail_discount_type,
