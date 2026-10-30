@@ -1017,33 +1017,46 @@ class CheckoutService
         $amountRedeemed = 0;
         $coinBalance = 0;
         $maxCoinsRedeemable = 0;
+        $coinBreakdown = ['yellow' => 0, 'blue' => 0];
 
-        if ($user->isDistributor()) {
-            $coinBalance = $this->getCoinBalance($userId);
-            //$maxCoinsRedeemable = min($coinBalance, floor($subtotalAfterDiscountAndTax / 10));
-            $maxCoinsRedeemable = $coinBalance;
-
-            if ($coinsToRedeem != null && $coinsToRedeem > 0) {
-                if ($coinsToRedeem > $coinBalance) {
-                    throw new Exception('Insufficient coin balance. You have ' . $coinBalance . ' coins.');
-                }
-
-                if ($coinsToRedeem > $maxCoinsRedeemable) {
-                    throw new Exception('Cannot redeem more than ' . $maxCoinsRedeemable . ' coins for this order.');
-                }
-
-                $coinsUsed = $coinsToRedeem;
-                $amountRedeemed = 0;
-
-                $coinRedemptionData = [
-                    'coins_used' => $coinsUsed,
-                    'amount_redeemed' => $amountRedeemed,
-                    'remaining_coins' => $coinBalance - $coinsUsed,
-                ];
+       if ($user->isDistributor() && !empty($user->distributor_id)) {
+        // Get detailed balance from Ignite
+        $member = Cache::remember("ignite_member_{$user->distributor_id}", 60, function () use ($user) {
+            $resp = app(\App\Sdks\Partner\IgniteClient::class)->memberDetails($user->distributor_id);
+            if (($resp['code'] ?? null) !== \App\Sdks\Partner\ResultCode::OK->value) {
+                return [];
             }
-        }
+            return $resp['data'];
+        });
 
-        /*
+        $yellowBal = (int) ($member['yellow_bal'] ?? 0);
+        $blueBal   = (int) ($member['blue_bal'] ?? 0);
+
+        $coinBreakdown = [
+            'yellow' => $yellowBal,
+            'blue'   => $blueBal,
+        ];
+
+        $coinBalance = $yellowBal + $blueBal;
+        $maxCoinsRedeemable = $coinBalance;
+
+        if ($coinsToRedeem != null && $coinsToRedeem > 0) {
+            if ($coinsToRedeem > $coinBalance) {
+                throw new Exception('Insufficient coin balance. You have ' . $coinBalance . ' coins.');
+            }
+
+            $coinsUsed = $coinsToRedeem;
+            $amountRedeemed = 0; // actual amount comes from applyCoins()
+
+            $coinRedemptionData = [
+                'coins_used'      => $coinsUsed,
+                'amount_redeemed' => $amountRedeemed,
+                'remaining_coins' => $coinBalance - $coinsUsed,
+            ];
+        }
+    }
+
+    /*
     |--------------------------------------------------------------------------
     | Grand Total
     |--------------------------------------------------------------------------
@@ -1084,6 +1097,7 @@ class CheckoutService
             'subtotal_after_discount_and_tax' => round($subtotalAfterDiscountAndTax, 2),
 
             'coin_balance' => $coinBalance,
+            'coin_breakdown' => $coinBreakdown,
             'max_coins_redeemable' => $maxCoinsRedeemable,
             'coins_used' => $coinsUsed,
             'amount_redeemed' => $amountRedeemed,
@@ -1124,8 +1138,6 @@ class CheckoutService
             ],
         ];
     }
-
-
 
 
     /**
