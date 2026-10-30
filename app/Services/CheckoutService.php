@@ -1261,13 +1261,9 @@ class CheckoutService
         return $this->calculateSummary($userId, $addressId, $couponCode, $shippingMethodId, $coinsToRedeem);
     }
 
-    /**
-     * FR-CO-004: Apply coin redemption
-     *
-     * Guide bands:
-     *   Yellow: 1-2 → $30 each, 3+ → $40 each (min 1)
-     *   Blue:   4+  → $12.50 each (min 4)
-     *   Below min band → Ignite returns 3003
+   /**
+     * Estimate coin redemption (NO Ignite call — only calculation).
+     * Actual redemption happens in confirmOrder() after payment success.
      */
     public function applyCoins(int $userId, int $coinsToRedeem, string $pointType): array
     {
@@ -1294,8 +1290,8 @@ class CheckoutService
             ));
         }
 
+        // Balance check from Ignite (read-only, no deduction)
         $ignite = app(\App\Sdks\Partner\IgniteClient::class);
-
         $member = Cache::remember("ignite_member_{$user->distributor_id}", 60, function () use ($ignite, $user) {
             $resp = $ignite->memberDetails($user->distributor_id);
             return ($resp['code'] ?? null) === ResultCode::OK->value ? ($resp['data'] ?? []) : [];
@@ -1310,103 +1306,54 @@ class CheckoutService
             ));
         }
 
-        $lockKey = "ignite_redeem:{$userId}:{$pointType}:{$coinsToRedeem}";
-        if (!Cache::add($lockKey, 1, 120)) {
-            throw new Exception('A redemption with the same details is in progress. Please wait.');
+        // Calculate estimate — NO Ignite call
+        $cashAmountUsd = $this->estimateCoinValueUsd($coinsToRedeem, $pointType);
+
+        $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+            ->where('key', 'usd_to_inr')
+            ->value('value');
+
+        if (!$usdRate) {
+            throw new Exception('USD to INR exchange rate not configured in settings.');
         }
 
-        // STEP 1: Create CoinRedemption FIRST
+        $amountInr = round($cashAmountUsd * $usdRate, 2);
+
+        // Store a pending redemption (for tracking; NO Ignite call)
         $redemption = CoinRedemption::create([
             'user_id'         => $userId,
             'point_type'      => $pointType,
             'coins_used'      => $coinsToRedeem,
-            'amount_redeemed' => 0,
-            'status'          => 'pending',
+            'amount_redeemed' => $amountInr,
+            'status'          => 'pending_payment',  // not redeemed yet
         ]);
 
-        try {
-            $ref = 'RED-' . $user->distributor_id . '-' . $pointType . '-' . $coinsToRedeem . '-' . now()->format('YmdH');
+        return [
+            'success'         => true,
+            'coins_used'      => $coinsToRedeem,
+            'point_type'      => $pointType,
+            'amount_redeemed' => $amountInr,
+            'redemption_id'   => $redemption->id,
+            'estimate'        => true,
+        ];
+    }
 
-            $response = $ignite->redeemCoin($user->distributor_id, $pointType, $coinsToRedeem, $ref);
-
-            Log::info('Ignite redeemCoin response', [
-                'redemption_id' => $redemption->id,
-                'ba_id'         => $user->distributor_id,
-                'ref'           => $ref,
-                'response'      => $response,
-            ]);
-
-            // Ignite returns string error codes, not numeric
-            $errorCode = $response['error_code'] ?? null;
-
-            if ($errorCode === 'REDEMPTION_IN_PROGRESS') {
-                $redemption->update(['status' => 'retry']);
-                throw new Exception('Redemption in progress. Please retry after a moment.');
-            }
-
-            if ($errorCode === 'NETWORK_BUSY') {
-                $redemption->update(['status' => 'retry']);
-                throw new Exception('Saturday commission run in progress. Please retry after 30 seconds.');
-            }
-
-            if ($errorCode) {
-                $redemption->update(['status' => 'ignite_refused']);
-                throw new Exception("Ignite Refused [{$errorCode}]: " . ($response['message'] ?? 'Unknown'));
-            }
-
-            // CORRECT KEYS: cash_amount, redemption_id
-            $cashAmount         = $response['data']['cash_amount'] ?? null;
-            $igniteRedemptionId = $response['data']['redemption_id'] ?? null;
-
-            if ($cashAmount === null) {
-                $redemption->update([
-                    'status'               => 'ignite_deducted_no_amount',
-                    'api_authorization_id' => (string) $igniteRedemptionId,
-                    'authorized_at'        => now(),
-                ]);
-                throw new Exception(
-                    'Ignite deducted coins but response missing cash_amount. ' .
-                    'Redemption ID: ' . $redemption->id . '. Contact support.'
-                );
-            }
-
-            $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
-                ->where('key', 'usd_to_inr')
-                ->value('value');
-
-            if (!$usdRate) {
-                $redemption->update([
-                    'status'               => 'ignite_deducted_no_rate',
-                    'api_authorization_id' => (string) $igniteRedemptionId,
-                ]);
-                throw new Exception('Ignite deducted coins but USD→INR rate not configured. Redemption ID: ' . $redemption->id);
-            }
-
-            $amountInr = round((float) $cashAmount * $usdRate, 2);
-
-            $redemption->update([
-                'amount_redeemed'      => $amountInr,
-                'status'               => 'authorized',
-                'api_authorization_id' => (string) $igniteRedemptionId,
-                'authorized_at'        => now(),
-            ]);
-
-            Cache::forget("ignite_member_{$user->distributor_id}");
-
-            return [
-                'success'         => true,
-                'coins_used'      => $coinsToRedeem,
-                'point_type'      => $pointType,
-                'amount_redeemed' => $amountInr,
-                'redemption_id'   => $redemption->id,
-            ];
-        } catch (\Throwable $e) {
-            if ($redemption->status === 'pending') {
-                $redemption->update(['status' => 'failed']);
-            }
-            Cache::forget($lockKey);
-            throw $e;
+    /**
+     * Estimate USD value of coins based on Ignite bands.
+     * Yellow: 1-2 → $30, 3+ → $40
+     * Blue:   4+  → $12.50
+     */
+    private function estimateCoinValueUsd(int $qty, string $pointType): float
+    {
+        if ($pointType === 'yellow_bal') {
+            $rate = $qty >= 3 ? 40 : 30;
+        } elseif ($pointType === 'blue_bal') {
+            $rate = 12.5;
+        } else {
+            throw new Exception("Unknown point type: {$pointType}");
         }
+
+        return $qty * $rate;
     }
 
     /**
