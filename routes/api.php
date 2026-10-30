@@ -954,6 +954,7 @@ Route::get('/correction/reasons', [CorrectionApiController::class, 'reasons']);
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
     Route::get('/correction/requests', [AdminCorrectionApiController::class, 'index']);
     Route::post('/correction/requests/{id}/send-link', [AdminCorrectionApiController::class, 'sendLink']);
+    Route::post('/correction-requests/{id}/reject', [AdminCorrectionApiController::class, 'reject']);
 });
 Route::middleware('auth:sanctum')->group(function () {
     // User: request bhejna
