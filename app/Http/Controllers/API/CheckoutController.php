@@ -387,8 +387,7 @@ class CheckoutController extends Controller
             'grand_total' => 'required|numeric|min:0',
             'payment_gateway' => 'required|in:razorpay,hdfc_sg,hdfc_ie,axispg',
 
-            'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
-
+            'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id(),
             'checkout_type' => 'nullable|in:cart,buy_now',
 
             'summary_data' => 'required|array',
@@ -413,7 +412,7 @@ class CheckoutController extends Controller
             'summary_data.tax_breakdown.*.rate' => 'required_with:summary_data.tax_breakdown|min:0',
         ]);
 
-       try {
+        try {
             $result = $this->checkoutService->placeOrder(
                 Auth::user()->id,
                 $validated
