@@ -60,4 +60,30 @@ class AdminCorrectionApiController extends Controller
             'data'    => $req,
         ]);
     }
+
+    public function reject($id)
+    {
+        $req = CorrectionRequest::findOrFail($id);
+
+        if ($req->status !== 'pending') {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Request already processed.',
+            ], 422);
+        }
+
+        $req->update([
+            'status'           => 'rejected',
+            'token'            => null,
+            'token_expires_at' => null,
+            'token_used_at'    => null,
+            'rejected_at'    => now(),
+        ]);
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Request rejected successfully.',
+            'data'    => $req,
+        ]);
+    }
 }

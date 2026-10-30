@@ -4695,7 +4695,7 @@ class AuthController extends Controller
             // Load user relationships
             $user->load([
                 'roles',
-                'correctionRequests'
+                'latestCorrectionRequest'
             ]);
             if ($user->date_of_birth) {
                 $user->date_of_birth = \Carbon\Carbon::parse($user->date_of_birth)->format('Y-m-d');

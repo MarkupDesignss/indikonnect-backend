@@ -43,6 +43,23 @@ class CorrectionApiController extends Controller
                 ], 422);
             }
 
+            $recentlyRejected = CorrectionRequest::where('email', $user->email)
+                ->where('status', 'rejected')
+                ->whereNotNull('rejected_at')
+                ->where('rejected_at', '>', now()->subDays(5))
+                ->latest('rejected_at')
+                ->first();
+            if ($recentlyRejected) {
+                $nextAllowedAt = $recentlyRejected->rejected_at->copy()->addDays(5);
+
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Your previous request was rejected. You can submit a new request after '
+                        . $nextAllowedAt->format('d M Y, h:i A') . '.',
+                    'retry_after' => $nextAllowedAt->toDateTimeString(),
+                ], 422);
+            }
+
             $adminEmail = config('correction.admin_email');
 
             if (

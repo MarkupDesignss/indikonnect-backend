@@ -20,8 +20,10 @@ class CorrectionRequestController extends Controller
             'reason' => 'required|string|max:1000',
         ]);
 
+        $userId = $request->user()->id;
+
         // Prevent duplicate pending requests
-        $exists = CorrectionRequest::where('user_id', $request->user()->id)
+        $exists = CorrectionRequest::where('user_id', $userId)
             ->where('status', 'pending')
             ->exists();
 
@@ -31,11 +33,28 @@ class CorrectionRequestController extends Controller
             ], 422);
         }
 
+        $recentlyRejected = CorrectionRequest::where('user_id', $userId)
+            ->where('status', 'rejected')
+            ->whereNotNull('rejected_at')
+            ->where('rejected_at', '>', now()->subDays(5))
+            ->latest('rejected_at')
+            ->first();
+
+        if ($recentlyRejected) {
+            $nextAllowedAt = $recentlyRejected->rejected_at->copy()->addDays(5);
+
+            return response()->json([
+                'message'     => 'Your previous request was rejected. You can submit a new request after '
+                    . $nextAllowedAt->format('d M Y, h:i A') . '.',
+                'retry_after' => $nextAllowedAt->toDateTimeString(),
+            ], 422);
+        }
+
         $cr = CorrectionRequest::create([
-            'user_id' => $request->user()->id,
+            'user_id' => $userId,
             'email'   => $request->user()->email,
             'reason'  => $data['reason'],
-            'type'  => 'phone_request',
+            'type'    => 'phone_request',
             'status'  => 'pending',
         ]);
 
@@ -73,7 +92,7 @@ class CorrectionRequestController extends Controller
         $cr->update([
             'status'           => 'approved',
             'token'            => $token,
-            'token_expires_at' => now()->addMinutes(10),
+            'token_expires_at' => now()->addMinutes(1000),
             'token_used_at'    => null,
         ]);
 

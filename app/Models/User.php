@@ -137,7 +137,10 @@ class User extends Authenticatable
         return $this->belongsTo(User::class, 'sponsor_id');
     }
 
-
+    public function latestCorrectionRequest()
+    {
+        return $this->hasOne(CorrectionRequest::class)->latestOfMany();
+    }
 
     /**
      * Get distributor's downline (FR-DP-009)
