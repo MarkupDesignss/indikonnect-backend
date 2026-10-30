@@ -8,6 +8,8 @@ use App\Mail\PhoneUpdateLinkMail;
 use App\Models\CorrectionRequest;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class AdminCorrectionApiController extends Controller
 {
@@ -61,8 +63,45 @@ class AdminCorrectionApiController extends Controller
         ]);
     }
 
-    public function reject($id)
+    // public function reject($id)
+    // {
+    //     $req = CorrectionRequest::findOrFail($id);
+
+    //     if ($req->status !== 'pending') {
+    //         return response()->json([
+    //             'status'  => false,
+    //             'message' => 'Request already processed.',
+    //         ], 422);
+    //     }
+
+    //     $req->update([
+    //         'status'           => 'rejected',
+    //         'token'            => null,
+    //         'token_expires_at' => null,
+    //         'token_used_at'    => null,
+    //         'rejected_at'    => now(),
+    //     ]);
+
+    //     return response()->json([
+    //         'status'  => true,
+    //         'message' => 'Request rejected successfully.',
+    //         'data'    => $req,
+    //     ]);
+    // }
+    public function reject(Request $request, $id)
     {
+        $validator = Validator::make($request->all(), [
+            'rejected_reason' => 'required|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Validation failed.',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
         $req = CorrectionRequest::findOrFail($id);
 
         if ($req->status !== 'pending') {
@@ -77,13 +116,14 @@ class AdminCorrectionApiController extends Controller
             'token'            => null,
             'token_expires_at' => null,
             'token_used_at'    => null,
-            'rejected_at'    => now(),
+            'rejected_at'      => now(),
+            'rejected_reason'  => $request->rejected_reason,
         ]);
 
         return response()->json([
             'status'  => true,
             'message' => 'Request rejected successfully.',
-            'data'    => $req,
+            'data'    => $req->fresh(),
         ]);
     }
 }

@@ -4636,6 +4636,8 @@ class AuthController extends Controller
      * Get user profile
      */
 
+
+
     // public function profile()
     // {
     //     try {
@@ -4645,25 +4647,36 @@ class AuthController extends Controller
     //             return response()->json([
     //                 'status' => false,
     //                 'message' => 'Unauthorized'
-    //             ], 422);
+    //             ], 401);
     //         }
 
-    //         $user->load('roles');
-
-    //         // Load business profile if distributor
+    //         // Load user relationships
+    //         $user->load([
+    //             'roles',
+    //             'latestCorrectionRequest'
+    //         ]);
+    //         if ($user->date_of_birth) {
+    //             $user->date_of_birth = \Carbon\Carbon::parse($user->date_of_birth)->format('Y-m-d');
+    //         }
+    //         // Load distributor profile if distributor
     //         if ($user->account_type === 'distributor') {
     //             $user->load('distributorProfile');
     //         }
 
     //         // Profile picture full URL
     //         if (!empty($user->profile_picture)) {
-    //             $user->profile_picture = asset('storage/profile_pictures/' . basename($user->profile_picture));
+    //             $user->profile_picture = asset(
+    //                 'storage/profile_pictures/' . basename($user->profile_picture)
+    //             );
     //         }
 
-    //         // Extra distributor link (only for distributor account type)
+    //         // Extra distributor link
     //         $extra = [];
+
     //         if ($user->account_type === 'distributor') {
-    //             $extra['distributor_link'] = 'https://www.markupdesigns.net/indikonnect/distributor/' . $user->distributor_id;
+    //             $extra['distributor_link'] =
+    //                 'https://www.markupdesigns.net/indikonnect/distributor/'
+    //                 . $user->distributor_id;
     //         }
 
     //         return response()->json([
@@ -4671,7 +4684,7 @@ class AuthController extends Controller
     //             'message' => 'Profile fetched successfully',
     //             'user' => $user,
     //             'extra' => $extra,
-    //         ]);
+    //         ], 200);
     //     } catch (\Exception $e) {
     //         return response()->json([
     //             'status' => false,
@@ -4680,15 +4693,23 @@ class AuthController extends Controller
     //     }
     // }
 
+    private function getCorrectionRejectionDays(): int
+    {
+        return (int) DB::table('settings')
+            ->where('group', 'Correction')
+            ->where('key', 'correction_rejection_duation')
+            ->value('value');
+    }
     public function profile()
     {
         try {
+
             $user = Auth::user();
 
             if (!$user) {
                 return response()->json([
-                    'status' => false,
-                    'message' => 'Unauthorized'
+                    'status'  => false,
+                    'message' => 'Unauthorized',
                 ], 401);
             }
 
@@ -4697,9 +4718,33 @@ class AuthController extends Controller
                 'roles',
                 'latestCorrectionRequest'
             ]);
+
+            // Format DOB
             if ($user->date_of_birth) {
-                $user->date_of_birth = \Carbon\Carbon::parse($user->date_of_birth)->format('Y-m-d');
+                $user->date_of_birth = Carbon::parse($user->date_of_birth)
+                    ->format('Y-m-d');
             }
+
+            // Get rejection duration from settings
+            $rejectionDays = $this->getCorrectionRejectionDays();
+
+            $nextAllowedAt = null;
+            $canResubmit = true;
+
+            $latestCorrection = $user->latestCorrectionRequest;
+
+            if (
+                $latestCorrection &&
+                $latestCorrection->status === 'rejected' &&
+                $latestCorrection->rejected_at
+            ) {
+
+                $nextAllowedAt = Carbon::parse($latestCorrection->rejected_at)
+                    ->addDays($rejectionDays);
+
+                $canResubmit = now()->greaterThanOrEqualTo($nextAllowedAt);
+            }
+
             // Load distributor profile if distributor
             if ($user->account_type === 'distributor') {
                 $user->load('distributorProfile');
@@ -4726,11 +4771,25 @@ class AuthController extends Controller
                 'message' => 'Profile fetched successfully',
                 'user' => $user,
                 'extra' => $extra,
+
+                // Correction rejection information
+                'correction_rejection_days' => $rejectionDays,
+                'next_allowed_at' => $nextAllowedAt
+                    ? $nextAllowedAt->format('Y-m-d H:i:s')
+                    : null,
+                'can_resubmit_correction' => $canResubmit,
+
             ], 200);
         } catch (\Exception $e) {
+
+            Log::error('Profile API failed.', [
+                'user_id' => Auth::id(),
+                'error'   => $e->getMessage(),
+            ]);
+
             return response()->json([
-                'status' => false,
-                'message' => $e->getMessage()
+                'status'  => false,
+                'message' => $e->getMessage(),
             ], 500);
         }
     }
