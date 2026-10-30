@@ -1020,7 +1020,8 @@ class CheckoutService
 
         if ($user->isDistributor()) {
             $coinBalance = $this->getCoinBalance($userId);
-            $maxCoinsRedeemable = min($coinBalance, floor($subtotalAfterDiscountAndTax / 10));
+            //$maxCoinsRedeemable = min($coinBalance, floor($subtotalAfterDiscountAndTax / 10));
+            $maxCoinsRedeemable = $coinBalance;
 
             if ($coinsToRedeem != null && $coinsToRedeem > 0) {
                 if ($coinsToRedeem > $coinBalance) {
@@ -1315,9 +1316,16 @@ class CheckoutService
                 throw new Exception("Ignite Refused [{$response['code']}]: {$response['msg']}");
             }
 
-            $usdRate = config('services.ignite.usd_to_inr_rate');
+            // $usdRate = config('services.ignite.usd_to_inr_rate');
+            // if (!$usdRate) {
+            //     throw new Exception("Ignite USD to INR rate is not configured. Please set IGNITE_USD_TO_INR_RATE in .env.");
+            // }
+            $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+                ->where('key', 'usd_to_inr')
+                ->value('value');
+
             if (!$usdRate) {
-                throw new Exception("Ignite USD to INR rate is not configured. Please set IGNITE_USD_TO_INR_RATE in .env.");
+                throw new Exception("USD to INR exchange rate is not configured in settings.");
             }
 
             $amountInr = round((float) $response['data']['comm_amount'] * (float) $usdRate, 2);

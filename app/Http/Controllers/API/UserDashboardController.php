@@ -101,6 +101,20 @@ class UserDashboardController extends Controller
 
             $data = $response['data'];
 
+            // Exchange rate from settings (same source as CheckoutService)
+            $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+                ->where('key', 'usd_to_inr')
+                ->value('value') ?: 0;
+
+            $yellowBal = (float) ($data['yellow_bal'] ?? 0);
+            $blueBal   = (float) ($data['blue_bal'] ?? 0);
+            $greenBal  = (float) ($data['green_bal'] ?? 0);
+            $cashBal   = (float) ($data['cash_bal'] ?? 0);
+
+            $yellowValueUsd = $yellowBal * ($yellowBal >= 3 ? 40 : 30);
+            $blueValueUsd   = $blueBal >= 4 ? $blueBal * 12.5 : 0;
+            $greenValueUsd  = floor($greenBal / 6) * 125; // every 6 green = $125
+
             return [
                 'member_id'         => $data['member_id'] ?? null,
                 'ba_id'             => $data['ba_id'] ?? null,
@@ -111,16 +125,33 @@ class UserDashboardController extends Controller
                 'cv_right'          => $data['cv_right'] ?? '0.0000',
                 'floating_cv_left'  => $data['floating_cv_left'] ?? '0.0000',
                 'floating_cv_right' => $data['floating_cv_right'] ?? '0.0000',
-                'pending_cv_note' => 'Settles on the settlement week shown per order',
+                'pending_cv_note'   => 'Settles on the settlement week shown per order',
                 'total_cv_left'     => $data['total_cv_left'] ?? '0.0000',
                 'total_cv_right'    => $data['total_cv_right'] ?? '0.0000',
-                'cash_bal'          => $data['cash_bal'] ?? '0.0000',
-                'green_bal'         => $data['green_bal'] ?? '0.0000',
-                'green_note' => 'Every 6 Green Coins = $125 (automatic Saturday settlement)',
-                'yellow_bal'        => $data['yellow_bal'] ?? '0.0000',
-                'yellow_value_usd' => $data['yellow_bal'] * ($data['yellow_bal'] >= 3 ? 40 : 30),
-                'blue_bal'          => $data['blue_bal'] ?? '0.0000',
-                'blue_value_usd' => $data['blue_bal'] >= 4 ? $data['blue_bal'] * 12.5 : 0,
+
+                // Cash balance
+                'cash_bal'          => $cashBal,
+                'cash_bal_inr'      => round($cashBal * $usdRate, 2),
+
+                // Green coins (auto-settle: every 6 = $125)
+                'green_bal'         => $greenBal,
+                'green_value_usd'   => round($greenValueUsd, 2),
+                'green_value_inr'   => round($greenValueUsd * $usdRate, 2),
+                'green_note'        => 'Every 6 Green Coins = $125 (automatic Saturday settlement)',
+
+                // Yellow coins (1-2 = $30, 3+ = $40)
+                'yellow_bal'        => $yellowBal,
+                'yellow_value_usd'  => round($yellowValueUsd, 2),
+                'yellow_value_inr'  => round($yellowValueUsd * $usdRate, 2),
+
+                // Blue coins (4+ = $12.50)
+                'blue_bal'          => $blueBal,
+                'blue_value_usd'    => round($blueValueUsd, 2),
+                'blue_value_inr'    => round($blueValueUsd * $usdRate, 2),
+
+                // Rate used for conversion
+                'exchange_rate'     => $usdRate,
+
                 'membership_status' => $data['membership_status'] ?? null,
                 'total_steps'       => $data['total_steps'] ?? 0,
                 'qualified_at'      => $data['qualified_at'] ?? null,
@@ -128,6 +159,10 @@ class UserDashboardController extends Controller
                 'placement_leg'     => $data['binary_side'] ?? null,
             ];
         } catch (\Exception $e) {
+            \Log::warning('Ignite memberDetails failed', [
+                'ba_id' => $baId,
+                'error' => $e->getMessage(),
+            ]);
             return null;
         }
     }
