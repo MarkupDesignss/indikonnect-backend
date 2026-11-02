@@ -2901,32 +2901,32 @@ class CheckoutService
     /**
      * Build reversal payload for Commission API (FR-CM-009)
      */
-    protected function buildReversalPayload(Order $order, string $reason): array
-    {
-        $user = $order->user;
+    // protected function buildReversalPayload(Order $order, string $reason): array
+    // {
+    //     $user = $order->user;
 
-        $lines = $order->lines->map(function ($line) {
-            return [
-                'productIdentifier' => $line->product->product_code,
-                'quantity' => $line->quantity,
-                'unitPriceCharged' => $line->unit_price,
-                'taxCategory' => $line->product->taxCategory?->name ?? 'GST-18',
-            ];
-        })->toArray();
+    //     $lines = $order->lines->map(function ($line) {
+    //         return [
+    //             'productIdentifier' => $line->product->product_code,
+    //             'quantity' => $line->quantity,
+    //             'unitPriceCharged' => $line->unit_price,
+    //             'taxCategory' => $line->product->taxCategory?->name ?? 'GST-18',
+    //         ];
+    //     })->toArray();
 
-        return [
-            'eventId' => 'evt_' . Str::random(24),
-            'action' => 'REVERSAL',
-            'orderReference' => $order->order_reference,
-            'reason' => $reason,
-            'lines' => $lines,
-            'reversedValue' => (float) $order->total_payable,
-            'originalCv' => (float) ($order->commissionable_volume ?? 0),
-            'purchaserIdentifier' => $user->distributor_id ?? (string) $user->id,
-            'accountType' => $user->isDistributor() ? 'DISTRIBUTOR' : 'CUSTOMER',
-            'eventTimestamp' => now()->toIso8601String(),
-        ];
-    }
+    //     return [
+    //         'eventId' => 'evt_' . Str::random(24),
+    //         'action' => 'REVERSAL',
+    //         'orderReference' => $order->order_reference,
+    //         'reason' => $reason,
+    //         'lines' => $lines,
+    //         'reversedValue' => (float) $order->total_payable,
+    //         'originalCv' => (float) ($order->commissionable_volume ?? 0),
+    //         'purchaserIdentifier' => $user->distributor_id ?? (string) $user->id,
+    //         'accountType' => $user->isDistributor() ? 'DISTRIBUTOR' : 'CUSTOMER',
+    //         'eventTimestamp' => now()->toIso8601String(),
+    //     ];
+    // }
 
     /**
      * FR-CM-009: Cancel an order and queue reversal event
@@ -3158,6 +3158,23 @@ class CheckoutService
 
         return max(0, (float) $order->amount_paid - (float) $alreadyRefunded);
     }
+
+    /**
+     * Cancel a specific order line and generate a line-wise reversal event.
+     *
+     * Ignite processes orders and cancellations per-line. Therefore, the local 
+     * CommissionApiEvent reversal must also be created per-line, not per-order.
+     *
+     * @param int         $userId          The ID of the user requesting cancellation.
+     * @param string      $orderReference  The unique reference of the parent order.
+     * @param int         $orderLineId     The ID of the specific line to cancel.
+     * @param string      $reason          The reason for cancellation.
+     * @param float|null  $refundAmount    Optional specific refund amount. Defaults to line total.
+     * @param string|null $adminNotes      Optional notes from the admin approving the cancel.
+     * @param int|null    $approvedBy      Optional ID of the admin approving the cancel.
+     * @return array                       Result summary of the cancellation.
+     * @throws \Exception                  If line is already cancelled, or refund amount is invalid.
+     */
     public function cancelOrder(
         int $userId,
         string $orderReference,
@@ -3167,7 +3184,6 @@ class CheckoutService
         ?string $adminNotes = null,
         ?int $approvedBy = null
     ): array {
-        // Find the specific order line
         $orderLine = OrderLine::where('id', $orderLineId)
             ->whereHas('order', function ($query) use ($userId, $orderReference) {
                 $query->where('order_reference', $orderReference)
@@ -3178,50 +3194,28 @@ class CheckoutService
 
         $order = $orderLine->order;
 
-        // Check if line is already cancelled
         if ($orderLine->delivery_status === 'cancelled') {
             throw new \Exception('This item is already cancelled');
         }
 
-        // Validate refund amount BEFORE entering transaction
         if ($refundAmount !== null) {
             $refundable = $this->getRefundableAmount($order);
-
-            if ($refundAmount < 0) {
-                throw new \Exception('Refund amount cannot be negative');
-            }
-
+            if ($refundAmount < 0) throw new \Exception('Refund amount cannot be negative');
             if ($refundAmount > $refundable) {
-                throw new \Exception(
-                    "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}) for order {$order->order_reference}"
-                );
+                throw new \Exception("Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}) for order {$order->order_reference}");
             }
         }
 
-        DB::transaction(function () use (
-            $orderLine,
-            $order,
-            $reason,
-            $refundAmount,
-            $adminNotes,
-            $approvedBy
-        ) {
-            // Update order line status
+        DB::transaction(function () use ($orderLine, $order, $reason, $refundAmount, $adminNotes, $approvedBy) {
+            
+            // 1. Mark the specific line as cancelled
             $orderLine->update([
                 'delivery_status'     => 'cancelled',
                 'cancelled_at'        => now(),
                 'cancellation_reason' => $reason,
             ]);
 
-            // Restore stock for this specific line
-            // if ($orderLine->variant_id && $orderLine->variant) {
-            //     $orderLine->variant->increment('stock_quantity', $orderLine->quantity);
-            //     $orderLine->product->increment('stock_quantity', $orderLine->quantity);
-            // } else {
-            //     $orderLine->product->increment('stock_quantity', $orderLine->quantity);
-            // }
-
-            // Create stock movement
+            // 2. Restore inventory via Stock Movement
             StockMovement::create([
                 'product_id'               => $orderLine->product_id,
                 'quantity'                 => $orderLine->quantity,
@@ -3231,73 +3225,52 @@ class CheckoutService
                 'order_line_id'            => $orderLine->id,
             ]);
 
-            // Check if ALL order lines are cancelled
-            $allCancelled = $order->lines()
-                ->where('delivery_status', '!=', 'cancelled')
-                ->doesntExist();
-            // Update order status if all items are cancelled
+            // 3. Create line-wise reversal event for Commission API
+            // This aligns with Ignite's line-wise cancellation logic.
+            $lineReversalPayload = $this->buildLineReversalPayload($orderLine, $reason);
+            CommissionApiEvent::create([
+                'event_type'    => 'reversal',
+                'order_id'      => $order->id,
+                'payload'       => $lineReversalPayload,
+                'status'        => 'pending',
+                'retry_count'   => 0,
+                'max_retries'   => 5,
+                'last_attempt'  => null,
+                'error_message' => null,
+                'response_data' => null,
+            ]);
+
+            // 4. Check if the entire order is now cancelled
+            $allCancelled = $order->lines()->where('delivery_status', '!=', 'cancelled')->doesntExist();
+
             if ($allCancelled) {
                 $order->update([
                     'status'       => 'cancelled',
                     'cancelled_at' => now(),
                 ]);
 
-                // Process refund if order was paid
                 if ($order->amount_paid > 0) {
                     $this->returnService->processRefundForOrder(
-                        $order,
-                        $orderLine->id ?? null,
-                        $reason,
-                        $refundAmount,
-                        $adminNotes,
-                        $approvedBy
+                        $order, $orderLine->id ?? null, $reason, $refundAmount, $adminNotes, $approvedBy
                     );
                 }
-                // Create reversal event for full order
-                $payload = $this->buildReversalPayload($order, $reason);
-                CommissionApiEvent::create([
-                    'event_type'    => 'reversal',
-                    'order_id'      => $order->id,
-                    'payload'       => $payload,
-                    'status'        => 'pending',
-                    'retry_count'   => 0,
-                    'max_retries'   => 5,
-                    'last_attempt'  => null,
-                    'error_message' => null,
-                    'response_data' => null,
-                ]);
 
                 Log::info('Order fully cancelled as all items were cancelled', [
-                    'order'         => $order->order_reference,
-                    'reason'        => $reason,
-                    'refund_amount' => $refundAmount,
+                    'order' => $order->order_reference, 'reason' => $reason, 'refund_amount' => $refundAmount,
                 ]);
             } else {
-                // Process partial refund for this specific line
                 if ($orderLine->line_total > 0 || $refundAmount > 0) {
-                    $this->processPartialRefund(
-                        $order,
-                        $orderLine,
-                        $reason,
-                        $refundAmount,
-                        $adminNotes,
-                        $approvedBy
-                    );
+                    $this->processPartialRefund($order, $orderLine, $reason, $refundAmount, $adminNotes, $approvedBy);
                 }
 
                 Log::info('Order line cancelled', [
-                    'order'           => $order->order_reference,
-                    'order_line_id'   => $orderLine->id,
-                    'reason'          => $reason,
-                    'refund_amount'   => $refundAmount,
-                    'remaining_items' => $order->lines()
-                        ->where('delivery_status', '!=', 'cancelled')
-                        ->count(),
+                    'order' => $order->order_reference, 'order_line_id' => $orderLine->id,
+                    'reason' => $reason, 'refund_amount' => $refundAmount,
+                    'remaining_items' => $order->lines()->where('delivery_status', '!=', 'cancelled')->count(),
                 ]);
             }
         });
 
-        // Reload order to get updated status
         $order->refresh();
         $orderLine->refresh();
 
@@ -3311,6 +3284,44 @@ class CheckoutService
             'all_items_cancelled' => $order->status === 'cancelled',
         ];
     }
+
+    /**
+     * Build a line-specific reversal payload for the Commission API.
+     *
+     * Unlike order-wise reversal, this payload targets only the cancelled line's
+     * CV and monetary value, matching Ignite's line-wise architecture.
+     *
+     * @param OrderLine $orderLine The specific order line being reversed.
+     * @param string    $reason    The reason for cancellation.
+     * @return array               The structured payload for CommissionApiEvent.
+     */
+    protected function buildLineReversalPayload(OrderLine $orderLine, string $reason): array
+    {
+        $order = $orderLine->order;
+        $user  = $order->user;
+
+        $lineCv = (float) ($orderLine->ignite_cv_posted ?? $orderLine->commissionable_volume ?? 0);
+
+        return [
+            'eventId'             => 'evt_' . Str::random(24),
+            'action'              => 'REVERSAL',
+            'orderReference'      => $order->order_reference,
+            'orderLineId'         => $orderLine->id,
+            'productIdentifier'   => $orderLine->product?->product_code,
+            'productName'         => $orderLine->product?->name,
+            'quantity'            => (int) $orderLine->quantity,
+            'unitPriceCharged'    => (float) $orderLine->unit_price,
+            'lineTotal'           => (float) $orderLine->line_total,
+            'reversedValue'       => (float) $orderLine->line_total,
+            'originalCv'          => $lineCv,
+            'igniteOrderNo'       => $orderLine->ignite_order_no,
+            'reason'              => $reason,
+            'purchaserIdentifier' => $user?->distributor_id ?? (string) $order->user_id,
+            'accountType'         => $user?->isDistributor() ? 'DISTRIBUTOR' : 'CUSTOMER',
+            'eventTimestamp'      => now()->toIso8601String(),
+        ];
+    }
+    
 
     // protected function processPartialRefund(Order $order, OrderLine $orderLine, string $reason): void
     // {
