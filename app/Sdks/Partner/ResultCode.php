@@ -12,7 +12,7 @@ namespace App\Sdks\Partner;
  *   Node, tracking center (TC)  one position in the binary tree. A member registers with three:
  *                               -001 (the main account), -002 and -003. An extra TC is a further
  *                               node an order earns, numbered -004 onward.
- *   BA ID                       a node's id: the member's code plus the node number, e.g. DIA7918383-001.
+ *   BA ID                       a node's id: the member's code plus the node number, e.g. AIA7918383-001.
  *   Sponsor                     the member who brought the new member in. Sets the unilevel tree.
  *   Binary tree                 every node has one left and one right slot. CV landing on a node
  *                               climbs to every node above it, and commission pays on the CV each
@@ -22,7 +22,7 @@ namespace App\Sdks\Partner;
  *   Qualified                   a node holding the plan's qualify_cv (planRanks) from its owner's own
  *                               purchases. Until the -001 qualifies, the member buys at retail price.
  *   Sales week                  the week `ordered_at` falls in. The order's CV pays out in a later
- *                               settlement week, after the country's sales delay, in the Saturday run.
+ *                               settlement week, after the country's sales delay, in the Saturday settlement.
  */
 enum ResultCode: int
 {
@@ -41,7 +41,7 @@ enum ResultCode: int
     /**
      * No member of this partner holds the BA ID. A call reads or acts on the partner's own
      * members only, and a buyer or sponsor must be a main account (-001). A sponsor or
-     * placement target may belong to anyone, and so may the member setPlacement seats when a
+     * placement parent may belong to anyone, and so may the member setPlacement seats when a
      * main account of this partner recruited it.
      */
     case MEMBER_NOT_FOUND = 3001;
@@ -58,20 +58,24 @@ enum ResultCode: int
     /**
      * The member's placement window is closed. A sponsor may choose a new member's position until
      * Wednesday 00:00 (UTC+8) of the sales week after registration. Ignite then seats the member itself,
-     * at the far end of the sponsor -001's weaker leg by lifetime CV, and only an Ignite admin can move it.
+     * at the far end of the sponsor -001's weaker leg by lifetime CV, and only Ignite operations can move it.
      */
     case PLACEMENT_DEADLINE_PASSED = 4001;
     /**
-     * The chosen parent and side is not a legal position. This call placed nothing. `msg` names the rule:
-     * - a member is placed once; moving a placed member is an Ignite admin correction. A retried
-     *   setPlacement whose first attempt succeeded lands here: memberDetails shows the seat
-     * - a -002 or -003 node sits under its own -001 and moves only with it
-     * - sponsor and chosen parent both hold a binary position
-     * - the parent is the sponsor or a node in the sponsor's binary downline
+     * The placement parent and side is not a legal position. This call placed nothing. `msg` names the rule:
+     * - a member is placed once; moving a placed member is a correction by Ignite operations. A retried
+     *   setPlacement whose first attempt succeeded lands here: memberDetails shows the seat. A retried
+     *   placeBankedTc whose first attempt succeeded lands here too, or on TC_BANK_EMPTY when that attempt
+     *   took the last banked TC: memberDetails tc_bank_available shows the drop
+     * - a -002 or -003 sits under its own -001 and moves only with it
+     * - sponsor and placement parent both hold a binary position; on placeBankedTc, the main account does
+     * - the placement parent is the sponsor or a node in the sponsor's binary downline
      * - each node has one left and one right slot; a taken slot refuses, and so does one held by an
      *   unpaid order on Ignite
      */
     case PLACEMENT_REFUSED = 4002;
+    /** The main account holds no extra TC in its TC Bank. memberDetails tc_bank_available reads 0. */
+    case TC_BANK_EMPTY = 4003;
 
     /**
      * The partner_order_ref was already received, so the order exists on Ignite. `data.order_no` names it. Treat as success.
@@ -91,7 +95,7 @@ enum ResultCode: int
     /** An allocation names a `ba_id` that is not one of the buyer's nodes, or an `extra_tc` index with no extra TC in the order. */
     case ALLOCATION_TARGET_INVALID = 5004;
     /**
-     * The -001 node got the wrong amount. A member's first qualify_cv of own-purchase CV goes to the -001,
+     * The -001 got the wrong amount. A member's first qualify_cv of own-purchase CV goes to the -001,
      * across all their orders, and qualifies it. So the -001 takes exactly qualify_cv minus its cv_allocated
      * (memberDetails), or the whole order's CV when that is smaller; a qualified -001 takes none.
      * qualify_cv 300, 180 already on the -001, order CV 400: the -001 takes exactly 120.
@@ -101,12 +105,13 @@ enum ResultCode: int
     /**
      * The order asks for more extra TCs than it earns. An order earns them only when it leaves the -001,
      * -002 and -003 all qualified. The CV left after qualifying them buys one extra TC per base_product_cv
-     * (planRanks), rounded down. An earned extra TC not requested is lost. `msg` gives the count earned.
+     * (planRanks), rounded down. An earned extra TC not requested goes to the member's TC Bank, and
+     * placeBankedTc places it. `msg` gives the count earned.
      */
     case EXTRA_TC_OVER_ENTITLEMENT = 5006;
     /**
-     * An extra TC's parent is outside the buyer's own network. The parent must be a placed node that is
-     * the buyer or sits in the buyer's binary downline.
+     * An extra TC's parent is outside the buyer's own network, on createOrder and placeBankedTc. The parent
+     * must be a placed node that is the buyer or sits in the buyer's binary downline.
      */
     case EXTRA_TC_PARENT_INVALID = 5007;
     /** No week in Ignite's sales calendar holds `ordered_at`, or the later week its CV pays out in. The calendar is Ignite's to extend. */
@@ -116,8 +121,8 @@ enum ResultCode: int
     /** The order is cancelled already. `data.order_no` names it. Treat as success. */
     case ORDER_ALREADY_CANCELLED = 5011;
     /**
-     * Another write still holds the binary tree after a 4-second wait. Nothing was written, and the same call can be sent again.
-     * On cancelOrder and redeemCoin: the Saturday commission run, up to an hour; retry every 30 seconds.
+     * Another write holds the network. Nothing was written, and the same call can be sent again.
+     * On cancelOrder, redeemCoin and setAllowWithdraw: the Saturday settlement, up to an hour; retry every 30 seconds.
      * On a placement: another placement on the same member or slot; a retry after it finishes can succeed.
      */
     case NETWORK_BUSY = 5013;
@@ -133,14 +138,14 @@ enum ResultCode: int
      */
     case CV_ORIGINALS_FIRST = 5015;
     /**
-     * An Ignite operator has switched ordering off on the buyer's account. Nothing was written, and the
+     * Ignite operations switched ordering off on the buyer's account. Nothing was written, and the
      * payment stays on the partner's side. Retry only once Ignite confirms the switch is back on.
      */
     case ORDER_DISABLED = 5017;
 
     /**
-     * No export file by this name. Ignite writes a week's files once the Saturday run has settled
-     * the week, so a week not yet settled has none. exportList names every file there is.
+     * No export file by this name. Ignite writes a week's files once its Saturday settlement
+     * finishes, so a week not yet settled has none. exportList names every file there is.
      */
     case EXPORT_NOT_FOUND = 6001;
 
@@ -158,11 +163,12 @@ enum ResultCode: int
             self::REDEMPTION_IN_PROGRESS => 'Redemption in progress',
             self::PLACEMENT_DEADLINE_PASSED => 'Placement deadline passed',
             self::PLACEMENT_REFUSED => 'Placement refused',
+            self::TC_BANK_EMPTY => 'TC Bank empty',
             self::ORDER_DUPLICATE => 'Order already received',
             self::PRODUCT_NOT_ON_CATALOG => 'Product not on sale on the partner catalog',
             self::CV_ALLOCATION_MISMATCH => 'CV allocation does not equal order CV',
             self::ALLOCATION_TARGET_INVALID => 'Allocation target is not a node of the buyer',
-            self::CV_001_MISMATCH => 'Wrong CV allocation to the -001 node',
+            self::CV_001_MISMATCH => 'Wrong CV allocation to the -001',
             self::EXTRA_TC_OVER_ENTITLEMENT => 'More extra TCs than the order earns',
             self::EXTRA_TC_PARENT_INVALID => 'Extra TC parent outside the buyer network',
             self::ORDER_WEEK_UNKNOWN => 'Order date outside the sales calendar',
@@ -170,7 +176,7 @@ enum ResultCode: int
             self::ORDER_ALREADY_CANCELLED => 'Order already cancelled',
             self::NETWORK_BUSY => 'Network update in progress',
             self::ORDER_NO_CV => 'Order carries no CV',
-            self::CV_ORIGINALS_FIRST => 'The 002 and 003 nodes take CV first',
+            self::CV_ORIGINALS_FIRST => 'The -002 and -003 take CV first',
             self::ORDER_DISABLED => 'Ordering disabled on this account',
             self::EXPORT_NOT_FOUND => 'Export file not found',
         };
