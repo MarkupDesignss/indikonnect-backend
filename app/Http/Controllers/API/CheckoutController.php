@@ -105,22 +105,23 @@ class CheckoutController extends Controller
     {
         try {
             $validated = $request->validate([
-                'address_id' => 'nullable|exists:addresses,id,user_id,' . auth()->id(),
-                'coupon_code' => 'nullable|string|max:50',
-                'coins' => 'nullable|integer|min:0',
+                'address_id'     => 'nullable|exists:addresses,id,user_id,' . auth()->id(),
+                'coupon_code'    => 'nullable|string|max:50',
+
+                // Coin redemption (replaces coins)
+                'redemption_id'  => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id(),
 
                 // Buy Now
-                'product_id' => 'nullable|exists:products,id',
-                'variant_id' => 'nullable|exists:product_variants,id',
-                'quantity' => 'nullable|integer|min:1',
+                'product_id'     => 'nullable|exists:products,id',
+                'variant_id'     => 'nullable|exists:product_variants,id',
+                'quantity'       => 'nullable|integer|min:1',
             ]);
 
             // Buy Now validation
-            $hasProduct = isset($validated['product_id']);
-            $hasVariant = isset($validated['variant_id']);
+            $hasProduct  = isset($validated['product_id']);
+            $hasVariant  = isset($validated['variant_id']);
             $hasQuantity = isset($validated['quantity']);
 
-            // If product_id or variant_id is provided, quantity is required
             if (($hasProduct || $hasVariant) && !$hasQuantity) {
                 return response()->json([
                     'success' => false,
@@ -128,7 +129,6 @@ class CheckoutController extends Controller
                 ], 422);
             }
 
-            // Product and variant cannot be provided together
             if ($hasProduct && $hasVariant) {
                 return response()->json([
                     'success' => false,
@@ -136,26 +136,22 @@ class CheckoutController extends Controller
                 ], 422);
             }
 
-            // Get or find address
             $addressId = $validated['address_id'] ?? null;
-
-            // Buy Now if product_id or variant_id is provided
-            $isBuyNow = $hasProduct || $hasVariant;
+            $isBuyNow  = $hasProduct || $hasVariant;
 
             $summary = $this->checkoutService->calculateSummary(
                 auth()->id(),
-                $addressId,
-                $validated['coupon_code'] ?? null,
+                isset($validated['address_id'])    ? (int) $validated['address_id']    : null,
+                $validated['coupon_code']   ?? null,
                 null,
-                $validated['coins'] ?? null,
-                $validated['product_id'] ?? null,
-                $validated['variant_id'] ?? null,
-                $validated['quantity'] ?? null
+                isset($validated['redemption_id']) ? (int) $validated['redemption_id'] : null,
+                isset($validated['product_id'])    ? (int) $validated['product_id']    : null,
+                isset($validated['variant_id'])    ? (int) $validated['variant_id']    : null,
+                isset($validated['quantity'])      ? (int) $validated['quantity']      : null
             );
 
             return response()->json([
                 'success' => true,
-
                 'data' => array_merge($summary, [
                     'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
                 ]),
@@ -164,7 +160,7 @@ class CheckoutController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid parameters provided',
-                'errors' => $e->errors(),
+                'errors'  => $e->errors(),
             ], 422);
         } catch (Exception $e) {
             return response()->json([
@@ -329,17 +325,18 @@ class CheckoutController extends Controller
     /**
      * FR-CO-005: Place order and initiate Razorpay payment
      */
-
     // public function placeOrder(Request $request): JsonResponse
     // {
     //     $validated = $request->validate([
     //         'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
     //         'grand_total' => 'required|numeric|min:0',
-    //         'payment_gateway' => 'required|in:razorpay,hdfc_sg,hdfc_ie,axispg',
+    //         'payment_gateway' => 'required|in:razorpay,hdfc_sg,hdfc_ie',
 
-    //         'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id(),
+    //         'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id() . ',status,authorized',
+
     //         'checkout_type' => 'nullable|in:cart,buy_now',
 
+    //         // Buy Now items
     //         'summary_data' => 'required|array',
     //         'summary_data.items' => 'required_if:checkout_type,buy_now|array|min:1',
     //         'summary_data.items.*.product_id' => 'required_if:checkout_type,buy_now|integer|exists:products,id',
@@ -370,13 +367,8 @@ class CheckoutController extends Controller
 
     //         return response()->json([
     //             'success' => true,
-    //             'data' => array_merge($result, [
-    //                 'reservation_expires_at'  => $result['reservation_expires_at'] ?? null,
-    //                 'reservation_ttl_seconds' => 300,
-    //             ]),
+    //             'data' => $result,
     //         ]);
-    //     } catch (\ValidationException $e) {
-    //         throw $e;
     //     } catch (\Exception $e) {
     //         return response()->json([
     //             'success' => false,
@@ -384,68 +376,54 @@ class CheckoutController extends Controller
     //         ], 400);
     //     }
     // }
-    public function summary(Request $request)
+    public function placeOrder(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'address_id' => 'required|exists:addresses,id,user_id,' . auth()->id(),
+            'grand_total' => 'required|numeric|min:0',
+            'payment_gateway' => 'required|in:razorpay,hdfc_sg,hdfc_ie,axispg',
+
+            'redemption_id' => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id(),
+            'checkout_type' => 'nullable|in:cart,buy_now',
+
+            'summary_data' => 'required|array',
+            'summary_data.items' => 'required_if:checkout_type,buy_now|array|min:1',
+            'summary_data.items.*.product_id' => 'required_if:checkout_type,buy_now|integer|exists:products,id',
+            'summary_data.items.*.quantity' => 'required_if:checkout_type,buy_now|integer|min:1',
+            'summary_data.items.*.variant_id' => 'nullable|integer|exists:product_variants,id',
+
+            'summary_data.subtotal' => 'sometimes|numeric|min:0',
+            'summary_data.total_tax' => 'sometimes|numeric|min:0',
+            'summary_data.coupon_code' => 'nullable|string|max:50',
+            'summary_data.coupon_discount' => 'nullable|numeric|min:0',
+            'summary_data.shipping_charge' => 'nullable|numeric|min:0',
+            'summary_data.shipping_method_id' => 'nullable|exists:shipping_methods,id',
+            'summary_data.coin_redeemed' => 'nullable|numeric|min:0',
+            'summary_data.amount_redeemed' => 'nullable|numeric|min:0',
+            'summary_data.net_subtotal' => 'nullable|numeric|min:0',
+
+            'summary_data.tax_breakdown' => 'sometimes|array',
+            'summary_data.tax_breakdown.*.product_name' => 'required_with:summary_data.tax_breakdown|string|max:255',
+            'summary_data.tax_breakdown.*.tax_category' => 'required_with:summary_data.tax_breakdown|string|max:100',
+            'summary_data.tax_breakdown.*.rate' => 'required_with:summary_data.tax_breakdown|min:0',
+        ]);
+
         try {
-            $validated = $request->validate([
-                'address_id'     => 'nullable|exists:addresses,id,user_id,' . auth()->id(),
-                'coupon_code'    => 'nullable|string|max:50',
-
-                // Coin redemption (replaces coins)
-                'redemption_id'  => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id(),
-
-                // Buy Now
-                'product_id'     => 'nullable|exists:products,id',
-                'variant_id'     => 'nullable|exists:product_variants,id',
-                'quantity'       => 'nullable|integer|min:1',
-            ]);
-
-            // Buy Now validation
-            $hasProduct  = isset($validated['product_id']);
-            $hasVariant  = isset($validated['variant_id']);
-            $hasQuantity = isset($validated['quantity']);
-
-            if (($hasProduct || $hasVariant) && !$hasQuantity) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Quantity is required for Buy Now.',
-                ], 422);
-            }
-
-            if ($hasProduct && $hasVariant) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'You cannot provide both product_id and variant_id.',
-                ], 422);
-            }
-
-            $addressId = $validated['address_id'] ?? null;
-            $isBuyNow  = $hasProduct || $hasVariant;
-
-            $summary = $this->checkoutService->calculateSummary(
-                auth()->id(),
-                isset($validated['address_id'])    ? (int) $validated['address_id']    : null,
-                $validated['coupon_code']   ?? null,
-                null,
-                isset($validated['redemption_id']) ? (int) $validated['redemption_id'] : null,
-                isset($validated['product_id'])    ? (int) $validated['product_id']    : null,
-                isset($validated['variant_id'])    ? (int) $validated['variant_id']    : null,
-                isset($validated['quantity'])      ? (int) $validated['quantity']      : null
+            $result = $this->checkoutService->placeOrder(
+                Auth::user()->id,
+                $validated
             );
 
             return response()->json([
                 'success' => true,
-                'data' => array_merge($summary, [
-                    'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
+                'data' => array_merge($result, [
+                    'reservation_expires_at'  => $result['reservation_expires_at'] ?? null,
+                    'reservation_ttl_seconds' => 300,
                 ]),
             ]);
-        } catch (ValidationException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid parameters provided',
-                'errors'  => $e->errors(),
-            ], 422);
-        } catch (Exception $e) {
+        } catch (\ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
