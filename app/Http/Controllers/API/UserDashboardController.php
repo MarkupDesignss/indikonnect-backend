@@ -106,14 +106,36 @@ class UserDashboardController extends Controller
                 ->where('key', 'usd_to_inr')
                 ->value('value') ?: 0;
 
-            $yellowBal = (float) ($data['yellow_bal'] ?? 0);
-            $blueBal   = (float) ($data['blue_bal'] ?? 0);
-            $greenBal  = (float) ($data['green_bal'] ?? 0);
-            $cashBal   = (float) ($data['cash_bal'] ?? 0);
+            // ============================================================
+            // Priority 2: Dynamic rates from planRanks() instead of hardcoded
+            // ============================================================
+            $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
+                try {
+                    $resp = $this->ignite->planRanks();
+                    return ($resp['code'] ?? null) === ResultCode::OK->value
+                        ? ($resp['data']['plan'] ?? [])
+                        : [];
+                } catch (\Throwable $e) {
+                    \Log::warning('planRanks failed', ['error' => $e->getMessage()]);
+                    return [];
+                }
+            });
 
-            $yellowValueUsd = $yellowBal * ($yellowBal >= 3 ? 40 : 30);
-            $blueValueUsd   = $blueBal >= 4 ? $blueBal * 12.5 : 0;
-            $greenValueUsd  = floor($greenBal / 6) * 125; // every 6 green = $125
+            $yellowSmallRate = (float) ($planResp['yellow_usd_small'] ?? 30);
+            $yellowLargeRate = (float) ($planResp['yellow_usd_large'] ?? 40);
+            $blueRate        = (float) ($planResp['blue_usd']         ?? 12.5);
+            $greenRate       = (float) ($planResp['green_redeem_usd'] ?? 125);
+
+            // Coin balances
+            $yellowBal = (float) ($data['yellow_bal'] ?? 0);
+            $blueBal   = (float) ($data['blue_bal']   ?? 0);
+            $greenBal  = (float) ($data['green_bal']  ?? 0);
+            $cashBal   = (float) ($data['cash_bal']   ?? 0);
+
+            // Coin values using dynamic rates
+            $yellowValueUsd = $yellowBal * ($yellowBal >= 3 ? $yellowLargeRate : $yellowSmallRate);
+            $blueValueUsd   = $blueBal >= 4 ? $blueBal * $blueRate : 0;
+            $greenValueUsd  = floor($greenBal / 6) * $greenRate;
 
             return [
                 'member_id'         => $data['member_id'] ?? null,
@@ -133,18 +155,18 @@ class UserDashboardController extends Controller
                 'cash_bal'          => $cashBal,
                 'cash_bal_inr'      => round($cashBal * $usdRate, 2),
 
-                // Green coins (auto-settle: every 6 = $125)
+                // Green coins (auto-settle: every 6 = $greenRate)
                 'green_bal'         => $greenBal,
                 'green_value_usd'   => round($greenValueUsd, 2),
                 'green_value_inr'   => round($greenValueUsd * $usdRate, 2),
-                'green_note'        => 'Every 6 Green Coins = $125 (automatic Saturday settlement)',
+                'green_note'        => "Every 6 Green Coins = \${$greenRate} (automatic Saturday settlement)",
 
-                // Yellow coins (1-2 = $30, 3+ = $40)
+                // Yellow coins (1-2 = $yellowSmallRate, 3+ = $yellowLargeRate)
                 'yellow_bal'        => $yellowBal,
                 'yellow_value_usd'  => round($yellowValueUsd, 2),
                 'yellow_value_inr'  => round($yellowValueUsd * $usdRate, 2),
 
-                // Blue coins (4+ = $12.50)
+                // Blue coins (4+ = $blueRate)
                 'blue_bal'          => $blueBal,
                 'blue_value_usd'    => round($blueValueUsd, 2),
                 'blue_value_inr'    => round($blueValueUsd * $usdRate, 2),
@@ -157,6 +179,19 @@ class UserDashboardController extends Controller
                 'qualified_at'      => $data['qualified_at'] ?? null,
                 'is_placed'         => $data['is_placed'] ?? !empty($data['binary_parent_id']),
                 'placement_leg'     => $data['binary_side'] ?? null,
+
+                // ============================================================
+                // Priority 3: NEW fields for dashboard widgets
+                // ============================================================
+
+                // TC Bank — for "X extra TCs in bank — place now" widget
+                'tc_bank_available' => (int) ($data['tc_bank_available'] ?? 0),
+
+                // Far leg ends — for "Left leg end: AIA..." / "Right leg end: AIA..."
+                'far_left_id'       => $data['far_left_id']       ?? null,
+                'far_left_ba_id'    => $data['far_left_ba_id']    ?? null,
+                'far_right_id'      => $data['far_right_id']      ?? null,
+                'far_right_ba_id'   => $data['far_right_ba_id']   ?? null,
             ];
         } catch (\Exception $e) {
             \Log::warning('Ignite memberDetails failed', [
