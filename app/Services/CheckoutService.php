@@ -73,7 +73,6 @@ class CheckoutService
     /**
      * FR-CO-003: Calculate order summary
      */
-
     // public function calculateSummary(
     //     int $userId,
     //     int $addressId = null,
@@ -96,10 +95,10 @@ class CheckoutService
     //     $user = User::findOrFail($userId);
 
     //     /*
-    // |--------------------------------------------------------------------------
-    // | Cart / Buy Now
-    // |--------------------------------------------------------------------------
-    // */
+    //     |--------------------------------------------------------------------------
+    //     | Cart / Buy Now
+    //     |--------------------------------------------------------------------------
+    //     */
 
     //     $isBuyNow = $buyNowProductId !== null || $buyNowVariantId !== null;
 
@@ -169,10 +168,10 @@ class CheckoutService
     //     }
 
     //     /*
-    // |--------------------------------------------------------------------------
-    // | Calculate Subtotal
-    // |--------------------------------------------------------------------------
-    // */
+    //     |--------------------------------------------------------------------------
+    //     | Calculate Subtotal
+    //     |--------------------------------------------------------------------------
+    //     */
 
     //     $subtotal = 0;
     //     $productDetails = [];
@@ -240,6 +239,10 @@ class CheckoutService
     //         $lineTotal = $unitPrice * $item->quantity;
     //         $subtotal += $lineTotal;
 
+    //         // Per-product shipping charge
+    //         $productShippingCharge = $item->product->shipping_charge ?? 0;
+    //         $lineShippingCharge = $productShippingCharge * $item->quantity;
+
     //         $productDetails[] = [
     //             'item' => $item,
     //             'has_variant' => $hasVariant,
@@ -252,14 +255,16 @@ class CheckoutService
     //             'taxCategoryName' => $item->product->taxCategory?->name ?? 'No Tax',
     //             'images' => $hasVariant ? $variantImages : $productImages,
     //             'primary_image' => $hasVariant ? $primaryImageUrl : $primaryImageUrl,
+    //             'product_shipping_charge' => $productShippingCharge,
+    //             'line_shipping_charge' => $lineShippingCharge,
     //         ];
     //     }
 
     //     /*
-    // |--------------------------------------------------------------------------
-    // | Coupon
-    // |--------------------------------------------------------------------------
-    // */
+    //     |--------------------------------------------------------------------------
+    //     | Coupon
+    //     |--------------------------------------------------------------------------
+    //     */
 
     //     $couponDiscount = 0;
     //     $couponData = null;
@@ -286,54 +291,53 @@ class CheckoutService
     //         }
     //     }
 
-    //     /*
-    // |--------------------------------------------------------------------------
-    // | Subtotal After Discount
-    // |--------------------------------------------------------------------------
-    // */
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Subtotal After Discount
+    //     |--------------------------------------------------------------------------
+    //     */
 
     //     $subtotalAfterDiscount = $subtotal - $couponDiscount;
 
     //     /*
-    // |--------------------------------------------------------------------------
-    // | Shipping
-    // |--------------------------------------------------------------------------
-    // */
+    //     |--------------------------------------------------------------------------
+    //     | Shipping (Based on Product's Shipping Charge)
+    //     |--------------------------------------------------------------------------
+    //     */
 
     //     $shippingCost = 0;
     //     $shippingData = null;
+    //     $shippingBreakdown = [];
 
-    //     if ($shippingMethodId) {
-    //         $shippingMethod = ShippingMethod::find($shippingMethodId);
+    //     foreach ($productDetails as $product) {
+    //         $unitShipping = $product['product_shipping_charge'];
+    //         $qty = $product['item']->quantity;
+    //         $lineShipping = $product['line_shipping_charge'];
+    //         $shippingCost += $lineShipping;
 
-    //         if ($shippingMethod && $shippingMethod->is_active) {
-    //             if ($shippingMethod->min_order_amount && $subtotalAfterDiscount < $shippingMethod->min_order_amount) {
-    //                 throw new Exception("Minimum order amount for this shipping method is ₹" . $shippingMethod->min_order_amount);
-    //             }
+    //         $shippingBreakdown[] = [
+    //             'product_id' => $product['item']->product_id,
+    //             'product_name' => $product['item']->product->name,
+    //             'variant_id' => $product['variant_id'] ?? null,
+    //             'variant_sku' => $product['variant_sku'] ?? null,
+    //             'quantity' => $qty,
+    //             'shipping_charge_per_unit' => round($unitShipping, 2),
+    //             'total_shipping_charge' => round($lineShipping, 2),
+    //         ];
+    //     }
 
-    //             if ($shippingMethod->max_order_amount && $subtotalAfterDiscount > $shippingMethod->max_order_amount) {
-    //                 throw new Exception("Order amount exceeds maximum limit for this shipping method");
-    //             }
-
-    //             $shippingCost = $this->calculateShippingCost($shippingMethod, $subtotalAfterDiscount);
-
-    //             $shippingData = [
-    //                 'id' => $shippingMethod->id,
-    //                 'name' => $shippingMethod->name,
-    //                 'code' => $shippingMethod->code,
-    //                 'estimated_days' => $shippingMethod->estimated_days,
-    //                 'cost' => round($shippingCost, 2),
-    //             ];
-    //         } else {
-    //             throw new Exception('Invalid shipping method');
-    //         }
+    //     if ($shippingCost > 0) {
+    //         $shippingData = [
+    //             'name' => 'Product Shipping',
+    //             'cost' => round($shippingCost, 2),
+    //         ];
     //     }
 
     //     /*
-    // |--------------------------------------------------------------------------
-    // | Tax Variables
-    // |--------------------------------------------------------------------------
-    // */
+    //     |--------------------------------------------------------------------------
+    //     | Tax Variables
+    //     |--------------------------------------------------------------------------
+    //     */
 
     //     $productTaxTotal = 0;
     //     $productGstTotal = 0;
@@ -365,12 +369,14 @@ class CheckoutService
 
     //         // Product Information
     //         $productName = $product['item']->product->name;
+    //         $productQuantity = $product['item']->product->stock_quantity;
     //         $productKey = 'product_' . ($index + 1) . '_' . str_replace(' ', '_', strtolower($productName));
 
-    //         // Product Tax Breakdown
+    //         // Product Tax Breakdown (with shipping)
     //         $productTaxBreakdown[$productKey] = [
     //             'product_id' => $product['item']->product_id,
     //             'product_name' => $productName,
+    //             'max_stock' => $productQuantity,
     //             'product_code' => $product['item']->product->product_code,
     //             'variant_id' => $product['variant_id'] ?? null,
     //             'variant_sku' => $product['variant_sku'] ?? null,
@@ -382,6 +388,11 @@ class CheckoutService
     //             'taxable_value' => round($discountedLineTotal, 2),
     //             'tax_amount' => round($taxAmount, 2),
     //             'line_total_after_tax' => round($discountedLineTotal + $taxAmount, 2),
+
+    //             // Shipping info per product
+    //             'shipping_charge_per_unit' => round($product['product_shipping_charge'], 2),
+    //             'total_shipping_charge' => round($product['line_shipping_charge'], 2),
+
     //             'images' => $product['images'],
     //             'primary_image' => $product['primary_image'],
     //         ];
@@ -402,7 +413,7 @@ class CheckoutService
     //             $igst = $taxAmount;
     //         }
 
-    //         // Items With Tax
+    //         // Items With Tax (with shipping)
     //         $itemsWithTax[] = [
     //             'product_id' => $product['item']->product_id,
     //             'product_name' => $product['item']->product->name,
@@ -420,11 +431,16 @@ class CheckoutService
     //             'igst' => round($igst, 2),
     //             'total_tax' => round($taxAmount, 2),
     //             'line_total' => round($discountedLineTotal + $taxAmount, 2),
+
+    //             // Shipping info per product
+    //             'shipping_charge_per_unit' => round($product['product_shipping_charge'], 2),
+    //             'total_shipping_charge' => round($product['line_shipping_charge'], 2),
+
     //             'images' => $product['images'],
     //             'primary_image' => $product['primary_image'],
     //         ];
 
-    //         // Tax Breakdown
+    //         // Tax Breakdown (with shipping)
     //         $taxBreakdown[] = [
     //             'product_name' => $product['item']->product->name,
     //             'variant_sku' => $product['variant_sku'] ?? null,
@@ -434,6 +450,8 @@ class CheckoutService
     //             'cgst' => round($cgst, 2),
     //             'sgst' => round($sgst, 2),
     //             'igst' => round($igst, 2),
+    //             'shipping_charge_per_unit' => round($product['product_shipping_charge'], 2),
+    //             'total_shipping_charge' => round($product['line_shipping_charge'], 2),
     //         ];
 
     //         // Tax By Category
@@ -460,51 +478,65 @@ class CheckoutService
     //     }
 
     //     /*
-    // |--------------------------------------------------------------------------
-    // | Total Tax
-    // |--------------------------------------------------------------------------
-    // */
+    //     |--------------------------------------------------------------------------
+    //     | Total Tax
+    //     |--------------------------------------------------------------------------
+    //     */
 
-    //     $totalTax = $productTaxTotal;
+    //         $totalTax = $productTaxTotal;
 
-    //     /*
-    // |--------------------------------------------------------------------------
-    // | Subtotal + Tax + Shipping
-    // |--------------------------------------------------------------------------
-    // */
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Subtotal + Tax + Shipping
+    //     |--------------------------------------------------------------------------
+    //     */
 
-    //     $subtotalAfterDiscountAndTax = $subtotalAfterDiscount + $totalTax + $shippingCost;
+    //         $subtotalAfterDiscountAndTax = $subtotalAfterDiscount + $totalTax + $shippingCost;
 
-    //     /*
-    // |--------------------------------------------------------------------------
-    // | Coins
-    // |--------------------------------------------------------------------------
-    // */
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Coins
+    //     |--------------------------------------------------------------------------
+    //     */
 
     //     $coinRedemptionData = null;
     //     $coinsUsed = 0;
     //     $amountRedeemed = 0;
     //     $coinBalance = 0;
     //     $maxCoinsRedeemable = 0;
+    //     $coinBreakdown = ['yellow' => 0, 'blue' => 0];
 
-    //     if ($user->isDistributor()) {
-    //         $coinBalance = $this->getCoinBalance($userId);
-    //         $maxCoinsRedeemable = min($coinBalance, floor($subtotalAfterDiscountAndTax / 10));
+    //     if ($user->isDistributor() && !empty($user->distributor_id)) {
+    //         // Get detailed balance from Ignite
+    //         $member = Cache::remember("ignite_member_{$user->distributor_id}", 60, function () use ($user) {
+    //             $resp = app(\App\Sdks\Partner\IgniteClient::class)->memberDetails($user->distributor_id);
+    //             if (($resp['code'] ?? null) !== \App\Sdks\Partner\ResultCode::OK->value) {
+    //                 return [];
+    //             }
+    //             return $resp['data'];
+    //         });
+
+    //         $yellowBal = (int) ($member['yellow_bal'] ?? 0);
+    //         $blueBal   = (int) ($member['blue_bal'] ?? 0);
+
+    //         $coinBreakdown = [
+    //             'yellow' => $yellowBal,
+    //             'blue'   => $blueBal,
+    //         ];
+
+    //         $coinBalance = $yellowBal + $blueBal;
+    //         $maxCoinsRedeemable = $coinBalance;
 
     //         if ($coinsToRedeem != null && $coinsToRedeem > 0) {
     //             if ($coinsToRedeem > $coinBalance) {
     //                 throw new Exception('Insufficient coin balance. You have ' . $coinBalance . ' coins.');
     //             }
 
-    //             if ($coinsToRedeem > $maxCoinsRedeemable) {
-    //                 throw new Exception('Cannot redeem more than ' . $maxCoinsRedeemable . ' coins for this order.');
-    //             }
-
     //             $coinsUsed = $coinsToRedeem;
-    //             $amountRedeemed = $coinsToRedeem * 10;
+    //             $amountRedeemed = $coinsUsed;
 
     //             $coinRedemptionData = [
-    //                 'coins_used' => $coinsUsed,
+    //                 'coins_used'      => $coinsUsed,
     //                 'amount_redeemed' => $amountRedeemed,
     //                 'remaining_coins' => $coinBalance - $coinsUsed,
     //             ];
@@ -512,18 +544,18 @@ class CheckoutService
     //     }
 
     //     /*
-    // |--------------------------------------------------------------------------
-    // | Grand Total
-    // |--------------------------------------------------------------------------
-    // */
+    //     |--------------------------------------------------------------------------
+    //     | Grand Total
+    //     |--------------------------------------------------------------------------
+    //     */
 
-    //     $grandTotal = round($subtotalAfterDiscountAndTax - $amountRedeemed, 2);
+    //         $grandTotal = round($subtotalAfterDiscountAndTax - $amountRedeemed, 2);
 
-    //     /*
-    // |--------------------------------------------------------------------------
-    // | Final Response
-    // |--------------------------------------------------------------------------
-    // */
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Final Response
+    //     |--------------------------------------------------------------------------
+    //     */
 
     //     return [
     //         'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
@@ -542,12 +574,17 @@ class CheckoutService
     //         'total_tax' => round($totalTax, 2),
     //         'tax_by_category' => array_values($taxByCategory),
 
+    //         // Total shipping (single place)
     //         'shipping_cost' => round($shippingCost, 2),
     //         'shipping_method' => $shippingData,
+
+    //         // Per-product shipping breakdown
+    //         'shipping_breakdown' => $shippingBreakdown,
 
     //         'subtotal_after_discount_and_tax' => round($subtotalAfterDiscountAndTax, 2),
 
     //         'coin_balance' => $coinBalance,
+    //         'coin_breakdown' => $coinBreakdown,
     //         'max_coins_redeemable' => $maxCoinsRedeemable,
     //         'coins_used' => $coinsUsed,
     //         'amount_redeemed' => $amountRedeemed,
@@ -581,6 +618,8 @@ class CheckoutService
     //                     'variant_attributes' => $item['variant_attributes'] ?? null,
     //                     'tax_category' => $item['tax_category'],
     //                     'rate' => (float) str_replace('%', '', $item['rate']),
+    //                     'shipping_charge_per_unit' => $item['shipping_charge_per_unit'] ?? 0,
+    //                     'total_shipping_charge' => $item['total_shipping_charge'] ?? 0,
     //                 ];
     //             }, $taxBreakdown),
     //         ],
@@ -591,7 +630,7 @@ class CheckoutService
         int $addressId = null,
         ?string $couponCode = null,
         ?int $shippingMethodId = null,
-        ?int $coinsToRedeem = null,
+        ?int $redemptionId = null,          // <-- changed from coinsToRedeem
         ?int $buyNowProductId = null,
         ?int $buyNowVariantId = null,
         ?int $buyNowQuantity = null
@@ -1012,51 +1051,77 @@ class CheckoutService
     |--------------------------------------------------------------------------
     */
 
+
         $coinRedemptionData = null;
-        $coinsUsed = 0;
-        $amountRedeemed = 0;
-        $coinBalance = 0;
+        $coinsUsed          = 0;
+        $amountRedeemed     = 0;
+        $coinBalance        = 0;
         $maxCoinsRedeemable = 0;
-        $coinBreakdown = ['yellow' => 0, 'blue' => 0];
+        $coinBreakdown      = ['yellow' => 0, 'blue' => 0];
 
-       if ($user->isDistributor() && !empty($user->distributor_id)) {
-        // Get detailed balance from Ignite
-        $member = Cache::remember("ignite_member_{$user->distributor_id}", 60, function () use ($user) {
-            $resp = app(\App\Sdks\Partner\IgniteClient::class)->memberDetails($user->distributor_id);
-            if (($resp['code'] ?? null) !== \App\Sdks\Partner\ResultCode::OK->value) {
-                return [];
-            }
-            return $resp['data'];
-        });
+        if ($user->isDistributor() && !empty($user->distributor_id)) {
 
-        $yellowBal = (int) ($member['yellow_bal'] ?? 0);
-        $blueBal   = (int) ($member['blue_bal'] ?? 0);
+            // Always fetch balance for display
+            $member = Cache::remember("ignite_member_{$user->distributor_id}", 60, function () use ($user) {
+                $resp = app(\App\Sdks\Partner\IgniteClient::class)->memberDetails($user->distributor_id);
+                if (($resp['code'] ?? null) !== \App\Sdks\Partner\ResultCode::OK->value) {
+                    return [];
+                }
+                return $resp['data'];
+            });
 
-        $coinBreakdown = [
-            'yellow' => $yellowBal,
-            'blue'   => $blueBal,
-        ];
+            $yellowBal = (int) ($member['yellow_bal'] ?? 0);
+            $blueBal   = (int) ($member['blue_bal']   ?? 0);
 
-        $coinBalance = $yellowBal + $blueBal;
-        $maxCoinsRedeemable = $coinBalance;
-
-        if ($coinsToRedeem != null && $coinsToRedeem > 0) {
-            if ($coinsToRedeem > $coinBalance) {
-                throw new Exception('Insufficient coin balance. You have ' . $coinBalance . ' coins.');
-            }
-
-            $coinsUsed = $coinsToRedeem;
-            $amountRedeemed = 0; // actual amount comes from applyCoins()
-
-            $coinRedemptionData = [
-                'coins_used'      => $coinsUsed,
-                'amount_redeemed' => $amountRedeemed,
-                'remaining_coins' => $coinBalance - $coinsUsed,
+            $coinBreakdown = [
+                'yellow' => $yellowBal,
+                'blue'   => $blueBal,
             ];
-        }
-    }
 
-    /*
+            $coinBalance        = $yellowBal + $blueBal;
+            $maxCoinsRedeemable = $coinBalance;
+
+            // Apply redemption if provided
+            if ($redemptionId !== null) {
+
+                $redemption = CoinRedemption::where('id', $redemptionId)
+                    ->where('user_id', $userId)
+                    ->first();
+
+                if (!$redemption) {
+                    throw new Exception('Invalid redemption ID');
+                }
+
+                // if (strtolower($redemption->status) !== 'authorized' && strtolower($redemption->status) !== 'pending') {
+                //     throw new Exception('This coin redemption is not in a valid state.');
+                // }
+
+                if (strtolower($redemption->status) === 'authorized') {
+                    throw new Exception('This coin redemption has already been used.');
+                }
+
+                $coinsUsed      = (int) $redemption->coins_used;
+                $amountRedeemed = (float) $redemption->amount_redeemed;
+
+                if ($coinsUsed > $coinBalance) {
+                    throw new Exception(
+                        'Insufficient coin balance. Redemption requires ' .
+                            $coinsUsed . ' coins, available: ' . $coinBalance . '.'
+                    );
+                }
+
+                $coinRedemptionData = [
+                    'redemption_id'   => $redemption->id,
+                    'coins_used'      => $coinsUsed,
+                    'amount_redeemed' => round($amountRedeemed, 2),
+                    'point_type'      => $redemption->point_type,
+                    'status'          => $redemption->status,
+                    'remaining_coins' => $coinBalance - $coinsUsed,
+                ];
+            }
+        }
+
+        /*
     |--------------------------------------------------------------------------
     | Grand Total
     |--------------------------------------------------------------------------
@@ -1261,7 +1326,7 @@ class CheckoutService
         return $this->calculateSummary($userId, $addressId, $couponCode, $shippingMethodId, $coinsToRedeem);
     }
 
-   /**
+    /**
      * Estimate coin redemption (NO Ignite call — only calculation).
      * Actual redemption happens in confirmOrder() after payment success.
      */
@@ -2252,7 +2317,7 @@ class CheckoutService
     /**
      * FR-CO-006: Confirm order via webhook
      */
-    
+
     public function confirmOrder(string|array $orderReferences, array $gatewayData): array
     {
         if (is_string($orderReferences)) {
@@ -2553,7 +2618,7 @@ class CheckoutService
         }
 
         $ignite = app(\App\Sdks\Partner\IgniteClient::class);
-        $ref = 'RED-' . $user->distributor_id . '-' . $redemption->point_type . '-' 
+        $ref = 'RED-' . $user->distributor_id . '-' . $redemption->point_type . '-'
             . $redemption->coins_used . '-ORDER' . $order->id;
 
         try {
@@ -2631,7 +2696,6 @@ class CheckoutService
             ]);
 
             Cache::forget("ignite_member_{$user->distributor_id}");
-
         } catch (\Throwable $e) {
             Log::error('Coin redemption after payment failed', [
                 'order_id'      => $order->id,
