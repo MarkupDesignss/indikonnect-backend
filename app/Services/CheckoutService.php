@@ -1330,6 +1330,79 @@ class CheckoutService
      * Estimate coin redemption (NO Ignite call — only calculation).
      * Actual redemption happens in confirmOrder() after payment success.
      */
+    // public function applyCoins(int $userId, int $coinsToRedeem, string $pointType): array
+    // {
+    //     $user = User::findOrFail($userId);
+
+    //     if (!$user->isDistributor() || empty($user->distributor_id)) {
+    //         throw new Exception('Only distributors can redeem coins');
+    //     }
+
+    //     if (!in_array($pointType, ['yellow_bal', 'blue_bal'], true)) {
+    //         throw new Exception("Unsupported coin type: {$pointType}");
+    //     }
+
+    //     if ($coinsToRedeem < 1) {
+    //         throw new Exception('Coin quantity must be at least 1');
+    //     }
+
+    //     $minBand = $pointType === 'yellow_bal' ? 1 : 4;
+    //     if ($coinsToRedeem < $minBand) {
+    //         throw new Exception(sprintf(
+    //             '%s minimum redemption is %d coin(s).',
+    //             $pointType === 'yellow_bal' ? 'Yellow Coin' : 'Blue Coin',
+    //             $minBand
+    //         ));
+    //     }
+
+    //     // Balance check from Ignite (read-only, no deduction)
+    //     $ignite = app(\App\Sdks\Partner\IgniteClient::class);
+    //     $member = Cache::remember("ignite_member_{$user->distributor_id}", 60, function () use ($ignite, $user) {
+    //         $resp = $ignite->memberDetails($user->distributor_id);
+    //         return ($resp['code'] ?? null) === ResultCode::OK->value ? ($resp['data'] ?? []) : [];
+    //     });
+
+    //     $available = (int) ($member[$pointType] ?? 0);
+    //     if ($coinsToRedeem > $available) {
+    //         throw new Exception(sprintf(
+    //             'Insufficient balance: you have %d %s coin(s).',
+    //             $available,
+    //             $pointType === 'yellow_bal' ? 'Yellow' : 'Blue'
+    //         ));
+    //     }
+
+    //     // Calculate estimate — NO Ignite call
+    //     $cashAmountUsd = $this->estimateCoinValueUsd($coinsToRedeem, $pointType);
+
+    //     $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+    //         ->where('key', 'usd_to_inr')
+    //         ->value('value');
+
+    //     if (!$usdRate) {
+    //         throw new Exception('USD to INR exchange rate not configured in settings.');
+    //     }
+
+    //     $amountInr = round($cashAmountUsd * $usdRate, 2);
+
+    //     // Store a pending redemption (for tracking; NO Ignite call)
+    //     $redemption = CoinRedemption::create([
+    //         'user_id'         => $userId,
+    //         'point_type'      => $pointType,
+    //         'coins_used'      => $coinsToRedeem,
+    //         'amount_redeemed' => $amountInr,
+    //         'status'          => 'pending_payment',  // not redeemed yet
+    //     ]);
+
+    //     return [
+    //         'success'         => true,
+    //         'coins_used'      => $coinsToRedeem,
+    //         'point_type'      => $pointType,
+    //         'amount_redeemed' => $amountInr,
+    //         'redemption_id'   => $redemption->id,
+    //         'estimate'        => true,
+    //     ];
+    // }
+
     public function applyCoins(int $userId, int $coinsToRedeem, string $pointType): array
     {
         $user = User::findOrFail($userId);
@@ -1346,6 +1419,18 @@ class CheckoutService
             throw new Exception('Coin quantity must be at least 1');
         }
 
+        $plan = Cache::remember('ignite_plan_ranks', 3600, function () {
+            try {
+                $resp = app(\App\Sdks\Partner\IgniteClient::class)->planRanks();
+                return ($resp['code'] ?? null) === ResultCode::OK->value
+                    ? ($resp['data']['plan'] ?? [])
+                    : [];
+            } catch (\Throwable $e) {
+                Log::warning('planRanks failed', ['error' => $e->getMessage()]);
+                return [];
+            }
+        });
+
         $minBand = $pointType === 'yellow_bal' ? 1 : 4;
         if ($coinsToRedeem < $minBand) {
             throw new Exception(sprintf(
@@ -1355,7 +1440,6 @@ class CheckoutService
             ));
         }
 
-        // Balance check from Ignite (read-only, no deduction)
         $ignite = app(\App\Sdks\Partner\IgniteClient::class);
         $member = Cache::remember("ignite_member_{$user->distributor_id}", 60, function () use ($ignite, $user) {
             $resp = $ignite->memberDetails($user->distributor_id);
@@ -1371,7 +1455,6 @@ class CheckoutService
             ));
         }
 
-        // Calculate estimate — NO Ignite call
         $cashAmountUsd = $this->estimateCoinValueUsd($coinsToRedeem, $pointType);
 
         $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
@@ -1384,13 +1467,12 @@ class CheckoutService
 
         $amountInr = round($cashAmountUsd * $usdRate, 2);
 
-        // Store a pending redemption (for tracking; NO Ignite call)
         $redemption = CoinRedemption::create([
             'user_id'         => $userId,
             'point_type'      => $pointType,
             'coins_used'      => $coinsToRedeem,
             'amount_redeemed' => $amountInr,
-            'status'          => 'pending_payment',  // not redeemed yet
+            'status'          => 'pending_payment',
         ]);
 
         return [
@@ -1408,12 +1490,41 @@ class CheckoutService
      * Yellow: 1-2 → $30, 3+ → $40
      * Blue:   4+  → $12.50
      */
+    // private function estimateCoinValueUsd(int $qty, string $pointType): float
+    // {
+    //     if ($pointType === 'yellow_bal') {
+    //         $rate = $qty >= 3 ? 40 : 30;
+    //     } elseif ($pointType === 'blue_bal') {
+    //         $rate = 12.5;
+    //     } else {
+    //         throw new Exception("Unknown point type: {$pointType}");
+    //     }
+
+    //     return $qty * $rate;
+    // }
+
     private function estimateCoinValueUsd(int $qty, string $pointType): float
     {
+        $plan = Cache::remember('ignite_plan_ranks', 3600, function () {
+            try {
+                $resp = app(\App\Sdks\Partner\IgniteClient::class)->planRanks();
+                return ($resp['code'] ?? null) === ResultCode::OK->value
+                    ? ($resp['data']['plan'] ?? [])
+                    : [];
+            } catch (\Throwable $e) {
+                Log::warning('planRanks failed', ['error' => $e->getMessage()]);
+                return [];
+            }
+        });
+
+        $yellowSmall = (float) ($plan['yellow_usd_small'] ?? 30);
+        $yellowLarge = (float) ($plan['yellow_usd_large'] ?? 40);
+        $blueUsd     = (float) ($plan['blue_usd']         ?? 12.5);
+
         if ($pointType === 'yellow_bal') {
-            $rate = $qty >= 3 ? 40 : 30;
+            $rate = $qty >= 3 ? $yellowLarge : $yellowSmall;
         } elseif ($pointType === 'blue_bal') {
-            $rate = 12.5;
+            $rate = $blueUsd;
         } else {
             throw new Exception("Unknown point type: {$pointType}");
         }
@@ -3286,41 +3397,41 @@ class CheckoutService
     }
 
     /**
-     * Build a line-specific reversal payload for the Commission API.
-     *
-     * Unlike order-wise reversal, this payload targets only the cancelled line's
-     * CV and monetary value, matching Ignite's line-wise architecture.
-     *
-     * @param OrderLine $orderLine The specific order line being reversed.
-     * @param string    $reason    The reason for cancellation.
-     * @return array               The structured payload for CommissionApiEvent.
-     */
-    protected function buildLineReversalPayload(OrderLine $orderLine, string $reason): array
-    {
-        $order = $orderLine->order;
-        $user  = $order->user;
+ * Build a line-specific reversal payload for the Commission API.
+ *
+ * Unlike order-wise reversal, this payload targets only the cancelled line's
+ * CV and monetary value, matching Ignite's line-wise architecture.
+ *
+ * @param OrderLine $orderLine The specific order line being reversed.
+ * @param string    $reason    The reason for cancellation.
+ * @return array               The structured payload for CommissionApiEvent.
+ */
+protected function buildLineReversalPayload(OrderLine $orderLine, string $reason): array
+{
+    $order = $orderLine->order;
+    $user  = $order->user;
 
-        $lineCv = (float) ($orderLine->ignite_cv_posted ?? $orderLine->commissionable_volume ?? 0);
+    $lineCv = (float) ($orderLine->ignite_cv_posted ?? $orderLine->commissionable_volume ?? 0);
 
-        return [
-            'eventId'             => 'evt_' . Str::random(24),
-            'action'              => 'REVERSAL',
-            'orderReference'      => $order->order_reference,
-            'orderLineId'         => $orderLine->id,
-            'productIdentifier'   => $orderLine->product?->product_code,
-            'productName'         => $orderLine->product?->name,
-            'quantity'            => (int) $orderLine->quantity,
-            'unitPriceCharged'    => (float) $orderLine->unit_price,
-            'lineTotal'           => (float) $orderLine->line_total,
-            'reversedValue'       => (float) $orderLine->line_total,
-            'originalCv'          => $lineCv,
-            'igniteOrderNo'       => $orderLine->ignite_order_no,
-            'reason'              => $reason,
-            'purchaserIdentifier' => $user?->distributor_id ?? (string) $order->user_id,
-            'accountType'         => $user?->isDistributor() ? 'DISTRIBUTOR' : 'CUSTOMER',
-            'eventTimestamp'      => now()->toIso8601String(),
-        ];
-    }
+    return [
+        'eventId'             => 'evt_' . Str::random(24),
+        'action'              => 'REVERSAL',
+        'orderReference'      => $order->order_reference,
+        'orderLineId'         => $orderLine->id,
+        'productIdentifier'   => $orderLine->product?->product_code,
+        'productName'         => $orderLine->product?->name,
+        'quantity'            => (int) $orderLine->quantity,
+        'unitPriceCharged'    => (float) $orderLine->unit_price,
+        'lineTotal'           => (float) $orderLine->line_total,
+        'reversedValue'       => (float) $orderLine->line_total,
+        'originalCv'          => $lineCv,
+        'igniteOrderNo'       => $orderLine->ignite_order_no,
+        'reason'              => $reason,
+        'purchaserIdentifier' => $user?->distributor_id ?? (string) $order->user_id,
+        'accountType'         => $user?->isDistributor() ? 'DISTRIBUTOR' : 'CUSTOMER',
+        'eventTimestamp'      => now()->toIso8601String(),
+    ];
+}
     
 
     // protected function processPartialRefund(Order $order, OrderLine $orderLine, string $reason): void
