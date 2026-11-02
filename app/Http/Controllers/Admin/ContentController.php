@@ -452,6 +452,7 @@ class ContentController extends Controller
     //     }
     // }
 
+
     public function update(Request $request, $id)
     {
         try {
@@ -473,18 +474,18 @@ class ContentController extends Controller
 
                 // New images
                 'blocks.*.images' => 'nullable|array',
-                'blocks.*.images.*' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp',
+                'blocks.*.images.*' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp,svg',
 
                 // New videos
                 'blocks.*.videos' => 'nullable|array',
                 'blocks.*.videos.*' => 'nullable|file|mimes:mp4,avi,mov,wmv',
 
-                // Existing images (object format)
+                // Existing images
                 'blocks.*.existing_images' => 'nullable|array',
                 'blocks.*.existing_images.*.id' => 'required|integer|exists:content_media,id',
                 'blocks.*.existing_images.*.is_primary' => 'nullable|boolean',
 
-                // Existing videos (object format)
+                // Existing videos
                 'blocks.*.existing_videos' => 'nullable|array',
                 'blocks.*.existing_videos.*.id' => 'required|integer|exists:content_media,id',
                 'blocks.*.existing_videos.*.is_primary' => 'nullable|boolean',
@@ -509,7 +510,7 @@ class ContentController extends Controller
                 ], 404);
             }
 
-            // STEP 3: Validate that block IDs belong to this content
+            // STEP 3: Validate block ownership
             foreach ($request->input('blocks', []) as $index => $blockData) {
 
                 if (!empty($blockData['id'])) {
@@ -527,6 +528,7 @@ class ContentController extends Controller
                     !empty($blockData['existing_images']) ||
                     !empty($blockData['existing_videos'])
                 ) {
+
                     return response()->json([
                         'success' => false,
                         'message' => "Block ID is required when using existing media at index {$index}."
@@ -536,7 +538,7 @@ class ContentController extends Controller
 
             DB::beginTransaction();
 
-            // STEP 4: Mark original version as draft
+            // STEP 4: Mark previous version as draft
             $originalContent->status = 'draft';
             $originalContent->save();
 
@@ -562,21 +564,21 @@ class ContentController extends Controller
 
             $newContent->slug = $originalContent->slug;
             $newContent->current_version = $newVersion;
-            $newContent->status = 'published';
+            $newContent->status = $request->input('status', 'published');
 
             $newContent->created_at = now();
             $newContent->updated_at = now();
 
             $newContent->save();
 
-            // STEP 7: Process media for each block
+            // STEP 7: Process blocks
             if ($request->has('blocks') && is_array($request->blocks)) {
 
                 foreach ($request->blocks as $blockIndex => $blockData) {
 
                     $originalBlock = null;
 
-                    // Find original block if ID is provided
+                    // Find original block
                     if (!empty($blockData['id'])) {
 
                         $originalBlock = $originalContent->blocks
@@ -602,7 +604,7 @@ class ContentController extends Controller
 
                     /*
                 |--------------------------------------------------------------------------
-                | STEP 8: Copy selected existing images
+                | STEP 8: Copy existing images
                 |--------------------------------------------------------------------------
                 */
 
@@ -618,7 +620,7 @@ class ContentController extends Controller
                             continue;
                         }
 
-                        // Get media belonging to the original block only
+                        // Fetch image belonging to original block
                         $originalMedia = ContentMedia::where('id', $mediaId)
                             ->where('content_block_id', $originalBlock->id)
                             ->where('type', 'image')
@@ -628,14 +630,19 @@ class ContentController extends Controller
                             continue;
                         }
 
+                        // Normalize path before saving
+                        $normalizedPath = $this->normalizeMediaPath(
+                            $originalMedia->path
+                        );
+
                         $isPrimary = !$hasPrimaryImage &&
                             (bool) ($imageData['is_primary'] ?? false);
 
-                        // Create new media record without duplicating physical file
+                        // Create new media record
                         $block->media()->create([
 
                             'type' => 'image',
-                            'path' => $originalMedia->path,
+                            'path' => $normalizedPath,
                             'alt_text' => $originalMedia->alt_text,
                             'is_primary' => $isPrimary,
                             'sort_order' => $sortIndex,
@@ -658,6 +665,10 @@ class ContentController extends Controller
                         []
                     );
 
+                    if (!is_array($newImages)) {
+                        $newImages = [$newImages];
+                    }
+
                     $currentImageCount = $block->media()
                         ->where('type', 'image')
                         ->count();
@@ -668,31 +679,46 @@ class ContentController extends Controller
                             continue;
                         }
 
+                        // Laravel returns relative path
                         $path = $image->store(
                             'content/images',
                             'public'
                         );
 
-                        $isPrimary = !$hasPrimaryImage &&
-                            $currentImageCount === 0;
-
                         $block->media()->create([
 
                             'type' => 'image',
-                            'path' => $path,
-                            'is_primary' => $isPrimary,
+                            'path' => $this->normalizeMediaPath($path),
+                            'alt_text' => null,
+                            'is_primary' => false,
                             'sort_order' => $currentImageCount + $index,
 
                         ]);
+                    }
 
-                        if ($isPrimary) {
-                            $hasPrimaryImage = true;
+                    // Ensure at least one image is primary
+                    $primaryImageExists = $block->media()
+                        ->where('type', 'image')
+                        ->where('is_primary', true)
+                        ->exists();
+
+                    if (!$primaryImageExists) {
+
+                        $firstImage = $block->media()
+                            ->where('type', 'image')
+                            ->orderBy('sort_order')
+                            ->first();
+
+                        if ($firstImage) {
+                            $firstImage->update([
+                                'is_primary' => true
+                            ]);
                         }
                     }
 
                     /*
                 |--------------------------------------------------------------------------
-                | STEP 10: Copy selected existing videos
+                | STEP 10: Copy existing videos
                 |--------------------------------------------------------------------------
                 */
 
@@ -718,7 +744,9 @@ class ContentController extends Controller
                         $block->media()->create([
 
                             'type' => 'video',
-                            'path' => $originalMedia->path,
+                            'path' => $this->normalizeMediaPath(
+                                $originalMedia->path
+                            ),
                             'alt_text' => $originalMedia->alt_text,
                             'is_primary' => false,
                             'sort_order' => $sortIndex,
@@ -736,6 +764,10 @@ class ContentController extends Controller
                         "blocks.{$blockIndex}.videos",
                         []
                     );
+
+                    if (!is_array($newVideos)) {
+                        $newVideos = [$newVideos];
+                    }
 
                     $currentVideoCount = $block->media()
                         ->where('type', 'video')
@@ -755,7 +787,8 @@ class ContentController extends Controller
                         $block->media()->create([
 
                             'type' => 'video',
-                            'path' => $path,
+                            'path' => $this->normalizeMediaPath($path),
+                            'alt_text' => null,
                             'is_primary' => false,
                             'sort_order' => $currentVideoCount + $index,
 
@@ -766,7 +799,7 @@ class ContentController extends Controller
 
                 /*
             |--------------------------------------------------------------------------
-            | STEP 12: If blocks are not provided, copy all original blocks
+            | STEP 12: Copy all blocks if blocks are not provided
             |--------------------------------------------------------------------------
             */
 
@@ -786,7 +819,12 @@ class ContentController extends Controller
                         $newBlock->media()->create([
 
                             'type' => $originalMedia->type,
-                            'path' => $originalMedia->path,
+
+                            // Normalize existing media paths
+                            'path' => $this->normalizeMediaPath(
+                                $originalMedia->path
+                            ),
+
                             'alt_text' => $originalMedia->alt_text,
                             'is_primary' => $originalMedia->is_primary,
                             'sort_order' => $originalMedia->sort_order,
@@ -799,7 +837,7 @@ class ContentController extends Controller
             // STEP 13: Commit transaction
             DB::commit();
 
-            // Load new content with media
+            // Load content with blocks and media
             $newContent->load(['blocks.media']);
 
             return response()->json([
@@ -830,6 +868,39 @@ class ContentController extends Controller
 
             ], 500);
         }
+    }
+
+
+    private function normalizeMediaPath($path)
+    {
+        if (empty($path)) {
+            return $path;
+        }
+
+        // If full URL is provided, extract its path
+        if (filter_var($path, FILTER_VALIDATE_URL)) {
+            $path = parse_url($path, PHP_URL_PATH);
+        }
+
+        // Extract everything after /storage/
+        $storagePosition = strpos($path, '/storage/');
+
+        if ($storagePosition !== false) {
+            $path = substr(
+                $path,
+                $storagePosition + strlen('/storage/')
+            );
+        }
+
+        // Remove leading slash
+        $path = ltrim($path, '/');
+
+        // Remove storage/ prefix if present
+        if (str_starts_with($path, 'storage/')) {
+            $path = substr($path, strlen('storage/'));
+        }
+
+        return $path;
     }
 
     /**
