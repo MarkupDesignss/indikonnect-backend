@@ -2284,6 +2284,185 @@ class ReturnService
     /**
      * Admin: Approve return request
      */
+    // public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
+    // {
+    //     $returnOrder = OrderReturn::with(['order', 'user'])
+    //         ->findOrFail($returnId);
+
+    //     if (!$returnOrder->canApprove()) {
+    //         throw new Exception('This return request cannot be approved (already processed).');
+    //     }
+
+    //     return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
+
+    //         // ========== CALCULATE GATEWAY CHARGES ==========
+    //         $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
+    //         $gatewayCharges = round(
+    //             (float) $returnOrder->total_refund_amount * ($gatewayChargesPercent / 100),
+    //             2
+    //         );
+    //         $netRefundAmount = round(
+    //             (float) $returnOrder->total_refund_amount - $gatewayCharges,
+    //             2
+    //         );
+
+    //         // 1. Update return status
+    //         $returnOrder->update([
+    //             'status'                 => 'approved',
+    //             'admin_id'               => $adminId,
+    //             'admin_notes'            => $adminNotes,
+    //             'approved_at'            => now(),
+    //             'refund_approved_by'     => auth()->id(),
+    //             'refund_gateway_charges' => $gatewayCharges,
+    //         ]);
+
+    //         // 2. Update individual order lines
+    //         foreach ($returnOrder->items as $item) {
+    //             $orderLine = OrderLine::find($item['order_line_id']);
+    //             if (! $orderLine) continue;
+
+    //             $requestedQty = (int) ($item['quantity'] ?? $orderLine->quantity);
+    //             $lineQty      = (int) $orderLine->quantity;
+    //             $isPartial    = $requestedQty < $lineQty;
+
+    //             $timestampColumn = $this->resolveTimestampColumn($returnOrder->type, 'approve');
+
+    //             if ($isPartial) {
+    //                 $orderLine->update([
+    //                     'return_status'    => 'approved',
+    //                     'returned_quantity'  => $requestedQty,
+    //                     $timestampColumn    => now(),
+    //                 ]);
+    //             } else {
+    //                 $orderLine->update([
+    //                     'return_status'   => 'approved',
+    //                     'returned_quantity' => $lineQty,
+    //                     'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
+    //                     $timestampColumn  => now(),
+    //                 ]);
+    //             }
+    //         }
+
+    //         // 3. Update order-level statuses
+    //         $this->updateOrderReturnStatus($returnOrder->order);
+    //         // $this->updateOrderMainStatus($returnOrder->order);
+
+    //         // ========== REVERSAL TRIGGER ==========
+    //         try {
+    //             $order = $returnOrder->order;
+
+    //             $payload = [
+    //                 'eventId'              => 'evt_' . \Illuminate\Support\Str::random(24),
+    //                 'action'               => 'REVERSAL',
+    //                 'orderReference'       => $order->order_reference,
+    //                 'reason'               => $returnOrder->reason ?? 'Return approved by admin',
+    //                 'lines'                => $this->buildReversalLines($returnOrder),
+    //                 'reversedValue'        => (float) $returnOrder->total_refund_amount,
+    //                 'originalCv'           => (float) ($order->commissionable_volume ?? 0),
+    //                 'purchaserIdentifier'  => (string) $returnOrder->user_id,
+    //                 'accountType'          => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
+    //                 'eventTimestamp'       => now()->toIso8601String(),
+    //             ];
+
+    //             $event = CommissionApiEvent::create([
+    //                 'event_type'  => 'reversal',
+    //                 'order_id'    => $order->id,
+    //                 'payload'     => json_encode($payload),
+    //                 'status'      => 'pending',
+    //                 'retry_count' => 0,
+    //                 'max_retries' => 5,
+    //             ]);
+
+    //             Log::info('Reversal event SAVED in database', [
+    //                 'event_id'        => $event->id,
+    //                 'return_id'       => $returnOrder->id,
+    //                 'order_reference' => $order->order_reference,
+    //             ]);
+
+    //             try {
+    //                 $reversalPayload = new \App\Services\Commission\ReversalPayload(
+    //                     eventId: $payload['eventId'],
+    //                     action: $payload['action'],
+    //                     orderReference: $payload['orderReference'],
+    //                     reason: $payload['reason'],
+    //                     lines: $payload['lines'],
+    //                     reversedValue: $payload['reversedValue'],
+    //                     originalCv: $payload['originalCv'],
+    //                     purchaserIdentifier: $payload['purchaserIdentifier'],
+    //                     accountType: $payload['accountType'],
+    //                     eventTimestamp: $payload['eventTimestamp'],
+    //                 );
+
+    //                 $this->commissionService->postReversalEvent($reversalPayload);
+
+    //                 $event->update(['status' => 'sent']);
+
+    //                 Log::info('Reversal event posted successfully', [
+    //                     'return_id' => $returnOrder->id,
+    //                     'event_id'  => $event->id,
+    //                 ]);
+    //             } catch (\Exception $e) {
+    //                 $event->update([
+    //                     'status'        => 'failed',
+    //                     'error_message' => $e->getMessage(),
+    //                     'last_attempt'  => now(),
+    //                 ]);
+
+    //                 Log::error('Failed to send reversal to Commission API', [
+    //                     'return_id' => $returnOrder->id,
+    //                     'error'     => $e->getMessage(),
+    //                 ]);
+    //             }
+    //         } catch (\Exception $e) {
+    //             Log::error('Failed to create reversal event', [
+    //                 'return_id' => $returnOrder->id,
+    //                 'error'     => $e->getMessage(),
+    //             ]);
+    //         }
+    //         // ========== END REVERSAL TRIGGER ==========
+
+    //         // 4. Notifications
+    //         $this->createReturnNotification($returnOrder, 'approved');
+    //         $this->sendUserNotification($returnOrder, 'approved');
+    //         /* =============================================
+    //             | SEND RETURN APPROVED SMS (TWILIO)
+    //             ============================================= */
+    //         DB::afterCommit(function () use ($returnOrder, $gatewayCharges, $netRefundAmount) {
+    //             $this->sendReturnSms(
+    //                 $returnOrder->user?->phone,
+    //                 "Hi {$returnOrder->user?->full_name}! Your return request for order "
+    //                     . "{$returnOrder->order->order_reference} has been approved. ",
+    //                 [
+    //                     'event'           => 'return_approved',
+    //                     'return_id'       => $returnOrder->id,
+    //                     'order_reference' => $returnOrder->order->order_reference,
+    //                 ]
+    //             );
+    //         });
+    //         // 5. Response
+    //         return [
+    //             'success'                 => true,
+    //             'message'                 => 'Return request approved successfully.',
+    //             'return_id'               => $returnOrder->id,
+    //             'order_status'            => $returnOrder->order->status,
+    //             'order_return_status'     => $returnOrder->order->return_status,
+    //             'status'                  => 'approved',
+    //             'refund_amount'           => (float) $returnOrder->total_refund_amount,
+    //             'refund_gateway_charges'  => $gatewayCharges,
+    //             'admin_notes'             => $adminNotes,
+    //         ];
+    //     });
+    // }
+
+    /**
+     * Admin: Approve return request
+     *
+     * @param int $returnId
+     * @param int $adminId
+     * @param string|null $adminNotes
+     * @return array
+     * @throws Exception
+     */
     public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
     {
         $returnOrder = OrderReturn::with(['order', 'user'])
@@ -2345,85 +2524,62 @@ class ReturnService
 
             // 3. Update order-level statuses
             $this->updateOrderReturnStatus($returnOrder->order);
-            // $this->updateOrderMainStatus($returnOrder->order);
 
-            // ========== REVERSAL TRIGGER ==========
-            try {
-                $order = $returnOrder->order;
+            // ========== LINE-WISE REVERSAL & IGNITE CANCEL TRIGGER ==========
+            $order = $returnOrder->order;
 
-                $payload = [
-                    'eventId'              => 'evt_' . \Illuminate\Support\Str::random(24),
-                    'action'               => 'REVERSAL',
-                    'orderReference'       => $order->order_reference,
-                    'reason'               => $returnOrder->reason ?? 'Return approved by admin',
-                    'lines'                => $this->buildReversalLines($returnOrder),
-                    'reversedValue'        => (float) $returnOrder->total_refund_amount,
-                    'originalCv'           => (float) ($order->commissionable_volume ?? 0),
-                    'purchaserIdentifier'  => (string) $returnOrder->user_id,
-                    'accountType'          => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
-                    'eventTimestamp'       => now()->toIso8601String(),
+            foreach ($returnOrder->items ?? [] as $item) {
+                $orderLine = OrderLine::find($item['order_line_id'] ?? null);
+                
+                if (!$orderLine) {
+                    continue;
+                }
+
+                // 1. Local Line-wise Reversal Event
+                $linePayload = [
+                    'eventId'             => 'evt_' . \Illuminate\Support\Str::random(24),
+                    'action'              => 'REVERSAL',
+                    'orderReference'      => $order->order_reference,
+                    'orderLineId'         => $orderLine->id,
+                    'productIdentifier'   => (string) $orderLine->product_id,
+                    'productName'         => $orderLine->product?->name,
+                    'quantity'            => (int) $item['quantity'],
+                    'unitPriceCharged'    => (float) $orderLine->unit_price,
+                    'lineTotal'           => (float) $item['line_total'],
+                    'reversedValue'       => (float) $item['line_total'],
+                    'originalCv'          => (float) ($orderLine->ignite_cv_posted ?? $orderLine->commissionable_volume ?? 0),
+                    'igniteOrderNo'       => $orderLine->ignite_order_no,
+                    'reason'              => $returnOrder->reason ?? 'Return approved',
+                    'purchaserIdentifier' => (string) $returnOrder->user_id,
+                    'accountType'         => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
+                    'eventTimestamp'      => now()->toIso8601String(),
                 ];
 
-                $event = CommissionApiEvent::create([
-                    'event_type'  => 'reversal',
-                    'order_id'    => $order->id,
-                    'payload'     => json_encode($payload),
-                    'status'      => 'pending',
-                    'retry_count' => 0,
-                    'max_retries' => 5,
+                CommissionApiEvent::create([
+                    'event_type'    => 'reversal',
+                    'order_id'      => $order->id,
+                    'payload'       => json_encode($linePayload),
+                    'status'        => 'pending',
+                    'retry_count'   => 0,
+                    'max_retries'   => 5,
+                    'last_attempt'  => null,
+                    'error_message' => null,
+                    'response_data' => null,
                 ]);
 
-                Log::info('Reversal event SAVED in database', [
-                    'event_id'        => $event->id,
-                    'return_id'       => $returnOrder->id,
-                    'order_reference' => $order->order_reference,
-                ]);
-
-                try {
-                    $reversalPayload = new \App\Services\Commission\ReversalPayload(
-                        eventId: $payload['eventId'],
-                        action: $payload['action'],
-                        orderReference: $payload['orderReference'],
-                        reason: $payload['reason'],
-                        lines: $payload['lines'],
-                        reversedValue: $payload['reversedValue'],
-                        originalCv: $payload['originalCv'],
-                        purchaserIdentifier: $payload['purchaserIdentifier'],
-                        accountType: $payload['accountType'],
-                        eventTimestamp: $payload['eventTimestamp'],
-                    );
-
-                    $this->commissionService->postReversalEvent($reversalPayload);
-
-                    $event->update(['status' => 'sent']);
-
-                    Log::info('Reversal event posted successfully', [
-                        'return_id' => $returnOrder->id,
-                        'event_id'  => $event->id,
-                    ]);
-                } catch (\Exception $e) {
-                    $event->update([
-                        'status'        => 'failed',
-                        'error_message' => $e->getMessage(),
-                        'last_attempt'  => now(),
-                    ]);
-
-                    Log::error('Failed to send reversal to Commission API', [
-                        'return_id' => $returnOrder->id,
-                        'error'     => $e->getMessage(),
-                    ]);
+                // 2. Dispatch Ignite Cancel Job
+                if (!empty($orderLine->ignite_order_no) && $orderLine->ignite_sync_status !== 'cancelled') {
+                    DB::afterCommit(function () use ($orderLine) {
+                        \App\Jobs\CancelOrderOnIgniteJob::dispatch($orderLine->id);
+                    });
                 }
-            } catch (\Exception $e) {
-                Log::error('Failed to create reversal event', [
-                    'return_id' => $returnOrder->id,
-                    'error'     => $e->getMessage(),
-                ]);
             }
-            // ========== END REVERSAL TRIGGER ==========
+            // ========== END LINE-WISE REVERSAL ==========
 
             // 4. Notifications
             $this->createReturnNotification($returnOrder, 'approved');
             $this->sendUserNotification($returnOrder, 'approved');
+            
             /* =============================================
                 | SEND RETURN APPROVED SMS (TWILIO)
                 ============================================= */
@@ -2439,6 +2595,7 @@ class ReturnService
                     ]
                 );
             });
+
             // 5. Response
             return [
                 'success'                 => true,
@@ -4664,6 +4821,195 @@ class ReturnService
      * @return array
      * @throws Exception
      */
+    // public function approveCoolingOff(int $returnId, int $adminId, ?string $adminNotes = null): array
+    // {
+    //     $returnOrder = OrderReturn::with(['order', 'user'])
+    //         ->where('type', 'cooling_off')
+    //         ->findOrFail($returnId);
+
+    //     if (!$returnOrder->canApprove()) {
+    //         throw new Exception('This cooling-off request cannot be approved (already processed).');
+    //     }
+
+    //     return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
+    //         // 1. Update return status
+    //         $returnOrder->update([
+    //             'status' => 'approved',
+    //             'admin_id' => $adminId,
+    //             'admin_notes' => $adminNotes,
+    //             'approved_at' => now(),
+    //         ]);
+
+    //         // 2. Update order lines
+    //         foreach ($returnOrder->items as $item) {
+    //             $orderLine = OrderLine::find($item['order_line_id']);
+    //             if ($orderLine && $orderLine->return_status === 'pending') {
+    //                 $orderLine->update([
+    //                     'return_status' => 'approved',
+    //                     'delivery_status' => 'return_approved',
+    //                     'return_approved_at' => now(),
+    //                 ]);
+    //             }
+    //         }
+
+    //         // ========== NEW: STOCK RESTORE ==========
+    //         try {
+    //             $this->restoreStockForReturn($returnOrder);
+    //             Log::info('Stock restored successfully for cooling-off', [
+    //                 'return_id' => $returnOrder->id,
+    //                 'order_reference' => $returnOrder->order->order_reference ?? null,
+    //             ]);
+    //         } catch (\Exception $e) {
+    //             Log::error('Stock restore failed for cooling-off', [
+    //                 'return_id' => $returnOrder->id,
+    //                 'error' => $e->getMessage(),
+    //                 'trace' => $e->getTraceAsString(),
+    //             ]);
+    //             // Don't throw - allow the process to continue
+    //             // Stock restore failure should not block the refund
+    //         }
+    //         // ========== END STOCK RESTORE ==========
+
+    //         // 3. Update order-level return status
+    //         $this->updateOrderReturnStatus($returnOrder->order);
+    //         // $this->updateOrderMainStatus($returnOrder->order);
+
+    //         // 4. Update distributor status (if distributor)
+    //         if ($returnOrder->user->account_type === 'distributor') {
+    //             $returnOrder->user->update([
+    //                 'distributor_status' => 'withdrawn',
+    //                 'is_active' => false,
+    //             ]);
+
+    //             Log::info('Distributor withdrawn via cooling-off', [
+    //                 'user_id' => $returnOrder->user->id,
+    //                 'return_id' => $returnOrder->id,
+    //             ]);
+    //         }
+
+    //         // ========== REVERSAL TRIGGER ==========
+    //         try {
+    //             $order = $returnOrder->order;
+
+    //             // Build payload
+    //             $payload = [
+    //                 'eventId' => 'evt_' . \Illuminate\Support\Str::random(24),
+    //                 'action' => 'REVERSAL',
+    //                 'orderReference' => $order->order_reference,
+    //                 'reason' => 'Cooling-off withdrawal',
+    //                 'lines' => $this->buildReversalLines($returnOrder),
+    //                 'reversedValue' => (float) $returnOrder->total_refund_amount,
+    //                 'originalCv' => (float) ($order->commissionable_volume ?? 0),
+    //                 'purchaserIdentifier' => (string) $returnOrder->user_id,
+    //                 'accountType' => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
+    //                 'eventTimestamp' => now()->toIso8601String(),
+    //             ];
+
+    //             // Save event in database
+    //             $event = CommissionApiEvent::create([
+    //                 'event_type' => 'reversal',
+    //                 'order_id' => $order->id,
+    //                 'payload' => json_encode($payload),
+    //                 'status' => 'pending',
+    //                 'retry_count' => 0,
+    //                 'max_retries' => 5,
+    //             ]);
+
+    //             Log::info('Cooling-off reversal event saved in database', [
+    //                 'event_id' => $event->id,
+    //                 'return_id' => $returnOrder->id,
+    //             ]);
+
+    //             // Send to Commission API
+    //             try {
+    //                 $reversalPayload = new \App\Services\Commission\ReversalPayload(
+    //                     eventId: $payload['eventId'],
+    //                     action: $payload['action'],
+    //                     orderReference: $payload['orderReference'],
+    //                     reason: $payload['reason'],
+    //                     lines: $payload['lines'],
+    //                     reversedValue: $payload['reversedValue'],
+    //                     originalCv: $payload['originalCv'],
+    //                     purchaserIdentifier: $payload['purchaserIdentifier'],
+    //                     accountType: $payload['accountType'],
+    //                     eventTimestamp: $payload['eventTimestamp'],
+    //                 );
+
+    //                 $this->commissionService->postReversalEvent($reversalPayload);
+    //                 $event->update(['status' => 'sent']);
+
+    //                 Log::info('Cooling-off reversal sent to Commission API', [
+    //                     'return_id' => $returnOrder->id,
+    //                     'event_id' => $event->id,
+    //                 ]);
+    //             } catch (\Exception $e) {
+    //                 $event->update([
+    //                     'status' => 'failed',
+    //                     'error_message' => $e->getMessage(),
+    //                     'last_attempt' => now(),
+    //                 ]);
+
+    //                 Log::error('Cooling-off reversal API call failed', [
+    //                     'return_id' => $returnOrder->id,
+    //                     'error' => $e->getMessage(),
+    //                 ]);
+    //             }
+    //         } catch (\Exception $e) {
+    //             Log::error('Cooling-off reversal event creation failed', [
+    //                 'return_id' => $returnOrder->id,
+    //                 'error' => $e->getMessage(),
+    //             ]);
+    //         }
+    //         // ========== END REVERSAL TRIGGER ==========
+
+    //         // ========== NEW: USER NOTIFICATIONS ==========
+    //         try {
+    //             $this->sendCoolingOffNotification($returnOrder, 'approved');
+    //             Log::info('Cooling-off approval notification sent to user', [
+    //                 'return_id' => $returnOrder->id,
+    //                 'user_id' => $returnOrder->user_id,
+    //             ]);
+    //         } catch (\Exception $e) {
+    //             Log::error('Failed to send cooling-off notification', [
+    //                 'return_id' => $returnOrder->id,
+    //                 'error' => $e->getMessage(),
+    //             ]);
+    //         }
+    //         // ========== END USER NOTIFICATIONS ==========
+
+    //         // 5. Admin notification (existing)
+    //         $this->createReturnNotification($returnOrder, 'approved');
+
+    //         // 6. Logging
+    //         Log::info('Cooling-off withdrawal approved', [
+    //             'return_id' => $returnOrder->id,
+    //             'admin_id' => $adminId,
+    //             'refund_amount' => $returnOrder->total_refund_amount,
+    //             'user_id' => $returnOrder->user_id,
+    //             'stock_restored' => true,
+    //         ]);
+
+    //         return [
+    //             'success' => true,
+    //             'message' => 'Cooling-off withdrawal approved successfully. Stock restored and refund will be processed within 5-7 business days.',
+    //             'return_id' => $returnOrder->id,
+    //             'status' => 'approved',
+    //             'refund_amount' => (float) $returnOrder->total_refund_amount,
+    //             'admin_notes' => $adminNotes,
+    //             'stock_restored' => true,
+    //         ];
+    //     });
+    // }
+
+    /**
+     * Admin: Approve Cooling-Off Withdrawal
+     *
+     * @param int $returnId
+     * @param int $adminId
+     * @param string|null $adminNotes
+     * @return array
+     * @throws Exception
+     */
     public function approveCoolingOff(int $returnId, int $adminId, ?string $adminNotes = null): array
     {
         $returnOrder = OrderReturn::with(['order', 'user'])
@@ -4695,7 +5041,7 @@ class ReturnService
                 }
             }
 
-            // ========== NEW: STOCK RESTORE ==========
+            // ========== STOCK RESTORE ==========
             try {
                 $this->restoreStockForReturn($returnOrder);
                 Log::info('Stock restored successfully for cooling-off', [
@@ -4708,14 +5054,10 @@ class ReturnService
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
                 ]);
-                // Don't throw - allow the process to continue
-                // Stock restore failure should not block the refund
             }
-            // ========== END STOCK RESTORE ==========
 
             // 3. Update order-level return status
             $this->updateOrderReturnStatus($returnOrder->order);
-            // $this->updateOrderMainStatus($returnOrder->order);
 
             // 4. Update distributor status (if distributor)
             if ($returnOrder->user->account_type === 'distributor') {
@@ -4730,82 +5072,56 @@ class ReturnService
                 ]);
             }
 
-            // ========== REVERSAL TRIGGER ==========
-            try {
-                $order = $returnOrder->order;
+            // ========== LINE-WISE REVERSAL & IGNITE CANCEL TRIGGER ==========
+            $order = $returnOrder->order;
 
-                // Build payload
-                $payload = [
-                    'eventId' => 'evt_' . \Illuminate\Support\Str::random(24),
-                    'action' => 'REVERSAL',
-                    'orderReference' => $order->order_reference,
-                    'reason' => 'Cooling-off withdrawal',
-                    'lines' => $this->buildReversalLines($returnOrder),
-                    'reversedValue' => (float) $returnOrder->total_refund_amount,
-                    'originalCv' => (float) ($order->commissionable_volume ?? 0),
+            foreach ($returnOrder->items ?? [] as $item) {
+                $orderLine = OrderLine::find($item['order_line_id'] ?? null);
+                
+                if (!$orderLine) {
+                    continue;
+                }
+
+                $linePayload = [
+                    'eventId'             => 'evt_' . \Illuminate\Support\Str::random(24),
+                    'action'              => 'REVERSAL',
+                    'orderReference'      => $order->order_reference,
+                    'orderLineId'         => $orderLine->id,
+                    'productIdentifier'   => (string) $orderLine->product_id,
+                    'productName'         => $orderLine->product?->name,
+                    'quantity'            => (int) $item['quantity'],
+                    'unitPriceCharged'    => (float) $orderLine->unit_price,
+                    'lineTotal'           => (float) $item['line_total'],
+                    'reversedValue'       => (float) $item['line_total'],
+                    'originalCv'          => (float) ($orderLine->ignite_cv_posted ?? $orderLine->commissionable_volume ?? 0),
+                    'igniteOrderNo'       => $orderLine->ignite_order_no,
+                    'reason'              => 'Cooling-off withdrawal',
                     'purchaserIdentifier' => (string) $returnOrder->user_id,
-                    'accountType' => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
-                    'eventTimestamp' => now()->toIso8601String(),
+                    'accountType'         => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
+                    'eventTimestamp'      => now()->toIso8601String(),
                 ];
 
-                // Save event in database
-                $event = CommissionApiEvent::create([
-                    'event_type' => 'reversal',
-                    'order_id' => $order->id,
-                    'payload' => json_encode($payload),
-                    'status' => 'pending',
-                    'retry_count' => 0,
-                    'max_retries' => 5,
+                CommissionApiEvent::create([
+                    'event_type'    => 'reversal',
+                    'order_id'      => $order->id,
+                    'payload'       => json_encode($linePayload),
+                    'status'        => 'pending',
+                    'retry_count'   => 0,
+                    'max_retries'   => 5,
+                    'last_attempt'  => null,
+                    'error_message' => null,
+                    'response_data' => null,
                 ]);
 
-                Log::info('Cooling-off reversal event saved in database', [
-                    'event_id' => $event->id,
-                    'return_id' => $returnOrder->id,
-                ]);
-
-                // Send to Commission API
-                try {
-                    $reversalPayload = new \App\Services\Commission\ReversalPayload(
-                        eventId: $payload['eventId'],
-                        action: $payload['action'],
-                        orderReference: $payload['orderReference'],
-                        reason: $payload['reason'],
-                        lines: $payload['lines'],
-                        reversedValue: $payload['reversedValue'],
-                        originalCv: $payload['originalCv'],
-                        purchaserIdentifier: $payload['purchaserIdentifier'],
-                        accountType: $payload['accountType'],
-                        eventTimestamp: $payload['eventTimestamp'],
-                    );
-
-                    $this->commissionService->postReversalEvent($reversalPayload);
-                    $event->update(['status' => 'sent']);
-
-                    Log::info('Cooling-off reversal sent to Commission API', [
-                        'return_id' => $returnOrder->id,
-                        'event_id' => $event->id,
-                    ]);
-                } catch (\Exception $e) {
-                    $event->update([
-                        'status' => 'failed',
-                        'error_message' => $e->getMessage(),
-                        'last_attempt' => now(),
-                    ]);
-
-                    Log::error('Cooling-off reversal API call failed', [
-                        'return_id' => $returnOrder->id,
-                        'error' => $e->getMessage(),
-                    ]);
+                if (!empty($orderLine->ignite_order_no) && $orderLine->ignite_sync_status !== 'cancelled') {
+                    DB::afterCommit(function () use ($orderLine) {
+                        \App\Jobs\CancelOrderOnIgniteJob::dispatch($orderLine->id);
+                    });
                 }
-            } catch (\Exception $e) {
-                Log::error('Cooling-off reversal event creation failed', [
-                    'return_id' => $returnOrder->id,
-                    'error' => $e->getMessage(),
-                ]);
             }
-            // ========== END REVERSAL TRIGGER ==========
+            // ========== END LINE-WISE REVERSAL ==========
 
-            // ========== NEW: USER NOTIFICATIONS ==========
+            // ========== USER NOTIFICATIONS ==========
             try {
                 $this->sendCoolingOffNotification($returnOrder, 'approved');
                 Log::info('Cooling-off approval notification sent to user', [
@@ -4818,7 +5134,6 @@ class ReturnService
                     'error' => $e->getMessage(),
                 ]);
             }
-            // ========== END USER NOTIFICATIONS ==========
 
             // 5. Admin notification (existing)
             $this->createReturnNotification($returnOrder, 'approved');
