@@ -2281,181 +2281,14 @@ class ReturnService
 
         return $map[$type][$stage];
     }
-    /**
-     * Admin: Approve return request
-     */
-    // public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
-    // {
-    //     $returnOrder = OrderReturn::with(['order', 'user'])
-    //         ->findOrFail($returnId);
-
-    //     if (!$returnOrder->canApprove()) {
-    //         throw new Exception('This return request cannot be approved (already processed).');
-    //     }
-
-    //     return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
-
-    //         // ========== CALCULATE GATEWAY CHARGES ==========
-    //         $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
-    //         $gatewayCharges = round(
-    //             (float) $returnOrder->total_refund_amount * ($gatewayChargesPercent / 100),
-    //             2
-    //         );
-    //         $netRefundAmount = round(
-    //             (float) $returnOrder->total_refund_amount - $gatewayCharges,
-    //             2
-    //         );
-
-    //         // 1. Update return status
-    //         $returnOrder->update([
-    //             'status'                 => 'approved',
-    //             'admin_id'               => $adminId,
-    //             'admin_notes'            => $adminNotes,
-    //             'approved_at'            => now(),
-    //             'refund_approved_by'     => auth()->id(),
-    //             'refund_gateway_charges' => $gatewayCharges,
-    //         ]);
-
-    //         // 2. Update individual order lines
-    //         foreach ($returnOrder->items as $item) {
-    //             $orderLine = OrderLine::find($item['order_line_id']);
-    //             if (! $orderLine) continue;
-
-    //             $requestedQty = (int) ($item['quantity'] ?? $orderLine->quantity);
-    //             $lineQty      = (int) $orderLine->quantity;
-    //             $isPartial    = $requestedQty < $lineQty;
-
-    //             $timestampColumn = $this->resolveTimestampColumn($returnOrder->type, 'approve');
-
-    //             if ($isPartial) {
-    //                 $orderLine->update([
-    //                     'return_status'    => 'approved',
-    //                     'returned_quantity'  => $requestedQty,
-    //                     $timestampColumn    => now(),
-    //                 ]);
-    //             } else {
-    //                 $orderLine->update([
-    //                     'return_status'   => 'approved',
-    //                     'returned_quantity' => $lineQty,
-    //                     'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
-    //                     $timestampColumn  => now(),
-    //                 ]);
-    //             }
-    //         }
-
-    //         // 3. Update order-level statuses
-    //         $this->updateOrderReturnStatus($returnOrder->order);
-    //         // $this->updateOrderMainStatus($returnOrder->order);
-
-    //         // ========== REVERSAL TRIGGER ==========
-    //         try {
-    //             $order = $returnOrder->order;
-
-    //             $payload = [
-    //                 'eventId'              => 'evt_' . \Illuminate\Support\Str::random(24),
-    //                 'action'               => 'REVERSAL',
-    //                 'orderReference'       => $order->order_reference,
-    //                 'reason'               => $returnOrder->reason ?? 'Return approved by admin',
-    //                 'lines'                => $this->buildReversalLines($returnOrder),
-    //                 'reversedValue'        => (float) $returnOrder->total_refund_amount,
-    //                 'originalCv'           => (float) ($order->commissionable_volume ?? 0),
-    //                 'purchaserIdentifier'  => (string) $returnOrder->user_id,
-    //                 'accountType'          => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
-    //                 'eventTimestamp'       => now()->toIso8601String(),
-    //             ];
-
-    //             $event = CommissionApiEvent::create([
-    //                 'event_type'  => 'reversal',
-    //                 'order_id'    => $order->id,
-    //                 'payload'     => json_encode($payload),
-    //                 'status'      => 'pending',
-    //                 'retry_count' => 0,
-    //                 'max_retries' => 5,
-    //             ]);
-
-    //             Log::info('Reversal event SAVED in database', [
-    //                 'event_id'        => $event->id,
-    //                 'return_id'       => $returnOrder->id,
-    //                 'order_reference' => $order->order_reference,
-    //             ]);
-
-    //             try {
-    //                 $reversalPayload = new \App\Services\Commission\ReversalPayload(
-    //                     eventId: $payload['eventId'],
-    //                     action: $payload['action'],
-    //                     orderReference: $payload['orderReference'],
-    //                     reason: $payload['reason'],
-    //                     lines: $payload['lines'],
-    //                     reversedValue: $payload['reversedValue'],
-    //                     originalCv: $payload['originalCv'],
-    //                     purchaserIdentifier: $payload['purchaserIdentifier'],
-    //                     accountType: $payload['accountType'],
-    //                     eventTimestamp: $payload['eventTimestamp'],
-    //                 );
-
-    //                 $this->commissionService->postReversalEvent($reversalPayload);
-
-    //                 $event->update(['status' => 'sent']);
-
-    //                 Log::info('Reversal event posted successfully', [
-    //                     'return_id' => $returnOrder->id,
-    //                     'event_id'  => $event->id,
-    //                 ]);
-    //             } catch (\Exception $e) {
-    //                 $event->update([
-    //                     'status'        => 'failed',
-    //                     'error_message' => $e->getMessage(),
-    //                     'last_attempt'  => now(),
-    //                 ]);
-
-    //                 Log::error('Failed to send reversal to Commission API', [
-    //                     'return_id' => $returnOrder->id,
-    //                     'error'     => $e->getMessage(),
-    //                 ]);
-    //             }
-    //         } catch (\Exception $e) {
-    //             Log::error('Failed to create reversal event', [
-    //                 'return_id' => $returnOrder->id,
-    //                 'error'     => $e->getMessage(),
-    //             ]);
-    //         }
-    //         // ========== END REVERSAL TRIGGER ==========
-
-    //         // 4. Notifications
-    //         $this->createReturnNotification($returnOrder, 'approved');
-    //         $this->sendUserNotification($returnOrder, 'approved');
-    //         /* =============================================
-    //             | SEND RETURN APPROVED SMS (TWILIO)
-    //             ============================================= */
-    //         DB::afterCommit(function () use ($returnOrder, $gatewayCharges, $netRefundAmount) {
-    //             $this->sendReturnSms(
-    //                 $returnOrder->user?->phone,
-    //                 "Hi {$returnOrder->user?->full_name}! Your return request for order "
-    //                     . "{$returnOrder->order->order_reference} has been approved. ",
-    //                 [
-    //                     'event'           => 'return_approved',
-    //                     'return_id'       => $returnOrder->id,
-    //                     'order_reference' => $returnOrder->order->order_reference,
-    //                 ]
-    //             );
-    //         });
-    //         // 5. Response
-    //         return [
-    //             'success'                 => true,
-    //             'message'                 => 'Return request approved successfully.',
-    //             'return_id'               => $returnOrder->id,
-    //             'order_status'            => $returnOrder->order->status,
-    //             'order_return_status'     => $returnOrder->order->return_status,
-    //             'status'                  => 'approved',
-    //             'refund_amount'           => (float) $returnOrder->total_refund_amount,
-    //             'refund_gateway_charges'  => $gatewayCharges,
-    //             'admin_notes'             => $adminNotes,
-    //         ];
-    //     });
-    // }
 
     /**
-     * Admin: Approve return request
+     * Approve a standard return request.
+     *
+     * NOTE: This only updates the local database status. Ignite cancellation
+     * and local reversal events are intentionally NOT triggered here.
+     * They will be handled in `completeReturn()` only if the admin chooses 
+     * the "refund" resolution.
      *
      * @param int $returnId
      * @param int $adminId
@@ -2524,57 +2357,6 @@ class ReturnService
 
             // 3. Update order-level statuses
             $this->updateOrderReturnStatus($returnOrder->order);
-
-            // ========== LINE-WISE REVERSAL & IGNITE CANCEL TRIGGER ==========
-            $order = $returnOrder->order;
-
-            foreach ($returnOrder->items ?? [] as $item) {
-                $orderLine = OrderLine::find($item['order_line_id'] ?? null);
-                
-                if (!$orderLine) {
-                    continue;
-                }
-
-                // 1. Local Line-wise Reversal Event
-                $linePayload = [
-                    'eventId'             => 'evt_' . \Illuminate\Support\Str::random(24),
-                    'action'              => 'REVERSAL',
-                    'orderReference'      => $order->order_reference,
-                    'orderLineId'         => $orderLine->id,
-                    'productIdentifier'   => (string) $orderLine->product_id,
-                    'productName'         => $orderLine->product?->name,
-                    'quantity'            => (int) $item['quantity'],
-                    'unitPriceCharged'    => (float) $orderLine->unit_price,
-                    'lineTotal'           => (float) $item['line_total'],
-                    'reversedValue'       => (float) $item['line_total'],
-                    'originalCv'          => (float) ($orderLine->ignite_cv_posted ?? $orderLine->commissionable_volume ?? 0),
-                    'igniteOrderNo'       => $orderLine->ignite_order_no,
-                    'reason'              => $returnOrder->reason ?? 'Return approved',
-                    'purchaserIdentifier' => (string) $returnOrder->user_id,
-                    'accountType'         => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
-                    'eventTimestamp'      => now()->toIso8601String(),
-                ];
-
-                CommissionApiEvent::create([
-                    'event_type'    => 'reversal',
-                    'order_id'      => $order->id,
-                    'payload'       => json_encode($linePayload),
-                    'status'        => 'pending',
-                    'retry_count'   => 0,
-                    'max_retries'   => 5,
-                    'last_attempt'  => null,
-                    'error_message' => null,
-                    'response_data' => null,
-                ]);
-
-                // 2. Dispatch Ignite Cancel Job
-                if (!empty($orderLine->ignite_order_no) && $orderLine->ignite_sync_status !== 'cancelled') {
-                    DB::afterCommit(function () use ($orderLine) {
-                        \App\Jobs\CancelOrderOnIgniteJob::dispatch($orderLine->id);
-                    });
-                }
-            }
-            // ========== END LINE-WISE REVERSAL ==========
 
             // 4. Notifications
             $this->createReturnNotification($returnOrder, 'approved');
@@ -2819,56 +2601,6 @@ class ReturnService
     }
 
     /**
-     * Admin: Complete return (refund processed)
-     */
-    // public function completeReturn(int $returnId): array
-    // {
-    //     $returnOrder = OrderReturn::with(['order'])
-    //         ->findOrFail($returnId);
-
-    //     if (!$returnOrder->canComplete()) {
-    //         throw new Exception('Return cannot be completed. Status must be "received".');
-    //     }
-
-    //     return DB::transaction(function () use ($returnOrder) {
-    //         // Process refund if not already processed
-    //         if (!$returnOrder->refund_processed_at) {
-    //             $this->processRefund($returnOrder);
-    //         }
-
-    //         $returnOrder->update([
-    //             'status' => 'completed',
-    //             'completed_at' => now(),
-    //         ]);
-
-    //         // Update order
-    //         $returnOrder->order->update([
-    //             'return_status' => 'fully_approved',
-    //         ]);
-
-    //         // Update order lines
-    //         foreach ($returnOrder->items as $item) {
-    //             $orderLine = OrderLine::find($item['order_line_id']);
-    //             if ($orderLine) {
-    //                 $orderLine->update(['return_status' => 'returned']);
-    //             }
-    //         }
-
-    //         $this->createReturnNotification($returnOrder, 'completed');
-
-    //         Log::info('Return completed', [
-    //             'return_id' => $returnOrder->id,
-    //         ]);
-
-    //         return [
-    //             'success' => true,
-    //             'message' => 'Return completed successfully.',
-    //             'return_id' => $returnOrder->id,
-    //             'status' => 'completed',
-    //         ];
-    //     });
-    // }
-    /**
      * Admin: Complete return
      *
      * @param int         $returnId
@@ -2876,6 +2608,233 @@ class ReturnService
      * @param float|null  $refundAmount
      * @param string|null $adminNotes
      * @param int|null    $approvedBy
+     */
+    // public function completeReturn(
+    //     int $returnId,
+    //     string $resolution = 'refund',
+    //     ?float $refundAmount = null,
+    //     ?string $adminNotes = null,
+    //     ?int $approvedBy = null
+    // ): array {
+    //     if (!in_array($resolution, ['refund', 'replacement'], true)) {
+    //         throw new Exception("Invalid resolution. Allowed: 'refund', 'replacement'.");
+    //     }
+
+    //     /*
+    //  * NOTE: `items` is a JSON column on `returns`, cast to array.
+    //  * It is NOT an Eloquent relation — do NOT eager-load it here.
+    //  */
+    //     $returnOrder = OrderReturn::with(['order.lines'])
+    //         ->findOrFail($returnId);
+
+    //     if (!$returnOrder->canComplete()) {
+    //         throw new Exception('Return cannot be completed. Status must be "received".');
+    //     }
+
+    //     return DB::transaction(function () use (
+    //         $returnOrder,
+    //         $resolution,
+    //         $refundAmount,
+    //         $adminNotes,
+    //         $approvedBy
+    //     ) {
+    //         $creditNote       = null;
+    //         $refund           = null;
+    //         $replacementOrder = null;
+
+    //         // ============================================================
+    //         // BRANCH A: REFUND
+    //         // ============================================================
+    //         if ($resolution === 'refund') {
+
+    //             // 1. Process refund via Razorpay
+    //             $refundResponse = $this->processRefund(
+    //                 $returnOrder,
+    //                 $refundAmount,
+    //                 $adminNotes,
+    //                 $approvedBy
+    //             );
+
+    //             if (!is_array($refundResponse) || empty($refundResponse['refund_id'])) {
+    //                 throw new Exception('Refund failed. Razorpay refund ID was not returned.');
+    //             }
+
+    //             // 2. Fetch refund record
+    //             $refund = Refund::where('return_id', $returnOrder->id)
+    //                 ->where('gateway_reference', $refundResponse['refund_id'])
+    //                 ->first();
+
+    //             if (!$refund) {
+    //                 throw new Exception('Refund record not found in database.');
+    //             }
+
+    //             // 3. Generate credit note (non-fatal if it fails)
+    //             try {
+    //                 $creditNoteService = app(\App\Services\CreditNoteService::class);
+    //                 $creditNote = $creditNoteService->generateFromReturn($returnOrder, $refund->id, $refundAmount);
+
+    //                 Log::info('Credit note generated in completeReturn', [
+    //                     'credit_note_id' => $creditNote->id,
+    //                     'refund_id'      => $refund->id,
+    //                     'return_id'      => $returnOrder->id,
+    //                 ]);
+    //             } catch (\Exception $e) {
+    //                 Log::error('Failed to generate credit note', [
+    //                     'return_id' => $returnOrder->id,
+    //                     'refund_id' => $refund->id,
+    //                     'error'     => $e->getMessage(),
+    //                     'trace'     => $e->getTraceAsString(),
+    //                 ]);
+    //             }
+
+    //             // 4. Mark return completed with refund metadata
+    //             $effectiveRefundAmount = $refundAmount ?? (float) $returnOrder->total_refund_amount;
+
+    //             /* =============================================
+    //             | SEND RETURN COMPLETED SMS (TWILIO)
+    //             ============================================= */
+    //             DB::afterCommit(function () use ($returnOrder, $resolution) {
+    //                 $message = $resolution === 'refund'
+    //                     ? "Hi {$returnOrder->user?->full_name}! Your refund is completed. Please check your account."
+    //                     : "Hi {$returnOrder->user?->full_name}! Your replacement order has been created. Please check your account.";
+
+    //                 $this->sendReturnSms(
+    //                     $returnOrder->user?->phone,
+    //                     $message,
+    //                     [
+    //                         'event'      => 'return_completed',
+    //                         'return_id'  => $returnOrder->id,
+    //                         'resolution' => $resolution,
+    //                     ]
+    //                 );
+    //             });
+
+    //             $returnOrder->update([
+    //                 'status'                  => OrderReturn::STATUS_COMPLETED,
+    //                 'resolution'              => 'refund',
+    //                 'refund_extra_deductions' => (float) $returnOrder->total_refund_amount
+    //                     - (float) $returnOrder->refund_shipping
+    //                     - (float) ($returnOrder->refund_gateway_charges ?? 0)
+    //                     - (float) $returnOrder->refund_tax
+    //                     - (float) $effectiveRefundAmount,
+    //                 'completed_at'            => now(),
+    //             ]);
+
+    //             // 5. Mark order lines as returned
+    //             foreach ($returnOrder->items ?? [] as $item) {
+    //                 $orderLineId = is_array($item)
+    //                     ? ($item['order_line_id'] ?? null)
+    //                     : ($item->order_line_id ?? null);
+
+    //                 if (!$orderLineId) {
+    //                     continue;
+    //                 }
+
+    //                 $orderLine = OrderLine::find($orderLineId);
+    //                 if ($orderLine) {
+    //                     $orderLine->update([
+    //                         'return_status'   => 'returned',
+    //                         'return_completed_at' => now(),
+    //                         'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'refund'),
+    //                     ]);
+    //                 }
+    //             }
+    //         }
+
+    //         // ============================================================
+    //         // BRANCH B: REPLACEMENT
+    //         // ============================================================
+    //         else { // $resolution === 'replacement'
+
+    //             // 1. Create new linked replacement order (price 0)
+    //             $replacementOrder = $this->createReplacementOrder($returnOrder);
+
+    //             // 2. Mark return completed
+    //             $returnOrder->update([
+    //                 'status'               => OrderReturn::STATUS_COMPLETED,
+    //                 'resolution'           => 'replacement',
+    //                 'replacement_order_id' => $replacementOrder->id,
+    //                 'completed_at'         => now(),
+    //             ]);
+
+    //             // 3. Mark order lines as replaced (not refunded)
+    //             foreach ($returnOrder->items ?? [] as $item) {
+    //                 $orderLineId = is_array($item)
+    //                     ? ($item['order_line_id'] ?? null)
+    //                     : ($item->order_line_id ?? null);
+
+    //                 if (!$orderLineId) {
+    //                     continue;
+    //                 }
+
+    //                 $orderLine = OrderLine::find($orderLineId);
+    //                 if ($orderLine) {
+    //                     $orderLine->update([
+    //                         'return_status'   => 'replaced',
+    //                         'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'replacement'),
+    //                     ]);
+    //                 }
+    //             }
+    //         }
+
+    //         // ============================================================
+    //         // COMMON: status recalculation + notifications
+    //         // ============================================================
+    //         $this->updateOrderReturnStatus($returnOrder->order);
+    //         // $this->updateOrderMainStatus($returnOrder->order);
+
+    //         $this->createReturnNotification($returnOrder, 'completed');
+    //         $this->sendUserNotification($returnOrder, 'completed');
+
+    //         // Refresh the order so latest status is reflected in response
+    //         $returnOrder->order->refresh();
+
+    //         // ============================================================
+    //         // RESPONSE
+    //         // ============================================================
+    //         return [
+    //             'success'               => true,
+    //             'message'               => $resolution === 'refund'
+    //                 ? 'Return completed & refund processed successfully.'
+    //                 : 'Return completed & replacement order created.',
+    //             'return_id'             => $returnOrder->id,
+    //             'resolution'            => $resolution,
+    //             'order_status'          => $returnOrder->order->status,
+    //             'order_return_status'   => $returnOrder->order->return_status,
+    //             'status'                => OrderReturn::STATUS_COMPLETED,
+
+    //             // Refund-specific
+    //             'refund_amount'         => $resolution === 'refund'
+    //                 ? ($refundAmount ?? (float) $returnOrder->total_refund_amount)
+    //                 : null,
+    //             'refund_transaction_id' => $returnOrder->refund_transaction_id ?? null,
+    //             'credit_note_generated' => $creditNote !== null,
+    //             'credit_note_id'        => $creditNote->id ?? null,
+    //             'credit_note_number'    => $creditNote->credit_note_number ?? null,
+
+    //             // Replacement-specific
+    //             'replacement_order_id'  => $replacementOrder->id ?? null,
+    //             'replacement_order_no'  => $replacementOrder->order_reference ?? null,
+    //         ];
+    //     });
+    // }
+
+    /**
+     * Admin: Complete return
+     *
+     * Based on the admin's resolution choice:
+     *  - "refund"      : Processes Razorpay refund, generates credit note, and 
+     *                    triggers line-wise Ignite cancellation + local reversal.
+     *  - "replacement" : Creates a new linked replacement order (amount = 0), 
+     *                    and does NOT trigger Ignite cancellation.
+     *
+     * @param int         $returnId      The ID of the return request.
+     * @param string      $resolution    Either 'refund' or 'replacement'.
+     * @param float|null  $refundAmount  Optional custom refund amount.
+     * @param string|null $adminNotes    Optional admin notes.
+     * @param int|null    $approvedBy    Optional admin ID who approved it.
+     * @return array
+     * @throws Exception
      */
     public function completeReturn(
         int $returnId,
@@ -2888,40 +2847,25 @@ class ReturnService
             throw new Exception("Invalid resolution. Allowed: 'refund', 'replacement'.");
         }
 
-        /*
-     * NOTE: `items` is a JSON column on `returns`, cast to array.
-     * It is NOT an Eloquent relation — do NOT eager-load it here.
-     */
-        $returnOrder = OrderReturn::with(['order.lines'])
-            ->findOrFail($returnId);
+        $returnOrder = OrderReturn::with(['order.lines'])->findOrFail($returnId);
 
         if (!$returnOrder->canComplete()) {
             throw new Exception('Return cannot be completed. Status must be "received".');
         }
 
-        return DB::transaction(function () use (
-            $returnOrder,
-            $resolution,
-            $refundAmount,
-            $adminNotes,
-            $approvedBy
-        ) {
-            $creditNote       = null;
-            $refund           = null;
+        return DB::transaction(function () use ($returnOrder, $resolution, $refundAmount, $adminNotes, $approvedBy) {
+            
+            $creditNote = null;
+            $refund = null;
             $replacementOrder = null;
 
             // ============================================================
-            // BRANCH A: REFUND
+            // BRANCH A: REFUND (Triggers Razorpay Refund + Ignite Cancel)
             // ============================================================
             if ($resolution === 'refund') {
 
                 // 1. Process refund via Razorpay
-                $refundResponse = $this->processRefund(
-                    $returnOrder,
-                    $refundAmount,
-                    $adminNotes,
-                    $approvedBy
-                );
+                $refundResponse = $this->processRefund($returnOrder, $refundAmount, $adminNotes, $approvedBy);
 
                 if (!is_array($refundResponse) || empty($refundResponse['refund_id'])) {
                     throw new Exception('Refund failed. Razorpay refund ID was not returned.');
@@ -2940,42 +2884,16 @@ class ReturnService
                 try {
                     $creditNoteService = app(\App\Services\CreditNoteService::class);
                     $creditNote = $creditNoteService->generateFromReturn($returnOrder, $refund->id, $refundAmount);
-
-                    Log::info('Credit note generated in completeReturn', [
-                        'credit_note_id' => $creditNote->id,
-                        'refund_id'      => $refund->id,
-                        'return_id'      => $returnOrder->id,
-                    ]);
                 } catch (\Exception $e) {
-                    Log::error('Failed to generate credit note', [
+                    Log::error('Credit note generation failed', [
                         'return_id' => $returnOrder->id,
                         'refund_id' => $refund->id,
                         'error'     => $e->getMessage(),
-                        'trace'     => $e->getTraceAsString(),
                     ]);
                 }
 
                 // 4. Mark return completed with refund metadata
                 $effectiveRefundAmount = $refundAmount ?? (float) $returnOrder->total_refund_amount;
-
-                /* =============================================
-                | SEND RETURN COMPLETED SMS (TWILIO)
-                ============================================= */
-                DB::afterCommit(function () use ($returnOrder, $resolution) {
-                    $message = $resolution === 'refund'
-                        ? "Hi {$returnOrder->user?->full_name}! Your refund is completed. Please check your account."
-                        : "Hi {$returnOrder->user?->full_name}! Your replacement order has been created. Please check your account.";
-
-                    $this->sendReturnSms(
-                        $returnOrder->user?->phone,
-                        $message,
-                        [
-                            'event'      => 'return_completed',
-                            'return_id'  => $returnOrder->id,
-                            'resolution' => $resolution,
-                        ]
-                    );
-                });
 
                 $returnOrder->update([
                     'status'                  => OrderReturn::STATUS_COMPLETED,
@@ -2990,31 +2908,82 @@ class ReturnService
 
                 // 5. Mark order lines as returned
                 foreach ($returnOrder->items ?? [] as $item) {
-                    $orderLineId = is_array($item)
-                        ? ($item['order_line_id'] ?? null)
-                        : ($item->order_line_id ?? null);
-
-                    if (!$orderLineId) {
-                        continue;
-                    }
+                    $orderLineId = is_array($item) ? ($item['order_line_id'] ?? null) : ($item->order_line_id ?? null);
+                    if (!$orderLineId) continue;
 
                     $orderLine = OrderLine::find($orderLineId);
                     if ($orderLine) {
                         $orderLine->update([
-                            'return_status'   => 'returned',
+                            'return_status'       => 'returned',
                             'return_completed_at' => now(),
-                            'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'refund'),
+                            'delivery_status'     => $this->resolveDeliveryStatus($returnOrder->type, 'refund'),
                         ]);
+                    }
+                }
+
+                // 6. Send SMS for refund completion
+                DB::afterCommit(function () use ($returnOrder) {
+                    $this->sendReturnSms(
+                        $returnOrder->user?->phone,
+                        "Hi {$returnOrder->user?->full_name}! Your refund is completed. Please check your account.",
+                        [
+                            'event'      => 'return_completed',
+                            'return_id'  => $returnOrder->id,
+                            'resolution' => 'refund',
+                        ]
+                    );
+                });
+
+                // 7. LINE-WISE IGNITE CANCEL & REVERSAL TRIGGER (ONLY FOR REFUND)
+                $order = $returnOrder->order;
+                foreach ($returnOrder->items ?? [] as $item) {
+                    $orderLine = OrderLine::find($item['order_line_id'] ?? null);
+                    if (!$orderLine) continue;
+
+                    $linePayload = [
+                        'eventId'             => 'evt_' . \Illuminate\Support\Str::random(24),
+                        'action'              => 'REVERSAL',
+                        'orderReference'      => $order->order_reference,
+                        'orderLineId'         => $orderLine->id,
+                        'productIdentifier'   => (string) $orderLine->product_id,
+                        'productName'         => $orderLine->product?->name,
+                        'quantity'            => (int) $item['quantity'],
+                        'unitPriceCharged'    => (float) $orderLine->unit_price,
+                        'lineTotal'           => (float) $item['line_total'],
+                        'reversedValue'       => (float) $item['line_total'],
+                        'originalCv'          => (float) ($orderLine->ignite_cv_posted ?? $orderLine->commissionable_volume ?? 0),
+                        'igniteOrderNo'       => $orderLine->ignite_order_no,
+                        'reason'              => $returnOrder->reason ?? 'Return completed with refund',
+                        'purchaserIdentifier' => (string) $returnOrder->user_id,
+                        'accountType'         => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
+                        'eventTimestamp'      => now()->toIso8601String(),
+                    ];
+
+                    CommissionApiEvent::create([
+                        'event_type'    => 'reversal',
+                        'order_id'      => $order->id,
+                        'payload'       => json_encode($linePayload),
+                        'status'        => 'pending',
+                        'retry_count'   => 0,
+                        'max_retries'   => 5,
+                        'last_attempt'  => null,
+                        'error_message' => null,
+                        'response_data' => null,
+                    ]);
+
+                    if (!empty($orderLine->ignite_order_no) && $orderLine->ignite_sync_status !== 'cancelled') {
+                        DB::afterCommit(function () use ($orderLine) {
+                            \App\Jobs\CancelOrderOnIgniteJob::dispatch($orderLine->id);
+                        });
                     }
                 }
             }
 
             // ============================================================
-            // BRANCH B: REPLACEMENT
+            // BRANCH B: REPLACEMENT (No Razorpay Refund, No Ignite Cancel)
             // ============================================================
-            else { // $resolution === 'replacement'
-
-                // 1. Create new linked replacement order (price 0)
+            else { 
+                // 1. Create new linked replacement order
                 $replacementOrder = $this->createReplacementOrder($returnOrder);
 
                 // 2. Mark return completed
@@ -3025,15 +2994,10 @@ class ReturnService
                     'completed_at'         => now(),
                 ]);
 
-                // 3. Mark order lines as replaced (not refunded)
+                // 3. Mark order lines as replaced
                 foreach ($returnOrder->items ?? [] as $item) {
-                    $orderLineId = is_array($item)
-                        ? ($item['order_line_id'] ?? null)
-                        : ($item->order_line_id ?? null);
-
-                    if (!$orderLineId) {
-                        continue;
-                    }
+                    $orderLineId = is_array($item) ? ($item['order_line_id'] ?? null) : ($item->order_line_id ?? null);
+                    if (!$orderLineId) continue;
 
                     $orderLine = OrderLine::find($orderLineId);
                     if ($orderLine) {
@@ -3043,18 +3007,31 @@ class ReturnService
                         ]);
                     }
                 }
+
+                // 4. Send SMS for replacement completion
+                DB::afterCommit(function () use ($returnOrder) {
+                    $this->sendReturnSms(
+                        $returnOrder->user?->phone,
+                        "Hi {$returnOrder->user?->full_name}! Your replacement order has been created. Please check your account.",
+                        [
+                            'event'      => 'return_completed',
+                            'return_id'  => $returnOrder->id,
+                            'resolution' => 'replacement',
+                        ]
+                    );
+                });
+
+                // ❌ No Ignite Cancel here
             }
 
             // ============================================================
-            // COMMON: status recalculation + notifications
+            // COMMON: Status recalculation + notifications
             // ============================================================
             $this->updateOrderReturnStatus($returnOrder->order);
-            // $this->updateOrderMainStatus($returnOrder->order);
-
             $this->createReturnNotification($returnOrder, 'completed');
             $this->sendUserNotification($returnOrder, 'completed');
 
-            // Refresh the order so latest status is reflected in response
+            // Refresh the order to reflect latest status
             $returnOrder->order->refresh();
 
             // ============================================================
@@ -3071,7 +3048,7 @@ class ReturnService
                 'order_return_status'   => $returnOrder->order->return_status,
                 'status'                => OrderReturn::STATUS_COMPLETED,
 
-                // Refund-specific
+                // Refund-specific response data
                 'refund_amount'         => $resolution === 'refund'
                     ? ($refundAmount ?? (float) $returnOrder->total_refund_amount)
                     : null,
@@ -3080,180 +3057,12 @@ class ReturnService
                 'credit_note_id'        => $creditNote->id ?? null,
                 'credit_note_number'    => $creditNote->credit_note_number ?? null,
 
-                // Replacement-specific
+                // Replacement-specific response data
                 'replacement_order_id'  => $replacementOrder->id ?? null,
                 'replacement_order_no'  => $replacementOrder->order_reference ?? null,
             ];
         });
     }
-
-    // protected function createReplacementOrder(OrderReturn $returnOrder): Order
-    // {
-    //     $originalOrder = $returnOrder->order;
-
-    //     /*
-    //  * Anchor to ROOT order — so a replacement-of-a-replacement
-    //  * still points back to the very first order.
-    //  * Prevents infinite chain A → A-R1 → A-R2 → ...
-    //  */
-    //     $rootOrder = method_exists($this, 'getReturnWindowAnchor')
-    //         ? $this->getReturnWindowAnchor($originalOrder)
-    //         : $originalOrder;
-
-    //     return DB::transaction(function () use ($returnOrder, $originalOrder, $rootOrder) {
-
-    //         // ============================================================
-    //         // 1. Create the replacement order
-    //         // ============================================================
-    //         $replacement = Order::create([
-    //             // ── Identity / linkage ─────────────────────────────────
-    //             'parent_order_id'         => $rootOrder->id,
-    //             'is_replacement'          => true,
-    //             'order_reference'         => $this->generateReplacementOrderNumber($rootOrder),
-
-    //             // ── Customer / addresses ──────────────────────────────
-    //             'user_id'                 => $originalOrder->user_id,
-    //             'billing_address_id'      => $originalOrder->billing_address_id,
-    //             'delivery_address_id'     => $originalOrder->delivery_address_id,
-
-    //             // ── Type / status ─────────────────────────────────────
-    //             'status'                  => 'confirmed',
-    //             'return_status'           => null,
-    //             'refund_status'           => null,
-
-    //             // ── Money (all zero — free replacement) ───────────────
-    //             'subtotal'                => 0,
-    //             'total_gst'               => 0,
-    //             'total_cgst'              => 0,
-    //             'total_sgst'              => 0,
-    //             'total_igst'              => 0,
-    //             'shipping_charge'         => 0,
-    //             'coin_redeemed'           => 0,
-    //             'coin_redeemed_amount'    => 0,
-    //             'total_payable'           => 0,
-    //             'commissionable_volume'   => 0,
-    //             'amount_paid'             => 0,
-    //             'coupon_discount'         => 0,
-    //             'coupon_code'             => null,
-
-    //             // ── Payment (inherit, no new charge) ──────────────────
-    //             'payment_gateway'         => $originalOrder->payment_gateway,
-    //             'gateway_transaction_id'  => $originalOrder->gateway_transaction_id,
-    //             'checkout_type'           => $originalOrder->checkout_type,
-
-    //             // ── Shipping method inherit ───────────────────────────
-    //             'shipping_method_id'      => $originalOrder->shipping_method_id,
-
-    //             // ── Timestamps ────────────────────────────────────────
-    //             'confirmed_at'            => now(),
-
-    //             // ── Notes ─────────────────────────────────────────────
-    //             'delivery_notes'          => "Replacement for return #{$returnOrder->id} "
-    //                 . "(Order {$rootOrder->order_reference})",
-
-    //             // ── Optional JSON snapshots ───────────────────────────
-    //             'tax_breakdown'           => null,
-    //             'summary_data'            => [
-    //                 'is_replacement'         => true,
-    //                 'return_id'              => $returnOrder->id,
-    //                 'root_order_reference'   => $rootOrder->order_reference,
-    //                 'immediate_parent_ref'   => $originalOrder->order_reference,
-    //             ],
-    //         ]);
-
-    //         // ============================================================
-    //         // 2. Copy items from the return as replacement lines
-    //         // ============================================================
-    //         foreach ($returnOrder->items ?? [] as $item) {
-
-    //             $orderLineId = is_array($item)
-    //                 ? ($item['order_line_id'] ?? null)
-    //                 : ($item->order_line_id ?? null);
-
-    //             $qty = is_array($item)
-    //                 ? ($item['quantity'] ?? 0)
-    //                 : ($item->quantity ?? 0);
-
-    //             if (!$orderLineId || $qty <= 0) {
-    //                 continue;
-    //             }
-
-    //             $originalLine = OrderLine::with(['product', 'variant'])->find($orderLineId);
-    //             if (!$originalLine) {
-    //                 continue;
-    //             }
-
-    //             // Product snapshot name
-    //             $productName = $originalLine->product->name
-    //                 ?? $originalLine->product_name
-    //                 ?? 'Unknown Product';
-
-    //             OrderLine::create([
-    //                 // ── Linkage ───────────────────────────────────────
-    //                 'order_id'           => $replacement->id,
-    //                 'parent_line_id'     => $originalLine->id,
-    //                 'is_replacement'     => true,
-    //                 'item_reference_id'  => $this->generateLineReference($replacement),
-
-    //                 // ── Product ───────────────────────────────────────
-    //                 'product_id'         => $originalLine->product_id,
-    //                 'variant_id'         => $originalLine->variant_id,
-
-    //                 // ── Quantity ──────────────────────────────────────
-    //                 'quantity'           => $qty,
-    //                 'returned_quantity'  => 0,
-
-    //                 // ── Money (all zero — free replacement) ───────────
-    //                 'unit_price'         => 0,
-    //                 'shipping_charge'    => 0,
-    //                 'line_total'         => 0,
-
-    //                 // ── Tax (all zero) ────────────────────────────────
-    //                 'gst_rate'           => $originalLine->gst_rate  ?? 0,
-    //                 'cgst_rate'          => $originalLine->cgst_rate ?? 0,
-    //                 'sgst_rate'          => $originalLine->sgst_rate ?? 0,
-    //                 'igst_rate'          => $originalLine->igst_rate ?? 0,
-    //                 'gst_amount'         => 0,
-    //                 'cgst_amount'        => 0,
-    //                 'sgst_amount'        => 0,
-    //                 'igst_amount'        => 0,
-
-    //                 // ── Commission ────────────────────────────────────
-    //                 'commissionable_volume' => 0,
-
-    //                 // ── Status ────────────────────────────────────────
-    //                 'delivery_status'    => 'confirmed',
-    //                 'return_status'      => null,
-
-    //                 // ── Return eligibility ────────────────────────────
-    //                 'is_returnable'      => true,   // window still governed by ROOT order
-
-    //                 // ── Notes ─────────────────────────────────────────
-    //                 'delivery_notes'     => "Replacement for line #{$originalLine->id} "
-    //                     . "({$productName})",
-
-    //                 // ── JSON snapshots ────────────────────────────────
-    //                 'tax_data'           => null,
-    //             ]);
-    //         }
-
-    //         // ============================================================
-    //         // 3. Log
-    //         // ============================================================
-    //         Log::info('Replacement order created', [
-    //             'replacement_order_id'   => $replacement->id,
-    //             'replacement_reference'  => $replacement->order_reference,
-    //             'root_order_id'          => $rootOrder->id,
-    //             'root_order_reference'   => $rootOrder->order_reference,
-    //             'immediate_parent_id'    => $originalOrder->id,
-    //             'immediate_parent_ref'   => $originalOrder->order_reference,
-    //             'return_id'              => $returnOrder->id,
-    //             'line_count'             => $replacement->lines()->count(),
-    //         ]);
-
-    //         return $replacement;
-    //     });
-    // }
     protected function createReplacementOrder(OrderReturn $returnOrder): Order
     {
         $originalOrder = $returnOrder->order;
@@ -4812,197 +4621,11 @@ class ReturnService
         }
     }
 
-    /**
-     * Admin: Approve Cooling-Off Withdrawal
+   /**
+     * Approve a cooling-off withdrawal request.
      *
-     * @param int $returnId
-     * @param int $adminId
-     * @param string|null $adminNotes
-     * @return array
-     * @throws Exception
-     */
-    // public function approveCoolingOff(int $returnId, int $adminId, ?string $adminNotes = null): array
-    // {
-    //     $returnOrder = OrderReturn::with(['order', 'user'])
-    //         ->where('type', 'cooling_off')
-    //         ->findOrFail($returnId);
-
-    //     if (!$returnOrder->canApprove()) {
-    //         throw new Exception('This cooling-off request cannot be approved (already processed).');
-    //     }
-
-    //     return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
-    //         // 1. Update return status
-    //         $returnOrder->update([
-    //             'status' => 'approved',
-    //             'admin_id' => $adminId,
-    //             'admin_notes' => $adminNotes,
-    //             'approved_at' => now(),
-    //         ]);
-
-    //         // 2. Update order lines
-    //         foreach ($returnOrder->items as $item) {
-    //             $orderLine = OrderLine::find($item['order_line_id']);
-    //             if ($orderLine && $orderLine->return_status === 'pending') {
-    //                 $orderLine->update([
-    //                     'return_status' => 'approved',
-    //                     'delivery_status' => 'return_approved',
-    //                     'return_approved_at' => now(),
-    //                 ]);
-    //             }
-    //         }
-
-    //         // ========== NEW: STOCK RESTORE ==========
-    //         try {
-    //             $this->restoreStockForReturn($returnOrder);
-    //             Log::info('Stock restored successfully for cooling-off', [
-    //                 'return_id' => $returnOrder->id,
-    //                 'order_reference' => $returnOrder->order->order_reference ?? null,
-    //             ]);
-    //         } catch (\Exception $e) {
-    //             Log::error('Stock restore failed for cooling-off', [
-    //                 'return_id' => $returnOrder->id,
-    //                 'error' => $e->getMessage(),
-    //                 'trace' => $e->getTraceAsString(),
-    //             ]);
-    //             // Don't throw - allow the process to continue
-    //             // Stock restore failure should not block the refund
-    //         }
-    //         // ========== END STOCK RESTORE ==========
-
-    //         // 3. Update order-level return status
-    //         $this->updateOrderReturnStatus($returnOrder->order);
-    //         // $this->updateOrderMainStatus($returnOrder->order);
-
-    //         // 4. Update distributor status (if distributor)
-    //         if ($returnOrder->user->account_type === 'distributor') {
-    //             $returnOrder->user->update([
-    //                 'distributor_status' => 'withdrawn',
-    //                 'is_active' => false,
-    //             ]);
-
-    //             Log::info('Distributor withdrawn via cooling-off', [
-    //                 'user_id' => $returnOrder->user->id,
-    //                 'return_id' => $returnOrder->id,
-    //             ]);
-    //         }
-
-    //         // ========== REVERSAL TRIGGER ==========
-    //         try {
-    //             $order = $returnOrder->order;
-
-    //             // Build payload
-    //             $payload = [
-    //                 'eventId' => 'evt_' . \Illuminate\Support\Str::random(24),
-    //                 'action' => 'REVERSAL',
-    //                 'orderReference' => $order->order_reference,
-    //                 'reason' => 'Cooling-off withdrawal',
-    //                 'lines' => $this->buildReversalLines($returnOrder),
-    //                 'reversedValue' => (float) $returnOrder->total_refund_amount,
-    //                 'originalCv' => (float) ($order->commissionable_volume ?? 0),
-    //                 'purchaserIdentifier' => (string) $returnOrder->user_id,
-    //                 'accountType' => $order->order_type === 'distributor' ? 'DISTRIBUTOR' : 'CUSTOMER',
-    //                 'eventTimestamp' => now()->toIso8601String(),
-    //             ];
-
-    //             // Save event in database
-    //             $event = CommissionApiEvent::create([
-    //                 'event_type' => 'reversal',
-    //                 'order_id' => $order->id,
-    //                 'payload' => json_encode($payload),
-    //                 'status' => 'pending',
-    //                 'retry_count' => 0,
-    //                 'max_retries' => 5,
-    //             ]);
-
-    //             Log::info('Cooling-off reversal event saved in database', [
-    //                 'event_id' => $event->id,
-    //                 'return_id' => $returnOrder->id,
-    //             ]);
-
-    //             // Send to Commission API
-    //             try {
-    //                 $reversalPayload = new \App\Services\Commission\ReversalPayload(
-    //                     eventId: $payload['eventId'],
-    //                     action: $payload['action'],
-    //                     orderReference: $payload['orderReference'],
-    //                     reason: $payload['reason'],
-    //                     lines: $payload['lines'],
-    //                     reversedValue: $payload['reversedValue'],
-    //                     originalCv: $payload['originalCv'],
-    //                     purchaserIdentifier: $payload['purchaserIdentifier'],
-    //                     accountType: $payload['accountType'],
-    //                     eventTimestamp: $payload['eventTimestamp'],
-    //                 );
-
-    //                 $this->commissionService->postReversalEvent($reversalPayload);
-    //                 $event->update(['status' => 'sent']);
-
-    //                 Log::info('Cooling-off reversal sent to Commission API', [
-    //                     'return_id' => $returnOrder->id,
-    //                     'event_id' => $event->id,
-    //                 ]);
-    //             } catch (\Exception $e) {
-    //                 $event->update([
-    //                     'status' => 'failed',
-    //                     'error_message' => $e->getMessage(),
-    //                     'last_attempt' => now(),
-    //                 ]);
-
-    //                 Log::error('Cooling-off reversal API call failed', [
-    //                     'return_id' => $returnOrder->id,
-    //                     'error' => $e->getMessage(),
-    //                 ]);
-    //             }
-    //         } catch (\Exception $e) {
-    //             Log::error('Cooling-off reversal event creation failed', [
-    //                 'return_id' => $returnOrder->id,
-    //                 'error' => $e->getMessage(),
-    //             ]);
-    //         }
-    //         // ========== END REVERSAL TRIGGER ==========
-
-    //         // ========== NEW: USER NOTIFICATIONS ==========
-    //         try {
-    //             $this->sendCoolingOffNotification($returnOrder, 'approved');
-    //             Log::info('Cooling-off approval notification sent to user', [
-    //                 'return_id' => $returnOrder->id,
-    //                 'user_id' => $returnOrder->user_id,
-    //             ]);
-    //         } catch (\Exception $e) {
-    //             Log::error('Failed to send cooling-off notification', [
-    //                 'return_id' => $returnOrder->id,
-    //                 'error' => $e->getMessage(),
-    //             ]);
-    //         }
-    //         // ========== END USER NOTIFICATIONS ==========
-
-    //         // 5. Admin notification (existing)
-    //         $this->createReturnNotification($returnOrder, 'approved');
-
-    //         // 6. Logging
-    //         Log::info('Cooling-off withdrawal approved', [
-    //             'return_id' => $returnOrder->id,
-    //             'admin_id' => $adminId,
-    //             'refund_amount' => $returnOrder->total_refund_amount,
-    //             'user_id' => $returnOrder->user_id,
-    //             'stock_restored' => true,
-    //         ]);
-
-    //         return [
-    //             'success' => true,
-    //             'message' => 'Cooling-off withdrawal approved successfully. Stock restored and refund will be processed within 5-7 business days.',
-    //             'return_id' => $returnOrder->id,
-    //             'status' => 'approved',
-    //             'refund_amount' => (float) $returnOrder->total_refund_amount,
-    //             'admin_notes' => $adminNotes,
-    //             'stock_restored' => true,
-    //         ];
-    //     });
-    // }
-
-    /**
-     * Admin: Approve Cooling-Off Withdrawal
+     * Because cooling-off withdrawals are always a refund (no replacement option),
+     * we trigger the Ignite cancellation and local reversal events immediately upon approval.
      *
      * @param int $returnId
      * @param int $adminId
@@ -5055,6 +4678,7 @@ class ReturnService
                     'trace' => $e->getTraceAsString(),
                 ]);
             }
+            // ========== END STOCK RESTORE ==========
 
             // 3. Update order-level return status
             $this->updateOrderReturnStatus($returnOrder->order);
@@ -5072,7 +4696,8 @@ class ReturnService
                 ]);
             }
 
-            // ========== LINE-WISE REVERSAL & IGNITE CANCEL TRIGGER ==========
+            // ========== LINE-WISE IGNITE CANCEL & REVERSAL TRIGGER ==========
+            // Cooling-off is always a refund, so we trigger it right away.
             $order = $returnOrder->order;
 
             foreach ($returnOrder->items ?? [] as $item) {
@@ -5121,7 +4746,7 @@ class ReturnService
             }
             // ========== END LINE-WISE REVERSAL ==========
 
-            // ========== USER NOTIFICATIONS ==========
+            // 5. User Notifications
             try {
                 $this->sendCoolingOffNotification($returnOrder, 'approved');
                 Log::info('Cooling-off approval notification sent to user', [
@@ -5135,10 +4760,10 @@ class ReturnService
                 ]);
             }
 
-            // 5. Admin notification (existing)
+            // 6. Admin notification
             $this->createReturnNotification($returnOrder, 'approved');
 
-            // 6. Logging
+            // 7. Logging
             Log::info('Cooling-off withdrawal approved', [
                 'return_id' => $returnOrder->id,
                 'admin_id' => $adminId,
