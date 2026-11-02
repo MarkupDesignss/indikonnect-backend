@@ -21,17 +21,35 @@
  * Members
  *   A request names a member by `ba_id`, except a placement parent, which may be named by
  *   `member_id` instead. Every member a response names carries `member_id`.
- *   `ba_id` is filled only for this partner's own members; a member outside the partner
- *   (an Ignite member, or another partner's) comes back with `ba_id` null. One exception:
- *   pendingPlacements sends the BA ID and full name of every referral it lists, since the sponsor referred them.
- *   Details, rank progress, trees, CV and point transactions, placement and redemption act only
- *   on this partner's own members, plus setPlacement on a member from pendingPlacements; any other
- *   BA ID answers MEMBER_NOT_FOUND (3001).
+ *   Every `*_member_id` / `*_id` naming a member comes with its `*_ba_id`. The BA ID is filled for
+ *   this partner's own members only, and null for anyone else (an Ignite member, or another
+ *   partner's), whose `member_id` still comes.
+ *   Two exceptions: pendingPlacements sends the BA ID and full name of every referral it lists,
+ *   outsiders included, since the sponsor seats them with setPlacement by BA ID; validateSponsor
+ *   echoes the BA ID it was sent, whoever holds it.
+ *   Every call taking `ba_id` acts on this partner's own members only, except validateSponsor,
+ *   registerMember's sponsor, a placement parent, and setPlacement on a member from
+ *   pendingPlacements; any other BA ID answers MEMBER_NOT_FOUND (3001).
  *   A wrong sponsor or position is corrected by Ignite operations on request; no call changes
- *   either. Ignite does not notify the change: once operations confirm it, re-read memberDetails
+ *   either. Ignite does not notify the change: once Ignite operations confirm it, re-read memberDetails
  *   and update the stored sponsor and position. A member still unplaced then shows in the new
  *   sponsor's placement window and is placed with setPlacement before the deadline; a placed
  *   member's position moves with the sponsor.
+ *
+ * Placement
+ *   A placement parent is a node in the sponsor's binary network with a free side, usually the
+ *   end of a leg. Free sides start one level below a -001: its own two sides always hold its
+ *   -002 (left) and -003 (right), so naming a -001 answers PLACEMENT_REFUSED. The end of each leg is far_left_id (send side 1) or far_right_id
+ *   (send side 2) from memberDetails of the upline, sent as placement_member_id; the matching
+ *   *_ba_id is null when that end belongs to a member outside this partner. Applies to
+ *   registerMember, setPlacement, createOrder extra_tcs and placeBankedTc.
+ *
+ * Sign-up of a person who already holds a BA ID
+ *   A world plan member moved to this partner by Ignite already holds one. Ask for it at sign-up,
+ *   before anything else, and look it up with memberDetails. Found, and not in the partner's own
+ *   records: run the partner's own sign-up and KYC, then store the BA ID. Never registerMember:
+ *   sponsor and position already exist. MEMBER_NOT_FOUND means no such BA ID, or not yet moved
+ *   to this partner.
  *
  * Amounts are decimal strings with 4 places, e.g. "120.0000". Money (prices, commission, the
  * cash_bal balance, the wd file) is USD; CV and coins are counts, not money.
@@ -39,7 +57,7 @@
  * Ranks are named by ladder position, `rank_no`: 1 Silver to 8 Diamond, 0 = no rank. planRanks
  * lists the ladder.
  *
- * Times: every date and time sent or returned is UTC+8, as "Y-m-d H:i:s".
+ * Times: every date and time sent or returned is UTC+8. Dates "Y-m-d", times "Y-m-d H:i:s".
  * A transaction row's `created_at` adds milliseconds: "Y-m-d H:i:s.v".
  * Convert local time before sending: India 14:30 (UTC+5:30) is "17:00" here. A wrong zone moves an
  * order across a week or month cutoff without any error.
@@ -92,14 +110,18 @@ class IgniteClient
         $this->http = new Client([
             'timeout'     => $timeoutSec,
             'http_errors' => false,
-            'headers'     => ['Authorization' => "Bearer {$apiKey}", 'Accept' => 'application/json'],
+            'headers'     => [
+                'Authorization' => "Bearer {$apiKey}",
+                'Accept'        => 'application/json',
+                'User-Agent'    => 'IgniteClient-PHP/1.0',
+            ],
         ]);
     }
 
     /**
      * Sales months for one sales year, each with its weeks nested.
      *
-     * `is_settled` turns true once the Saturday payout run on a week finishes, not when it starts.
+     * `is_settled` turns true once the Saturday settlement on a week finishes, not when it starts.
      * A month is named by `year` + `month_no`, a week by `year` + `week_no`.
      *
      * GET /meta/getSalesCalendar?year=2026
@@ -140,7 +162,9 @@ class IgniteClient
      *   "plan": {
      *     "code": "A", "name": "Elite",
      *     "qualify_cv": "300.0000", "activation_cv": "300.0000", "pairing_step_cv": "1800.0000",
-     *     "base_product_cv": "600.0000", "req_direct_cv_yearly": "300.0000"
+     *     "base_product_cv": "600.0000", "req_direct_cv_yearly": "300.0000",
+     *     "green_redeem_usd": "125.0000", "yellow_usd_small": "30.0000", "yellow_usd_large": "40.0000",
+     *     "blue_usd": "12.5000"
      *   },
      *   "ranks": [
      *     { "rank_no": 1, "name": "Silver", "step_comm": "250.0000", "req_steps": 0,
@@ -152,11 +176,15 @@ class IgniteClient
      *   ]
      * }
      *
-     *   qualify_cv             CV the 001 node takes to qualify, which opens the other nodes to CV
-     *   activation_cv          CV each side of the 001 node needs before pairing starts
+     *   qualify_cv             CV the -001 takes to qualify, which opens the other nodes to CV
+     *   activation_cv          CV each side of the -001 needs before pairing starts
      *   pairing_step_cv        CV per side making one pairing step
      *   base_product_cv        CV buying one extra TC out of an order's surplus
      *   req_direct_cv_yearly   direct CV per year from year two, ranks above Silver
+     *   green_redeem_usd       USD the Saturday run pays for every 6 Green Coins
+     *   yellow_usd_small       USD per Yellow Coin when redeemCoin takes 1 or 2
+     *   yellow_usd_large       USD per Yellow Coin when redeemCoin takes 3 or more
+     *   blue_usd               USD per Blue Coin; redeemCoin takes 4 or more
      *   rank_no                ladder position, 1 lowest to 8 highest; what memberDetails and rankProgress carry
      *   step_comm              USD paid per pairing step at this rank
      *   req_steps              pairing steps the rank needs
@@ -165,6 +193,8 @@ class IgniteClient
      *   req_prev_rank_count    unilevel downlines at the rank below, or above; 0 = none
      *   req_prev2_rank_count   the same, two ranks below
      *   max_weekly_steps       pairing steps paid per week at this rank
+     *
+     * Refusal codes: none
      */
     public function planRanks(): array
     {
@@ -186,17 +216,34 @@ class IgniteClient
      * }
      *
      *   product_id    what a createOrder line sends
-     *   retail_price  USD per unit, charged while the buyer's -001 node is not qualified
+     *   retail_price  USD per unit, charged while the buyer's -001 is not qualified
      *   member_price  USD per unit, charged once it is
      *   cv            CV per unit
-     *   green_coin    green coins per unit, paid when the order's week settles
-     *   blue_coin     blue coins per unit, paid when the order's week settles
+     *   green_coin    Green Coins per unit, paid to the buyer's uplines, never the buyer, when the order's week settles
+     *   blue_coin     Blue Coins per unit, paid to the buyer and the buyer's uplines when the order's week settles
      *
      * createOrder prices at its `ordered_at`, so a price changed since this read applies to it.
+     *
+     * Refusal codes: none
      */
     public function catalog(): array
     {
         return $this->get('/meta/getCatalog', []);
+    }
+
+    /**
+     * Check a sponsor BA ID before registerMember: a main account of this partner, another partner
+     * or the world plan. The same rule registerMember applies to sponsor_ba_id.
+     *
+     * GET /members/validateSponsor?ba_id=AIA7918383-001
+     *
+     * data: { "member_id": 4, "ba_id": "AIA7918383-001" }
+     *
+     * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND (no such BA ID, or a -002 or -003)
+     */
+    public function validateSponsor(string $baId): array
+    {
+        return $this->get('/members/validateSponsor', ['ba_id' => $baId]);
     }
 
     /**
@@ -213,8 +260,8 @@ class IgniteClient
      * unless setPlacement runs first.
      *
      * POST /members/register
-     * body: { "partner_member_ref": "IDK-10233", "sponsor_ba_id": "DIA7918383-001", "fullname": "Ravi Kumar",
-     *         "placement_ba_id": "DIA7918383-003", "side": 1 }
+     * body: { "partner_member_ref": "M-10233", "sponsor_ba_id": "AIA7918383-001", "fullname": "Ravi Kumar",
+     *         "placement_ba_id": "AIA7918383-003", "side": 1 }
      *
      *   placement_ba_id      the placement parent by BA ID: a node known by name, such as an outside sponsor
      *   placement_member_id  the placement parent by member_id: a node picked off binaryTree, outside ones included
@@ -228,6 +275,7 @@ class IgniteClient
      *
      * @param  string  $partnerMemberRef  the partner's own id for the member, up to 100 characters; never changes
      * @param  string  $sponsorBaId  a main account's BA ID, never a -002 or -003
+     * @param  string  $fullname  up to 255 characters
      * @param  string|int|null  $placementParent  string = BA ID, int = member_id. A member_id held as a
      *                                            string must be cast to int, or it is sent as a BA ID
      * @param  int|null  $side  1 left, 2 right
@@ -251,42 +299,53 @@ class IgniteClient
      * One member node. Ranks, membership status and balances are the account's; a
      * sub-account (-002, -003) answers with its main account's. CV and position are the node's.
      *
-     * GET /members/getDetails?ba_id=DIA7918383-001
+     * GET /members/getDetails?ba_id=AIA7918383-001
      *
      * data: {
-     *   "member_id": 4, "ba_id": "DIA7918383-001", "partner_member_ref": null,
-     *   "main_member_id": null,
-     *   "unilevel_parent_id": 1, "binary_parent_id": 2, "binary_side": 1,
+     *   "member_id": 4, "ba_id": "AIA7918383-001",
+     *   "unilevel_parent_id": 1, "unilevel_parent_ba_id": null,
+     *   "binary_parent_id": 2, "binary_parent_ba_id": null, "binary_side": 1,
      *   "cv_left": "123806.0000", "cv_right": "0.0000",
      *   "floating_cv_left": "25150.0000", "floating_cv_right": "150.0000",
      *   "total_cv_left": "123806.0000", "total_cv_right": "0.0000",
-     *   "qualified_at": null, "membership_status": "active", "allow_withdraw": true,
+     *   "far_left_id": 9, "far_left_ba_id": "AIA5531207-001", "far_right_id": 6, "far_right_ba_id": "AIA7918383-003",
+     *   "partner_member_ref": null, "main_member_id": null, "main_ba_id": null,
+     *   "qualified_at": "2026-08-14 10:05:31", "membership_status": "active", "allow_withdraw": true,
      *   "rank_no": 1, "base_rank_no": 0, "eligible_rank_no": 1,
      *   "total_steps": 37,
      *   "placement_deadline": null,
      *   "cash_bal": "388.0000", "green_bal": "0.0000", "yellow_bal": "0.0000", "blue_bal": "761.0000",
-     *   "cv_allocated": "1000.0000"
+     *   "cv_allocated": "300.0000", "tc_bank_available": 1
      * }
      *
-     *   main_member_id       the -001 node's member_id on a sub-account; null on the main account
-     *   binary_parent_id     null while unplaced
+     *   unilevel_parent_*    the sponsor, by member_id and BA ID. The sample sponsor is outside this
+     *                        partner, so its BA ID is null
+     *   binary_parent_*      the placement parent, by member_id and BA ID; null while unplaced
      *   binary_side          1 left, 2 right; null while unplaced
+     *   far_left_*, far_right_*  the last node down each leg, by member_id and BA ID; null on an empty leg
+     *   main_*               the -001, by member_id and BA ID, on a sub-account; null on the main account
+     *   partner_member_ref   the partner's own id sent to registerMember; null on a -002 or -003 and on a
+     *                        member moved in by Ignite
+     *   qualified_at         UTC+8, when this node qualified; null until then. On the -001 it ends retail pricing
      *   cv_*                 matured CV, what pairing consumes
      *   floating_cv_*        floating CV, not yet settled
      *   total_cv_*           lifetime settled CV; auto-placement seats on the weaker of these
      *   rank_no              the rank in force: the higher of eligible_rank_no and base_rank_no
      *   eligible_rank_no     earned by the member's own conditions; render progress against this
-     *   base_rank_no         the floor an Ignite administrator set; 0 = none
+     *   base_rank_no         the floor Ignite operations set; 0 = none
      *   cash_bal             commission balance; the weekly withdrawal pays it out
      *   total_steps          lifetime pairing steps on this node, paid and burned alike
      *   membership_status    retail, active, grace, suspended, terminated
-     *   allow_withdraw       false while Ignite holds the member's payout: the weekly withdrawal skips them
+     *   allow_withdraw       false while the member's payout is held (setAllowWithdraw, or Ignite
+     *                        operations): the weekly withdrawal skips them
      *                        and the balance carries, so the wd file has no line for them
      *   placement_deadline   UTC+8. Set only on an unplaced main account; Ignite auto-places when it passes
      *   cv_allocated         CV the member's own orders put on this node, lifetime, cancelled orders excluded.
      *                        Not downline CV (cv_left / cv_right). The -001 takes qualify_cv minus this until
      *                        qualified_at is set, then nothing; extra TCs need -002 and -003 each at
      *                        qualify_cv or more
+     *   tc_bank_available    extra TCs waiting in the member's TC Bank for placeBankedTc: earned by an order
+     *                        that did not name them, or added by Ignite operations. Null on a -002 or -003
      *
      * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND
      */
@@ -302,7 +361,7 @@ class IgniteClient
      * main account sponsored by this partner's main account, wherever it registered.
      *
      * POST /members/setPlacement
-     * body: { "ba_id": "DIA3425549-001", "placement_ba_id": "DIA7918383-003", "side": 1 }
+     * body: { "ba_id": "AIA3425549-001", "placement_ba_id": "AIA7918383-003", "side": 1 }
      *
      *   placement_ba_id      the placement parent by BA ID: a node known by name, such as an outside sponsor
      *   placement_member_id  the placement parent by member_id: a node picked off binaryTree, outside ones included
@@ -328,6 +387,64 @@ class IgniteClient
     }
 
     /**
+     * Seat one extra TC from a main account's TC Bank (memberDetails tc_bank_available) at exactly
+     * the named parent and side. No deadline: a banked TC waits until placed.
+     * Ignite picks the TC: one Ignite operations added first, then the one from the oldest order.
+     * That order's getOrder then lists it in extra_tcs, and cancelling that order leaves it seated
+     * but no longer qualified.
+     *
+     * POST /members/placeBankedTc
+     * body: { "ba_id": "AIA8976104-001", "placement_ba_id": "AIA8976104-002", "side": 1 }
+     *
+     *   placement_ba_id      the placement parent by BA ID
+     *   placement_member_id  the placement parent by member_id, for a node picked off binaryTree
+     *                        Send exactly one of the two. Both, or neither, answers VALIDATION_FAILED.
+     *                        The parent is the main account or a node in its binary downline
+     *
+     * data: { "member_id": 211, "ba_id": "AIA8976104-005", "binary_parent_id": 200,
+     *         "binary_parent_ba_id": "AIA8976104-002", "binary_side": 1 }
+     *
+     *   the new node, as one createOrder extra_tcs row
+     *
+     * Not safe to retry blindly: a retry whose first attempt landed answers PLACEMENT_REFUSED (side
+     * taken), or TC_BANK_EMPTY when that was the last banked TC; memberDetails tc_bank_available
+     * shows whether it dropped.
+     *
+     * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND (ba_id not this partner's, or a -002 or -003;
+     * or no such placement parent), TC_BANK_EMPTY, EXTRA_TC_PARENT_INVALID, PLACEMENT_REFUSED (main account not yet placed, side taken
+     * or held), NETWORK_BUSY (another placement still holds the slot after 4 seconds)
+     *
+     * @param  string|int  $placementParent  string = BA ID, int = member_id. A member_id held as a
+     *                                       string must be cast to int, or it is sent as a BA ID
+     * @param  int  $side  1 left, 2 right
+     */
+    public function placeBankedTc(string $baId, string|int $placementParent, int $side): array
+    {
+        return $this->post('/members/placeBankedTc', [
+            'ba_id' => $baId,
+            'side'  => $side,
+        ] + $this->placementParent($placementParent));
+    }
+
+    /**
+     * Hold or release a member's weekly commission withdrawal. One switch, shared with Ignite
+     * operations: the latest write from either side holds. While off, the weekly withdrawal
+     * skips the member and the balance carries to the first weekly withdrawal after it turns back on.
+     *
+     * POST /members/setAllowWithdraw
+     * body: { "ba_id": "AIA7918383-001", "allow_withdraw": false }
+     *
+     * data: the memberDetails shape, after the change
+     *
+     * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND (not this partner's, or a -002 or -003),
+     * NETWORK_BUSY (the Saturday settlement is running; retry every 30 seconds)
+     */
+    public function setAllowWithdraw(string $baId, bool $allowWithdraw): array
+    {
+        return $this->post('/members/setAllowWithdraw', ['ba_id' => $baId, 'allow_withdraw' => $allowWithdraw]);
+    }
+
+    /**
      * A sponsor's direct referrals who still need a binary seat, nearest deadline first. It
      * includes referrals who registered on Ignite or through another partner with this sponsor as
      * referrer, and reflects any sponsor change Ignite operations made. Build the placement window
@@ -336,13 +453,13 @@ class IgniteClient
      * A member leaves the list once placed, by the sponsor or by Ignite at the deadline. Read where
      * it landed from memberDetails or binaryTree.
      *
-     * GET /members/getPendingPlacements?ba_id=DIA7918383-001
+     * GET /members/getPendingPlacements?ba_id=AIA7918383-001
      *
      * data: { "rows": [
-     *   { "member_id": 311, "ba_id": "DIA3425549-001", "fullname": "Ravi Kumar",
+     *   { "member_id": 311, "ba_id": "AIA3425549-001", "fullname": "Ravi Kumar",
      *     "registered_at": "2026-09-28 11:02:45", "has_ordered": true, "unplaced_downline_count": 0,
      *     "placement_deadline": "2026-10-07 00:00:00", "is_overdue": false },
-     *   { "member_id": 312, "ba_id": "WPA1180042-001", "fullname": null,
+     *   { "member_id": 312, "ba_id": "AIA1180042-001", "fullname": null,
      *     "registered_at": "2026-09-29 09:40:12", "has_ordered": false, "unplaced_downline_count": 2,
      *     "placement_deadline": "2026-10-07 00:00:00", "is_overdue": false }
      * ] }
@@ -368,44 +485,11 @@ class IgniteClient
     }
 
     /**
-     * Validate a sponsor BA ID.
-     *
-     * Confirms that the BA ID belongs to a valid main account (-001) that can
-     * be used as a sponsor when registering a new member.
-     *
-     * GET /members/validateSponsor?ba_id=DIA7918383-001
-     *
-     * data: {
-     *   "member_id": 4,
-     *   "ba_id": "DIA7918383-001",
-     *   "unilevel_parent_id": 1,
-     *   "unilevel_parent_ba_id": null,
-     *   "binary_parent_id": 2,
-     *   "binary_side": 1,
-     *   "cv_left": "123806.0000",
-     *   "cv_right": "0.0000",
-     *   "total_cv_left": "123806.0000",
-     *   "total_cv_right": "0.0000",
-     *   "rank_no": 1,
-     *   "membership_status": "active",
-     *   "qualified_at": "2026-09-17 20:44:16"
-     * }
-     *
-     * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND
-     *
-     * @param  string  $baId  the sponsor's BA ID
-     */
-    public function validateSponsor(string $baId): array
-    {
-        return $this->get('/members/validateSponsor', ['ba_id' => $baId]);
-    }
-
-    /**
      * A member's progress toward every rank on their plan, in the sales month open now. Computed
      * from data the partner does not hold: orders and recruits outside this partner, and past
      * months' results. Reading changes nothing; ranks change only when Ignite closes a month.
      *
-     * GET /members/getRankProgress?ba_id=DIA7918383-001
+     * GET /members/getRankProgress?ba_id=AIA7918383-001
      *
      * data: {
      *   "sales_month": { "year": 2026, "month_no": 9, "label": "2026-M09",
@@ -426,7 +510,8 @@ class IgniteClient
      * }
      *
      *   sales_month          the month being judged; null when Ignite's sales calendar has no month
-     *                        for today, and then direct_cv and tenure read 0
+     *                        for today. direct_cv current then reads 0, and tenure counts no closed
+     *                        month: its current is 1 on a rank at or below closing.met_rank_no, else 0
      *   current              the ranks held now, as memberDetails carries them. 0 = none
      *   closing              the ranks a month close today would write. 0 = none
      *     met_rank_no        highest rank whose steps, direct CV and both downline counts hold now
@@ -458,17 +543,20 @@ class IgniteClient
     /**
      * Unilevel downlines of a member, root first. Sub-accounts are left out.
      *
-     * GET /members/getUnilevelTree?ba_id=DIA7918383-001&depth=2
+     * GET /members/getUnilevelTree?ba_id=AIA7918383-001&depth=2
      *
      * data: { "rows": [
-     *   { "member_id": 4, "ba_id": "DIA7918383-001", "unilevel_parent_id": 1, "binary_parent_id": 2,
+     *   { "member_id": 4, "ba_id": "AIA7918383-001", "unilevel_parent_id": 1, "unilevel_parent_ba_id": null,
+     *     "binary_parent_id": 2, "binary_parent_ba_id": null,
      *     "binary_side": 1, "cv_left": "123806.0000", "cv_right": "0.0000", "floating_cv_left": "25150.0000",
      *     "floating_cv_right": "150.0000", "total_cv_left": "123806.0000", "total_cv_right": "0.0000", "level": 0 },
-     *   { "member_id": 7, "ba_id": null, "unilevel_parent_id": 4, "binary_parent_id": 5,
+     *   { "member_id": 7, "ba_id": null, "unilevel_parent_id": 4, "unilevel_parent_ba_id": "AIA7918383-001",
+     *     "binary_parent_id": 5, "binary_parent_ba_id": "AIA7918383-002",
      *     "binary_side": 2, "cv_left": "0.0000", "cv_right": "0.0000", "floating_cv_left": "0.0000",
      *     "floating_cv_right": "0.0000", "total_cv_left": "0.0000", "total_cv_right": "0.0000", "level": 1 }
      * ] }
      *
+     *   ba_id  null for a member outside this partner, here a recruit of the root who registered elsewhere
      *   level  0 is the root. Rows are ordered by level.
      *
      * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND
@@ -482,28 +570,33 @@ class IgniteClient
 
     /**
      * Binary downlines of a node, root first, every node including sub-accounts.
-     * Same row shape as unilevelTree, plus two fields per row.
+     * Same row shape as unilevelTree, plus each leg's far end.
      *
-     * GET /members/getBinaryTree?ba_id=DIA7918383-001&depth=1
+     * GET /members/getBinaryTree?ba_id=AIA7918383-001&depth=1
      *
      * data: { "rows": [
-     *   { "member_id": 4, "ba_id": "DIA7918383-001", "unilevel_parent_id": 1, "binary_parent_id": 2,
+     *   { "member_id": 4, "ba_id": "AIA7918383-001", "unilevel_parent_id": 1, "unilevel_parent_ba_id": null,
+     *     "binary_parent_id": 2, "binary_parent_ba_id": null,
      *     "binary_side": 1, "cv_left": "123806.0000", "cv_right": "0.0000", "floating_cv_left": "25150.0000",
      *     "floating_cv_right": "150.0000", "total_cv_left": "123806.0000", "total_cv_right": "0.0000", "level": 0,
-     *     "far_left_ba_id": "DIA5531207-001", "far_right_ba_id": null },
-     *   { "member_id": 5, "ba_id": "DIA7918383-002", "unilevel_parent_id": 4, "binary_parent_id": 4,
+     *     "far_left_id": 9, "far_left_ba_id": "AIA5531207-001", "far_right_id": 6, "far_right_ba_id": "AIA7918383-003" },
+     *   { "member_id": 5, "ba_id": "AIA7918383-002", "unilevel_parent_id": 4, "unilevel_parent_ba_id": "AIA7918383-001",
+     *     "binary_parent_id": 4, "binary_parent_ba_id": "AIA7918383-001",
      *     "binary_side": 1, "cv_left": "98300.0000", "cv_right": "0.0000", "floating_cv_left": "20000.0000",
      *     "floating_cv_right": "0.0000", "total_cv_left": "98300.0000", "total_cv_right": "0.0000", "level": 1,
-     *     "far_left_ba_id": "DIA5531207-001", "far_right_ba_id": null },
-     *   { "member_id": 8, "ba_id": null, "unilevel_parent_id": 4, "binary_parent_id": 4,
+     *     "far_left_id": 9, "far_left_ba_id": "AIA5531207-001", "far_right_id": 7, "far_right_ba_id": null },
+     *   { "member_id": 6, "ba_id": "AIA7918383-003", "unilevel_parent_id": 4, "unilevel_parent_ba_id": "AIA7918383-001",
+     *     "binary_parent_id": 4, "binary_parent_ba_id": "AIA7918383-001",
      *     "binary_side": 2, "cv_left": "0.0000", "cv_right": "0.0000", "floating_cv_left": "0.0000",
      *     "floating_cv_right": "0.0000", "total_cv_left": "0.0000", "total_cv_right": "0.0000", "level": 1,
-     *     "far_left_ba_id": null, "far_right_ba_id": null }
+     *     "far_left_id": null, "far_left_ba_id": null, "far_right_id": null, "far_right_ba_id": null }
      * ] }
      *
      *   level        0 is the root. Rows are ordered by level.
-     *   far_*_ba_id  the last node down each leg of that row's node; call binaryTree with it to jump
-     *                there; null when the leg is empty or the node is outside this partner
+     *   far_*        the last node down each leg of that row's node, by member_id and BA ID; call
+     *                binaryTree with the BA ID to jump there; null on an empty leg
+     *
+     * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND
      *
      * @param  int  $depth  1 to 5 levels below the root
      */
@@ -517,20 +610,25 @@ class IgniteClient
      * leave this list and arrive as settled lump rows (pv1_bal, pv2_bal) in pointTxs and the
      * `ledger` export file.
      *
-     * GET /members/getFloatingCvTxs?ba_id=DIA7918383-001&after_id=0&limit=100
+     * GET /members/getFloatingCvTxs?ba_id=AIA7918383-001&after_id=0&limit=100
      *
      * data: {
      *   "rows": [
      *     { "id": 1, "created_at": "2026-09-17 20:44:16.524", "side": 1, "amount": "50.0000",
-     *       "description": "pv_mp", "buyer_member_id": 4, "buyer_ba_id": "DIA7918383-001",
-     *       "order_no": "ORD-260917-QM0E2K",
-     *       "sales_week": { "year": 2026, "week_no": 37 }, "settlement_week": { "year": 2026, "week_no": 38 } }
+     *       "description": "pv_mp", "buyer_member_id": 4, "buyer_ba_id": "AIA7918383-001",
+     *       "order_no": "MY-260917-4830217",
+     *       "sales_week": { "year": 2026, "week_no": 37 }, "settlement_week": { "year": 2026, "week_no": 43 } }
      *   ],
      *   "has_more": true
      * }
      *
      *   amount           signed; a return writes a negative row
      *   description      pv_mp, pv_refund, pv_refund_restore, pv_replace_out, pv_replace_in
+     *                    pv_mp               CV added to a leg from a downline order
+     *                    pv_refund           CV taken back when a downline order is returned
+     *                    pv_refund_restore   CV added back when a return is rejected
+     *                    pv_replace_out      CV taken off when a member is moved in the tree
+     *                    pv_replace_in       CV added when a member is moved in the tree
      *   settlement_week  the week this CV settles in
      *
      * Page by passing the last row's `id` as `after_id` while `has_more` is true.
@@ -549,7 +647,7 @@ class IgniteClient
      * One node's ledger rows in id order, for a partner keeping its own copy: store the
      * last `id` taken and pass it as `after_id` next time.
      *
-     * GET /members/getPointTxs?ba_id=DIA7918383-001&after_id=31&limit=100
+     * GET /members/getPointTxs?ba_id=AIA7918383-001&after_id=31&limit=100
      *
      * data: {
      *   "rows": [
@@ -562,6 +660,12 @@ class IgniteClient
      * }
      *
      *   point_type     cash_bal (commission), green_bal, yellow_bal, blue_bal, pv1_bal, pv2_bal, and others
+     *                    cash_bal    commission balance
+     *                    green_bal   Green Coin balance
+     *                    yellow_bal  Yellow Coin balance
+     *                    blue_bal    Blue Coin balance
+     *                    pv1_bal     left leg CV balance
+     *                    pv2_bal     right leg CV balance
      *   order_no       the order's number on a row from an order, else null
      *   redemption_id  on a coin redemption row, its id, as redeemCoin returns it; else null
      *
@@ -577,9 +681,9 @@ class IgniteClient
 
     /**
      * One sales week's pairing results for this partner's nodes, ordered by member_id, all in one
-     * reply. The Saturday run writes each row once, when it settles the week; a row never changes
-     * after. Only a node that paired that week has a row, so a week the run has not settled yet
-     * answers no rows.
+     * reply. The Saturday settlement writes each row once; a row never changes
+     * after. Only a node that paired that week has a row, so a week not yet settled answers no rows.
+     * A week settled before Ignite went live answers no rows either.
      *
      * The commission is the account's: cash, Yellow Coins and the Green Coin take land on the main
      * account (-001), also for a -002 or -003 row. pointTxs and the `ledger` export file show the same
@@ -590,14 +694,14 @@ class IgniteClient
      * GET /members/getPairings?year=2026&week_no=38
      *
      * data: { "rows": [
-     *   { "member_id": 4, "ba_id": "DIA7918383-001", "rank_no": 2, "step_comm": "250.0000",
+     *   { "member_id": 4, "ba_id": "AIA7918383-001", "rank_no": 2, "step_comm": "250.0000",
      *     "pairing_step_cv": "1800.0000",
      *     "open_cv_left": "9000.0000", "open_cv_right": "1200.0000",
      *     "gained_cv_left": "300.0000", "gained_cv_right": "4500.0000", "paired_cv": "5400.0000",
      *     "close_cv_left": "3900.0000", "close_cv_right": "300.0000",
      *     "steps_before": 3, "steps_paid": 3, "steps_burned": 0, "steps_yellow": 1, "steps_halved": 0,
      *     "green_taken": "0.0000", "cash_amount": "500.0000" },
-     *   { "member_id": 5, "ba_id": "DIA7918383-002", "rank_no": 2, "step_comm": "250.0000",
+     *   { "member_id": 5, "ba_id": "AIA7918383-002", "rank_no": 2, "step_comm": "250.0000",
      *     "pairing_step_cv": "1800.0000",
      *     "open_cv_left": "50000.0000", "open_cv_right": "45000.0000",
      *     "gained_cv_left": "0.0000", "gained_cv_right": "0.0000", "paired_cv": "45000.0000",
@@ -608,14 +712,14 @@ class IgniteClient
      *
      *   member_id        the node that paired
      *   ba_id            that node's BA ID
-     *   rank_no          the account's rank the run priced the commission at, as planRanks numbers it
-     *   step_comm        USD per paid step at that rank, as it stood on the run
-     *   pairing_step_cv  CV per side making one step, as it stood on the run
+     *   rank_no          the account's rank the Saturday settlement priced the commission at, as planRanks numbers it
+     *   step_comm        USD per paid step at that rank, as it stood at the Saturday settlement
+     *   pairing_step_cv  CV per side making one step, as it stood at the Saturday settlement
      *   open_cv_*        matured CV on each leg before this week's CV settled
      *   gained_cv_*      CV this week settled onto each leg
      *   paired_cv        CV taken off each leg: every step this week, paid and burned, times pairing_step_cv
      *   close_cv_*       CV left on each leg after pairing; it carries to next week as cv_left / cv_right
-     *   steps_before     lifetime steps on this node before the run, paid and burned (memberDetails total_steps)
+     *   steps_before     lifetime steps on this node before this Saturday settlement, paid and burned (memberDetails total_steps)
      *   steps_paid       steps paid this week, steps_yellow included; at most the rank's max_weekly_steps
      *   steps_burned     steps past max_weekly_steps: their CV is taken, nothing is paid
      *   steps_yellow     steps paid as one Yellow Coin each in place of cash: every 6th lifetime step on the node
@@ -648,20 +752,20 @@ class IgniteClient
      * again once corrected.
      *
      * POST /coins/redeem
-     * body: { "ba_id": "DIA7918383-001", "point_type": "yellow_bal", "qty": 3, "partner_redemption_ref": "R1" }
+     * body: { "ba_id": "AIA7918383-001", "point_type": "yellow_bal", "qty": 3, "partner_redemption_ref": "R1" }
      *
      * data: { "redemption_id": 7, "cash_amount": "120.0000" }
      *   redemption_id  the redemption's id on Ignite, to store beside the partner's own record;
      *                  pointTxs and the export files carry it on the rows this redemption wrote
-     *   cash_amount    credited to cash_bal after fee; pointTxs shows it as the cash_bal row with
+     *   cash_amount    credited to cash_bal; pointTxs shows it as the cash_bal row with
      *                  description cr_in
      *
      * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND, CONVERT_DISABLED, REDEMPTION_REFUSED,
      * REDEMPTION_IN_PROGRESS (same ref still running; retry after it finishes),
-     * NETWORK_BUSY (the Saturday commission run is going; retry every 30 seconds)
+     * NETWORK_BUSY (the Saturday settlement is running; retry every 30 seconds)
      *
      * @param  string  $baId                  the main account's BA ID (-001). Coins sit there only, so a -002 or
-     *                                        -003 answers REDEMPTION_REFUSED with an insufficient balance
+     *                                        -003 answers REDEMPTION_REFUSED
      * @param  string  $pointType             yellow_bal or blue_bal
      * @param  int     $qty                   whole coins
      * @param  string  $partnerRedemptionRef  the partner's own id for this redemption, up to 100 characters
@@ -678,11 +782,12 @@ class IgniteClient
 
     /**
      * Record an order the partner already took payment for. It lands accepted: CV climbs the
-     * binary tree, and coins and retail profit follow in the week it settles.
+     * binary tree, and coins and retail profit follow in the week it settles. Blue Coins pay the
+     * buyer and the buyer's uplines; Green Coins pay the uplines only, never the buyer.
      *
      * Prices, CV and coins come off the partner's catalog on Ignite, read at `ordered_at`;
      * a line names only the product and quantity. Prices there are USD, and a buyer whose -001
-     * node is not yet qualified buys at retail price, paying the sponsor the retail profit.
+     * is not yet qualified buys at retail price, paying the sponsor the retail profit.
      * `local_amount` is what the buyer paid the partner. Ignite records it and never converts it.
      *
      * An order whose lines carry no CV between them is refused with ORDER_NO_CV; keep it on the
@@ -694,38 +799,53 @@ class IgniteClient
      * POST /orders/create
      * body: {
      *   "ba_id": "AIA8976104-001", "partner_order_ref": "SO-1001", "ordered_at": "2026-09-18 14:30:00",
-     *   "local_amount": "24990.00", "local_currency": "INR",
-     *   "lines": [ { "product_id": 12, "qty": 2 } ],
+     *   "local_amount": "158400.00", "local_currency": "INR",
+     *   "lines": [ { "product_id": 12, "qty": 15 } ],
      *   "extra_tcs": [ { "placement_ba_id": "AIA8976104-002", "side": 1 } ],
-     *   "allocations": [ { "ba_id": "AIA8976104-001", "cv": "300" }, { "extra_tc": 0, "cv": "100" } ]
+     *   "allocations": [ { "ba_id": "AIA8976104-001", "cv": "300" }, { "ba_id": "AIA8976104-002", "cv": "300" },
+     *                    { "ba_id": "AIA8976104-003", "cv": "300" }, { "extra_tc": 0, "cv": "600" } ]
      * }
      *
-     *   ordered_at   UTC+8, when the buyer paid. Not in the future. Prices are read at this time, and
-     *                the order counts in the sales week holding it. An order arriving after that
-     *                week's sales month has closed (the Saturday run after the month's last week)
-     *                counts in the week open on arrival instead; `sales_week` in the reply says which
-     *   extra_tcs    new nodes, each seated at exactly the named parent and side, a node of the
-     *                buyer's own binary network. A side taken by then refuses the whole order.
-     *                Each names its parent by exactly one of `placement_ba_id` (BA ID) or
-     *                `placement_member_id` (member_id, for a node picked off binaryTree, outside ones
-     *                included); both, or neither, answers VALIDATION_FAILED
-     *   allocations  where the order's CV lands. Each row names one of the buyer's nodes by `ba_id`,
-     *                or an extra TC of this order by its index in `extra_tcs`. They sum to the
-     *                order's CV; the -001 node takes exactly qualify_cv (planRanks) minus its
-     *                cv_allocated (memberDetails), zero once its qualified_at is set, or the whole
-     *                order's CV when that is smaller; and the -002 and -003 nodes each hold the
-     *                plan's qualification CV, across all the buyer's orders, before any CV reaches an
-     *                extra TC or a later node
+     *   partner_order_ref  the partner's own id for the order, up to 100 characters
+     *   local_amount       up to 4 decimal places
+     *   local_currency     3 capital letters, e.g. INR
+     *   lines              each product_id once per order; qty 1 or more
+     *   ordered_at         UTC+8, when the buyer paid. Not in the future. Prices are read at this time, and
+     *                      the order counts in the sales week holding it, however late it arrives. Its CV
+     *                      pays out no earlier than the next Saturday settlement; `settlement_week` in the
+     *                      reply says which. An order arriving after its sales month closed counts toward
+     *                      no month's rank or matching bonus
+     *   extra_tcs          new nodes, each seated at exactly the named parent and side, a node of the
+     *                      buyer's own binary network. A side taken by then refuses the whole order.
+     *                      Each names its parent by exactly one of `placement_ba_id` (BA ID) or
+     *                      `placement_member_id` (member_id, for a node picked off binaryTree, outside
+     *                      ones included); both, or neither, answers VALIDATION_FAILED. An extra TC the
+     *                      order earns and does not name goes to the buyer's TC Bank; placeBankedTc
+     *                      places it later
+     *   allocations        where the order's CV lands. Each row names one of the buyer's nodes by `ba_id`,
+     *                      or an extra TC of this order by its index in `extra_tcs`. They sum to the
+     *                      order's CV; the -001 takes exactly qualify_cv (planRanks) minus its
+     *                      cv_allocated (memberDetails), zero once its qualified_at is set, or the whole
+     *                      order's CV when that is smaller; and the -002 and -003 each hold qualify_cv,
+     *                      across all the buyer's orders, before any CV reaches an extra TC or a later
+     *                      node. The sample buyer holds no CV yet: 300 qualifies each of the three,
+     *                      and the 600 left earns one extra TC (base_product_cv 600)
      *
      * data: {
-     *   "order_no": "ORD-260918-QM0E2K", "partner_order_ref": "SO-1001", "price_basis": "retail",
-     *   "total_cv": "400.0000", "total_green_coin": "2.0000", "total_blue_coin": "4.0000",
-     *   "sales_week": { "year": 2026, "week_no": 38 }, "settlement_week": { "year": 2026, "week_no": 43 },
-     *   "extra_tcs": [ { "member_id": 210, "ba_id": "AIA8976104-004", "binary_parent_id": 200, "binary_side": 1 } ]
+     *   "order_no": "MY-260918-0572946", "partner_order_ref": "SO-1001", "price_basis": "retail",
+     *   "total_cv": "1500.0000", "total_green_coin": "15.0000", "total_blue_coin": "30.0000",
+     *   "sales_week": { "year": 2026, "week_no": 37 }, "settlement_week": { "year": 2026, "week_no": 43 },
+     *   "extra_tcs": [ { "member_id": 210, "ba_id": "AIA8976104-004", "binary_parent_id": 200,
+     *                    "binary_parent_ba_id": "AIA8976104-002", "binary_side": 1 } ]
      * }
      *
-     *   price_basis  retail or member: the price the lines were charged at
-     *   extra_tcs    in request order, each with the node it became
+     *   price_basis      retail or member: the price the lines were charged at
+     *   sales_week       the week holding ordered_at
+     *   settlement_week  the week the CV pays out in: the week starting the country's sales delay (35 days
+     *                    for India) after the sales week ends, or the next unsettled week when that one
+     *                    has settled
+     *   extra_tcs        in request order, each with the node it became. Banked ones are not listed;
+     *                    getOrder later also lists one placeBankedTc seats from this order
      *
      * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND (buyer), ORDER_DUPLICATE, ORDER_DISABLED, ORDER_NO_CV, PRODUCT_NOT_ON_CATALOG,
      * CV_ALLOCATION_MISMATCH, ALLOCATION_TARGET_INVALID, CV_001_MISMATCH, CV_ORIGINALS_FIRST, EXTRA_TC_OVER_ENTITLEMENT,
@@ -765,7 +885,8 @@ class IgniteClient
      * GET /orders/getDetails?partner_order_ref=SO-1001
      *
      * data: the createOrder data, plus
-     *   status           accepted, or cancelled once cancelOrder has run
+     *   status           accepted, or cancelled once cancelOrder has run or Ignite operations took the
+     *                    order back as a return
      *
      * Refusal codes: VALIDATION_FAILED, ORDER_NOT_FOUND
      */
@@ -787,12 +908,12 @@ class IgniteClient
      * POST /orders/cancel
      * body: { "partner_order_ref": "SO-1001" }
      *
-     * data: { "order_no": "ORD-260918-QM0E2K", "partner_order_ref": "SO-1001" }
+     * data: { "order_no": "MY-260918-0572946", "partner_order_ref": "SO-1001" }
      *
      * The order then reads status cancelled in getOrder.
      *
      * Refusal codes: VALIDATION_FAILED, ORDER_NOT_FOUND, ORDER_ALREADY_CANCELLED,
-     * NETWORK_BUSY (still held after 4 seconds; the Saturday payout run holds the network for up to an
+     * NETWORK_BUSY (still held after 4 seconds; the Saturday settlement holds the network for up to an
      * hour, so retry every 30 seconds)
      *
      * @param  string  $partnerOrderRef  the partner_order_ref the order was created with
@@ -805,28 +926,30 @@ class IgniteClient
     /**
      * The export files Ignite holds for this partner, newest week first.
      *
-     * Once the Saturday run settles a sales week, Ignite writes two CSV files for it:
+     * Once the Saturday settlement of a sales week finishes, Ignite writes two CSV files for it:
      *
      *   {year}_W{nn}_ledger.csv  every balance movement on this partner's members, any balance:
      *                            commission, coins, settled CV, take-backs from a cancelled or returned
-     *                            order, coin redemptions, administrator adjustments. Everything except
+     *                            order, coin redemptions, adjustments by Ignite operations. Everything except
      *                            the weekly commission withdrawal, which is in the wd file only
      *   {year}_W{nn}_wd.csv      one row per member: the weekly commission withdrawal, the payable figure.
      *                            `amount` is negative, a debit off cash_bal; pay the member its absolute value.
-     *                            No row for a member Ignite holds: the balance stays and pays out whole
+     *                            No row for a held member (allow_withdraw off): the balance stays and pays out whole
      *                            in the first week after the hold lifts
      *
      * Which week a ledger row belongs to is decided by when it was written, not by the order or week
-     * it points at: after the previous week's run finished, up to the moment this week's run finished.
+     * it points at: after the previous week's Saturday settlement finished, up to the moment this
+     * week's finished.
      * A take-back written days after its order paid out is in the week it was written. Every row is
      * in exactly one week's file.
      *
      * Ledger rows are sorted by account (a main account with its sub-accounts), then member_id,
      * then point_type, then id, so each balance reads top to bottom. A member's last cash_bal row
-     * in a week shows the balance the wd file pays: nothing moves a balance while the run is going.
+     * in a week shows the balance the wd file pays: nothing moves a balance while the Saturday
+     * settlement is running.
      * The withdrawal itself is left out of the ledger, so the next week's first cash_bal row counts
      * on from the balance after the payout (0 for a member paid out, the held balance for a member
-     * Ignite holds), not from this file's last row.
+     * held), not from this file's last row.
      *
      * `nn` is the week number, 2 digits (2026_W07_ledger.csv). A week with no rows still has its
      * file, header row only. The rows are this partner's members only; a node's file is decided by
@@ -865,8 +988,14 @@ class IgniteClient
      *   ba_id          that node's BA ID
      *   point_type     the balance that moved: cash_bal (commission), green_bal, yellow_bal, blue_bal,
      *                  pv1_bal, pv2_bal, and others
+     *                    cash_bal    commission balance
+     *                    green_bal   Green Coin balance
+     *                    yellow_bal  Yellow Coin balance
+     *                    blue_bal    Blue Coin balance
+     *                    pv1_bal     left leg CV balance
+     *                    pv2_bal     right leg CV balance
      *   tx_type        the kind of movement: comm (earned), pv (CV), cr (coin redemption),
-     *                  adj (administrator adjustment), wd (withdrawal), and others
+     *                  adj (adjustment by Ignite operations), wd (withdrawal), and others
      *   description    the exact reason, e.g. comm_pairing; tx_type is its first word
      *   amount         signed, 4 decimal places; a take-back is negative
      *   bal_after      that balance on that node right after this row, 4 decimal places
@@ -931,31 +1060,5 @@ class IgniteClient
         }
 
         return $body;
-    }
-
-    /**
-     * Hold or release a member's weekly commission withdrawal.
-     *
-     * When held (allow = false), the Saturday run skips the member:
-     * the balance carries and no `wd` line appears in that week's export.
-     * When released (allow = true), the next run pays out the whole balance.
-     *
-     * POST /members/setAllowWithdraw
-     * body: { "ba_id": "DIA7918383-001", "allow_withdraw": false }
-     *
-     * data: the memberDetails shape, after the change
-     *
-     * Refusal codes: VALIDATION_FAILED, MEMBER_NOT_FOUND
-     * NETWORK_BUSY (Saturday commission run in progress; retry every 30 seconds)
-     *
-     * @param  string  $baId  the main account BA ID (-001)
-     * @param  bool    $allow true = allow withdrawal, false = hold
-     */
-    public function setAllowWithdraw(string $baId, bool $allow): array
-    {
-        return $this->post('/members/setAllowWithdraw', [
-            'ba_id'          => $baId,
-            'allow_withdraw' => $allow,
-        ]);
     }
 }

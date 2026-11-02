@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\Refund;
 use App\Models\Setting;
 use App\Models\User;
+use App\Jobs\CancelOrderOnIgniteJob;
 use App\Services\CheckoutService;
 use App\Services\ReturnService;
 use Illuminate\Http\JsonResponse;
@@ -178,6 +179,123 @@ class CancellationApprovalController extends Controller
     /**
      * Approve cancellation request - Uses your existing cancelOrder function
      */
+
+    // public function approve(Request $request, int $orderLineId): JsonResponse
+    // {
+    //     try {
+    //         $request->validate([
+    //             'admin_notes'   => 'nullable|string|max:500',
+    //             'refund_amount' => 'nullable|numeric|min:0',
+    //         ]);
+
+    //         $orderLine = OrderLine::where('id', $orderLineId)
+    //             ->where('delivery_status', 'cancel_pending')
+    //             ->with(['order', 'product', 'variant'])
+    //             ->firstOrFail();
+
+    //         $order  = $orderLine->order;
+    //         $reason = $orderLine->cancellation_reason;
+
+    //         // Determine refund amount (null = refund full refundable balance)
+    //         $refundAmount = $request->filled('refund_amount')
+    //             ? (float) $request->refund_amount
+    //             : null;
+
+    //         // Validate refund amount against refundable balance
+    //         if ($refundAmount !== null) {
+    //             $refundable = $this->getRefundableAmount($order);
+
+    //             if ($refundAmount > $refundable) {
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}).",
+    //                 ], 422);
+    //             }
+    //         }
+
+    //         // CALL cancelOrder WITH NEW PARAMS
+    //         $result = $this->checkoutService->cancelOrder(
+    //             $order->user_id,
+    //             $order->order_reference,
+    //             $orderLineId,
+    //             $reason,
+    //             $refundAmount,
+    //             $request->admin_notes,
+    //             auth()->id(),
+    //         );
+
+    //         // Mark admin notification as read
+    //         AdminNotification::where('reference_type', 'order_line')
+    //             ->where('reference_id', $orderLineId)
+    //             ->where('type', 'order_cancellation_request')
+    //             ->update(['read' => true]);
+
+    //         // Send notification to user (approved)
+    //         $this->sendUserNotification(
+    //             $order->user_id,
+    //             'Cancellation Approved',
+    //             "Your cancellation request for order #{$order->order_reference} has been approved and processed.",
+    //             'order_cancellation_approved',
+    //             [
+    //                 'order_reference'  => $order->order_reference,
+    //                 'order_line_id'    => $orderLineId,
+    //                 'admin_notes'      => $request->admin_notes,
+    //                 'refund_amount'    => $refundAmount,
+    //                 'refund_processed' => ($refundAmount ?? 0) > 0 || $order->amount_paid > 0,
+    //             ]
+    //         );
+
+    //         // Log approval
+    //         Log::info('Cancellation request approved', [
+    //             'order_line_id'   => $orderLineId,
+    //             'order_reference' => $order->order_reference,
+    //             'admin_id'        => Auth::guard('admin')->id(),
+    //             'refund_amount'   => $refundAmount,
+    //             'result'          => $result,
+    //         ]);
+
+    //         /* =============================================
+    //         | SEND CANCELLATION APPROVED SMS (TWILIO)
+    //         ============================================= */
+    //         $phone = $order->user?->phone;
+
+    //         if ($phone) {
+    //             $refundText = ($refundAmount ?? 0) > 0
+    //                 ? " A refund of " . number_format($refundAmount, 2) . " has been initiated."
+    //                 : " No refund applicable.";
+
+    //             $message = "Hi {$order->user->name}! Your cancellation request for order "
+    //                 . "{$order->order_reference} has been approved.{$refundText}";
+
+    //             try {
+    //                 app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+    //             } catch (\Throwable $e) {
+    //                 Log::error('Cancellation approved SMS failed', [
+    //                     'order_reference' => $order->order_reference,
+    //                     'order_line_id'   => $orderLineId,
+    //                     'error'           => $e->getMessage(),
+    //                 ]);
+    //             }
+    //         }
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data'    => $result,
+    //             'message' => 'Cancellation request approved and processed successfully',
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Cancellation approval failed: ' . $e->getMessage(), [
+    //             'order_line_id' => $orderLineId,
+    //             'admin_id'      => Auth::guard('admin')->id(),
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
+
     public function approve(Request $request, int $orderLineId): JsonResponse
     {
         try {
@@ -186,12 +304,28 @@ class CancellationApprovalController extends Controller
                 'refund_amount' => 'nullable|numeric|min:0',
             ]);
 
+            // Allow re-approval of already-cancelled lines (re-dispatch Ignite sync)
             $orderLine = OrderLine::where('id', $orderLineId)
-                ->where('delivery_status', 'cancel_pending')
+                ->whereIn('delivery_status', ['cancel_pending', 'cancelled'])
                 ->with(['order', 'product', 'variant'])
                 ->firstOrFail();
 
-            $order  = $orderLine->order;
+            $order = $orderLine->order;
+
+            // ── Already cancelled locally? Just re-queue Ignite sync ─────
+            if ($orderLine->delivery_status === 'cancelled') {
+                if (! empty($orderLine->ignite_order_no)
+                    && $orderLine->ignite_sync_status !== 'cancelled') {
+
+                    DB::afterCommit(fn () => CancelOrderOnIgniteJob::dispatch($orderLineId));
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Order line already cancelled locally; Ignite sync re-queued.',
+                ]);
+            }
+
             $reason = $orderLine->cancellation_reason;
 
             // Determine refund amount (null = refund full refundable balance)
@@ -211,7 +345,7 @@ class CancellationApprovalController extends Controller
                 }
             }
 
-            // CALL cancelOrder WITH NEW PARAMS
+            // CALL cancelOrder
             $result = $this->checkoutService->cancelOrder(
                 $order->user_id,
                 $order->order_reference,
@@ -221,6 +355,20 @@ class CancellationApprovalController extends Controller
                 $request->admin_notes,
                 auth()->id(),
             );
+
+            // IGNITE CANCEL SYNC — dispatch only after local DB commit
+            // NOTE: no intermediate 'pending_cancel' state — line stays 'posted'
+            // until the job succeeds and writes 'cancelled'. Safer for retries.
+            DB::afterCommit(function () use ($orderLineId) {
+                $line = OrderLine::find($orderLineId);
+
+                if ($line
+                    && ! empty($line->ignite_order_no)
+                    && $line->ignite_sync_status !== 'cancelled') {
+
+                    CancelOrderOnIgniteJob::dispatch($orderLineId);
+                }
+            });
 
             // Mark admin notification as read
             AdminNotification::where('reference_type', 'order_line')
@@ -293,6 +441,7 @@ class CancellationApprovalController extends Controller
             ], 400);
         }
     }
+
     /**
      * Calculate how much can still be refunded on this order.
      * = amount_paid - sum(existing non-failed refunds)
