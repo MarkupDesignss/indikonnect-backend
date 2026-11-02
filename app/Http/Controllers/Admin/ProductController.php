@@ -1980,6 +1980,7 @@ class ProductController extends Controller
             return [
                 'id' => $product->id,
                 'is_primary' => $product->is_primary ?? null,
+                'ignite_product_id' => $product->ignite_product_id ?? null,
                 'is_best_seller' => $product->is_best_seller ?? null,
                 'product_code' => $product->product_code,
                 'name' => $product->name,
@@ -2313,6 +2314,7 @@ class ProductController extends Controller
             $formattedProduct = [
                 'id' => $product->id,
                 'product_code' => $product->product_code,
+                'ignite_product_id' => $product->ignite_product_id,
                 'is_best_seller' => $product->is_best_seller,
                 'commission_value' => $product->commission_value,
                 'name' => $product->name,
@@ -2704,6 +2706,7 @@ class ProductController extends Controller
         return [
             'id' => $product->id,
             'product_code' => $product->product_code,
+            'ignite_product_id' => $product->ignite_product_id,
             'is_best_seller' => $product->is_best_seller,
             'name' => $product->name,
             'slug' => $product->slug,
