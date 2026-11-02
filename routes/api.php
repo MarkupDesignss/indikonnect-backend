@@ -606,6 +606,7 @@ Route::middleware('auth:sanctum')->prefix('distributor/genealogy')->group(functi
     Route::get('/downline', [GenealogyController::class, 'downlineList']);
     Route::get('/pending-placements', [GenealogyController::class, 'pendingPlacements']);
     Route::post('/set-placement', [GenealogyController::class, 'setPlacement']);
+    Route::post('/place-banked-tc', [GenealogyController::class, 'placeBankedTc']);
     Route::get('/pairings', [GenealogyController::class, 'pairings']);
 });
 

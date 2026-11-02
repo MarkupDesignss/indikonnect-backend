@@ -322,107 +322,18 @@ class GenealogyController extends Controller
     /**
      * Set the binary placement for a downline.
      *
-     * Per Ignite guide: to place at the end of a leg, send
-     * far_left_id (side 1) or far_right_id (side 2) as
-     * `placement_member_id`.
-     *
-     * The sponsor BA ID is used only to fetch its far_left_id/far_right_id
-     * from memberDetails(); we then send that slot's member id.
+     * Uses memberDetails().far_left_id / far_right_id (integers) instead of
+     * binaryTree().far_left_ba_id / far_right_ba_id, because the latter are
+     * null for outsiders (members belonging to another partner or the
+     * Ignite world plan) while the member_id form is always populated.
      *
      * Body:
-     *   - ba_id   : the downline BA ID being placed (e.g. AIA...-001)
-     *   - side    : 1 (left) or 2 (right)
+     *   - ba_id : the downline BA ID being placed (e.g. AIA...-001)
+     *   - side  : 1 (left) or 2 (right)
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
-    // public function setPlacement(Request $request)
-    // {
-    //     $validator = Validator::make($request->all(), [
-    //         'ba_id' => 'required|string',
-    //         'side'  => 'required|in:1,2',
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'errors'  => $validator->errors(),
-    //         ], 422);
-    //     }
-
-    //     $user = Auth::user();
-
-    //     if (!$user->distributor_id) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'You are not registered on Ignite yet.',
-    //         ], 422);
-    //     }
-
-    //     $mainBaId = $this->normalizeMainBaId($user->distributor_id);
-    //     $side     = (int) $request->side;
-
-    //     // 1) Read sponsor's member details to get the free slot
-    //     $sponsor = $this->fetchMemberDetails($mainBaId);
-
-    //     $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
-    //     $slotBa  = $side === 1 ? 'far_left_ba_id' : 'far_right_ba_id';
-    //     $slotId  = $sponsor[$slotKey] ?? null;
-
-    //     if (empty($slotId)) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'That side is not available for placement (already occupied or belongs to a member outside IDK).',
-    //             'slot'    => [
-    //                 'side'     => $side,
-    //                 'ba_id'    => $sponsor[$slotBa] ?? null,
-    //                 'member_id'=> $slotId,
-    //             ],
-    //         ], 422);
-    //     }
-
-    //     // 2) Call Ignite setPlacement with placement_member_id
-    //     //    NOTE: adjust named args if SDK signature differs.
-    //     $response = $this->ignite->setPlacement(
-    //         baId:              $request->ba_id,
-    //         placementParent: (int) $slotId,
-    //         side:              $side,
-    //     );
-
-    //     if ($response['code'] !== ResultCode::OK->value) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $response['msg'] ?? 'Placement failed',
-    //             'code'    => $response['code'],
-    //         ], 422);
-    //     }
-
-    //     // 3) Invalidate caches so tree/memberDetails reflect placement
-    //     Cache::forget("ignite_member_{$mainBaId}");
-    //     Cache::forget("ignite_member_{$request->ba_id}");
-    //     Cache::forget("ignite_binary_tree_{$mainBaId}");
-
-    //     // 4) Re-dispatch any parked orders for this newly-placed member
-    //     $placedUser = User::where('distributor_id', $request->ba_id)->first();
-    //     if ($placedUser) {
-    //         \App\Models\Order::where('user_id', $placedUser->id)
-    //             ->where('ignite_sync_status', 'pending_placement')
-    //             ->get()
-    //             ->each(function ($order) {
-    //                 \App\Jobs\PostOrderToIgniteJob::dispatch($order->id);
-    //                 Log::info('Re-dispatched parked Ignite job after placement', [
-    //                     'order' => $order->order_reference,
-    //                 ]);
-    //             });
-    //     }
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'message' => 'Placement successful.',
-    //         'data'    => $response['data'] ?? null,
-    //     ]);
-    // }
-
     public function setPlacement(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -442,29 +353,23 @@ class GenealogyController extends Controller
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
         $side     = (int) $request->side;
 
-        // Get sponsor's binary tree to find the free slot
-        $treeResp = $this->ignite->binaryTree($mainBaId, 1);
-        if (($treeResp['code'] ?? null) !== ResultCode::OK->value) {
-            return response()->json(['success' => false, 'message' => 'Failed to read binary tree'], 422);
-        }
+        // Read memberDetails instead of binaryTree for slot discovery
+        $member = $this->fetchMemberDetails($mainBaId);
+        
+        $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
+        $slotId  = $member[$slotKey] ?? null;
 
-        $root = collect($treeResp['data']['rows'] ?? [])->firstWhere('level', 0);
-        $slotBaId = $side === 1
-            ? ($root['far_left_ba_id']  ?? null)
-            : ($root['far_right_ba_id'] ?? null);
-
-        if (empty($slotBaId)) {
+        if (empty($slotId)) {
             return response()->json([
                 'success' => false,
                 'message' => 'That side is not available for placement.',
             ], 422);
         }
 
-        // setPlacement: string = BA ID
         try {
             $response = $this->ignite->setPlacement(
                 baId:            $request->ba_id,
-                placementParent: $slotBaId,   // string → placement_ba_id
+                placementParent: (int) $slotId,   // int → placement_member_id
                 side:            $side,
             );
         } catch (\Throwable $e) {
@@ -475,11 +380,30 @@ class GenealogyController extends Controller
             return response()->json(['success' => false, 'message' => 'Ignite unreachable'], 503);
         }
 
-        if (($response['code'] ?? null) !== ResultCode::OK->value) {
+        // Specific explicit error code handling
+        $code = $response['code'] ?? null;
+
+        if ($code === ResultCode::PLACEMENT_DEADLINE_PASSED->value) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Placement deadline has passed. Ignite has auto-placed this member. Contact operations to move them.',
+                'code'    => ResultCode::PLACEMENT_DEADLINE_PASSED->value,
+            ], 422);
+        }
+
+        if ($code === ResultCode::PLACEMENT_REFUSED->value) {
+            return response()->json([
+                'success' => false,
+                'message' => $response['msg'] ?? 'That position is not available.',
+                'code'    => ResultCode::PLACEMENT_REFUSED->value,
+            ], 422);
+        }
+
+        if ($code !== ResultCode::OK->value) {
             return response()->json([
                 'success' => false,
                 'message' => $response['msg'] ?? 'Placement failed',
-                'code'    => $response['code'] ?? null,
+                'code'    => $code,
             ], 422);
         }
 
@@ -506,50 +430,124 @@ class GenealogyController extends Controller
         ]);
     }
 
-    // ==================== PRIVATE HELPERS ====================
-
     /**
-     * Normalize a BA ID to its main account (-001).
-     */
-    private function normalizeMainBaId(string $baId): string
-    {
-        if (preg_match('/-(002|003)$/', $baId)) {
-            return preg_replace('/-(002|003)$/', '-001', $baId);
-        }
-        return $baId;
-    }
-
-    /**
-     * Fetch memberDetails() with a short cache. Returns [] on error.
-     */
-    private function fetchMemberDetails(string $baId): array
-    {
-        return Cache::remember("ignite_member_{$baId}", 60, function () use ($baId) {
-            try {
-                $resp = $this->ignite->memberDetails($baId);
-                if (($resp['code'] ?? null) === ResultCode::OK->value) {
-                    return $resp['data'] ?? [];
-                }
-            } catch (\Throwable $e) {
-                Log::warning('memberDetails failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
-            }
-            return [];
-        });
-    }
-
-    /**
-     * Determine the weaker leg based on left and right volumes.
+     * Place one extra TC from the member's TC Bank at a free slot.
      *
-     * @param  float  $left
-     * @param  float  $right
-     * @return string  'left', 'right', or 'equal'
+     * Uses memberDetails().far_left_id / far_right_id (integers) instead of
+     * binaryTree().far_left_ba_id / far_right_ba_id, because the latter are
+     * null for outsiders (members belonging to another partner or the
+     * Ignite world plan) while the member_id form is always populated.
+     *
+     * Body:
+     *   - ba_id : the main account (-001) whose TC Bank to draw from
+     *   - side  : 1 (left) or 2 (right) — the slot on the sponsor's tree
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
      */
-    private function getWeakerLeg(float $left, float $right): string
+    public function placeBankedTc(Request $request)
     {
-        if ($left == 0 && $right == 0) return 'equal';
-        if ($left < $right) return 'left';
-        if ($right < $left) return 'right';
-        return 'equal';
+        $validator = Validator::make($request->all(), [
+            'ba_id' => 'required|string',
+            'side'  => 'required|in:1,2',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $user = Auth::user();
+
+        if (!$user->distributor_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You are not registered on Ignite yet.',
+            ], 422);
+        }
+
+        $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+        $side     = (int) $request->side;
+
+        // 1) Read sponsor's memberDetails to get the free slot
+        $member = $this->fetchMemberDetails($mainBaId);
+
+        $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
+        $slotId  = $member[$slotKey] ?? null;
+
+        if (empty($slotId)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'That side is not available for placement.',
+            ], 422);
+        }
+
+        // 2) Call Ignite placeBankedTc with the slot as member_id
+        try {
+            $response = $this->ignite->placeBankedTc(
+                baId:            $request->ba_id,
+                placementParent: (int) $slotId,   // int → placement_member_id
+                side:            $side,
+            );
+        } catch (\Throwable $e) {
+            Log::error('Ignite placeBankedTc threw', [
+                'ba_id' => $request->ba_id,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Ignite unreachable',
+            ], 503);
+        }
+
+        // 3) Handle specific refusals before the generic fallback
+        $code = $response['code'] ?? null;
+
+        if ($code === ResultCode::TC_BANK_EMPTY->value) {
+            return response()->json([
+                'success' => false,
+                'message' => 'TC Bank is empty — no TCs to place.',
+                'code'    => ResultCode::TC_BANK_EMPTY->value,
+            ], 422);
+        }
+
+        if ($code === ResultCode::PLACEMENT_DEADLINE_PASSED->value) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Placement deadline has passed. Contact operations to move this TC.',
+                'code'    => ResultCode::PLACEMENT_DEADLINE_PASSED->value,
+            ], 422);
+        }
+
+        if ($code === ResultCode::PLACEMENT_REFUSED->value) {
+            return response()->json([
+                'success' => false,
+                'message' => $response['msg'] ?? 'That position is not available.',
+                'code'    => ResultCode::PLACEMENT_REFUSED->value,
+            ], 422);
+        }
+
+        if ($code !== ResultCode::OK->value) {
+            return response()->json([
+                'success' => false,
+                'message' => $response['msg'] ?? 'Failed to place banked TC',
+                'code'    => $code,
+            ], 422);
+        }
+
+        // 4) Invalidate caches so tree/memberDetails reflect the new TC
+        Cache::forget("ignite_member_{$mainBaId}");
+        Cache::forget("ignite_member_{$request->ba_id}");
+        Cache::forget("ignite_binary_tree_{$mainBaId}");
+
+        // 5) Success — data contains the newly created node
+        return response()->json([
+            'success' => true,
+            'message' => 'TC placed successfully.',
+            'data'    => $response['data'] ?? null,
+        ]);
     }
 
     /**
@@ -613,4 +611,49 @@ class GenealogyController extends Controller
         ]);
     }
 
+    // ==================== PRIVATE HELPERS ====================
+
+    /**
+     * Normalize a BA ID to its main account (-001).
+     */
+    private function normalizeMainBaId(string $baId): string
+    {
+        if (preg_match('/-(002|003)$/', $baId)) {
+            return preg_replace('/-(002|003)$/', '-001', $baId);
+        }
+        return $baId;
+    }
+
+    /**
+     * Fetch memberDetails() with a short cache. Returns [] on error.
+     */
+    private function fetchMemberDetails(string $baId): array
+    {
+        return Cache::remember("ignite_member_{$baId}", 60, function () use ($baId) {
+            try {
+                $resp = $this->ignite->memberDetails($baId);
+                if (($resp['code'] ?? null) === ResultCode::OK->value) {
+                    return $resp['data'] ?? [];
+                }
+            } catch (\Throwable $e) {
+                Log::warning('memberDetails failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
+            }
+            return [];
+        });
+    }
+
+    /**
+     * Determine the weaker leg based on left and right volumes.
+     *
+     * @param  float  $left
+     * @param  float  $right
+     * @return string  'left', 'right', or 'equal'
+     */
+    private function getWeakerLeg(float $left, float $right): string
+    {
+        if ($left == 0 && $right == 0) return 'equal';
+        if ($left < $right) return 'left';
+        if ($right < $left) return 'right';
+        return 'equal';
+    }
 }
