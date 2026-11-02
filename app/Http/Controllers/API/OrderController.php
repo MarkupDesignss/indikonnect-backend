@@ -1733,89 +1733,6 @@ class OrderController extends Controller
      * Dispatch order items or entire order
      */
 
-    // public function dispatch(Request $request)
-    // {
-    //     $validator = Validator::make($request->all(), [
-    //         'order_reference'         => 'required|string|exists:orders,order_reference',
-    //         'items'                   => 'nullable|array|min:1',
-    //         'items.*.order_line_id'   => 'required|integer|exists:order_lines,id',
-    //         'courier_tracking_number' => 'nullable|string|max:100',
-    //         'courier_company'         => 'nullable|string|max:100',
-    //         'delivery_notes'          => 'nullable|string|max:500',
-    //         'courier_delivery_date'   => 'nullable|date',
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json(['error' => $validator->errors()->first()], 422);
-    //     }
-
-    //     try {
-    //         DB::beginTransaction();
-
-    //         $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
-
-    //         // Determine which items to dispatch
-    //         $itemsToDispatch = $this->getItemsToProcess($order, $request->items ?? []);
-
-    //         if (empty($itemsToDispatch)) {
-    //             throw new Exception('No valid items found to dispatch. Items must be confirmed.');
-    //         }
-
-    //         $processedItems  = [];
-    //         $dispatchedLines = [];   //  invoice ke liye collect
-
-    //         foreach ($itemsToDispatch as $orderLine) {
-    //             $this->validateDispatchable($orderLine);
-
-    //             $orderLine->update([
-    //                 'delivery_status' => 'dispatched',
-    //                 'dispatched_at'   => now(),
-    //             ]);
-
-    //             $processedItems[] = [
-    //                 'order_line_id' => $orderLine->id,
-    //                 'product_name'  => $orderLine->product->name ?? 'Unknown',
-    //                 'status'        => 'dispatched',
-    //             ];
-
-    //             $dispatchedLines[] = $orderLine;
-
-    //             $this->createShippingDetail($order, $orderLine, $request, 'dispatched');
-    //         }
-
-    //         $order->updateOrderStatus();
-
-    //         //    InvoiceService har line ka alag invoice banayega (order_line_id ke saath).
-    //         //    Duplicate guard InvoiceService ke andar hai, phir bhi yahan filter kar rahe hain.
-    //         $linesNeedingInvoice = collect($dispatchedLines)->filter(function ($line) {
-    //             return !Invoice::where('order_line_id', $line->id)->exists();
-    //         })->values();
-
-    //         if ($linesNeedingInvoice->isNotEmpty()) {
-    //             $this->invoiceService->generateInvoice($order, $linesNeedingInvoice);
-    //         }
-
-    //         DB::commit();
-
-    //         $this->sendOrderDispatchedNotification($order, $processedItems, $request);
-
-    //         $message = count($processedItems) === $order->lines->count()
-    //             ? 'Entire order dispatched successfully'
-    //             : count($processedItems) . ' item(s) dispatched successfully';
-
-    //         return response()->json([
-    //             'success'         => true,
-    //             'message'         => $message,
-    //             'order_reference' => $order->order_reference,
-    //             'order_status'    => $order->fresh()->status,
-    //             'processed_items' => $processedItems,
-    //         ]);
-    //     } catch (Exception $e) {
-    //         DB::rollBack();
-    //         return response()->json(['error' => $e->getMessage()], 400);
-    //     }
-    // }
-
     public function dispatch(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -1845,7 +1762,7 @@ class OrderController extends Controller
             }
 
             $processedItems  = [];
-            $dispatchedLines = [];   // Collect lines for invoice generation
+            $dispatchedLines = [];   //  invoice ke liye collect
 
             foreach ($itemsToDispatch as $orderLine) {
                 $this->validateDispatchable($orderLine);
@@ -1868,68 +1785,14 @@ class OrderController extends Controller
 
             $order->updateOrderStatus();
 
-            // InvoiceService will generate an invoice for each line.
-            // We filter out lines that already have an invoice.
+            //    InvoiceService har line ka alag invoice banayega (order_line_id ke saath).
+            //    Duplicate guard InvoiceService ke andar hai, phir bhi yahan filter kar rahe hain.
             $linesNeedingInvoice = collect($dispatchedLines)->filter(function ($line) {
                 return !Invoice::where('order_line_id', $line->id)->exists();
             })->values();
 
             if ($linesNeedingInvoice->isNotEmpty()) {
                 $this->invoiceService->generateInvoice($order, $linesNeedingInvoice);
-            }
-
-            // ============================================================
-            // E-WAY BILL PART A GENERATION (per invoice, no vehicle number)
-            // Wrapped in its own try-catch so failures do not rollback the invoice generation.
-            // ============================================================
-            try {
-                $ewayBillService = app(\App\Services\EwayBillService::class);
-                $transporterId   = config('services.india_post.transporter_id'); // TRANSIN
-
-                foreach ($linesNeedingInvoice as $line) {
-                    $invoice = \App\Models\Invoice::where('order_line_id', $line->id)->lockForUpdate()->first();
-                    
-                    if (!$invoice) {
-                        throw new Exception("Invoice missing for order line {$line->id}, cannot generate E-Way Bill.");
-                    }
-
-                    // if ((float) $invoice->total_value <= 50000) {
-                    //     continue; // Skip if below threshold
-                    // }
-
-                    $result = $ewayBillService->generatePartA($invoice, $transporterId);
-
-                    // Validate response
-                    if (empty($result['eway_bill_no'])) {
-                        throw new Exception(
-                            "E-Way Bill generation failed for invoice {$invoice->invoice_number}: " 
-                            . ($result['alert'] ?? 'No EBN returned')
-                        );
-                    }
-
-                    // Log alert if any
-                    if (!empty($result['alert'])) {
-                        Log::warning('E-Way Bill alert', [
-                            'invoice' => $invoice->invoice_number,
-                            'alert' => $result['alert'],
-                        ]);
-                    }
-
-                    $invoice->update([
-                        'eway_bill_no'     => $result['eway_bill_no'],
-                        'eway_bill_date'   => $result['eway_bill_date'],
-                        'eway_valid_upto'  => $result['valid_upto'],
-                        'eway_bill_status' => 'part_a_generated',
-                    ]);
-                }
-            } catch (Exception $e) {
-                // Log the E-Way Bill failure but DO NOT throw it up.
-                // This ensures the invoice generation (already done) is committed.
-                Log::error('E-Way Bill Part A generation failed during dispatch', [
-                    'order_reference' => $order->order_reference,
-                    'error'           => $e->getMessage(),
-                ]);
-                // You can optionally save the error to the invoice or order here if needed.
             }
 
             DB::commit();
@@ -1952,6 +1815,143 @@ class OrderController extends Controller
             return response()->json(['error' => $e->getMessage()], 400);
         }
     }
+
+    // public function dispatch(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'order_reference'         => 'required|string|exists:orders,order_reference',
+    //         'items'                   => 'nullable|array|min:1',
+    //         'items.*.order_line_id'   => 'required|integer|exists:order_lines,id',
+    //         'courier_tracking_number' => 'nullable|string|max:100',
+    //         'courier_company'         => 'nullable|string|max:100',
+    //         'delivery_notes'          => 'nullable|string|max:500',
+    //         'courier_delivery_date'   => 'nullable|date',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['error' => $validator->errors()->first()], 422);
+    //     }
+
+    //     try {
+    //         DB::beginTransaction();
+
+    //         $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
+
+    //         // Determine which items to dispatch
+    //         $itemsToDispatch = $this->getItemsToProcess($order, $request->items ?? []);
+
+    //         if (empty($itemsToDispatch)) {
+    //             throw new Exception('No valid items found to dispatch. Items must be confirmed.');
+    //         }
+
+    //         $processedItems  = [];
+    //         $dispatchedLines = [];   // Collect lines for invoice generation
+
+    //         foreach ($itemsToDispatch as $orderLine) {
+    //             $this->validateDispatchable($orderLine);
+
+    //             $orderLine->update([
+    //                 'delivery_status' => 'dispatched',
+    //                 'dispatched_at'   => now(),
+    //             ]);
+
+    //             $processedItems[] = [
+    //                 'order_line_id' => $orderLine->id,
+    //                 'product_name'  => $orderLine->product->name ?? 'Unknown',
+    //                 'status'        => 'dispatched',
+    //             ];
+
+    //             $dispatchedLines[] = $orderLine;
+
+    //             $this->createShippingDetail($order, $orderLine, $request, 'dispatched');
+    //         }
+
+    //         $order->updateOrderStatus();
+
+    //         // InvoiceService will generate an invoice for each line.
+    //         // We filter out lines that already have an invoice.
+    //         $linesNeedingInvoice = collect($dispatchedLines)->filter(function ($line) {
+    //             return !Invoice::where('order_line_id', $line->id)->exists();
+    //         })->values();
+
+    //         if ($linesNeedingInvoice->isNotEmpty()) {
+    //             $this->invoiceService->generateInvoice($order, $linesNeedingInvoice);
+    //         }
+
+    //         // ============================================================
+    //         // E-WAY BILL PART A GENERATION (per invoice, no vehicle number)
+    //         // Wrapped in its own try-catch so failures do not rollback the invoice generation.
+    //         // ============================================================
+    //         try {
+    //             $ewayBillService = app(\App\Services\EwayBillService::class);
+    //             $transporterId   = config('services.india_post.transporter_id'); // TRANSIN
+
+    //             foreach ($linesNeedingInvoice as $line) {
+    //                 $invoice = \App\Models\Invoice::where('order_line_id', $line->id)->lockForUpdate()->first();
+                    
+    //                 if (!$invoice) {
+    //                     throw new Exception("Invoice missing for order line {$line->id}, cannot generate E-Way Bill.");
+    //                 }
+
+    //                 // if ((float) $invoice->total_value <= 50000) {
+    //                 //     continue; // Skip if below threshold
+    //                 // }
+
+    //                 $result = $ewayBillService->generatePartA($invoice, $transporterId);
+
+    //                 // Validate response
+    //                 if (empty($result['eway_bill_no'])) {
+    //                     throw new Exception(
+    //                         "E-Way Bill generation failed for invoice {$invoice->invoice_number}: " 
+    //                         . ($result['alert'] ?? 'No EBN returned')
+    //                     );
+    //                 }
+
+    //                 // Log alert if any
+    //                 if (!empty($result['alert'])) {
+    //                     Log::warning('E-Way Bill alert', [
+    //                         'invoice' => $invoice->invoice_number,
+    //                         'alert' => $result['alert'],
+    //                     ]);
+    //                 }
+
+    //                 $invoice->update([
+    //                     'eway_bill_no'     => $result['eway_bill_no'],
+    //                     'eway_bill_date'   => $result['eway_bill_date'],
+    //                     'eway_valid_upto'  => $result['valid_upto'],
+    //                     'eway_bill_status' => 'part_a_generated',
+    //                 ]);
+    //             }
+    //         } catch (Exception $e) {
+    //             // Log the E-Way Bill failure but DO NOT throw it up.
+    //             // This ensures the invoice generation (already done) is committed.
+    //             Log::error('E-Way Bill Part A generation failed during dispatch', [
+    //                 'order_reference' => $order->order_reference,
+    //                 'error'           => $e->getMessage(),
+    //             ]);
+    //             // You can optionally save the error to the invoice or order here if needed.
+    //         }
+
+    //         DB::commit();
+
+    //         $this->sendOrderDispatchedNotification($order, $processedItems, $request);
+
+    //         $message = count($processedItems) === $order->lines->count()
+    //             ? 'Entire order dispatched successfully'
+    //             : count($processedItems) . ' item(s) dispatched successfully';
+
+    //         return response()->json([
+    //             'success'         => true,
+    //             'message'         => $message,
+    //             'order_reference' => $order->order_reference,
+    //             'order_status'    => $order->fresh()->status,
+    //             'processed_items' => $processedItems,
+    //         ]);
+    //     } catch (Exception $e) {
+    //         DB::rollBack();
+    //         return response()->json(['error' => $e->getMessage()], 400);
+    //     }
+    // }
 
     protected function insertNotification($user, string $type, array $data): void
     {
