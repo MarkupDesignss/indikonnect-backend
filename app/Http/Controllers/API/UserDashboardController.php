@@ -205,6 +205,63 @@ class UserDashboardController extends Controller
     /**
      * Get sales calendar for one year, cached for 6 hours.
      */
+    // private function getSalesCalendar(int $year): ?array
+    // {
+    //     try {
+    //         $resp = Cache::remember("ignite_sales_calendar_{$year}", 21600, function () use ($year) {
+    //             return $this->ignite->salesCalendar($year);
+    //         });
+
+    //         if (($resp['code'] ?? null) !== ResultCode::OK->value) {
+    //             return null;
+    //         }
+
+    //         $data = $resp['data'] ?? [];
+
+    //         // Find current month + current week
+    //         $currentMonth = null;
+    //         $currentWeek  = null;
+
+    //         foreach (($data['months'] ?? []) as $month) {
+    //             if (!empty($month['is_current'])) {
+    //                 $currentMonth = [
+    //                     'year'      => $month['year']      ?? null,
+    //                     'month_no'  => $month['month_no']  ?? null,
+    //                     'label'     => $month['label']     ?? null,
+    //                     'start'     => $month['start_date'] ?? null,
+    //                     'end'       => $month['end_date']   ?? null,
+    //                 ];
+
+    //                 foreach (($month['weeks'] ?? []) as $week) {
+    //                     if (!empty($week['is_current'])) {
+    //                         $currentWeek = [
+    //                             'year'        => $week['year']        ?? null,
+    //                             'week_no'     => $week['week_no']     ?? null,
+    //                             'start'       => $week['start_date']  ?? null,
+    //                             'end'         => $week['end_date']    ?? null,
+    //                             'is_settled'  => (bool) ($week['is_settled'] ?? false),
+    //                         ];
+    //                     }
+    //                 }
+    //             }
+    //         }
+
+    //         return [
+    //             'year'          => $data['year'] ?? $year,
+    //             'current_month' => $currentMonth,
+    //             'current_week'  => $currentWeek,
+    //         ];
+    //     } catch (\Throwable $e) {
+    //         Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
+    //         return null;
+    //     }
+    // }
+        /**
+     * Get sales calendar for one year, cached for 6 hours.
+     *
+     * Ignite returns dates in UTC+8. We convert them to IST (Asia/Kolkata)
+     * for display purposes only — the underlying data is unchanged.
+     */
     private function getSalesCalendar(int $year): ?array
     {
         try {
@@ -218,28 +275,41 @@ class UserDashboardController extends Controller
 
             $data = $resp['data'] ?? [];
 
-            // Find current month + current week
+            // Timezone helpers (convert UTC+8 → IST)
+            $utc8 = new \DateTimeZone('Asia/Singapore');
+            $ist  = new \DateTimeZone('Asia/Kolkata');
+
+            $toIst = function (?string $date, string $time) use ($utc8, $ist): ?string {
+                if (!$date) return null;
+                $dt = new \DateTime("{$date} {$time}", $utc8);
+                $dt->setTimezone($ist);
+                return $dt->format('Y-m-d H:i:s');
+            };
+
             $currentMonth = null;
             $currentWeek  = null;
 
             foreach (($data['months'] ?? []) as $month) {
                 if (!empty($month['is_current'])) {
                     $currentMonth = [
-                        'year'      => $month['year']      ?? null,
-                        'month_no'  => $month['month_no']  ?? null,
-                        'label'     => $month['label']     ?? null,
-                        'start'     => $month['start_date'] ?? null,
-                        'end'       => $month['end_date']   ?? null,
+                        'year'     => $month['year']     ?? null,
+                        'month_no' => $month['month_no'] ?? null,
+                        'label'    => $month['label']    ?? null,
+                        // UTC+8 start 00:00 → IST
+                        'start'    => $toIst($month['start_date'] ?? null, '00:00:00'),
+                        // UTC+8 end 23:59:59 → IST
+                        'end'      => $toIst($month['end_date']   ?? null, '23:59:59'),
                     ];
 
                     foreach (($month['weeks'] ?? []) as $week) {
                         if (!empty($week['is_current'])) {
                             $currentWeek = [
-                                'year'        => $week['year']        ?? null,
-                                'week_no'     => $week['week_no']     ?? null,
-                                'start'       => $week['start_date']  ?? null,
-                                'end'         => $week['end_date']    ?? null,
-                                'is_settled'  => (bool) ($week['is_settled'] ?? false),
+                                'year'       => $week['year']       ?? null,
+                                'week_no'    => $week['week_no']    ?? null,
+                                // Ignite data converted to IST
+                                'start'      => $toIst($week['start_date'] ?? null, '00:00:00'),
+                                'end'        => $toIst($week['end_date']   ?? null, '23:59:59'),
+                                'is_settled' => (bool) ($week['is_settled'] ?? false),
                             ];
                         }
                     }
