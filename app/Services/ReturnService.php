@@ -2154,17 +2154,32 @@ class ReturnService
         ];
     }
 
+
     // public function getReturnForAdmin(int $returnId): array
     // {
+    //     // Global gateway-charge settings (cached once)
+    //     $gatewayChargesMap = [
+    //         'razorpay' => (float) Setting::where('group', 'checkout')->where('key', 'gateway_charges')->value('value'),
+    //         'hdfc_sg'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+    //         'hdfc_ie'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+    //         'axispg'   => (float) Setting::where('group', 'checkout')->where('key', 'freecharge_gateway_charges')->value('value'),
+    //     ];
+
     //     $return = OrderReturn::with([
     //         'order',
     //         'user',
     //         'order.lines.product',
     //         'order.lines.variant',
-    //         'refund'
+    //         'refund',
     //     ])->findOrFail($returnId);
 
     //     $refund = $return->refund;
+
+    //     // ----- Resolve gateway % for THIS order -----
+    //     $gateway = strtolower($return->order->payment_gateway ?? 'razorpay');
+    //     $gatewayChargesPercent = $gatewayChargesMap[$gateway]
+    //         ?? $gatewayChargesMap['razorpay']
+    //         ?? 2.36;
 
     //     // ----- Decode items JSON safely -----
     //     $items = $return->items;
@@ -2175,7 +2190,6 @@ class ReturnService
     //         $items = [];
     //     }
 
-    //     // Collect order_line_ids from the return's items JSON
     //     $itemLineIds = collect($items)
     //         ->pluck('order_line_id')
     //         ->filter()
@@ -2183,7 +2197,6 @@ class ReturnService
     //         ->values()
     //         ->all();
 
-    //     // Fallback to the single order_line_id column if items JSON is empty
     //     if (empty($itemLineIds) && $return->order_line_id) {
     //         $itemLineIds = [$return->order_line_id];
     //     }
@@ -2199,22 +2212,25 @@ class ReturnService
     //         - (float) $return->refund_gateway_charges
     //         - $deductedShippingCharge;
 
-    //     /*
-    //     |--------------------------------------------------------------------------
-    //     | Timeline — ONLY returned order_lines (filtered by items JSON)
-    //     |--------------------------------------------------------------------------
-    //     */
+    //     /* Timeline — ONLY returned order_lines */
     //     $linesTimeline = [];
 
     //     if ($return->order && $return->order->lines) {
 
-    //         $returnedLines = $return->order->lines
-    //             ->whereIn('id', $itemLineIds);
+    //         $returnedLines = $return->order->lines->whereIn('id', $itemLineIds);
 
     //         foreach ($returnedLines as $line) {
 
-    //             // Match the corresponding entry from items JSON
     //             $matchedItem = collect($items)->firstWhere('order_line_id', $line->id);
+
+    //             // Per-line expected gateway charge using THIS order's %
+    //             $lineTotalWithShipping = (float) $line->line_total
+    //                 + (float) ($line->shipping_charge ?? 0);
+
+    //             $expectedGatewayCharge = round(
+    //                 $lineTotalWithShipping * ($gatewayChargesPercent / 100),
+    //                 2
+    //             );
 
     //             $linesTimeline[] = [
     //                 'line_id'         => $line->id,
@@ -2237,7 +2253,11 @@ class ReturnService
     //                 'return_status'   => $line->return_status,
     //                 'timeline'        => $this->buildOrderLineTimeline($line),
 
-    //                 // Extra info straight from the return's items JSON
+    //                 // Per-order gateway info
+    //                 'gateway'                 => $gateway,
+    //                 'gateway_charges_percent' => $gatewayChargesPercent,
+    //                 'expected_gateway_charge' => $expectedGatewayCharge,
+
     //                 'return_item'     => $matchedItem ? [
     //                     'product_name'    => $matchedItem['product_name']    ?? null,
     //                     'quantity'        => $matchedItem['quantity']        ?? null,
@@ -2259,18 +2279,17 @@ class ReturnService
     //         'id'            => $return->id,
     //         'type'          => $return->type,
     //         'return_method' => $return->return_method,
-    //         'refunded_amount' => $refund
-    //             ? (float) $refund->amount
-    //             : null,
+    //         'refunded_amount' => $refund ? (float) $refund->amount : null,
     //         'tracking_id'          => $return->tracking_id,
     //         'courier'          => $return->courier,
 
     //         'order' => $return->order ? [
-    //             'id'             => $return->order->id,
+    //             'id'              => $return->order->id,
     //             'order_reference' => $return->order->order_reference,
-    //             'status'         => $return->order->status,
-    //             'return_status'  => $return->order->return_status,
-    //             'delivered_at'   => $return->order->delivered_at?->toDateTimeString(),
+    //             'status'          => $return->order->status,
+    //             'return_status'   => $return->order->return_status,
+    //             'payment_gateway' => $return->order->payment_gateway,   // NEW
+    //             'delivered_at'    => $return->order->delivered_at?->toDateTimeString(),
     //         ] : null,
 
     //         'user' => $return->user ? [
@@ -2284,14 +2303,8 @@ class ReturnService
     //         'status' => $return->status,
     //         'reason' => $return->reason,
 
-    //         // Kept for backward compatibility — returns only the return's items
     //         'items' => $return->return_items_with_details,
-
-    //         // ========== ONLY returned lines with timeline ==========
     //         'order_lines_timeline' => $linesTimeline,
-    //         // =======================================================
-
-    //         // Raw items JSON as fallback for UI
     //         'return_items_json' => $items,
 
     //         'refund_details' => [
@@ -2303,6 +2316,12 @@ class ReturnService
     //             'deducted_shipping_charge' => $deductedShippingCharge,
     //             'refund_gateway_charges'   => (float) $return->refund_gateway_charges,
     //             'refund_extra_deductions'  => $return->refund_extra_deductions,
+    //             // NEW: the correct per-order gateway % + expected amount
+    //             'gateway_charges_percent'  => $gatewayChargesPercent,
+    //             'expected_gateway_charges' => round(
+    //                 ((float) $return->total_refund_amount) * ($gatewayChargesPercent / 100),
+    //                 2
+    //             ),
     //             'total'                    => round($totalRefund, 2),
     //         ],
 
@@ -2328,7 +2347,6 @@ class ReturnService
     //             'status'              => $refund->status,
     //             'gateway_reference'   => $refund->gateway_reference,
     //             'refund_method'       => $refund->refund_method,
-    //             // 'deduction_breakdown' => $refund->deduction_breakdown ?? null,
     //             'notes'               => $refund->notes,
     //             'approved_by'         => $refund->approved_by,
     //             'failure_reason'      => $refund->failure_reason,
@@ -2337,6 +2355,7 @@ class ReturnService
     //         ] : null,
     //     ];
     // }
+
     public function getReturnForAdmin(int $returnId): array
     {
         // Global gateway-charge settings (cached once)
@@ -2389,9 +2408,15 @@ class ReturnService
             ? round($shippingCharge * 2, 2)
             : round($shippingCharge * 1, 2);
 
+        // ----- Per-order gateway charge (recomputed, NOT read from stored column) -----
+        $perOrderGatewayCharges = round(
+            (float) $return->total_refund_amount * ($gatewayChargesPercent / 100),
+            2
+        );
+
         $totalRefund = (float) $return->total_refund_amount
             - (float) $return->refund_tax
-            - (float) $return->refund_gateway_charges
+            - $perOrderGatewayCharges
             - $deductedShippingCharge;
 
         /* Timeline — ONLY returned order_lines */
@@ -2470,7 +2495,7 @@ class ReturnService
                 'order_reference' => $return->order->order_reference,
                 'status'          => $return->order->status,
                 'return_status'   => $return->order->return_status,
-                'payment_gateway' => $return->order->payment_gateway,   // NEW
+                'payment_gateway' => $return->order->payment_gateway,
                 'delivered_at'    => $return->order->delivered_at?->toDateTimeString(),
             ] : null,
 
@@ -2490,21 +2515,24 @@ class ReturnService
             'return_items_json' => $items,
 
             'refund_details' => [
-                'method'                   => $return->return_method ?? null,
-                'subtotal'                 => (float) $return->refund_subtotal,
-                'tax'                      => (float) $return->refund_tax,
-                'shipping'                 => $shippingCharge,
-                'amount_with_tax_shipping' => (float) $return->total_refund_amount,
-                'deducted_shipping_charge' => $deductedShippingCharge,
-                'refund_gateway_charges'   => (float) $return->refund_gateway_charges,
-                'refund_extra_deductions'  => $return->refund_extra_deductions,
-                // NEW: the correct per-order gateway % + expected amount
-                'gateway_charges_percent'  => $gatewayChargesPercent,
-                'expected_gateway_charges' => round(
-                    ((float) $return->total_refund_amount) * ($gatewayChargesPercent / 100),
-                    2
-                ),
-                'total'                    => round($totalRefund, 2),
+                'method'                    => $return->return_method ?? null,
+                'subtotal'                  => (float) $return->refund_subtotal,
+                'tax'                       => (float) $return->refund_tax,
+                'shipping'                  => $shippingCharge,
+                'amount_with_tax_shipping'  => (float) $return->total_refund_amount,
+                'deducted_shipping_charge'  => $deductedShippingCharge,
+
+                // Stored value (may be from old global rate — kept for reconciliation)
+                'refund_gateway_charges'    => (float) $return->refund_gateway_charges,
+                'refund_extra_deductions'   => $return->refund_extra_deductions,
+
+                // Per-order values (authoritative)
+                'payment_gateway'           => $return->order->payment_gateway ?? null,
+                'gateway_charges_percent'   => $gatewayChargesPercent,
+                'per_order_gateway_charges' => $perOrderGatewayCharges,
+                'expected_gateway_charges'  => $perOrderGatewayCharges,
+
+                'total'                     => round($totalRefund, 2),
             ],
 
             'admin_notes'      => $return->admin_notes,
