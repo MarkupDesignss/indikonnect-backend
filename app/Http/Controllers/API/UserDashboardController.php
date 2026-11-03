@@ -126,9 +126,7 @@ class UserDashboardController extends Controller
             $blueValueUsd   = $blueBal >= 4 ? $blueBal * $blueRate : 0;
             $greenValueUsd  = floor($greenBal / 6) * $greenRate;
 
-            // ============================================================
             // 1. Calculate Strong Leg
-            // ============================================================
             $cvLeft  = (float) ($data['total_cv_left'] ?? 0);
             $cvRight = (float) ($data['total_cv_right'] ?? 0);
             
@@ -136,9 +134,7 @@ class UserDashboardController extends Controller
             if ($cvLeft > $cvRight) $strongLeg = 'Left';
             if ($cvRight > $cvLeft) $strongLeg = 'Right';
 
-            // ============================================================
             // 2. Fetch Commissions History & Calculate Widgets
-            // ============================================================
             $history = $this->getCommissionHistory($baId, 0, 100); 
             
             $retailProfitUsd = 0;
@@ -146,16 +142,12 @@ class UserDashboardController extends Controller
             $unilevelGreenCoin = 0;
 
             foreach ($history as $tx) {
-                // ✅ FIX: point_type check kar rahe hain kyunki category ab UI ka naam hai
-                // Retail Profit
                 if ($tx['description'] === 'comm_retail' && $tx['point_type'] === 'cash_bal') {
                     $retailProfitUsd += (float) $tx['amount'];
                 }
-                // Weekly Pairing 
                 if ($tx['description'] === 'comm_pairing' && $tx['point_type'] === 'cash_bal') {
                     $weeklyPairingUsd += (float) $tx['amount'];
                 }
-                // Unilevel Green Coin 
                 if ($tx['point_type'] === 'green_bal') {
                     $unilevelGreenCoin += (float) $tx['amount'];
                 }
@@ -212,7 +204,7 @@ class UserDashboardController extends Controller
                 'far_right_id'      => $data['far_right_id']      ?? null,
                 'far_right_ba_id'   => $data['far_right_ba_id']   ?? null,
 
-                // Commissions History Table (Dashboard pe bhi bhej rahe hain)
+                // Commissions History Table
                 'commissions_history' => $history,
             ];
         } catch (\Exception $e) {
@@ -240,7 +232,7 @@ class UserDashboardController extends Controller
 
             // Map the raw Ignite rows to match your frontend table
             return array_map(function ($row) {
-                // 1. Category Name Formatting (comm -> Commission, cr -> RedeemCoin, etc.)
+                // 1. Category Name Formatting
                 $category = match ($row['tx_type']) {
                     'comm'  => 'Commission',
                     'cr'    => 'RedeemCoin',
@@ -250,20 +242,19 @@ class UserDashboardController extends Controller
                     default => ucfirst($row['tx_type'] ?? 'Other'),
                 };
 
+                // 2. Amount Formatting
+                $amount = (float) ($row['amount'] ?? 0);
+
                 return [
                     'id'            => $row['id'],
-                    'category'      => $category, // UI mein Category column ke liye
+                    'category'      => $category, 
                     'point_type'    => $row['point_type'] ?? null, 
-                    'date_created'  => $row['created_at'] ?? null, // UI mein Date Created ke liye
-                    
-                    // Ignite API seedha "Date Release" nahi deta, isliye hum isko created_at se dikha rahe hain
-                    'date_release'  => $row['created_at'] ?? null, 
-                    
-                    'description'   => $row['description'] ?? null, // e.g., comm_pairing
-                    'amount'        => (float) ($row['amount'] ?? 0), // UI mein Amount column ke liye
-                    
-                    'order_id'      => $row['order_no'] ?? null, // Related Order
-                    'related_member'=> $row['rel_ba_id'] ?? $row['rel_member_id'] ?? null, // Related Member
+                    'date_created'  => $row['created_at'] ?? null, 
+                    'date_release'  => $row['created_at'] ?? null, // Created at as release date
+                    'description'   => $row['description'] ?? '-', 
+                    'amount'        => $amount, // Number format handled by frontend
+                    'order_id'      => $row['order_no'] ?? '-', 
+                    'related_member'=> $row['rel_ba_id'] ?? $row['rel_member_id'] ?? '-', 
                 ];
             }, $rows);
 
@@ -327,7 +318,7 @@ class UserDashboardController extends Controller
                 if (!$date) return null;
                 $dt = new \DateTime("{$date} {$time}", $utc8);
                 $dt->setTimezone($ist);
-                return $dt->format('Y-m-d H:i:s'); // ✅ Ab time bhi aayega
+                return $dt->format('Y-m-d H:i:s'); 
             };
 
             $allMonths = [];
@@ -335,13 +326,12 @@ class UserDashboardController extends Controller
             foreach (($data['months'] ?? []) as $month) {
                 $weeksData = [];
                 foreach (($month['weeks'] ?? []) as $week) {
-                    // Payout date nikaalne ke liye end_date ko 00:00:00 UTC+8 se shift karke +1 day karenge
                     $endDateTime = $week['end_date'] ? (new \DateTime("{$week['end_date']} 00:00:00", $utc8))->modify('+1 day') : null;
 
                     $weeksData[] = [
                         'week_no'    => $week['week_no'] ?? null,
                         'start'      => $toIst($week['start_date'] ?? null, '00:00:00'),
-                        'end'        => $toIst($week['end_date'] ?? null, '23:59:59'), // ✅ Week end me 23:59:59 dikhega
+                        'end'        => $toIst($week['end_date'] ?? null, '23:59:59'), 
                         'payout_date' => $endDateTime ? $toIst($endDateTime->format('Y-m-d'), '00:00:00') : null,
                         'is_current' => (bool) ($week['is_current'] ?? false),
                         'is_settled' => (bool) ($week['is_settled'] ?? false),
@@ -1038,7 +1028,7 @@ class UserDashboardController extends Controller
             $yellowCoin = $tx['point_type'] === 'yellow_bal' ? $amt : 0;
             $blueCoin   = $tx['point_type'] === 'blue_bal'   ? $amt : 0;
 
-            // Coins INR Value (absolute value use kiya hai taaki negative redeem par bhi sahi kaam kare)
+            // Coins INR Value
             $greenAbs  = abs($greenCoin);
             $yellowAbs = abs($yellowCoin);
             $blueAbs   = abs($blueCoin);
