@@ -542,14 +542,23 @@ class OrderController extends Controller
             $formattedItems = [];
 
             // Gateway charges percentage from settings (e.g. 2.5)
-            $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
+            // $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
             $buybackActivate = Setting::where('key', 'buyback_activate')->value('value');
             $returnWindowDays = (int) setting('return_window_days', 30);
-
+            $gatewayChargesMap = [
+                'razorpay'  => (float) Setting::where('key', 'gateway_charges')->value('value'),
+                'hdfc_sg'   => (float) Setting::where('key', 'hdfc_gateway_charges')->value('value'),
+                'hdfc_ie'   => (float) Setting::where('key', 'hdfc_gateway_charges')->value('value'),
+                'axispg'    => (float) Setting::where('key', 'freecharge_gateway_charges')->value('value'),
+            ];
             foreach ($orderLines as $line) {
                 $order = $line->order;
                 $product = $line->product;
+                $gateway = strtolower($order->payment_gateway ?? 'razorpay');
 
+                $gatewayChargesPercent = $gatewayChargesMap[$gateway]
+                    ?? $gatewayChargesMap['razorpay']
+                    ?? 2.36;
                 // Debug: Check if reviews are loaded
                 Log::info('Line ID: ' . $line->id . ', Product ID: ' . $line->product_id);
                 if ($product) {
@@ -1888,7 +1897,7 @@ class OrderController extends Controller
 
     //             foreach ($linesNeedingInvoice as $line) {
     //                 $invoice = \App\Models\Invoice::where('order_line_id', $line->id)->lockForUpdate()->first();
-                    
+
     //                 if (!$invoice) {
     //                     throw new Exception("Invoice missing for order line {$line->id}, cannot generate E-Way Bill.");
     //                 }
@@ -1902,7 +1911,7 @@ class OrderController extends Controller
     //                 // Validate response
     //                 if (empty($result['eway_bill_no'])) {
     //                     throw new Exception(
-    //                         "E-Way Bill generation failed for invoice {$invoice->invoice_number}: " 
+    //                         "E-Way Bill generation failed for invoice {$invoice->invoice_number}: "
     //                         . ($result['alert'] ?? 'No EBN returned')
     //                     );
     //                 }

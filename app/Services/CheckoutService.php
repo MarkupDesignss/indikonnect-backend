@@ -630,7 +630,7 @@ class CheckoutService
         int $addressId = null,
         ?string $couponCode = null,
         ?int $shippingMethodId = null,
-        ?int $redemptionId = null,          // <-- changed from coinsToRedeem
+        ?int $redemptionId = null,
         ?int $buyNowProductId = null,
         ?int $buyNowVariantId = null,
         ?int $buyNowQuantity = null
@@ -647,10 +647,10 @@ class CheckoutService
         $user = User::findOrFail($userId);
 
         /*
-    |--------------------------------------------------------------------------
-    | Cart / Buy Now
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Cart / Buy Now
+        |--------------------------------------------------------------------------
+        */
 
         $isBuyNow = $buyNowProductId !== null || $buyNowVariantId !== null;
 
@@ -720,10 +720,10 @@ class CheckoutService
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Calculate Subtotal
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Calculate Subtotal
+        |--------------------------------------------------------------------------
+        */
 
         $subtotal = 0;
         $productDetails = [];
@@ -813,10 +813,10 @@ class CheckoutService
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Coupon
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Coupon
+        |--------------------------------------------------------------------------
+        */
 
         $couponDiscount = 0;
         $couponData = null;
@@ -844,18 +844,18 @@ class CheckoutService
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Subtotal After Discount
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Subtotal After Discount
+        |--------------------------------------------------------------------------
+        */
 
         $subtotalAfterDiscount = $subtotal - $couponDiscount;
 
         /*
-    |--------------------------------------------------------------------------
-    | Shipping (Based on Product's Shipping Charge)
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Shipping (Based on Product's Shipping Charge)
+        |--------------------------------------------------------------------------
+        */
 
         $shippingCost = 0;
         $shippingData = null;
@@ -886,10 +886,10 @@ class CheckoutService
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Tax Variables
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Tax Variables
+        |--------------------------------------------------------------------------
+        */
 
         $productTaxTotal = 0;
         $productGstTotal = 0;
@@ -1030,26 +1030,26 @@ class CheckoutService
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Total Tax
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Total Tax
+        |--------------------------------------------------------------------------
+        */
 
         $totalTax = $productTaxTotal;
 
         /*
-    |--------------------------------------------------------------------------
-    | Subtotal + Tax + Shipping
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Subtotal + Tax + Shipping
+        |--------------------------------------------------------------------------
+        */
 
         $subtotalAfterDiscountAndTax = $subtotalAfterDiscount + $totalTax + $shippingCost;
 
         /*
-    |--------------------------------------------------------------------------
-    | Coins
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Coins
+        |--------------------------------------------------------------------------
+        */
 
 
         $coinRedemptionData = null;
@@ -1122,18 +1122,18 @@ class CheckoutService
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Grand Total
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Grand Total
+        |--------------------------------------------------------------------------
+        */
 
         $grandTotal = round($subtotalAfterDiscountAndTax - $amountRedeemed, 2);
 
         /*
-    |--------------------------------------------------------------------------
-    | Final Response
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Final Response
+        |--------------------------------------------------------------------------
+        */
 
         return [
             'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
@@ -3273,7 +3273,7 @@ class CheckoutService
     /**
      * Cancel a specific order line and generate a line-wise reversal event.
      *
-     * Ignite processes orders and cancellations per-line. Therefore, the local 
+     * Ignite processes orders and cancellations per-line. Therefore, the local
      * CommissionApiEvent reversal must also be created per-line, not per-order.
      *
      * @param int         $userId          The ID of the user requesting cancellation.
@@ -3318,7 +3318,7 @@ class CheckoutService
         }
 
         DB::transaction(function () use ($orderLine, $order, $reason, $refundAmount, $adminNotes, $approvedBy) {
-            
+
             // 1. Mark the specific line as cancelled
             $orderLine->update([
                 'delivery_status'     => 'cancelled',
@@ -3362,12 +3362,19 @@ class CheckoutService
 
                 if ($order->amount_paid > 0) {
                     $this->returnService->processRefundForOrder(
-                        $order, $orderLine->id ?? null, $reason, $refundAmount, $adminNotes, $approvedBy
+                        $order,
+                        $orderLine->id ?? null,
+                        $reason,
+                        $refundAmount,
+                        $adminNotes,
+                        $approvedBy
                     );
                 }
 
                 Log::info('Order fully cancelled as all items were cancelled', [
-                    'order' => $order->order_reference, 'reason' => $reason, 'refund_amount' => $refundAmount,
+                    'order' => $order->order_reference,
+                    'reason' => $reason,
+                    'refund_amount' => $refundAmount,
                 ]);
             } else {
                 if ($orderLine->line_total > 0 || $refundAmount > 0) {
@@ -3375,8 +3382,10 @@ class CheckoutService
                 }
 
                 Log::info('Order line cancelled', [
-                    'order' => $order->order_reference, 'order_line_id' => $orderLine->id,
-                    'reason' => $reason, 'refund_amount' => $refundAmount,
+                    'order' => $order->order_reference,
+                    'order_line_id' => $orderLine->id,
+                    'reason' => $reason,
+                    'refund_amount' => $refundAmount,
                     'remaining_items' => $order->lines()->where('delivery_status', '!=', 'cancelled')->count(),
                 ]);
             }
@@ -3397,42 +3406,42 @@ class CheckoutService
     }
 
     /**
- * Build a line-specific reversal payload for the Commission API.
- *
- * Unlike order-wise reversal, this payload targets only the cancelled line's
- * CV and monetary value, matching Ignite's line-wise architecture.
- *
- * @param OrderLine $orderLine The specific order line being reversed.
- * @param string    $reason    The reason for cancellation.
- * @return array               The structured payload for CommissionApiEvent.
- */
-protected function buildLineReversalPayload(OrderLine $orderLine, string $reason): array
-{
-    $order = $orderLine->order;
-    $user  = $order->user;
+     * Build a line-specific reversal payload for the Commission API.
+     *
+     * Unlike order-wise reversal, this payload targets only the cancelled line's
+     * CV and monetary value, matching Ignite's line-wise architecture.
+     *
+     * @param OrderLine $orderLine The specific order line being reversed.
+     * @param string    $reason    The reason for cancellation.
+     * @return array               The structured payload for CommissionApiEvent.
+     */
+    protected function buildLineReversalPayload(OrderLine $orderLine, string $reason): array
+    {
+        $order = $orderLine->order;
+        $user  = $order->user;
 
-    $lineCv = (float) ($orderLine->ignite_cv_posted ?? $orderLine->commissionable_volume ?? 0);
+        $lineCv = (float) ($orderLine->ignite_cv_posted ?? $orderLine->commissionable_volume ?? 0);
 
-    return [
-        'eventId'             => 'evt_' . Str::random(24),
-        'action'              => 'REVERSAL',
-        'orderReference'      => $order->order_reference,
-        'orderLineId'         => $orderLine->id,
-        'productIdentifier'   => $orderLine->product?->product_code,
-        'productName'         => $orderLine->product?->name,
-        'quantity'            => (int) $orderLine->quantity,
-        'unitPriceCharged'    => (float) $orderLine->unit_price,
-        'lineTotal'           => (float) $orderLine->line_total,
-        'reversedValue'       => (float) $orderLine->line_total,
-        'originalCv'          => $lineCv,
-        'igniteOrderNo'       => $orderLine->ignite_order_no,
-        'reason'              => $reason,
-        'purchaserIdentifier' => $user?->distributor_id ?? (string) $order->user_id,
-        'accountType'         => $user?->isDistributor() ? 'DISTRIBUTOR' : 'CUSTOMER',
-        'eventTimestamp'      => now()->toIso8601String(),
-    ];
-}
-    
+        return [
+            'eventId'             => 'evt_' . Str::random(24),
+            'action'              => 'REVERSAL',
+            'orderReference'      => $order->order_reference,
+            'orderLineId'         => $orderLine->id,
+            'productIdentifier'   => $orderLine->product?->product_code,
+            'productName'         => $orderLine->product?->name,
+            'quantity'            => (int) $orderLine->quantity,
+            'unitPriceCharged'    => (float) $orderLine->unit_price,
+            'lineTotal'           => (float) $orderLine->line_total,
+            'reversedValue'       => (float) $orderLine->line_total,
+            'originalCv'          => $lineCv,
+            'igniteOrderNo'       => $orderLine->ignite_order_no,
+            'reason'              => $reason,
+            'purchaserIdentifier' => $user?->distributor_id ?? (string) $order->user_id,
+            'accountType'         => $user?->isDistributor() ? 'DISTRIBUTOR' : 'CUSTOMER',
+            'eventTimestamp'      => now()->toIso8601String(),
+        ];
+    }
+
 
     // protected function processPartialRefund(Order $order, OrderLine $orderLine, string $reason): void
     // {
