@@ -841,4 +841,97 @@ class UserDashboardController extends Controller
             ], 500);
         }
     }
+
+    public function directRedeemCoin(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'coins_to_redeem' => 'required|integer|min:1',
+            'point_type'      => 'required|in:yellow_bal,blue_bal',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $user = Auth::user();
+        if (!$user->isDistributor() || empty($user->distributor_id)) {
+            return response()->json(['success' => false, 'message' => 'Not a distributor'], 422);
+        }
+
+        $coins = (int) $request->coins_to_redeem;
+        $pointType = $request->point_type;
+
+        // Min band validation
+        $minBand = $pointType === 'yellow_bal' ? 1 : 4;
+        if ($coins < $minBand) {
+            return response()->json([
+                'success' => false, 
+                'message' => "Minimum {$minBand} coins required for {$pointType}"
+            ], 422);
+        }
+
+        $ignite = app(\App\Sdks\Partner\IgniteClient::class);
+        
+        // Idempotency ref (taaki double click pe double deduct na ho)
+        $ref = 'DASH-' . $user->distributor_id . '-' . $pointType . '-' . $coins . '-' . time();
+
+        try {
+            $response = $ignite->redeemCoin(
+                $user->distributor_id,
+                $pointType,
+                $coins,
+                $ref
+            );
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => 'Ignite unreachable'], 503);
+        }
+
+        $code = $response['code'] ?? null;
+
+        // Ignite error handling (as per SDK guide)
+        if ($code === ResultCode::CONVERT_DISABLED->value) {
+            return response()->json(['success' => false, 'message' => 'Coin redemption is currently disabled by Ignite.'], 422);
+        }
+        if ($code === ResultCode::REDEMPTION_REFUSED->value) {
+            return response()->json(['success' => false, 'message' => $response['msg'] ?? 'Redemption refused (Insufficient balance or invalid band).'], 422);
+        }
+        if ($code === ResultCode::NETWORK_BUSY->value) {
+            return response()->json(['success' => false, 'message' => 'Settlement in progress. Try after some time.'], 503);
+        }
+        if ($code !== ResultCode::OK->value) {
+            return response()->json(['success' => false, 'message' => $response['msg'] ?? 'Redemption failed'], 422);
+        }
+
+        // Success — Ignite ne paisa cash_bal me daal diya
+        $cashAmountUsd = $response['data']['cash_amount'] ?? 0;
+        $redemptionId  = $response['data']['redemption_id'] ?? null;
+
+        $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')->where('key', 'usd_to_inr')->value('value');
+        $actualInr = round($cashAmountUsd * $usdRate, 2);
+
+        // Local DB me save karo (audit ke liye)
+        $localRedemption = \App\Models\CoinRedemption::create([
+            'user_id'              => $user->id,
+            'point_type'           => $pointType,
+            'coins_used'           => $coins,
+            'amount_redeemed'      => $actualInr,
+            'status'               => 'authorized', // Direct deducted
+            'api_authorization_id' => (string) $redemptionId,
+            'authorized_at'        => now(),
+        ]);
+
+        // Cache clear karo taaki dashboard pe naya balance dikhe
+        Cache::forget("ignite_member_{$user->distributor_id}");
+
+        return response()->json([
+            'success'         => true,
+            'message'         => 'Coins redeemed successfully!',
+            'data' => [
+                'coins_used'      => $coins,
+                'amount_redeemed' => $actualInr,
+                'redemption_id'   => $localRedemption->id,
+            ]
+        ]);
+    }
+
 }
