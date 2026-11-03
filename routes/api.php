@@ -484,6 +484,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/distributor/ledger/summary', [LedgerController::class, 'summary']);
     Route::get('/distributor/ledger/tax-summary', [LedgerController::class, 'taxSummary']);
     Route::post('/distributor/coins/redeem', [UserDashboardController::class, 'directRedeemCoin']);
+    Route::get('/commissions-history', [UserDashboardController::class, 'commissionHistory']);
 });
 
 Route::get('/stats', [UserDashboardController::class, 'getStats']);

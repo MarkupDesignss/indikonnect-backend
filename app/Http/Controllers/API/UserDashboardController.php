@@ -91,7 +91,118 @@ class UserDashboardController extends Controller
      * @param  string  $baId
      * @return array|null
      */
-    private function getIgniteMemberDetails(string $baId): ?array
+    // private function getIgniteMemberDetails(string $baId): ?array
+    // {
+    //     try {
+    //         $response = $this->ignite->memberDetails($baId);
+
+    //         if ($response['code'] !== ResultCode::OK->value) {
+    //             return null;
+    //         }
+
+    //         $data = $response['data'];
+
+    //         // Exchange rate from settings (same source as CheckoutService)
+    //         $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+    //             ->where('key', 'usd_to_inr')
+    //             ->value('value') ?: 0;
+
+    //         // ============================================================
+    //         // Priority 2: Dynamic rates from planRanks() instead of hardcoded
+    //         // ============================================================
+    //         $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
+    //             try {
+    //                 $resp = $this->ignite->planRanks();
+    //                 return ($resp['code'] ?? null) === ResultCode::OK->value
+    //                     ? ($resp['data']['plan'] ?? [])
+    //                     : [];
+    //             } catch (\Throwable $e) {
+    //                 \Log::warning('planRanks failed', ['error' => $e->getMessage()]);
+    //                 return [];
+    //             }
+    //         });
+
+    //         $yellowSmallRate = (float) ($planResp['yellow_usd_small'] ?? 30);
+    //         $yellowLargeRate = (float) ($planResp['yellow_usd_large'] ?? 40);
+    //         $blueRate        = (float) ($planResp['blue_usd']         ?? 12.5);
+    //         $greenRate       = (float) ($planResp['green_redeem_usd'] ?? 125);
+
+    //         // Coin balances
+    //         $yellowBal = (float) ($data['yellow_bal'] ?? 0);
+    //         $blueBal   = (float) ($data['blue_bal']   ?? 0);
+    //         $greenBal  = (float) ($data['green_bal']  ?? 0);
+    //         $cashBal   = (float) ($data['cash_bal']   ?? 0);
+
+    //         // Coin values using dynamic rates
+    //         $yellowValueUsd = $yellowBal * ($yellowBal >= 3 ? $yellowLargeRate : $yellowSmallRate);
+    //         $blueValueUsd   = $blueBal >= 4 ? $blueBal * $blueRate : 0;
+    //         $greenValueUsd  = floor($greenBal / 6) * $greenRate;
+
+    //         return [
+    //             'member_id'         => $data['member_id'] ?? null,
+    //             'ba_id'             => $data['ba_id'] ?? null,
+    //             'rank_no'           => $data['rank_no'] ?? 0,
+    //             'base_rank_no'      => $data['base_rank_no'] ?? 0,
+    //             'eligible_rank_no'  => $data['eligible_rank_no'] ?? 0,
+    //             'cv_left'           => $data['cv_left'] ?? '0.0000',
+    //             'cv_right'          => $data['cv_right'] ?? '0.0000',
+    //             'floating_cv_left'  => $data['floating_cv_left'] ?? '0.0000',
+    //             'floating_cv_right' => $data['floating_cv_right'] ?? '0.0000',
+    //             'pending_cv_note'   => 'Settles on the settlement week shown per order',
+    //             'total_cv_left'     => $data['total_cv_left'] ?? '0.0000',
+    //             'total_cv_right'    => $data['total_cv_right'] ?? '0.0000',
+
+    //             // Cash balance
+    //             'cash_bal'          => $cashBal,
+    //             'cash_bal_inr'      => round($cashBal * $usdRate, 2),
+
+    //             // Green coins (auto-settle: every 6 = $greenRate)
+    //             'green_bal'         => $greenBal,
+    //             'green_value_usd'   => round($greenValueUsd, 2),
+    //             'green_value_inr'   => round($greenValueUsd * $usdRate, 2),
+    //             'green_note'        => "Every 6 Green Coins = \${$greenRate} (automatic Saturday settlement)",
+
+    //             // Yellow coins (1-2 = $yellowSmallRate, 3+ = $yellowLargeRate)
+    //             'yellow_bal'        => $yellowBal,
+    //             'yellow_value_usd'  => round($yellowValueUsd, 2),
+    //             'yellow_value_inr'  => round($yellowValueUsd * $usdRate, 2),
+
+    //             // Blue coins (4+ = $blueRate)
+    //             'blue_bal'          => $blueBal,
+    //             'blue_value_usd'    => round($blueValueUsd, 2),
+    //             'blue_value_inr'    => round($blueValueUsd * $usdRate, 2),
+
+    //             // Rate used for conversion
+    //             'exchange_rate'     => $usdRate,
+
+    //             'membership_status' => $data['membership_status'] ?? null,
+    //             'total_steps'       => $data['total_steps'] ?? 0,
+    //             'qualified_at'      => $data['qualified_at'] ?? null,
+    //             'is_placed'         => $data['is_placed'] ?? !empty($data['binary_parent_id']),
+    //             'placement_leg'     => $data['binary_side'] ?? null,
+
+    //             // ============================================================
+    //             // Priority 3: NEW fields for dashboard widgets
+    //             // ============================================================
+
+    //             // TC Bank — for "X extra TCs in bank — place now" widget
+    //             'tc_bank_available' => (int) ($data['tc_bank_available'] ?? 0),
+
+    //             // Far leg ends — for "Left leg end: AIA..." / "Right leg end: AIA..."
+    //             'far_left_id'       => $data['far_left_id']       ?? null,
+    //             'far_left_ba_id'    => $data['far_left_ba_id']    ?? null,
+    //             'far_right_id'      => $data['far_right_id']      ?? null,
+    //             'far_right_ba_id'   => $data['far_right_ba_id']   ?? null,
+    //         ];
+    //     } catch (\Exception $e) {
+    //         \Log::warning('Ignite memberDetails failed', [
+    //             'ba_id' => $baId,
+    //             'error' => $e->getMessage(),
+    //         ]);
+    //         return null;
+    //     }
+    // }
+        private function getIgniteMemberDetails(string $baId): ?array
     {
         try {
             $response = $this->ignite->memberDetails($baId);
@@ -102,14 +213,12 @@ class UserDashboardController extends Controller
 
             $data = $response['data'];
 
-            // Exchange rate from settings (same source as CheckoutService)
+            // Exchange rate
             $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
                 ->where('key', 'usd_to_inr')
                 ->value('value') ?: 0;
 
-            // ============================================================
-            // Priority 2: Dynamic rates from planRanks() instead of hardcoded
-            // ============================================================
+            // Dynamic rates from planRanks()
             $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
                 try {
                     $resp = $this->ignite->planRanks();
@@ -117,7 +226,6 @@ class UserDashboardController extends Controller
                         ? ($resp['data']['plan'] ?? [])
                         : [];
                 } catch (\Throwable $e) {
-                    \Log::warning('planRanks failed', ['error' => $e->getMessage()]);
                     return [];
                 }
             });
@@ -133,66 +241,82 @@ class UserDashboardController extends Controller
             $greenBal  = (float) ($data['green_bal']  ?? 0);
             $cashBal   = (float) ($data['cash_bal']   ?? 0);
 
-            // Coin values using dynamic rates
+            // Coin values
             $yellowValueUsd = $yellowBal * ($yellowBal >= 3 ? $yellowLargeRate : $yellowSmallRate);
             $blueValueUsd   = $blueBal >= 4 ? $blueBal * $blueRate : 0;
             $greenValueUsd  = floor($greenBal / 6) * $greenRate;
+
+            // ============================================================
+            // 1. Calculate Strong Leg
+            // ============================================================
+            $cvLeft  = (float) ($data['total_cv_left'] ?? 0);
+            $cvRight = (float) ($data['total_cv_right'] ?? 0);
+            
+            $strongLeg = 'Equal';
+            if ($cvLeft > $cvRight) $strongLeg = 'Left';
+            if ($cvRight > $cvLeft) $strongLeg = 'Right';
+
+            // ============================================================
+            // 2. Fetch Commissions History & Calculate Retail Profit
+            // ============================================================
+            // Fetching top 100 recent ledger rows
+            $history = $this->getCommissionHistory($baId, 0, 100); 
+            
+            $retailProfitUsd = 0;
+            $weeklyPairingUsd = 0;
+            $unilevelGreenCoin = 0;
+
+            foreach ($history as $tx) {
+                // Retail Profit
+                if ($tx['description'] === 'comm_retail' && $tx['point_type'] === 'cash_bal') {
+                    $retailProfitUsd += (float) $tx['amount'];
+                }
+                // Weekly Pairing (comm_pairing on cash_bal)
+                if ($tx['description'] === 'comm_pairing' && $tx['point_type'] === 'cash_bal') {
+                    $weeklyPairingUsd += (float) $tx['amount'];
+                }
+                // Unilevel Green Coin (Assuming 'green_bal' point type)
+                if ($tx['point_type'] === 'green_bal') {
+                    $unilevelGreenCoin += (float) $tx['amount'];
+                }
+            }
 
             return [
                 'member_id'         => $data['member_id'] ?? null,
                 'ba_id'             => $data['ba_id'] ?? null,
                 'rank_no'           => $data['rank_no'] ?? 0,
-                'base_rank_no'      => $data['base_rank_no'] ?? 0,
-                'eligible_rank_no'  => $data['eligible_rank_no'] ?? 0,
+                
+                // CV Volumes
                 'cv_left'           => $data['cv_left'] ?? '0.0000',
                 'cv_right'          => $data['cv_right'] ?? '0.0000',
                 'floating_cv_left'  => $data['floating_cv_left'] ?? '0.0000',
                 'floating_cv_right' => $data['floating_cv_right'] ?? '0.0000',
-                'pending_cv_note'   => 'Settles on the settlement week shown per order',
                 'total_cv_left'     => $data['total_cv_left'] ?? '0.0000',
                 'total_cv_right'    => $data['total_cv_right'] ?? '0.0000',
+
+                // Dashboard Widgets Data
+                'strong_leg'          => $strongLeg,
+                'retail_profit_usd'   => round($retailProfitUsd, 2),
+                'weekly_pairing_usd'  => round($weeklyPairingUsd, 2),
+                'unilevel_green_coin' => round($unilevelGreenCoin, 2),
 
                 // Cash balance
                 'cash_bal'          => $cashBal,
                 'cash_bal_inr'      => round($cashBal * $usdRate, 2),
 
-                // Green coins (auto-settle: every 6 = $greenRate)
+                // Coins
                 'green_bal'         => $greenBal,
                 'green_value_usd'   => round($greenValueUsd, 2),
-                'green_value_inr'   => round($greenValueUsd * $usdRate, 2),
-                'green_note'        => "Every 6 Green Coins = \${$greenRate} (automatic Saturday settlement)",
-
-                // Yellow coins (1-2 = $yellowSmallRate, 3+ = $yellowLargeRate)
                 'yellow_bal'        => $yellowBal,
                 'yellow_value_usd'  => round($yellowValueUsd, 2),
-                'yellow_value_inr'  => round($yellowValueUsd * $usdRate, 2),
-
-                // Blue coins (4+ = $blueRate)
                 'blue_bal'          => $blueBal,
                 'blue_value_usd'    => round($blueValueUsd, 2),
-                'blue_value_inr'    => round($blueValueUsd * $usdRate, 2),
 
-                // Rate used for conversion
                 'exchange_rate'     => $usdRate,
-
-                'membership_status' => $data['membership_status'] ?? null,
-                'total_steps'       => $data['total_steps'] ?? 0,
-                'qualified_at'      => $data['qualified_at'] ?? null,
-                'is_placed'         => $data['is_placed'] ?? !empty($data['binary_parent_id']),
-                'placement_leg'     => $data['binary_side'] ?? null,
-
-                // ============================================================
-                // Priority 3: NEW fields for dashboard widgets
-                // ============================================================
-
-                // TC Bank — for "X extra TCs in bank — place now" widget
                 'tc_bank_available' => (int) ($data['tc_bank_available'] ?? 0),
 
-                // Far leg ends — for "Left leg end: AIA..." / "Right leg end: AIA..."
-                'far_left_id'       => $data['far_left_id']       ?? null,
-                'far_left_ba_id'    => $data['far_left_ba_id']    ?? null,
-                'far_right_id'      => $data['far_right_id']      ?? null,
-                'far_right_ba_id'   => $data['far_right_ba_id']   ?? null,
+                // Commissions History Table
+                'commissions_history' => $history,
             ];
         } catch (\Exception $e) {
             \Log::warning('Ignite memberDetails failed', [
@@ -201,6 +325,70 @@ class UserDashboardController extends Controller
             ]);
             return null;
         }
+    }
+
+        /**
+     * Fetch the member's commission history (Ledger) from Ignite.
+     */
+    private function getCommissionHistory(string $baId, int $afterId = 0, int $limit = 50): array
+    {
+        try {
+            $response = $this->ignite->pointTxs($baId, $afterId, $limit);
+
+            if (($response['code'] ?? null) !== ResultCode::OK->value) {
+                return [];
+            }
+
+            $rows = $response['data']['rows'] ?? [];
+
+            // Map the raw Ignite rows to match your frontend table
+            return array_map(function ($row) {
+                return [
+                    'id'            => $row['id'],
+                    'category'      => $row['point_type'], // e.g., cash_bal, green_bal
+                    'tx_type'       => $row['tx_type'],    // e.g., comm, pv, cr
+                    'date_created'  => $row['created_at'], 
+                    'description'   => $row['description'],// e.g., comm_pairing
+                    'amount'        => $row['amount'],
+                    'order_id'      => $row['order_no'],
+                    'related_member'=> $row['rel_ba_id'] ?? $row['rel_member_id'],
+                ];
+            }, $rows);
+
+        } catch (\Exception $e) {
+            \Log::warning('Ignite pointTxs failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+        /**
+     * API Endpoint for infinite scroll / pagination on the Commissions History table.
+     */
+    public function commissionHistory(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user->distributor_id) {
+            return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);
+        }
+
+        $afterId = (int) $request->input('after_id', 0);
+        $limit   = min(max((int) $request->input('limit', 50), 1), 500);
+
+        $history = $this->getCommissionHistory($user->distributor_id, $afterId, $limit);
+        
+        // Check if there are more rows for pagination
+        try {
+            $rawResponse = $this->ignite->pointTxs($user->distributor_id, $afterId, $limit);
+            $hasMore = $rawResponse['data']['has_more'] ?? false;
+        } catch (\Throwable $e) {
+            $hasMore = false;
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => $history,
+            'has_more'=> $hasMore,
+        ]);
     }
 
     /**
