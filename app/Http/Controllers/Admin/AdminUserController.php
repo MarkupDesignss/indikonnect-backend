@@ -296,6 +296,8 @@ class AdminUserController extends Controller
                 'email'              => $request->email,
                 'phone'              => $request->phone,
                 'distributor_id'              => $request->distributor_id,
+                'complete_pan_card'              => $request->encrypted_pan ?? null,
+                'complete_aadhar_card'              => $request->encrypted_aadhaar,
                 'country'            => $request->country,
                 'password'           => Hash::make($request->password),
                 'date_of_birth'      => $request->date_of_birth,
