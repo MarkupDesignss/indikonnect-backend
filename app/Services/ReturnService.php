@@ -17,6 +17,7 @@ use Exception;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
 use App\Mail\ReturnInitiatedMail;
+use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Support\Facades\Mail;
 use App\Services\Commission\CommissionServiceInterface;
@@ -1665,233 +1666,8 @@ class ReturnService
     /**
      * Admin: Get all return requests
      */
-    public function getReturnsForAdmin(?string $status = null): array
-    {
-        $query = OrderReturn::with([
-            'order',
-            'user',
-            'order.lines',
-            'refund'
-        ])->orderBy('created_at', 'desc');
 
-        if ($status && in_array($status, ['pending', 'approved', 'rejected', 'received', 'completed'])) {
-            $query->where('status', $status);
-        }
 
-        $returns = $query->get();
-
-        return [
-            'total'     => $returns->count(),
-            'pending'   => $returns->where('status', 'pending')->count(),
-            'approved'  => $returns->where('status', 'approved')->count(),
-            'rejected'  => $returns->where('status', 'rejected')->count(),
-            'completed' => $returns->where('status', 'completed')->count(),
-            'data'      => $returns->map(function ($return) {
-
-                $refund = $return->refund;
-
-                // ----- Decode items JSON safely -----
-                $items = $return->items;
-                if (is_string($items)) {
-                    $items = json_decode($items, true) ?: [];
-                }
-                if (!is_array($items)) {
-                    $items = [];
-                }
-
-                // Collect order_line_ids from the return's items JSON
-                $itemLineIds = collect($items)
-                    ->pluck('order_line_id')
-                    ->filter()
-                    ->unique()
-                    ->values()
-                    ->all();
-
-                // Fallback to the single order_line_id column if items JSON is empty
-                if (empty($itemLineIds) && $return->order_line_id) {
-                    $itemLineIds = [$return->order_line_id];
-                }
-
-                // ----- Build order_line wise timeline (ONLY returned lines) -----
-                $linesTimeline = [];
-
-                if ($return->order && $return->order->lines) {
-
-                    // Filter the order's lines down to only the returned ones
-                    $returnedLines = $return->order->lines
-                        ->whereIn('id', $itemLineIds);
-
-                    foreach ($returnedLines as $line) {
-
-                        // Find matching item from the items JSON (for return_status / reason etc.)
-                        $matchedItem = collect($items)->firstWhere('order_line_id', $line->id);
-
-                        $linesTimeline[] = [
-                            'line_id'         => $line->id,
-                            'item_reference'  => $line->item_reference_id,
-                            'product_id'      => $line->product_id,
-                            'variant_id'      => $line->variant_id,
-                            'quantity'        => $line->quantity,
-                            'returned_qty'    => $line->returned_quantity,
-                            'delivery_status' => $line->delivery_status,
-                            'return_status'   => $line->return_status,
-                            'unit_price'      => (float) $line->unit_price,
-                            'line_total'      => (float) $line->line_total,
-                            'timeline'        => $this->buildOrderLineTimeline($line),
-
-                            // Extra info coming from the return's items JSON
-                            'return_item'     => $matchedItem ? [
-                                'product_name'    => $matchedItem['product_name']    ?? null,
-                                'quantity'        => $matchedItem['quantity']        ?? null,
-                                'unit_price'      => $matchedItem['unit_price']      ?? null,
-                                'gst_rate'        => $matchedItem['gst_rate']        ?? null,
-                                'subtotal'        => $matchedItem['subtotal']        ?? null,
-                                'tax'             => $matchedItem['tax']             ?? null,
-                                'line_total'      => $matchedItem['line_total']      ?? null,
-                                'shipping_refund' => $matchedItem['shipping_refund'] ?? null,
-                                'reason'          => $matchedItem['reason']          ?? null,
-                                'image_paths'     => $matchedItem['image_paths']     ?? [],
-                                'return_status'   => $matchedItem['return_status']   ?? null,
-                            ] : null,
-                        ];
-                    }
-                }
-
-                return [
-                    'id'                     => $return->id,
-                    'type'                   => $return->type,
-                    'return_method'          => $return->return_method,
-                    'refunded_amount' => $refund
-                        ? (float) $refund->amount
-                        : null,
-                    'tracking_id'          => $return->tracking_id,
-                    'courier'          => $return->courier,
-                    'order_reference'        => $return->order->order_reference ?? null,
-                    'user'                   => $return->user ? [
-                        'id'           => $return->user->id,
-                        'name'         => $return->user->full_name,
-                        'email'        => $return->user->email,
-                        'account_type' => $return->user->account_type,
-                    ] : null,
-                    'status'                 => $return->status,
-                    'resolution'             => $return->resolution,
-                    'reason'                 => $return->reason,
-
-                    // Count = sum of quantities from items JSON
-                    'items_count'            => collect($items)->sum('quantity'),
-
-                    // Refund breakdown
-                    'refund_amount'          => (float) $return->total_refund_amount,
-                    'refund_subtotal'        => (float) $return->refund_subtotal,
-                    'refund_tax'             => (float) $return->refund_tax,
-                    'refund_shipping'        => (float) $return->refund_shipping,
-                    'refund_gateway_charges' => (float) $return->refund_gateway_charges,
-                    'refund_extra_deductions' => $return->refund_extra_deductions,
-
-                    // Refund meta
-                    'refund_status'          => $return->refund_status,
-                    'refund_approval_status' => $return->refund_approval_status,
-                    'refund_transaction_id'  => $return->refund_transaction_id,
-                    'refund_processed_at'    => optional($return->refund_processed_at)->toDateTimeString(),
-
-                    // Permissions / flags
-                    'can_approve'            => $return->canApprove(),
-                    'can_reject'             => $return->canReject(),
-
-                    // Timestamps
-                    'approved_at'            => optional($return->approved_at)->toDateTimeString(),
-                    'received_at'            => optional($return->received_at)->toDateTimeString(),
-                    'completed_at'           => optional($return->completed_at)->toDateTimeString(),
-                    'created_at'             => $return->created_at->toDateTimeString(),
-                    'updated_at'             => $return->updated_at->toDateTimeString(),
-
-                    // Returned line-wise timeline
-                    'order_lines_timeline'   => $linesTimeline,
-
-                    // Related refund record (if any)
-                    'refund_info'            => $refund ? [
-                        'id'                  => $refund->id,
-                        'amount'              => (float) $refund->amount,
-                        'status'              => $refund->status,
-                        'gateway_reference'   => $refund->gateway_reference,
-                        'refund_method'       => $refund->refund_method,
-                        'deduction_breakdown' => $refund->deduction_breakdown ?? null,
-                        'notes'               => $refund->notes,
-                        'approved_by'         => $refund->approved_by,
-                        'completed_at'        => optional($refund->completed_at)->toDateTimeString(),
-                        'created_at'          => $refund->created_at->toDateTimeString(),
-                    ] : null,
-                ];
-            }),
-        ];
-    }
-    // public function getReturnsForAdmin(?string $status = null): array
-    // {
-    //     $query = OrderReturn::with(['order', 'user', 'refund'])
-    //         ->orderBy('created_at', 'desc');
-
-    //     if ($status && in_array($status, ['pending', 'approved', 'rejected', 'received', 'completed'])) {
-    //         $query->where('status', $status);
-    //     }
-
-    //     $returns = $query->get();
-
-    //     return [
-    //         'total' => $returns->count(),
-    //         'pending' => $returns->where('status', 'pending')->count(),
-    //         'approved' => $returns->where('status', 'approved')->count(),
-    //         'rejected' => $returns->where('status', 'rejected')->count(),
-    //         'completed' => $returns->where('status', 'completed')->count(),
-    //         'data' => $returns->map(function ($return) {
-    //             $refund = $return->refund; // hasOne
-
-    //             // Shipping charge deduction based on return method
-    //             $shippingCharge = (float) $return->refund_shipping;
-    //             $deductedShippingCharge = $return->return_method === 'doorstep'
-    //                 ? round($shippingCharge * 2, 2)
-    //                 : round($shippingCharge * 1, 2);
-
-    //             return [
-    //                 'id' => $return->id,
-    //                 'type' => $return->type,
-    //                 'return_method' => $return->return_method,
-    //                 'order_reference' => $return->order->order_reference ?? null,
-    //                 'user' => $return->user ? [
-    //                     'id' => $return->user->id,
-    //                     'name' => $return->user->full_name,
-    //                     'email' => $return->user->email,
-    //                     'account_type' => $return->user->account_type,
-    //                 ] : null,
-    //                 'status' => $return->status,
-    //                 'items_count' => $return->order
-    //                     ? $return->order->lines->sum('returned_quantity')
-    //                     : 0,
-    //                 'refund_amount' => (float) $return->total_refund_amount - $return->refund_shipping,
-    //                 'deducted_shipping_charge' => $deductedShippingCharge,
-    //                 'reason' => $return->reason,
-    //                 'refund_gateway_charges' => $return->refund_gateway_charges,
-    //                 'created_at' => $return->created_at->toDateTimeString(),
-    //                 'can_approve' => $return->canApprove(),
-    //                 'can_reject' => $return->canReject(),
-
-    //                 // ========== Refund info from refunds table ==========
-    //                 'refund_info' => $refund ? [
-    //                     'id'                 => $refund->id,
-    //                     'amount'             => (float) $refund->amount,
-    //                     'status'             => $refund->status,
-    //                     'gateway_reference'  => $refund->gateway_reference,
-    //                     'refund_method'      => $refund->refund_method,
-    //                     'deduction_breakdown' => $refund->deduction_breakdown ?? null,
-    //                     'notes'              => $refund->notes,
-    //                     'approved_by'        => $refund->approved_by,
-    //                     'completed_at'       => optional($refund->completed_at)->toDateTimeString(),
-    //                     'created_at'         => $refund->created_at->toDateTimeString(),
-    //                 ] : null,
-    //                 // ======================================================
-    //             ];
-    //         }),
-    //     ];
-    // }
     /**
      * Get user's return requests
      */
@@ -2037,17 +1813,555 @@ class ReturnService
             'buyback_refunded_at'       => optional($line->buyback_refunded_at)->toDateTimeString(),
         ];
     }
+
+    // public function getReturnsForAdmin(?string $status = null): array
+    // {
+    //     $query = OrderReturn::with([
+    //         'order',
+    //         'user',
+    //         'order.lines',
+    //         'refund'
+    //     ])->orderBy('created_at', 'desc');
+
+    //     if ($status && in_array($status, ['pending', 'approved', 'rejected', 'received', 'completed'])) {
+    //         $query->where('status', $status);
+    //     }
+
+    //     $returns = $query->get();
+
+    //     return [
+    //         'total'     => $returns->count(),
+    //         'pending'   => $returns->where('status', 'pending')->count(),
+    //         'approved'  => $returns->where('status', 'approved')->count(),
+    //         'rejected'  => $returns->where('status', 'rejected')->count(),
+    //         'completed' => $returns->where('status', 'completed')->count(),
+    //         'data'      => $returns->map(function ($return) {
+
+    //             $refund = $return->refund;
+
+    //             // ----- Decode items JSON safely -----
+    //             $items = $return->items;
+    //             if (is_string($items)) {
+    //                 $items = json_decode($items, true) ?: [];
+    //             }
+    //             if (!is_array($items)) {
+    //                 $items = [];
+    //             }
+
+    //             // Collect order_line_ids from the return's items JSON
+    //             $itemLineIds = collect($items)
+    //                 ->pluck('order_line_id')
+    //                 ->filter()
+    //                 ->unique()
+    //                 ->values()
+    //                 ->all();
+
+    //             // Fallback to the single order_line_id column if items JSON is empty
+    //             if (empty($itemLineIds) && $return->order_line_id) {
+    //                 $itemLineIds = [$return->order_line_id];
+    //             }
+
+    //             // ----- Build order_line wise timeline (ONLY returned lines) -----
+    //             $linesTimeline = [];
+
+    //             if ($return->order && $return->order->lines) {
+
+    //                 // Filter the order's lines down to only the returned ones
+    //                 $returnedLines = $return->order->lines
+    //                     ->whereIn('id', $itemLineIds);
+
+    //                 foreach ($returnedLines as $line) {
+
+    //                     // Find matching item from the items JSON (for return_status / reason etc.)
+    //                     $matchedItem = collect($items)->firstWhere('order_line_id', $line->id);
+
+    //                     $linesTimeline[] = [
+    //                         'line_id'         => $line->id,
+    //                         'item_reference'  => $line->item_reference_id,
+    //                         'product_id'      => $line->product_id,
+    //                         'variant_id'      => $line->variant_id,
+    //                         'quantity'        => $line->quantity,
+    //                         'returned_qty'    => $line->returned_quantity,
+    //                         'delivery_status' => $line->delivery_status,
+    //                         'return_status'   => $line->return_status,
+    //                         'unit_price'      => (float) $line->unit_price,
+    //                         'line_total'      => (float) $line->line_total,
+    //                         'timeline'        => $this->buildOrderLineTimeline($line),
+
+    //                         // Extra info coming from the return's items JSON
+    //                         'return_item'     => $matchedItem ? [
+    //                             'product_name'    => $matchedItem['product_name']    ?? null,
+    //                             'quantity'        => $matchedItem['quantity']        ?? null,
+    //                             'unit_price'      => $matchedItem['unit_price']      ?? null,
+    //                             'gst_rate'        => $matchedItem['gst_rate']        ?? null,
+    //                             'subtotal'        => $matchedItem['subtotal']        ?? null,
+    //                             'tax'             => $matchedItem['tax']             ?? null,
+    //                             'line_total'      => $matchedItem['line_total']      ?? null,
+    //                             'shipping_refund' => $matchedItem['shipping_refund'] ?? null,
+    //                             'reason'          => $matchedItem['reason']          ?? null,
+    //                             'image_paths'     => $matchedItem['image_paths']     ?? [],
+    //                             'return_status'   => $matchedItem['return_status']   ?? null,
+    //                         ] : null,
+    //                     ];
+    //                 }
+    //             }
+
+    //             return [
+    //                 'id'                     => $return->id,
+    //                 'type'                   => $return->type,
+    //                 'return_method'          => $return->return_method,
+    //                 'refunded_amount' => $refund
+    //                     ? (float) $refund->amount
+    //                     : null,
+    //                 'tracking_id'          => $return->tracking_id,
+    //                 'courier'          => $return->courier,
+    //                 'order_reference'        => $return->order->order_reference ?? null,
+    //                 'user'                   => $return->user ? [
+    //                     'id'           => $return->user->id,
+    //                     'name'         => $return->user->full_name,
+    //                     'email'        => $return->user->email,
+    //                     'account_type' => $return->user->account_type,
+    //                 ] : null,
+    //                 'status'                 => $return->status,
+    //                 'resolution'             => $return->resolution,
+    //                 'reason'                 => $return->reason,
+
+    //                 // Count = sum of quantities from items JSON
+    //                 'items_count'            => collect($items)->sum('quantity'),
+
+    //                 // Refund breakdown
+    //                 'refund_amount'          => (float) $return->total_refund_amount,
+    //                 'refund_subtotal'        => (float) $return->refund_subtotal,
+    //                 'refund_tax'             => (float) $return->refund_tax,
+    //                 'refund_shipping'        => (float) $return->refund_shipping,
+    //                 'refund_gateway_charges' => (float) $return->refund_gateway_charges,
+    //                 'refund_extra_deductions' => $return->refund_extra_deductions,
+
+    //                 // Refund meta
+    //                 'refund_status'          => $return->refund_status,
+    //                 'refund_approval_status' => $return->refund_approval_status,
+    //                 'refund_transaction_id'  => $return->refund_transaction_id,
+    //                 'refund_processed_at'    => optional($return->refund_processed_at)->toDateTimeString(),
+
+    //                 // Permissions / flags
+    //                 'can_approve'            => $return->canApprove(),
+    //                 'can_reject'             => $return->canReject(),
+
+    //                 // Timestamps
+    //                 'approved_at'            => optional($return->approved_at)->toDateTimeString(),
+    //                 'received_at'            => optional($return->received_at)->toDateTimeString(),
+    //                 'completed_at'           => optional($return->completed_at)->toDateTimeString(),
+    //                 'created_at'             => $return->created_at->toDateTimeString(),
+    //                 'updated_at'             => $return->updated_at->toDateTimeString(),
+
+    //                 // Returned line-wise timeline
+    //                 'order_lines_timeline'   => $linesTimeline,
+
+    //                 // Related refund record (if any)
+    //                 'refund_info'            => $refund ? [
+    //                     'id'                  => $refund->id,
+    //                     'amount'              => (float) $refund->amount,
+    //                     'status'              => $refund->status,
+    //                     'gateway_reference'   => $refund->gateway_reference,
+    //                     'refund_method'       => $refund->refund_method,
+    //                     'deduction_breakdown' => $refund->deduction_breakdown ?? null,
+    //                     'notes'               => $refund->notes,
+    //                     'approved_by'         => $refund->approved_by,
+    //                     'completed_at'        => optional($refund->completed_at)->toDateTimeString(),
+    //                     'created_at'          => $refund->created_at->toDateTimeString(),
+    //                 ] : null,
+    //             ];
+    //         }),
+    //     ];
+    // }
+    public function getReturnsForAdmin(?string $status = null): array
+    {
+        // Global gateway-charge settings (cached once)
+        $gatewayChargesMap = [
+            'razorpay' => (float) Setting::where('group', 'checkout')->where('key', 'gateway_charges')->value('value'),
+            'hdfc_sg'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+            'hdfc_ie'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+            'axispg'   => (float) Setting::where('group', 'checkout')->where('key', 'freecharge_gateway_charges')->value('value'),
+        ];
+
+        $query = OrderReturn::with([
+            'order',
+            'user',
+            'order.lines',
+            'refund',
+        ])->orderBy('created_at', 'desc');
+
+        if ($status && in_array($status, ['pending', 'approved', 'rejected', 'received', 'completed'])) {
+            $query->where('status', $status);
+        }
+
+        $returns = $query->get();
+
+        return [
+            'total'     => $returns->count(),
+            'pending'   => $returns->where('status', 'pending')->count(),
+            'approved'  => $returns->where('status', 'approved')->count(),
+            'rejected'  => $returns->where('status', 'rejected')->count(),
+            'completed' => $returns->where('status', 'completed')->count(),
+            'data'      => $returns->map(function ($return) use ($gatewayChargesMap) {
+
+                $refund = $return->refund;
+
+                // ----- Resolve gateway % for THIS order -----
+                $gateway = strtolower($return->order->payment_gateway ?? 'razorpay');
+                $gatewayChargesPercent = $gatewayChargesMap[$gateway]
+                    ?? $gatewayChargesMap['razorpay']
+                    ?? 2.36;
+
+                // ----- Decode items JSON safely -----
+                $items = $return->items;
+                if (is_string($items)) {
+                    $items = json_decode($items, true) ?: [];
+                }
+                if (!is_array($items)) {
+                    $items = [];
+                }
+
+                // Collect order_line_ids from the return's items JSON
+                $itemLineIds = collect($items)
+                    ->pluck('order_line_id')
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                if (empty($itemLineIds) && $return->order_line_id) {
+                    $itemLineIds = [$return->order_line_id];
+                }
+
+                // ----- Build order_line wise timeline (ONLY returned lines) -----
+                $linesTimeline = [];
+
+                if ($return->order && $return->order->lines) {
+
+                    $returnedLines = $return->order->lines
+                        ->whereIn('id', $itemLineIds);
+
+                    foreach ($returnedLines as $line) {
+
+                        $matchedItem = collect($items)->firstWhere('order_line_id', $line->id);
+
+                        // Per-line gateway charge using THIS order's %
+                        $lineTotalWithShipping = (float) $line->line_total
+                            + (float) ($line->shipping_charge ?? 0);
+
+                        $expectedGatewayCharge = round(
+                            $lineTotalWithShipping * ($gatewayChargesPercent / 100),
+                            2
+                        );
+
+                        $linesTimeline[] = [
+                            'line_id'         => $line->id,
+                            'item_reference'  => $line->item_reference_id,
+                            'product_id'      => $line->product_id,
+                            'variant_id'      => $line->variant_id,
+                            'quantity'        => $line->quantity,
+                            'returned_qty'    => $line->returned_quantity,
+                            'delivery_status' => $line->delivery_status,
+                            'return_status'   => $line->return_status,
+                            'unit_price'      => (float) $line->unit_price,
+                            'line_total'      => (float) $line->line_total,
+                            'timeline'        => $this->buildOrderLineTimeline($line),
+
+                            // Per-order gateway info
+                            'gateway'                 => $gateway,
+                            'gateway_charges_percent' => $gatewayChargesPercent,
+                            'expected_gateway_charge' => $expectedGatewayCharge,
+
+                            'return_item'     => $matchedItem ? [
+                                'product_name'    => $matchedItem['product_name']    ?? null,
+                                'quantity'        => $matchedItem['quantity']        ?? null,
+                                'unit_price'      => $matchedItem['unit_price']      ?? null,
+                                'gst_rate'        => $matchedItem['gst_rate']        ?? null,
+                                'subtotal'        => $matchedItem['subtotal']        ?? null,
+                                'tax'             => $matchedItem['tax']             ?? null,
+                                'line_total'      => $matchedItem['line_total']      ?? null,
+                                'shipping_refund' => $matchedItem['shipping_refund'] ?? null,
+                                'reason'          => $matchedItem['reason']          ?? null,
+                                'image_paths'     => $matchedItem['image_paths']     ?? [],
+                                'return_status'   => $matchedItem['return_status']   ?? null,
+                            ] : null,
+                        ];
+                    }
+                }
+
+                return [
+                    'id'                     => $return->id,
+                    'type'                   => $return->type,
+                    'return_method'          => $return->return_method,
+                    'refunded_amount'        => $refund ? (float) $refund->amount : null,
+                    'tracking_id'            => $return->tracking_id,
+                    'courier'                => $return->courier,
+                    'order_reference'        => $return->order->order_reference ?? null,
+                    'payment_gateway'        => $return->order->payment_gateway ?? null,   // NEW: show gateway
+                    'user'                   => $return->user ? [
+                        'id'           => $return->user->id,
+                        'name'         => $return->user->full_name,
+                        'email'        => $return->user->email,
+                        'account_type' => $return->user->account_type,
+                    ] : null,
+                    'status'                 => $return->status,
+                    'resolution'             => $return->resolution,
+                    'reason'                 => $return->reason,
+
+                    'items_count'            => collect($items)->sum('quantity'),
+
+                    'refund_amount'          => (float) $return->total_refund_amount,
+                    'refund_subtotal'        => (float) $return->refund_subtotal,
+                    'refund_tax'             => (float) $return->refund_tax,
+                    'refund_shipping'        => (float) $return->refund_shipping,
+                    'refund_gateway_charges' => (float) $return->refund_gateway_charges,
+                    'refund_extra_deductions' => $return->refund_extra_deductions,
+
+                    // NEW: expose the correct per-order percentage for this return
+                    'gateway_charges_percent' => $gatewayChargesPercent,
+
+                    'refund_status'          => $return->refund_status,
+                    'refund_approval_status' => $return->refund_approval_status,
+                    'refund_transaction_id'  => $return->refund_transaction_id,
+                    'refund_processed_at'    => optional($return->refund_processed_at)->toDateTimeString(),
+
+                    'can_approve'            => $return->canApprove(),
+                    'can_reject'             => $return->canReject(),
+
+                    'approved_at'            => optional($return->approved_at)->toDateTimeString(),
+                    'received_at'            => optional($return->received_at)->toDateTimeString(),
+                    'completed_at'           => optional($return->completed_at)->toDateTimeString(),
+                    'created_at'             => $return->created_at->toDateTimeString(),
+                    'updated_at'             => $return->updated_at->toDateTimeString(),
+
+                    'order_lines_timeline'   => $linesTimeline,
+
+                    'refund_info'            => $refund ? [
+                        'id'                  => $refund->id,
+                        'amount'              => (float) $refund->amount,
+                        'status'              => $refund->status,
+                        'gateway_reference'   => $refund->gateway_reference,
+                        'refund_method'       => $refund->refund_method,
+                        'deduction_breakdown' => $refund->deduction_breakdown ?? null,
+                        'notes'               => $refund->notes,
+                        'approved_by'         => $refund->approved_by,
+                        'completed_at'        => optional($refund->completed_at)->toDateTimeString(),
+                        'created_at'          => $refund->created_at->toDateTimeString(),
+                    ] : null,
+                ];
+            }),
+        ];
+    }
+
+    // public function getReturnForAdmin(int $returnId): array
+    // {
+    //     $return = OrderReturn::with([
+    //         'order',
+    //         'user',
+    //         'order.lines.product',
+    //         'order.lines.variant',
+    //         'refund'
+    //     ])->findOrFail($returnId);
+
+    //     $refund = $return->refund;
+
+    //     // ----- Decode items JSON safely -----
+    //     $items = $return->items;
+    //     if (is_string($items)) {
+    //         $items = json_decode($items, true) ?: [];
+    //     }
+    //     if (!is_array($items)) {
+    //         $items = [];
+    //     }
+
+    //     // Collect order_line_ids from the return's items JSON
+    //     $itemLineIds = collect($items)
+    //         ->pluck('order_line_id')
+    //         ->filter()
+    //         ->unique()
+    //         ->values()
+    //         ->all();
+
+    //     // Fallback to the single order_line_id column if items JSON is empty
+    //     if (empty($itemLineIds) && $return->order_line_id) {
+    //         $itemLineIds = [$return->order_line_id];
+    //     }
+
+    //     // ----- Shipping charge deduction based on return method -----
+    //     $shippingCharge = (float) $return->refund_shipping;
+    //     $deductedShippingCharge = $return->return_method === 'doorstep'
+    //         ? round($shippingCharge * 2, 2)
+    //         : round($shippingCharge * 1, 2);
+
+    //     $totalRefund = (float) $return->total_refund_amount
+    //         - (float) $return->refund_tax
+    //         - (float) $return->refund_gateway_charges
+    //         - $deductedShippingCharge;
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Timeline — ONLY returned order_lines (filtered by items JSON)
+    //     |--------------------------------------------------------------------------
+    //     */
+    //     $linesTimeline = [];
+
+    //     if ($return->order && $return->order->lines) {
+
+    //         $returnedLines = $return->order->lines
+    //             ->whereIn('id', $itemLineIds);
+
+    //         foreach ($returnedLines as $line) {
+
+    //             // Match the corresponding entry from items JSON
+    //             $matchedItem = collect($items)->firstWhere('order_line_id', $line->id);
+
+    //             $linesTimeline[] = [
+    //                 'line_id'         => $line->id,
+    //                 'item_reference'  => $line->item_reference_id,
+    //                 'product_id'      => $line->product_id,
+    //                 'product'         => $line->product ? [
+    //                     'id'   => $line->product->id,
+    //                     'name' => $line->product->name,
+    //                 ] : null,
+    //                 'variant_id'      => $line->variant_id,
+    //                 'variant'         => $line->variant ? [
+    //                     'id'   => $line->variant->id,
+    //                     'name' => $line->variant->name ?? null,
+    //                 ] : null,
+    //                 'quantity'        => $line->quantity,
+    //                 'returned_qty'    => $line->returned_quantity,
+    //                 'unit_price'      => (float) $line->unit_price,
+    //                 'line_total'      => (float) $line->line_total,
+    //                 'delivery_status' => $line->delivery_status,
+    //                 'return_status'   => $line->return_status,
+    //                 'timeline'        => $this->buildOrderLineTimeline($line),
+
+    //                 // Extra info straight from the return's items JSON
+    //                 'return_item'     => $matchedItem ? [
+    //                     'product_name'    => $matchedItem['product_name']    ?? null,
+    //                     'quantity'        => $matchedItem['quantity']        ?? null,
+    //                     'unit_price'      => $matchedItem['unit_price']      ?? null,
+    //                     'gst_rate'        => $matchedItem['gst_rate']        ?? null,
+    //                     'subtotal'        => $matchedItem['subtotal']        ?? null,
+    //                     'tax'             => $matchedItem['tax']             ?? null,
+    //                     'line_total'      => $matchedItem['line_total']      ?? null,
+    //                     'shipping_refund' => $matchedItem['shipping_refund'] ?? null,
+    //                     'reason'          => $matchedItem['reason']          ?? null,
+    //                     'image_paths'     => $matchedItem['image_paths']     ?? [],
+    //                     'return_status'   => $matchedItem['return_status']   ?? null,
+    //                 ] : null,
+    //             ];
+    //         }
+    //     }
+
+    //     return [
+    //         'id'            => $return->id,
+    //         'type'          => $return->type,
+    //         'return_method' => $return->return_method,
+    //         'refunded_amount' => $refund
+    //             ? (float) $refund->amount
+    //             : null,
+    //         'tracking_id'          => $return->tracking_id,
+    //         'courier'          => $return->courier,
+
+    //         'order' => $return->order ? [
+    //             'id'             => $return->order->id,
+    //             'order_reference' => $return->order->order_reference,
+    //             'status'         => $return->order->status,
+    //             'return_status'  => $return->order->return_status,
+    //             'delivered_at'   => $return->order->delivered_at?->toDateTimeString(),
+    //         ] : null,
+
+    //         'user' => $return->user ? [
+    //             'id'           => $return->user->id,
+    //             'name'         => $return->user->full_name,
+    //             'email'        => $return->user->email,
+    //             'account_type' => $return->user->account_type,
+    //             'phone'        => $return->user->phone ?? null,
+    //         ] : null,
+
+    //         'status' => $return->status,
+    //         'reason' => $return->reason,
+
+    //         // Kept for backward compatibility — returns only the return's items
+    //         'items' => $return->return_items_with_details,
+
+    //         // ========== ONLY returned lines with timeline ==========
+    //         'order_lines_timeline' => $linesTimeline,
+    //         // =======================================================
+
+    //         // Raw items JSON as fallback for UI
+    //         'return_items_json' => $items,
+
+    //         'refund_details' => [
+    //             'method'                   => $return->return_method ?? null,
+    //             'subtotal'                 => (float) $return->refund_subtotal,
+    //             'tax'                      => (float) $return->refund_tax,
+    //             'shipping'                 => $shippingCharge,
+    //             'amount_with_tax_shipping' => (float) $return->total_refund_amount,
+    //             'deducted_shipping_charge' => $deductedShippingCharge,
+    //             'refund_gateway_charges'   => (float) $return->refund_gateway_charges,
+    //             'refund_extra_deductions'  => $return->refund_extra_deductions,
+    //             'total'                    => round($totalRefund, 2),
+    //         ],
+
+    //         'admin_notes'      => $return->admin_notes,
+    //         'rejection_reason' => $return->rejection_reason,
+
+    //         'created_at'   => $return->created_at->toDateTimeString(),
+    //         'updated_at'   => $return->updated_at->toDateTimeString(),
+    //         'approved_at'  => $return->approved_at?->toDateTimeString(),
+    //         'received_at'  => $return->received_at?->toDateTimeString(),
+    //         'completed_at' => $return->completed_at?->toDateTimeString(),
+
+    //         'can_approve'       => $return->canApprove(),
+    //         'can_reject'        => $return->canReject(),
+    //         'can_mark_received' => $return->canMarkReceived(),
+    //         'can_complete'      => $return->canComplete(),
+
+    //         'resolution' => $return->resolution,
+
+    //         'refund_info' => $refund ? [
+    //             'id'                  => $refund->id,
+    //             'amount'              => (float) $refund->amount,
+    //             'status'              => $refund->status,
+    //             'gateway_reference'   => $refund->gateway_reference,
+    //             'refund_method'       => $refund->refund_method,
+    //             // 'deduction_breakdown' => $refund->deduction_breakdown ?? null,
+    //             'notes'               => $refund->notes,
+    //             'approved_by'         => $refund->approved_by,
+    //             'failure_reason'      => $refund->failure_reason,
+    //             'completed_at'        => optional($refund->completed_at)->toDateTimeString(),
+    //             'created_at'          => $refund->created_at->toDateTimeString(),
+    //         ] : null,
+    //     ];
+    // }
     public function getReturnForAdmin(int $returnId): array
     {
+        // Global gateway-charge settings (cached once)
+        $gatewayChargesMap = [
+            'razorpay' => (float) Setting::where('group', 'checkout')->where('key', 'gateway_charges')->value('value'),
+            'hdfc_sg'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+            'hdfc_ie'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+            'axispg'   => (float) Setting::where('group', 'checkout')->where('key', 'freecharge_gateway_charges')->value('value'),
+        ];
+
         $return = OrderReturn::with([
             'order',
             'user',
             'order.lines.product',
             'order.lines.variant',
-            'refund'
+            'refund',
         ])->findOrFail($returnId);
 
         $refund = $return->refund;
+
+        // ----- Resolve gateway % for THIS order -----
+        $gateway = strtolower($return->order->payment_gateway ?? 'razorpay');
+        $gatewayChargesPercent = $gatewayChargesMap[$gateway]
+            ?? $gatewayChargesMap['razorpay']
+            ?? 2.36;
 
         // ----- Decode items JSON safely -----
         $items = $return->items;
@@ -2058,7 +2372,6 @@ class ReturnService
             $items = [];
         }
 
-        // Collect order_line_ids from the return's items JSON
         $itemLineIds = collect($items)
             ->pluck('order_line_id')
             ->filter()
@@ -2066,7 +2379,6 @@ class ReturnService
             ->values()
             ->all();
 
-        // Fallback to the single order_line_id column if items JSON is empty
         if (empty($itemLineIds) && $return->order_line_id) {
             $itemLineIds = [$return->order_line_id];
         }
@@ -2082,22 +2394,25 @@ class ReturnService
             - (float) $return->refund_gateway_charges
             - $deductedShippingCharge;
 
-        /*
-    |--------------------------------------------------------------------------
-    | Timeline — ONLY returned order_lines (filtered by items JSON)
-    |--------------------------------------------------------------------------
-    */
+        /* Timeline — ONLY returned order_lines */
         $linesTimeline = [];
 
         if ($return->order && $return->order->lines) {
 
-            $returnedLines = $return->order->lines
-                ->whereIn('id', $itemLineIds);
+            $returnedLines = $return->order->lines->whereIn('id', $itemLineIds);
 
             foreach ($returnedLines as $line) {
 
-                // Match the corresponding entry from items JSON
                 $matchedItem = collect($items)->firstWhere('order_line_id', $line->id);
+
+                // Per-line expected gateway charge using THIS order's %
+                $lineTotalWithShipping = (float) $line->line_total
+                    + (float) ($line->shipping_charge ?? 0);
+
+                $expectedGatewayCharge = round(
+                    $lineTotalWithShipping * ($gatewayChargesPercent / 100),
+                    2
+                );
 
                 $linesTimeline[] = [
                     'line_id'         => $line->id,
@@ -2120,7 +2435,11 @@ class ReturnService
                     'return_status'   => $line->return_status,
                     'timeline'        => $this->buildOrderLineTimeline($line),
 
-                    // Extra info straight from the return's items JSON
+                    // Per-order gateway info
+                    'gateway'                 => $gateway,
+                    'gateway_charges_percent' => $gatewayChargesPercent,
+                    'expected_gateway_charge' => $expectedGatewayCharge,
+
                     'return_item'     => $matchedItem ? [
                         'product_name'    => $matchedItem['product_name']    ?? null,
                         'quantity'        => $matchedItem['quantity']        ?? null,
@@ -2142,18 +2461,17 @@ class ReturnService
             'id'            => $return->id,
             'type'          => $return->type,
             'return_method' => $return->return_method,
-            'refunded_amount' => $refund
-                ? (float) $refund->amount
-                : null,
+            'refunded_amount' => $refund ? (float) $refund->amount : null,
             'tracking_id'          => $return->tracking_id,
             'courier'          => $return->courier,
 
             'order' => $return->order ? [
-                'id'             => $return->order->id,
+                'id'              => $return->order->id,
                 'order_reference' => $return->order->order_reference,
-                'status'         => $return->order->status,
-                'return_status'  => $return->order->return_status,
-                'delivered_at'   => $return->order->delivered_at?->toDateTimeString(),
+                'status'          => $return->order->status,
+                'return_status'   => $return->order->return_status,
+                'payment_gateway' => $return->order->payment_gateway,   // NEW
+                'delivered_at'    => $return->order->delivered_at?->toDateTimeString(),
             ] : null,
 
             'user' => $return->user ? [
@@ -2167,14 +2485,8 @@ class ReturnService
             'status' => $return->status,
             'reason' => $return->reason,
 
-            // Kept for backward compatibility — returns only the return's items
             'items' => $return->return_items_with_details,
-
-            // ========== ONLY returned lines with timeline ==========
             'order_lines_timeline' => $linesTimeline,
-            // =======================================================
-
-            // Raw items JSON as fallback for UI
             'return_items_json' => $items,
 
             'refund_details' => [
@@ -2186,6 +2498,12 @@ class ReturnService
                 'deducted_shipping_charge' => $deductedShippingCharge,
                 'refund_gateway_charges'   => (float) $return->refund_gateway_charges,
                 'refund_extra_deductions'  => $return->refund_extra_deductions,
+                // NEW: the correct per-order gateway % + expected amount
+                'gateway_charges_percent'  => $gatewayChargesPercent,
+                'expected_gateway_charges' => round(
+                    ((float) $return->total_refund_amount) * ($gatewayChargesPercent / 100),
+                    2
+                ),
                 'total'                    => round($totalRefund, 2),
             ],
 
@@ -2211,7 +2529,6 @@ class ReturnService
                 'status'              => $refund->status,
                 'gateway_reference'   => $refund->gateway_reference,
                 'refund_method'       => $refund->refund_method,
-                // 'deduction_breakdown' => $refund->deduction_breakdown ?? null,
                 'notes'               => $refund->notes,
                 'approved_by'         => $refund->approved_by,
                 'failure_reason'      => $refund->failure_reason,
@@ -2282,33 +2599,128 @@ class ReturnService
         return $map[$type][$stage];
     }
 
-    /**
-     * Approve a standard return request.
-     *
-     * NOTE: This only updates the local database status. Ignite cancellation
-     * and local reversal events are intentionally NOT triggered here.
-     * They will be handled in `completeReturn()` only if the admin chooses 
-     * the "refund" resolution.
-     *
-     * @param int $returnId
-     * @param int $adminId
-     * @param string|null $adminNotes
-     * @return array
-     * @throws Exception
-     */
+    // public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
+    // {
+    //     $returnOrder = OrderReturn::with(['order', 'user'])
+    //         ->findOrFail($returnId);
+
+    //     if (!$returnOrder->canApprove()) {
+    //         throw new Exception('This return request cannot be approved (already processed).');
+    //     }
+
+    //     return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
+
+    //         // ========== CALCULATE GATEWAY CHARGES ==========
+    //         $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
+    //         $gatewayCharges = round(
+    //             (float) $returnOrder->total_refund_amount * ($gatewayChargesPercent / 100),
+    //             2
+    //         );
+    //         $netRefundAmount = round(
+    //             (float) $returnOrder->total_refund_amount - $gatewayCharges,
+    //             2
+    //         );
+
+    //         // 1. Update return status
+    //         $returnOrder->update([
+    //             'status'                 => 'approved',
+    //             'admin_id'               => $adminId,
+    //             'admin_notes'            => $adminNotes,
+    //             'approved_at'            => now(),
+    //             'refund_approved_by'     => auth()->id(),
+    //             'refund_gateway_charges' => $gatewayCharges,
+    //         ]);
+
+    //         // 2. Update individual order lines
+    //         foreach ($returnOrder->items as $item) {
+    //             $orderLine = OrderLine::find($item['order_line_id']);
+    //             if (! $orderLine) continue;
+
+    //             $requestedQty = (int) ($item['quantity'] ?? $orderLine->quantity);
+    //             $lineQty      = (int) $orderLine->quantity;
+    //             $isPartial    = $requestedQty < $lineQty;
+
+    //             $timestampColumn = $this->resolveTimestampColumn($returnOrder->type, 'approve');
+
+    //             if ($isPartial) {
+    //                 $orderLine->update([
+    //                     'return_status'    => 'approved',
+    //                     'returned_quantity'  => $requestedQty,
+    //                     $timestampColumn    => now(),
+    //                 ]);
+    //             } else {
+    //                 $orderLine->update([
+    //                     'return_status'   => 'approved',
+    //                     'returned_quantity' => $lineQty,
+    //                     'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
+    //                     $timestampColumn  => now(),
+    //                 ]);
+    //             }
+    //         }
+
+    //         // 3. Update order-level statuses
+    //         $this->updateOrderReturnStatus($returnOrder->order);
+
+    //         // 4. Notifications
+    //         $this->createReturnNotification($returnOrder, 'approved');
+    //         $this->sendUserNotification($returnOrder, 'approved');
+
+    //         /* =============================================
+    //             | SEND RETURN APPROVED SMS (TWILIO)
+    //             ============================================= */
+    //         DB::afterCommit(function () use ($returnOrder, $gatewayCharges, $netRefundAmount) {
+    //             $this->sendReturnSms(
+    //                 $returnOrder->user?->phone,
+    //                 "Hi {$returnOrder->user?->full_name}! Your return request for order "
+    //                     . "{$returnOrder->order->order_reference} has been approved. ",
+    //                 [
+    //                     'event'           => 'return_approved',
+    //                     'return_id'       => $returnOrder->id,
+    //                     'order_reference' => $returnOrder->order->order_reference,
+    //                 ]
+    //             );
+    //         });
+
+    //         // 5. Response
+    //         return [
+    //             'success'                 => true,
+    //             'message'                 => 'Return request approved successfully.',
+    //             'return_id'               => $returnOrder->id,
+    //             'order_status'            => $returnOrder->order->status,
+    //             'order_return_status'     => $returnOrder->order->return_status,
+    //             'status'                  => 'approved',
+    //             'refund_amount'           => (float) $returnOrder->total_refund_amount,
+    //             'refund_gateway_charges'  => $gatewayCharges,
+    //             'admin_notes'             => $adminNotes,
+    //         ];
+    //     });
+    // }
     public function approveReturn(int $returnId, int $adminId, ?string $adminNotes = null): array
     {
         $returnOrder = OrderReturn::with(['order', 'user'])
             ->findOrFail($returnId);
 
-        if (!$returnOrder->canApprove()) {
+        if (! $returnOrder->canApprove()) {
             throw new Exception('This return request cannot be approved (already processed).');
         }
 
-        return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes) {
+        // Global gateway-charge settings (cached once per request)
+        $gatewayChargesMap = [
+            'razorpay' => (float) Setting::where('group', 'checkout')->where('key', 'gateway_charges')->value('value'),
+            'hdfc_sg'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+            'hdfc_ie'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+            'axispg'   => (float) Setting::where('group', 'checkout')->where('key', 'freecharge_gateway_charges')->value('value'),
+        ];
 
-            // ========== CALCULATE GATEWAY CHARGES ==========
-            $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
+        // Resolve per-order gateway percentage
+        $gateway = strtolower($returnOrder->order->payment_gateway ?? 'razorpay');
+        $gatewayChargesPercent = $gatewayChargesMap[$gateway]
+            ?? $gatewayChargesMap['razorpay']
+            ?? 2.36;
+
+        return DB::transaction(function () use ($returnOrder, $adminId, $adminNotes, $gatewayChargesPercent) {
+
+            // ========== CALCULATE GATEWAY CHARGES (per-order %) ==========
             $gatewayCharges = round(
                 (float) $returnOrder->total_refund_amount * ($gatewayChargesPercent / 100),
                 2
@@ -2341,16 +2753,16 @@ class ReturnService
 
                 if ($isPartial) {
                     $orderLine->update([
-                        'return_status'    => 'approved',
+                        'return_status'      => 'approved',
                         'returned_quantity'  => $requestedQty,
-                        $timestampColumn    => now(),
+                        $timestampColumn     => now(),
                     ]);
                 } else {
                     $orderLine->update([
-                        'return_status'   => 'approved',
+                        'return_status'    => 'approved',
                         'returned_quantity' => $lineQty,
-                        'delivery_status' => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
-                        $timestampColumn  => now(),
+                        'delivery_status'  => $this->resolveDeliveryStatus($returnOrder->type, 'approve'),
+                        $timestampColumn   => now(),
                     ]);
                 }
             }
@@ -2361,11 +2773,8 @@ class ReturnService
             // 4. Notifications
             $this->createReturnNotification($returnOrder, 'approved');
             $this->sendUserNotification($returnOrder, 'approved');
-            
-            /* =============================================
-                | SEND RETURN APPROVED SMS (TWILIO)
-                ============================================= */
-            DB::afterCommit(function () use ($returnOrder, $gatewayCharges, $netRefundAmount) {
+
+            DB::afterCommit(function () use ($returnOrder) {
                 $this->sendReturnSms(
                     $returnOrder->user?->phone,
                     "Hi {$returnOrder->user?->full_name}! Your return request for order "
@@ -2387,11 +2796,29 @@ class ReturnService
                 'order_return_status'     => $returnOrder->order->return_status,
                 'status'                  => 'approved',
                 'refund_amount'           => (float) $returnOrder->total_refund_amount,
+                'payment_gateway'         => $returnOrder->order->payment_gateway,   // NEW
+                'gateway_charges_percent' => $gatewayChargesPercent,                 // NEW
                 'refund_gateway_charges'  => $gatewayCharges,
+                'net_refund_amount'       => $netRefundAmount,                       // NEW
                 'admin_notes'             => $adminNotes,
             ];
         });
     }
+
+    /**
+     * Approve a standard return request.
+     *
+     * NOTE: This only updates the local database status. Ignite cancellation
+     * and local reversal events are intentionally NOT triggered here.
+     * They will be handled in `completeReturn()` only if the admin chooses
+     * the "refund" resolution.
+     *
+     * @param int $returnId
+     * @param int $adminId
+     * @param string|null $adminNotes
+     * @return array
+     * @throws Exception
+     */
 
     /**
      * Admin: Reject return request
@@ -2819,23 +3246,6 @@ class ReturnService
     //     });
     // }
 
-    /**
-     * Admin: Complete return
-     *
-     * Based on the admin's resolution choice:
-     *  - "refund"      : Processes Razorpay refund, generates credit note, and 
-     *                    triggers line-wise Ignite cancellation + local reversal.
-     *  - "replacement" : Creates a new linked replacement order (amount = 0), 
-     *                    and does NOT trigger Ignite cancellation.
-     *
-     * @param int         $returnId      The ID of the return request.
-     * @param string      $resolution    Either 'refund' or 'replacement'.
-     * @param float|null  $refundAmount  Optional custom refund amount.
-     * @param string|null $adminNotes    Optional admin notes.
-     * @param int|null    $approvedBy    Optional admin ID who approved it.
-     * @return array
-     * @throws Exception
-     */
     public function completeReturn(
         int $returnId,
         string $resolution = 'refund',
@@ -2854,13 +3264,15 @@ class ReturnService
         }
 
         return DB::transaction(function () use ($returnOrder, $resolution, $refundAmount, $adminNotes, $approvedBy) {
-            
+
             $creditNote = null;
             $refund = null;
             $replacementOrder = null;
+            $gatewayCharges = 0.0;
+            $gatewayChargesPercent = null;
 
             // ============================================================
-            // BRANCH A: REFUND (Triggers Razorpay Refund + Ignite Cancel)
+            // BRANCH A: REFUND
             // ============================================================
             if ($resolution === 'refund') {
 
@@ -2880,7 +3292,7 @@ class ReturnService
                     throw new Exception('Refund record not found in database.');
                 }
 
-                // 3. Generate credit note (non-fatal if it fails)
+                // 3. Generate credit note (non-fatal)
                 try {
                     $creditNoteService = app(\App\Services\CreditNoteService::class);
                     $creditNote = $creditNoteService->generateFromReturn($returnOrder, $refund->id, $refundAmount);
@@ -2892,6 +3304,10 @@ class ReturnService
                     ]);
                 }
 
+                // Refresh to pick up refund_gateway_charges written by processRefund()
+                $returnOrder->refresh();
+                $gatewayCharges = (float) ($returnOrder->refund_gateway_charges ?? 0);
+
                 // 4. Mark return completed with refund metadata
                 $effectiveRefundAmount = $refundAmount ?? (float) $returnOrder->total_refund_amount;
 
@@ -2900,7 +3316,7 @@ class ReturnService
                     'resolution'              => 'refund',
                     'refund_extra_deductions' => (float) $returnOrder->total_refund_amount
                         - (float) $returnOrder->refund_shipping
-                        - (float) ($returnOrder->refund_gateway_charges ?? 0)
+                        - $gatewayCharges
                         - (float) $returnOrder->refund_tax
                         - (float) $effectiveRefundAmount,
                     'completed_at'            => now(),
@@ -2921,7 +3337,7 @@ class ReturnService
                     }
                 }
 
-                // 6. Send SMS for refund completion
+                // 6. SMS for refund completion
                 DB::afterCommit(function () use ($returnOrder) {
                     $this->sendReturnSms(
                         $returnOrder->user?->phone,
@@ -2934,7 +3350,7 @@ class ReturnService
                     );
                 });
 
-                // 7. LINE-WISE IGNITE CANCEL & REVERSAL TRIGGER (ONLY FOR REFUND)
+                // 7. Line-wise Ignite cancel & reversal
                 $order = $returnOrder->order;
                 foreach ($returnOrder->items ?? [] as $item) {
                     $orderLine = OrderLine::find($item['order_line_id'] ?? null);
@@ -2980,13 +3396,11 @@ class ReturnService
             }
 
             // ============================================================
-            // BRANCH B: REPLACEMENT (No Razorpay Refund, No Ignite Cancel)
+            // BRANCH B: REPLACEMENT
             // ============================================================
-            else { 
-                // 1. Create new linked replacement order
+            else {
                 $replacementOrder = $this->createReplacementOrder($returnOrder);
 
-                // 2. Mark return completed
                 $returnOrder->update([
                     'status'               => OrderReturn::STATUS_COMPLETED,
                     'resolution'           => 'replacement',
@@ -2994,7 +3408,6 @@ class ReturnService
                     'completed_at'         => now(),
                 ]);
 
-                // 3. Mark order lines as replaced
                 foreach ($returnOrder->items ?? [] as $item) {
                     $orderLineId = is_array($item) ? ($item['order_line_id'] ?? null) : ($item->order_line_id ?? null);
                     if (!$orderLineId) continue;
@@ -3008,7 +3421,6 @@ class ReturnService
                     }
                 }
 
-                // 4. Send SMS for replacement completion
                 DB::afterCommit(function () use ($returnOrder) {
                     $this->sendReturnSms(
                         $returnOrder->user?->phone,
@@ -3020,8 +3432,6 @@ class ReturnService
                         ]
                     );
                 });
-
-                // ❌ No Ignite Cancel here
             }
 
             // ============================================================
@@ -3031,7 +3441,6 @@ class ReturnService
             $this->createReturnNotification($returnOrder, 'completed');
             $this->sendUserNotification($returnOrder, 'completed');
 
-            // Refresh the order to reflect latest status
             $returnOrder->order->refresh();
 
             // ============================================================
@@ -3049,13 +3458,17 @@ class ReturnService
                 'status'                => OrderReturn::STATUS_COMPLETED,
 
                 // Refund-specific response data
-                'refund_amount'         => $resolution === 'refund'
+                'refund_amount'           => $resolution === 'refund'
                     ? ($refundAmount ?? (float) $returnOrder->total_refund_amount)
                     : null,
-                'refund_transaction_id' => $returnOrder->refund_transaction_id ?? null,
-                'credit_note_generated' => $creditNote !== null,
-                'credit_note_id'        => $creditNote->id ?? null,
-                'credit_note_number'    => $creditNote->credit_note_number ?? null,
+                'refund_transaction_id'   => $returnOrder->refund_transaction_id ?? null,
+                'payment_gateway'         => $returnOrder->order->payment_gateway ?? null,
+                'refund_gateway_charges'  => $resolution === 'refund'
+                    ? (float) $gatewayCharges
+                    : null,
+                'credit_note_generated'   => $creditNote !== null,
+                'credit_note_id'          => $creditNote->id ?? null,
+                'credit_note_number'      => $creditNote->credit_note_number ?? null,
 
                 // Replacement-specific response data
                 'replacement_order_id'  => $replacementOrder->id ?? null,
@@ -3063,6 +3476,8 @@ class ReturnService
             ];
         });
     }
+
+
     protected function createReplacementOrder(OrderReturn $returnOrder): Order
     {
         $originalOrder = $returnOrder->order;
@@ -3895,18 +4310,112 @@ class ReturnService
     //         throw new Exception('Razorpay payment ID is missing for this order.');
     //     }
 
+    //     // =========================================================
+    //     // BUILD DEDUCTION BREAKDOWN
+    //     // =========================================================
+    //     $refundSubtotal       = (float) ($returnOrder->refund_subtotal ?? 0);
+    //     $refundTax            = (float) ($returnOrder->refund_tax ?? 0);
+    //     $refundShipping       = (float) ($returnOrder->refund_shipping ?? 0);
+    //     $gatewayCharges       = (float) ($returnOrder->refund_gateway_charges ?? 0);
+    //     $extraDeductionsRaw   = $returnOrder->refund_extra_deductions ?? [];
+
+    //     // Normalize extra deductions (support both array of {label, amount} and assoc array)
+    //     $extraDeductions = [];
+    //     $extraDeductionsTotal = 0.0;
+
+    //     if (is_array($extraDeductionsRaw)) {
+    //         foreach ($extraDeductionsRaw as $key => $entry) {
+    //             if (is_array($entry) && isset($entry['amount'])) {
+    //                 $label  = $entry['label'] ?? (is_string($key) ? $key : 'Extra Deduction');
+    //                 $amount = (float) $entry['amount'];
+    //             } elseif (is_numeric($entry)) {
+    //                 $label  = is_string($key) ? $key : 'Extra Deduction';
+    //                 $amount = (float) $entry;
+    //             } else {
+    //                 continue;
+    //             }
+
+    //             if ($amount == 0.0) {
+    //                 continue;
+    //             }
+
+    //             $extraDeductions[] = [
+    //                 'label'  => $label,
+    //                 'amount' => round($amount, 2),
+    //             ];
+    //             $extraDeductionsTotal += $amount;
+    //         }
+    //     }
+
+    //     $extraDeductionsTotal = round($extraDeductionsTotal, 2);
+
+    //     // Gross = items + tax + shipping (what customer "should" get before deductions)
+    //     $grossRefund = round($refundSubtotal + $refundTax + $refundShipping, 2);
+
+    //     // Total deductions
+    //     $totalDeductions = round($gatewayCharges + $extraDeductionsTotal, 2);
+
+    //     // Net refund = gross - deductions (this is what actually gets sent to Razorpay)
+    //     $netRefund = round($grossRefund - $totalDeductions, 2);
+
+    //     // Safety: ensure we are not refunding more than approved amount
+    //     if ($refundAmount > $grossRefund) {
+    //         // If admin passed an amount bigger than gross, cap it
+    //         $refundAmount = $grossRefund;
+    //     }
+
+    //     // If admin passed a specific amount, treat that as the net amount to send
+    //     // (deductions are informational only in that case)
+    //     if ($refundAmount !== $calculatedAmount && $refundAmount != $netRefund) {
+    //         // admin override — keep their value, but still record breakdown
+    //         $netRefund = round($refundAmount, 2);
+    //     } else {
+    //         // use calculated net
+    //         $refundAmount = $netRefund;
+    //     }
+
+    //     $deductionBreakdown = [
+    //         'gross_refund' => [
+    //             'subtotal' => round($refundSubtotal, 2),
+    //             'tax'      => round($refundTax, 2),
+    //             'shipping' => round($refundShipping, 2),
+    //             'total'    => $grossRefund,
+    //         ],
+    //         'deductions' => array_values(array_filter([
+    //             $gatewayCharges > 0 ? [
+    //                 'key'    => 'gateway_charges',
+    //                 'label'  => 'Payment Gateway Charges',
+    //                 'amount' => round($gatewayCharges, 2),
+    //             ] : null,
+    //             ...array_map(function ($d) {
+    //                 return [
+    //                     'key'    => 'extra',
+    //                     'label'  => $d['label'],
+    //                     'amount' => $d['amount'],
+    //                 ];
+    //             }, $extraDeductions),
+    //         ])),
+    //         'deductions_total' => $totalDeductions,
+    //         'net_refund'       => $netRefund,
+    //         'calculated_at'    => now()->toDateTimeString(),
+    //     ];
+    //     // =========================================================
+    //     // END BUILD DEDUCTION BREAKDOWN
+    //     // =========================================================
+
     //     try {
     //         Log::info('Starting Razorpay refund', [
-    //             'return_id'        => $returnOrder->id,
-    //             'order_id'         => $order->id,
-    //             'payment_id'       => $paymentId,
-    //             'refund_amount'    => $refundAmount,
-    //             'amount_in_paise'  => (int) round($refundAmount * 100),
-    //             'admin_notes'      => $adminNotes,
-    //             'approved_by'      => $approvedBy,
-    //             'refund_breakdown' => [
+    //             'return_id'          => $returnOrder->id,
+    //             'order_id'           => $order->id,
+    //             'payment_id'         => $paymentId,
+    //             'refund_amount'      => $refundAmount,
+    //             'amount_in_paise'    => (int) round($refundAmount * 100),
+    //             'admin_notes'        => $adminNotes,
+    //             'approved_by'        => $approvedBy,
+    //             'deduction_breakdown' => $deductionBreakdown,
+    //             'refund_breakdown'   => [
     //                 'line_totals' => $this->getItemLineTotals($returnOrder),
-    //                 'shipping'    => (float) $returnOrder->refund_shipping,
+    //                 'shipping'    => $refundShipping,
     //                 'calculated'  => $calculatedAmount,
     //                 'final'       => $refundAmount,
     //             ],
@@ -3927,19 +4436,20 @@ class ReturnService
     //         ];
     //         $refundStatus = $statusMap[$refundResponse['status']] ?? 'completed';
 
-    //         // Insert into `refunds` table (with new columns)
+    //         // Insert into `refunds` table
     //         $refund = Refund::create([
-    //             'order_id'          => $order->id,
-    //             'order_line_id'     => $returnOrder->order_line_id,
-    //             'return_id'         => $returnOrder->id,
-    //             'amount'            => $refundAmount,
-    //             'gateway_reference' => $refundResponse['refund_id'],
-    //             'status'            => $refundStatus,
-    //             'completed_at'      => ($refundStatus === 'completed') ? now() : null,
-    //             'failure_reason'    => null,
-    //             'notes'             => $adminNotes,
-    //             'approved_by'       => $approvedBy,
-    //             'refund_method'     => $gateway,
+    //             'order_id'            => $order->id,
+    //             'order_line_id'       => $returnOrder->order_line_id,
+    //             'return_id'           => $returnOrder->id,
+    //             'amount'              => $refundAmount,
+    //             'gateway_reference'   => $refundResponse['refund_id'],
+    //             'status'              => $refundStatus,
+    //             'completed_at'        => ($refundStatus === 'completed') ? now() : null,
+    //             'failure_reason'      => null,
+    //             'notes'               => $adminNotes,
+    //             'approved_by'         => $approvedBy,
+    //             'refund_method'       => $gateway,
+    //             'deduction_breakdown' => $deductionBreakdown,
     //         ]);
 
     //         // Update OrderReturn with refund details
@@ -3969,6 +4479,8 @@ class ReturnService
     //                     ?? 'Customer',
     //                 'order_id'              => $order->id,
     //                 'return_id'             => $returnOrder->id,
+    //                 'gateway_charges'       => number_format($gatewayCharges, 2),
+    //                 'net_refund'            => number_format($netRefund, 2),
     //             ];
 
     //             $this->notificationService->sendUserNotification(
@@ -3987,6 +4499,7 @@ class ReturnService
     //             'mapped_status'         => $refundStatus,
     //             'notes'                 => $adminNotes,
     //             'approved_by'           => $approvedBy,
+    //             'deduction_breakdown'   => $deductionBreakdown,
     //         ]);
 
     //         Log::info('Refund successfully processed via Razorpay', [
@@ -4027,9 +4540,7 @@ class ReturnService
         $paymentId = $order->gateway_transaction_id;
 
         // ---------------------------------------------
-        // Resolve refund amount:
-        //  - if admin provided an amount, use it
-        //  - otherwise calculate from returned items
+        // Resolve refund amount
         // ---------------------------------------------
         $calculatedAmount = $this->calculateRefundAmountFromItems($returnOrder);
         $refundAmount     = $refundAmount ?? $calculatedAmount;
@@ -4056,12 +4567,46 @@ class ReturnService
         }
 
         // =========================================================
+        // PER-ORDER GATEWAY CHARGES
+        // =========================================================
+        $gatewayChargesMap = [
+            'razorpay' => (float) Setting::where('group', 'checkout')->where('key', 'gateway_charges')->value('value'),
+            'hdfc_sg'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+            'hdfc_ie'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+            'axispg'   => (float) Setting::where('group', 'checkout')->where('key', 'freecharge_gateway_charges')->value('value'),
+        ];
+
+        $gatewayKey            = strtolower($gateway);
+        $gatewayChargesPercent = $gatewayChargesMap[$gatewayKey]
+            ?? $gatewayChargesMap['razorpay']
+            ?? 2.36;
+
+        // Recompute expected gateway charge for THIS order
+        $expectedGatewayCharge = round(
+            (float) ($returnOrder->total_refund_amount ?? 0) * ($gatewayChargesPercent / 100),
+            2
+        );
+
+        // Stored value (may be legacy/zero/wrong) — prefer expected when stored is 0 or
+        // when stored differs due to old global rate. We keep the per-order value for math,
+        // and persist it back so admin views show a consistent figure.
+        $storedGatewayCharge = (float) ($returnOrder->refund_gateway_charges ?? 0);
+
+        $gatewayCharges = $storedGatewayCharge > 0.0
+            ? $expectedGatewayCharge   // always trust per-order recompute for the actual refund
+            : $expectedGatewayCharge;
+
+        // Persist the corrected per-order charge (idempotent, safe inside transaction)
+        if (round($storedGatewayCharge, 2) !== $gatewayCharges) {
+            $returnOrder->update(['refund_gateway_charges' => $gatewayCharges]);
+        }
+
+        // =========================================================
         // BUILD DEDUCTION BREAKDOWN
         // =========================================================
         $refundSubtotal       = (float) ($returnOrder->refund_subtotal ?? 0);
         $refundTax            = (float) ($returnOrder->refund_tax ?? 0);
         $refundShipping       = (float) ($returnOrder->refund_shipping ?? 0);
-        $gatewayCharges       = (float) ($returnOrder->refund_gateway_charges ?? 0);
         $extraDeductionsRaw   = $returnOrder->refund_extra_deductions ?? [];
 
         // Normalize extra deductions (support both array of {label, amount} and assoc array)
@@ -4094,28 +4639,24 @@ class ReturnService
 
         $extraDeductionsTotal = round($extraDeductionsTotal, 2);
 
-        // Gross = items + tax + shipping (what customer "should" get before deductions)
+        // Gross = items + tax + shipping (before deductions)
         $grossRefund = round($refundSubtotal + $refundTax + $refundShipping, 2);
 
         // Total deductions
         $totalDeductions = round($gatewayCharges + $extraDeductionsTotal, 2);
 
-        // Net refund = gross - deductions (this is what actually gets sent to Razorpay)
+        // Net refund = gross - deductions (what actually gets sent to Razorpay)
         $netRefund = round($grossRefund - $totalDeductions, 2);
 
         // Safety: ensure we are not refunding more than approved amount
         if ($refundAmount > $grossRefund) {
-            // If admin passed an amount bigger than gross, cap it
             $refundAmount = $grossRefund;
         }
 
         // If admin passed a specific amount, treat that as the net amount to send
-        // (deductions are informational only in that case)
         if ($refundAmount !== $calculatedAmount && $refundAmount != $netRefund) {
-            // admin override — keep their value, but still record breakdown
             $netRefund = round($refundAmount, 2);
         } else {
-            // use calculated net
             $refundAmount = $netRefund;
         }
 
@@ -4125,6 +4666,11 @@ class ReturnService
                 'tax'      => round($refundTax, 2),
                 'shipping' => round($refundShipping, 2),
                 'total'    => $grossRefund,
+            ],
+            'gateway' => [
+                'gateway'         => $gatewayKey,
+                'percent_applied' => $gatewayChargesPercent,
+                'amount'          => round($gatewayCharges, 2),
             ],
             'deductions' => array_values(array_filter([
                 $gatewayCharges > 0 ? [
@@ -4144,21 +4690,20 @@ class ReturnService
             'net_refund'       => $netRefund,
             'calculated_at'    => now()->toDateTimeString(),
         ];
-        // =========================================================
-        // END BUILD DEDUCTION BREAKDOWN
-        // =========================================================
 
         try {
             Log::info('Starting Razorpay refund', [
-                'return_id'          => $returnOrder->id,
-                'order_id'           => $order->id,
-                'payment_id'         => $paymentId,
-                'refund_amount'      => $refundAmount,
-                'amount_in_paise'    => (int) round($refundAmount * 100),
-                'admin_notes'        => $adminNotes,
-                'approved_by'        => $approvedBy,
+                'return_id'           => $returnOrder->id,
+                'order_id'            => $order->id,
+                'payment_id'          => $paymentId,
+                'payment_gateway'     => $gateway,
+                'gateway_percent'     => $gatewayChargesPercent,
+                'refund_amount'       => $refundAmount,
+                'amount_in_paise'     => (int) round($refundAmount * 100),
+                'admin_notes'         => $adminNotes,
+                'approved_by'         => $approvedBy,
                 'deduction_breakdown' => $deductionBreakdown,
-                'refund_breakdown'   => [
+                'refund_breakdown'    => [
                     'line_totals' => $this->getItemLineTotals($returnOrder),
                     'shipping'    => $refundShipping,
                     'calculated'  => $calculatedAmount,
@@ -4199,9 +4744,10 @@ class ReturnService
 
             // Update OrderReturn with refund details
             $updateData = [
-                'refund_transaction_id' => $refundResponse['refund_id'],
-                'refund_status'         => $refundStatus,
-                'refund_processed_at'   => now(),
+                'refund_transaction_id'  => $refundResponse['refund_id'],
+                'refund_status'          => $refundStatus,
+                'refund_processed_at'    => now(),
+                'refund_gateway_charges' => $gatewayCharges, // ensure persisted per-order value
             ];
 
             if (Schema::hasColumn('order_returns', 'refund_id')) {
@@ -4621,7 +5167,7 @@ class ReturnService
         }
     }
 
-   /**
+    /**
      * Approve a cooling-off withdrawal request.
      *
      * Because cooling-off withdrawals are always a refund (no replacement option),
@@ -4702,7 +5248,7 @@ class ReturnService
 
             foreach ($returnOrder->items ?? [] as $item) {
                 $orderLine = OrderLine::find($item['order_line_id'] ?? null);
-                
+
                 if (!$orderLine) {
                     continue;
                 }

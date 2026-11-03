@@ -56,16 +56,23 @@ class CancellationApprovalController extends Controller
     //     $pendingRequests->getCollection()->transform(function ($orderLine) use ($gatewayChargesPercent) {
 
     //         $lineTotal = (float) $orderLine->line_total;
+    //         $shippingCharge = (float) ($orderLine->shipping_charge ?? 0);
 
+    //         // Add shipping charge to line total
+    //         $totalWithShipping = $lineTotal + $shippingCharge;
+
+    //         // Calculate gateway charges on line total + shipping
     //         $gatewayCharge = round(
-    //             ($lineTotal * $gatewayChargesPercent) / 100,
+    //             ($totalWithShipping * $gatewayChargesPercent) / 100,
     //             2
     //         );
 
+    //         $orderLine->shipping_charge = $shippingCharge;
     //         $orderLine->gateway_charge = $gatewayCharge;
 
+    //         // Deduct gateway charges from total including shipping
     //         $orderLine->line_total = round(
-    //             $lineTotal + $gatewayCharge,
+    //             $totalWithShipping - $gatewayCharge - $orderLine->gst_amount,
     //             2
     //         );
 
@@ -85,7 +92,6 @@ class CancellationApprovalController extends Controller
 
     //         return $orderLine;
     //     });
-
     //     return response()->json([
     //         'success' => true,
     //         'data' => $pendingRequests,
@@ -93,28 +99,40 @@ class CancellationApprovalController extends Controller
     // }
     public function getPendingRequests(Request $request): JsonResponse
     {
-        $gatewayChargesPercent = (float) Setting::where('key', 'gateway_charges')
-            ->value('value');
+        // Cache the three gateway-charge settings once (they are global)
+        $gatewayChargesMap = [
+            'razorpay' => (float) Setting::where('group', 'checkout')->where('key', 'gateway_charges')->value('value'),
+            'hdfc_sg'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+            'hdfc_ie'  => (float) Setting::where('group', 'checkout')->where('key', 'hdfc_gateway_charges')->value('value'),
+            'axispg'   => (float) Setting::where('group', 'checkout')->where('key', 'freecharge_gateway_charges')->value('value'),
+        ];
 
         $pendingRequests = OrderLine::whereIn('delivery_status', [
             'cancel_pending',
             'cancelled',
-            'cancelled_rejected'
+            'cancelled_rejected',
         ])
             ->with([
                 'order',
                 'order.user',
                 'product',
                 'variant',
-                'refunds'
+                'refunds',
             ])
             ->orderBy('cancellation_requested_at', 'asc')
             ->paginate($request->get('per_page', 20));
 
-        $pendingRequests->getCollection()->transform(function ($orderLine) use ($gatewayChargesPercent) {
+        $pendingRequests->getCollection()->transform(function ($orderLine) use ($gatewayChargesMap) {
 
-            $lineTotal = (float) $orderLine->line_total;
+            $lineTotal      = (float) $orderLine->line_total;
             $shippingCharge = (float) ($orderLine->shipping_charge ?? 0);
+
+            // ---- per-order gateway charges ----
+            $gateway = strtolower($orderLine->order->payment_gateway ?? 'razorpay');
+
+            $gatewayChargesPercent = $gatewayChargesMap[$gateway]
+                ?? $gatewayChargesMap['razorpay']
+                ?? 2.36;
 
             // Add shipping charge to line total
             $totalWithShipping = $lineTotal + $shippingCharge;
@@ -125,8 +143,8 @@ class CancellationApprovalController extends Controller
                 2
             );
 
-            $orderLine->shipping_charge = $shippingCharge;
-            $orderLine->gateway_charge = $gatewayCharge;
+            $orderLine->shipping_charge  = $shippingCharge;
+            $orderLine->gateway_charge   = $gatewayCharge;
 
             // Deduct gateway charges from total including shipping
             $orderLine->line_total = round(
@@ -150,9 +168,10 @@ class CancellationApprovalController extends Controller
 
             return $orderLine;
         });
+
         return response()->json([
             'success' => true,
-            'data' => $pendingRequests,
+            'data'    => $pendingRequests,
         ]);
     }
 
@@ -314,10 +333,12 @@ class CancellationApprovalController extends Controller
 
             // ── Already cancelled locally? Just re-queue Ignite sync ─────
             if ($orderLine->delivery_status === 'cancelled') {
-                if (! empty($orderLine->ignite_order_no)
-                    && $orderLine->ignite_sync_status !== 'cancelled') {
+                if (
+                    ! empty($orderLine->ignite_order_no)
+                    && $orderLine->ignite_sync_status !== 'cancelled'
+                ) {
 
-                    DB::afterCommit(fn () => CancelOrderOnIgniteJob::dispatch($orderLineId));
+                    DB::afterCommit(fn() => CancelOrderOnIgniteJob::dispatch($orderLineId));
                 }
 
                 return response()->json([
@@ -362,9 +383,11 @@ class CancellationApprovalController extends Controller
             DB::afterCommit(function () use ($orderLineId) {
                 $line = OrderLine::find($orderLineId);
 
-                if ($line
+                if (
+                    $line
                     && ! empty($line->ignite_order_no)
-                    && $line->ignite_sync_status !== 'cancelled') {
+                    && $line->ignite_sync_status !== 'cancelled'
+                ) {
 
                     CancelOrderOnIgniteJob::dispatch($orderLineId);
                 }
