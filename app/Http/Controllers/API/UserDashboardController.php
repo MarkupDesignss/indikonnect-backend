@@ -257,9 +257,8 @@ class UserDashboardController extends Controller
             if ($cvRight > $cvLeft) $strongLeg = 'Right';
 
             // ============================================================
-            // 2. Fetch Commissions History & Calculate Retail Profit
+            // 2. Fetch Commissions History & Calculate Widgets
             // ============================================================
-            // Fetching top 100 recent ledger rows
             $history = $this->getCommissionHistory($baId, 0, 100); 
             
             $retailProfitUsd = 0;
@@ -267,16 +266,17 @@ class UserDashboardController extends Controller
             $unilevelGreenCoin = 0;
 
             foreach ($history as $tx) {
+                // ✅ FIX: Yahan 'category' use karo, 'point_type' nahi
                 // Retail Profit
-                if ($tx['description'] === 'comm_retail' && $tx['point_type'] === 'cash_bal') {
+                if ($tx['description'] === 'comm_retail' && $tx['category'] === 'cash_bal') {
                     $retailProfitUsd += (float) $tx['amount'];
                 }
-                // Weekly Pairing (comm_pairing on cash_bal)
-                if ($tx['description'] === 'comm_pairing' && $tx['point_type'] === 'cash_bal') {
+                // Weekly Pairing 
+                if ($tx['description'] === 'comm_pairing' && $tx['category'] === 'cash_bal') {
                     $weeklyPairingUsd += (float) $tx['amount'];
                 }
-                // Unilevel Green Coin (Assuming 'green_bal' point type)
-                if ($tx['point_type'] === 'green_bal') {
+                // Unilevel Green Coin 
+                if ($tx['category'] === 'green_bal') {
                     $unilevelGreenCoin += (float) $tx['amount'];
                 }
             }
@@ -285,6 +285,8 @@ class UserDashboardController extends Controller
                 'member_id'         => $data['member_id'] ?? null,
                 'ba_id'             => $data['ba_id'] ?? null,
                 'rank_no'           => $data['rank_no'] ?? 0,
+                'base_rank_no'      => $data['base_rank_no'] ?? 0,
+                'eligible_rank_no'  => $data['eligible_rank_no'] ?? 0,
                 
                 // CV Volumes
                 'cv_left'           => $data['cv_left'] ?? '0.0000',
@@ -307,13 +309,28 @@ class UserDashboardController extends Controller
                 // Coins
                 'green_bal'         => $greenBal,
                 'green_value_usd'   => round($greenValueUsd, 2),
+                'green_value_inr'   => round($greenValueUsd * $usdRate, 2),
+                'green_note'        => "Every 6 Green Coins = \${$greenRate} (automatic Saturday settlement)",
+
                 'yellow_bal'        => $yellowBal,
                 'yellow_value_usd'  => round($yellowValueUsd, 2),
+                'yellow_value_inr'  => round($yellowValueUsd * $usdRate, 2),
+
                 'blue_bal'          => $blueBal,
                 'blue_value_usd'    => round($blueValueUsd, 2),
+                'blue_value_inr'    => round($blueValueUsd * $usdRate, 2),
 
                 'exchange_rate'     => $usdRate,
+                'membership_status' => $data['membership_status'] ?? null,
+                'total_steps'       => $data['total_steps'] ?? 0,
+                'qualified_at'      => $data['qualified_at'] ?? null,
+                'is_placed'         => $data['is_placed'] ?? !empty($data['binary_parent_id']),
+                'placement_leg'     => $data['binary_side'] ?? null,
                 'tc_bank_available' => (int) ($data['tc_bank_available'] ?? 0),
+                'far_left_id'       => $data['far_left_id']       ?? null,
+                'far_left_ba_id'    => $data['far_left_ba_id']    ?? null,
+                'far_right_id'      => $data['far_right_id']      ?? null,
+                'far_right_ba_id'   => $data['far_right_ba_id']   ?? null,
 
                 // Commissions History Table
                 'commissions_history' => $history,
@@ -330,7 +347,7 @@ class UserDashboardController extends Controller
         /**
      * Fetch the member's commission history (Ledger) from Ignite.
      */
-    private function getCommissionHistory(string $baId, int $afterId = 0, int $limit = 50): array
+        private function getCommissionHistory(string $baId, int $afterId = 0, int $limit = 50): array
     {
         try {
             $response = $this->ignite->pointTxs($baId, $afterId, $limit);
@@ -345,13 +362,13 @@ class UserDashboardController extends Controller
             return array_map(function ($row) {
                 return [
                     'id'            => $row['id'],
-                    'category'      => $row['point_type'], // e.g., cash_bal, green_bal
-                    'tx_type'       => $row['tx_type'],    // e.g., comm, pv, cr
-                    'date_created'  => $row['created_at'], 
-                    'description'   => $row['description'],// e.g., comm_pairing
-                    'amount'        => $row['amount'],
-                    'order_id'      => $row['order_no'],
-                    'related_member'=> $row['rel_ba_id'] ?? $row['rel_member_id'],
+                    'category'      => $row['point_type'] ?? null, // ✅ Mapped correctly
+                    'tx_type'       => $row['tx_type'] ?? null,
+                    'date_created'  => $row['created_at'] ?? null, 
+                    'description'   => $row['description'] ?? null,
+                    'amount'        => $row['amount'] ?? '0.0000',
+                    'order_id'      => $row['order_no'] ?? null,
+                    'related_member'=> $row['rel_ba_id'] ?? $row['rel_member_id'] ?? null,
                 ];
             }, $rows);
 
