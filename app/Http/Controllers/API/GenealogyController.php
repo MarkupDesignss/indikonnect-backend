@@ -656,4 +656,68 @@ class GenealogyController extends Controller
         if ($right < $left) return 'right';
         return 'equal';
     }
+
+        /**
+     * Get the authenticated distributor's direct referrals (level 1).
+     *
+     * Fetches the unilevel tree at depth 1 from Ignite (which includes the
+     * distributor themselves at level 0) and filters out the root.
+     * Enriches each referral with their local full name and joined date
+     * from the users table, since Ignite does not return these fields.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function myReferrals(Request $request)
+    {
+        $user = Auth::user();
+
+        if (!$user->distributor_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You are not registered on Ignite yet.',
+            ], 422);
+        }
+
+        $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+
+        // Fetch unilevel tree (depth 1 = direct referrals)
+        $response = $this->ignite->unilevelTree($mainBaId, 1);
+
+        if (($response['code'] ?? null) !== ResultCode::OK->value) {
+            return response()->json([
+                'success' => false,
+                'message' => $response['msg'] ?? 'Failed to fetch referrals',
+                'code'    => $response['code'] ?? null,
+            ], 422);
+        }
+
+        $rows = $response['data']['rows'] ?? [];
+
+        // Filter out the root (level 0 = self); keep only level 1
+        $referrals = collect($rows)->where('level', 1)->values();
+
+        // Enrich with local names and join dates
+        $baIds = $referrals->pluck('ba_id')->filter()->values()->all();
+
+        $localUsers = User::whereIn('distributor_id', $baIds)
+            ->get(['distributor_id', 'full_name', 'created_at'])
+            ->keyBy('distributor_id');
+
+        $data = $referrals->map(function ($row) use ($localUsers) {
+            $baId      = $row['ba_id'] ?? null;
+            $localUser = $baId ? ($localUsers[$baId] ?? null) : null;
+
+            $row['name']      = $localUser?->full_name;
+            $row['joined_at'] = $localUser?->created_at?->toDateTimeString();
+
+            return $row;
+        })->values()->all();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $data,
+            'total'   => count($data),
+        ]);
+    }
 }
