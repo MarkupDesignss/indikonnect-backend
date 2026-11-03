@@ -1575,37 +1575,46 @@ class AuthController extends Controller
         }
     }
 
+
     // public function getUserDetails($id)
     // {
     //     try {
-    //         $user = User::with('role', 'distributorProfile')->where('is_registered', true)
+    //         $users = User::with('role', 'distributorProfile')
+    //             ->where('is_registered', true)
     //             ->where('id', $id)
-    //             ->get();
+    //             ->get()
+    //             ->map(function ($user) {
+    //                 if ($user->profile_picture) {
+    //                     $user->profile_picture = asset('storage/' . $user->profile_picture);
+    //                 }
 
-    //         if (!$user) {
+    //                 // Ignite payout data inject
+    //                 $user->setAttribute('ignite_payout', $this->buildIgnitePayoutDetail($user));
+
+    //                 return $user;
+    //             });
+
+    //         if ($users->isEmpty()) {
     //             return response()->json([
     //                 'success' => false,
     //                 'message' => 'User not found.',
-    //                 'errors' => [
-    //                     'user_id' => ['User not found.']
-    //                 ]
+    //                 'errors'  => ['user_id' => ['User not found.']]
     //             ], 404);
     //         }
 
     //         return response()->json([
     //             'success' => true,
     //             'message' => 'User details fetched successfully.',
-    //             'data' => $user
+    //             'data'    => $users
     //         ], 200);
     //     } catch (\Exception $e) {
     //         return response()->json([
     //             'success' => false,
     //             'message' => 'Failed to fetch user details.',
-    //             'error' => $e->getMessage()
+    //             'error'   => $e->getMessage()
     //         ], 500);
     //     }
     // }
-
     public function getUserDetails($id)
     {
         try {
@@ -1614,12 +1623,32 @@ class AuthController extends Controller
                 ->where('id', $id)
                 ->get()
                 ->map(function ($user) {
+
                     if ($user->profile_picture) {
                         $user->profile_picture = asset('storage/' . $user->profile_picture);
                     }
 
-                    // Ignite payout data inject
-                    $user->setAttribute('ignite_payout', $this->buildIgnitePayoutDetail($user));
+                    // Ignite payout data
+                    $user->setAttribute(
+                        'ignite_payout',
+                        $this->buildIgnitePayoutDetail($user)
+                    );
+
+                    // Buyback expiry date
+                    $buybackWindowDays = (int) setting('buyback_window_days', 30);
+
+                    $buybackUntil = null;
+
+                    if ($user->registration_completed_at) {
+                        $buybackUntil = \Carbon\Carbon::parse(
+                            $user->registration_completed_at
+                        )->addDays($buybackWindowDays);
+                    }
+
+                    $user->setAttribute(
+                        'buyback_untill',
+                        $buybackUntil?->format('Y-m-d H:i:s')
+                    );
 
                     return $user;
                 });
@@ -1628,7 +1657,9 @@ class AuthController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'User not found.',
-                    'errors'  => ['user_id' => ['User not found.']]
+                    'errors'  => [
+                        'user_id' => ['User not found.']
+                    ]
                 ], 404);
             }
 
