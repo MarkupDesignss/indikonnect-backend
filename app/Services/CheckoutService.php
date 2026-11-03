@@ -1948,37 +1948,63 @@ class CheckoutService
         int $mandatoryProductId,
         iterable $cartItems
     ): void {
-        // 1. Is the mandatory product already in the current order?
-        $inCurrentOrder = collect($cartItems)->contains(
-            fn($item) => (int) ($item->product_id ?? 0) === $mandatoryProductId
+
+        // STEP 1: Check current order/cart
+        $cartProductIds = collect($cartItems)
+            ->pluck('product_id')
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $inCurrentOrder = in_array(
+            $mandatoryProductId,
+            $cartProductIds,
+            true
         );
 
-        if ($inCurrentOrder) {
-            return;
-        }
-
-        // 2. Has the user purchased it before (in any prior order)?
-        $hasPurchasedBefore = \App\Models\OrderLine::query()
-            ->where('product_id', $mandatoryProductId)
-            ->whereHas('order', function ($q) use ($userId) {
-                $q->where('user_id', $userId)
-                    ->whereNotIn('status', ['cancelled', 'failed', 'refunded']);
-            })
+        // STEP 2: Check previous successful purchases
+        // Pending orders are NOT considered purchases.
+        $hasPurchasedBefore = \DB::table('order_lines')
+            ->join('orders', 'orders.id', '=', 'order_lines.order_id')
+            ->where('order_lines.product_id', $mandatoryProductId)
+            ->where('orders.user_id', $userId)
+            ->whereIn('orders.status', [
+                'confirmed',
+                'dispatched',
+                'partial_dispatched',
+                'shipped',
+                'partial_shipped',
+                'partial_delivered',
+                'delivered',
+            ])
+            ->whereNull('orders.deleted_at')
             ->exists();
 
-        if ($hasPurchasedBefore) {
+        \Log::info('Mandatory product validation', [
+            'user_id'             => $userId,
+            'mandatory_product'   => $mandatoryProductId,
+            'cart_product_ids'    => $cartProductIds,
+            'in_current_order'    => $inCurrentOrder,
+            'has_purchased_before' => $hasPurchasedBefore,
+        ]);
+
+        // STEP 3: Allow if purchased previously OR included currently
+        if ($hasPurchasedBefore || $inCurrentOrder) {
             return;
         }
 
-        // 3. Reject with a friendly product name
-        $productName = \App\Models\Product::whereKey($mandatoryProductId)->value('name')
-            ?? "Product #{$mandatoryProductId}";
+        // STEP 4: Otherwise throw error
+        $productName = \App\Models\Product::whereKey($mandatoryProductId)
+            ->value('name') ?? "Product #{$mandatoryProductId}";
 
         throw new \Exception(
             "The product \"{$productName}\" is mandatory for your first purchase. " .
                 "Please add it to your order to continue."
         );
     }
+
+
     public function placeOrder(int $userId, array $data): array
     {
 
@@ -2381,6 +2407,7 @@ class CheckoutService
             ], $gatewayPayload);
         });
     }
+
     protected function generateItemReference(): string
     {
         return 'ITM-' . strtoupper(bin2hex(random_bytes(4)));
