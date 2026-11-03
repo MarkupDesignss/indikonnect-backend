@@ -923,4 +923,66 @@ class GenealogyController extends Controller
             'total'   => count($accounts),
         ]);
     }
+
+    /**
+ * CV Counter — kis week, kis TC account ka CV dikhana hai.
+ * GET /distributor/genealogy/cv-counter?ba_id=...&year=...&week_no=...
+ */
+public function cvCounter(Request $request)
+{
+    $user = Auth::user();
+
+    if (!$user->distributor_id) {
+        return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);
+    }
+
+    $validator = Validator::make($request->all(), [
+        'ba_id'   => 'required|string|max:50',
+        'year'    => 'required|integer|min:2020|max:2100',
+        'week_no' => 'required|integer|min:1|max:53',
+    ]);
+
+    if ($validator->fails()) {
+        return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+    }
+
+    $baId   = trim($request->ba_id);
+    $year   = (int) $request->year;
+    $weekNo = (int) $request->week_no;
+
+    // 1) Live CV from memberDetails
+    $member = $this->fetchMemberDetails($baId);
+
+    // 2) Week's pairing result
+    $pairingRow = null;
+    try {
+        $resp = $this->ignite->pairings($year, $weekNo, $baId);
+        if (($resp['code'] ?? null) === ResultCode::OK->value) {
+            $pairingRow = $resp['data']['rows'][0] ?? null;
+        }
+    } catch (\Throwable $e) {
+        Log::warning('pairings failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
+    }
+
+    return response()->json([
+        'success' => true,
+        'data' => [
+            'ba_id' => $baId,
+            'week'  => ['year' => $year, 'week_no' => $weekNo],
+            'current' => [
+                'cv_left'           => $member['cv_left']           ?? '0.0000',
+                'cv_right'          => $member['cv_right']          ?? '0.0000',
+                'floating_cv_left'  => $member['floating_cv_left']  ?? '0.0000',
+                'floating_cv_right' => $member['floating_cv_right'] ?? '0.0000',
+                'total_cv_left'     => $member['total_cv_left']     ?? '0.0000',
+                'total_cv_right'    => $member['total_cv_right']    ?? '0.0000',
+                'rank_no'           => $member['rank_no']           ?? 0,
+                'total_steps'       => $member['total_steps']       ?? 0,
+            ],
+            'week_result' => $pairingRow,
+            'is_settled'  => $pairingRow !== null,
+        ],
+    ]);
+}
+
 }

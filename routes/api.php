@@ -612,6 +612,7 @@ Route::middleware('auth:sanctum')->prefix('distributor/genealogy')->group(functi
     Route::get('/pairings', [GenealogyController::class, 'pairings']);
     Route::get('/my-referrals', [GenealogyController::class, 'myReferrals']);
     Route::get('/my-accounts', [GenealogyController::class, 'myAccounts']);
+    Route::get('/cv-counter', [GenealogyController::class, 'cvCounter']);
 });
 
 Route::middleware('auth:sanctum')->group(function () {
