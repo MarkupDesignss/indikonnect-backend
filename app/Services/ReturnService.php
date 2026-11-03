@@ -2337,25 +2337,6 @@ class ReturnService
     //         'can_approve'       => $return->canApprove(),
     //         'can_reject'        => $return->canReject(),
     //         'can_mark_received' => $return->canMarkReceived(),
-    //         'can_complete'      => $return->canComplete(),
-
-    //         'resolution' => $return->resolution,
-
-    //         'refund_info' => $refund ? [
-    //             'id'                  => $refund->id,
-    //             'amount'              => (float) $refund->amount,
-    //             'status'              => $refund->status,
-    //             'gateway_reference'   => $refund->gateway_reference,
-    //             'refund_method'       => $refund->refund_method,
-    //             'notes'               => $refund->notes,
-    //             'approved_by'         => $refund->approved_by,
-    //             'failure_reason'      => $refund->failure_reason,
-    //             'completed_at'        => optional($refund->completed_at)->toDateTimeString(),
-    //             'created_at'          => $refund->created_at->toDateTimeString(),
-    //         ] : null,
-    //     ];
-    // }
-
     public function getReturnForAdmin(int $returnId): array
     {
         // Global gateway-charge settings (cached once)
@@ -2408,15 +2389,9 @@ class ReturnService
             ? round($shippingCharge * 2, 2)
             : round($shippingCharge * 1, 2);
 
-        // ----- Per-order gateway charge (recomputed, NOT read from stored column) -----
-        $perOrderGatewayCharges = round(
-            (float) $return->total_refund_amount * ($gatewayChargesPercent / 100),
-            2
-        );
-
         $totalRefund = (float) $return->total_refund_amount
             - (float) $return->refund_tax
-            - $perOrderGatewayCharges
+            - (float) $return->refund_gateway_charges
             - $deductedShippingCharge;
 
         /* Timeline — ONLY returned order_lines */
@@ -2495,7 +2470,7 @@ class ReturnService
                 'order_reference' => $return->order->order_reference,
                 'status'          => $return->order->status,
                 'return_status'   => $return->order->return_status,
-                'payment_gateway' => $return->order->payment_gateway,
+                'payment_gateway' => $return->order->payment_gateway,   // NEW
                 'delivered_at'    => $return->order->delivered_at?->toDateTimeString(),
             ] : null,
 
@@ -2515,24 +2490,21 @@ class ReturnService
             'return_items_json' => $items,
 
             'refund_details' => [
-                'method'                    => $return->return_method ?? null,
-                'subtotal'                  => (float) $return->refund_subtotal,
-                'tax'                       => (float) $return->refund_tax,
-                'shipping'                  => $shippingCharge,
-                'amount_with_tax_shipping'  => (float) $return->total_refund_amount,
-                'deducted_shipping_charge'  => $deductedShippingCharge,
-
-                // Stored value (may be from old global rate — kept for reconciliation)
-                'refund_gateway_charges'    => (float) $return->refund_gateway_charges,
-                'refund_extra_deductions'   => $return->refund_extra_deductions,
-
-                // Per-order values (authoritative)
-                'payment_gateway'           => $return->order->payment_gateway ?? null,
-                'gateway_charges_percent'   => $gatewayChargesPercent,
-                'per_order_gateway_charges' => $perOrderGatewayCharges,
-                'expected_gateway_charges'  => $perOrderGatewayCharges,
-
-                'total'                     => round($totalRefund, 2),
+                'method'                   => $return->return_method ?? null,
+                'subtotal'                 => (float) $return->refund_subtotal,
+                'tax'                      => (float) $return->refund_tax,
+                'shipping'                 => $shippingCharge,
+                'amount_with_tax_shipping' => (float) $return->total_refund_amount,
+                'deducted_shipping_charge' => $deductedShippingCharge,
+                'refund_gateway_charges'   => (float) $return->refund_gateway_charges,
+                'refund_extra_deductions'  => $return->refund_extra_deductions,
+                // NEW: the correct per-order gateway % + expected amount
+                'gateway_charges_percent'  => $gatewayChargesPercent,
+                'expected_gateway_charges' => round(
+                    ((float) $return->total_refund_amount) * ($gatewayChargesPercent / 100),
+                    2
+                ),
+                'total'                    => round($totalRefund, 2),
             ],
 
             'admin_notes'      => $return->admin_notes,
@@ -2546,6 +2518,25 @@ class ReturnService
 
             'can_approve'       => $return->canApprove(),
             'can_reject'        => $return->canReject(),
+            'can_mark_received' => $return->canMarkReceived(),
+            'can_complete'      => $return->canComplete(),
+
+            'resolution' => $return->resolution,
+
+            'refund_info' => $refund ? [
+                'id'                  => $refund->id,
+                'amount'              => (float) $refund->amount,
+                'status'              => $refund->status,
+                'gateway_reference'   => $refund->gateway_reference,
+                'refund_method'       => $refund->refund_method,
+                'notes'               => $refund->notes,
+                'approved_by'         => $refund->approved_by,
+                'failure_reason'      => $refund->failure_reason,
+                'completed_at'        => optional($refund->completed_at)->toDateTimeString(),
+                'created_at'          => $refund->created_at->toDateTimeString(),
+            ] : null,
+        ];
+    }           'can_reject'        => $return->canReject(),
             'can_mark_received' => $return->canMarkReceived(),
             'can_complete'      => $return->canComplete(),
 
