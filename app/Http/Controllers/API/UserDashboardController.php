@@ -1140,4 +1140,102 @@ class UserDashboardController extends Controller
         ]);
     }
 
+    /**
+     * Get full wallet data for the UI (Balances + Transactions + Withdrawals).
+     *
+     * GET /distributor/wallet
+     */
+    public function getWalletDetails(Request $request)
+    {
+        $user = Auth::user();
+        
+        if (!$user->distributor_id) {
+            return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);
+        }
+
+        $baId = $user->distributor_id;
+
+        // 1. Fetch Member Details (Balances)
+        $memberResp = $this->ignite->memberDetails($baId);
+        if (($memberResp['code'] ?? null) !== ResultCode::OK->value) {
+            return response()->json(['success' => false, 'message' => 'Failed to fetch wallet balances'], 422);
+        }
+        $member = $memberResp['data'];
+
+        // Exchange Rate for INR
+        $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+            ->where('key', 'usd_to_inr')->value('value') ?: 0;
+
+        // 2. Fetch Transactions (First page of pointTxs)
+        $txResp = $this->ignite->pointTxs($baId, 0, 50); // Fetch 50 latest txs
+        $rawTxs = $txResp['data']['rows'] ?? [];
+        $hasMore = $txResp['data']['has_more'] ?? false;
+
+        // Calculate Retail Profit from history (Optional - agar client chahta hai total)
+        $retailProfit = 0;
+        foreach ($rawTxs as $tx) {
+            if ($tx['point_type'] === 'cash_bal' && $tx['description'] === 'comm_retail') {
+                $retailProfit += (float) $tx['amount'];
+            }
+        }
+
+        // Format Transactions for the UI Table
+        $transactions = array_map(function($tx) {
+            // Category logic (Frontend table ke liye)
+            $category = match ($tx['tx_type']) {
+                'comm'  => 'Commission',
+                'cr'    => 'RedeemCoin',
+                'wd'    => 'Withdrawal',
+                default => ucfirst($tx['tx_type'] ?? 'Other'),
+            };
+
+            return [
+                'id'            => $tx['id'],
+                'date'          => $tx['created_at'],
+                'category'      => $category,
+                'description'   => $tx['description'], // e.g., comm_pairing, comm_retail
+                'wallet_change' => $tx['point_type'] === 'cash_bal' ? (float)$tx['amount'] : 0,
+                'green_coin'    => $tx['point_type'] === 'green_bal' ? (float)$tx['amount'] : 0,
+                'yellow_coin'   => $tx['point_type'] === 'yellow_bal' ? (float)$tx['amount'] : 0,
+                'blue_coin'     => $tx['point_type'] === 'blue_bal' ? (float)$tx['amount'] : 0,
+                'order_id'      => $tx['order_no'] ?? null,
+                'related_member'=> $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
+            ];
+        }, $rawTxs);
+
+        // 3. Fetch Withdrawals (From your Local DB)
+        // Assume tere paas Withdrawal model hai
+        $withdrawals = \App\Models\Withdrawal::where('user_id', $user->id)
+            ->latest()
+            ->take(20)
+            ->get()
+            ->map(function($w) {
+                return [
+                    'id' => $w->id,
+                    'date' => $w->created_at->format('Y-m-d H:i:s'),
+                    'amount' => $w->amount,
+                    'status' => $w->status, // Pending, Approved, Paid
+                    'remark' => $w->remark,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'balances' => [
+                    'cash_bal_usd'      => (float) ($member['cash_bal'] ?? 0),
+                    'cash_bal_inr'      => round((float) ($member['cash_bal'] ?? 0) * $usdRate, 2),
+                    'retail_profit_usd' => $retailProfit,
+                    'green_bal'         => (float) ($member['green_bal'] ?? 0),
+                    'yellow_bal'        => (float) ($member['yellow_bal'] ?? 0),
+                    'blue_bal'          => (float) ($member['blue_bal'] ?? 0),
+                    'exchange_rate'     => $usdRate,
+                ],
+                'transactions' => $transactions,
+                'has_more_transactions' => $hasMore,
+                'withdrawals' => $withdrawals,
+            ]
+        ]);
+    }
+
 }
