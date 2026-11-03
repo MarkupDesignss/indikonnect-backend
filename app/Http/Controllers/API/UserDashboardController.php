@@ -1155,6 +1155,8 @@ class UserDashboardController extends Controller
 
         $baId = $user->distributor_id;
 
+        dd($baId);
+
         // 1. Fetch Member Details (Balances)
         $memberResp = $this->ignite->memberDetails($baId);
         if (($memberResp['code'] ?? null) !== ResultCode::OK->value) {
