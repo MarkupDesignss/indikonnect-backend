@@ -275,51 +275,47 @@ class UserDashboardController extends Controller
 
             $data = $resp['data'] ?? [];
 
-            // Timezone helpers (convert UTC+8 → IST)
+            // Timezone helpers
             $utc8 = new \DateTimeZone('Asia/Singapore');
             $ist  = new \DateTimeZone('Asia/Kolkata');
 
-            $toIst = function (?string $date, string $time) use ($utc8, $ist): ?string {
+            $toIst = function (?string $date) use ($utc8, $ist): ?string {
                 if (!$date) return null;
-                $dt = new \DateTime("{$date} {$time}", $utc8);
+                // Date aati hai "Y-m-d" format me (ignite sdk docblock ke hisaab se)
+                $dt = new \DateTime("{$date} 00:00:00", $utc8);
                 $dt->setTimezone($ist);
-                return $dt->format('Y-m-d H:i:s');
+                return $dt->format('Y-m-d'); // Poster me sirf date chahiye
             };
 
-            $currentMonth = null;
-            $currentWeek  = null;
+            $allMonths = [];
 
             foreach (($data['months'] ?? []) as $month) {
-                if (!empty($month['is_current'])) {
-                    $currentMonth = [
-                        'year'     => $month['year']     ?? null,
-                        'month_no' => $month['month_no'] ?? null,
-                        'label'    => $month['label']    ?? null,
-                        // UTC+8 start 00:00 → IST
-                        'start'    => $toIst($month['start_date'] ?? null, '00:00:00'),
-                        // UTC+8 end 23:59:59 → IST
-                        'end'      => $toIst($month['end_date']   ?? null, '23:59:59'),
+                $weeksData = [];
+                foreach (($month['weeks'] ?? []) as $week) {
+                    $weeksData[] = [
+                        'week_no'    => $week['week_no'] ?? null,
+                        'start'      => $toIst($week['start_date'] ?? null),
+                        'end'        => $toIst($week['end_date'] ?? null),
+                        // Poster me "Commission Payout" date hai, jo week ke end ke baad wale Saturday ko hoti hai
+                        'payout_date' => $toIst($week['end_date'] ?? null) 
+                            ? date('d M Y', strtotime($toIst($week['end_date']) . ' +1 day')) 
+                            : null,
+                        'is_current' => (bool) ($week['is_current'] ?? false),
+                        'is_settled' => (bool) ($week['is_settled'] ?? false),
                     ];
-
-                    foreach (($month['weeks'] ?? []) as $week) {
-                        if (!empty($week['is_current'])) {
-                            $currentWeek = [
-                                'year'       => $week['year']       ?? null,
-                                'week_no'    => $week['week_no']    ?? null,
-                                // Ignite data converted to IST
-                                'start'      => $toIst($week['start_date'] ?? null, '00:00:00'),
-                                'end'        => $toIst($week['end_date']   ?? null, '23:59:59'),
-                                'is_settled' => (bool) ($week['is_settled'] ?? false),
-                            ];
-                        }
-                    }
                 }
+
+                $allMonths[] = [
+                    'month_no'   => $month['month_no'] ?? null,
+                    'label'      => $month['label'] ?? null,
+                    'is_current' => (bool) ($month['is_current'] ?? false),
+                    'weeks'      => $weeksData,
+                ];
             }
 
             return [
-                'year'          => $data['year'] ?? $year,
-                'current_month' => $currentMonth,
-                'current_week'  => $currentWeek,
+                'year'       => $data['year'] ?? $year,
+                'all_months' => $allMonths, // ✅ Frontend ko sab kuch bhej diya
             ];
         } catch (\Throwable $e) {
             Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
