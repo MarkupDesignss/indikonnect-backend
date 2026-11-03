@@ -263,65 +263,63 @@ class UserDashboardController extends Controller
      * for display purposes only — the underlying data is unchanged.
      */
     private function getSalesCalendar(int $year): ?array
-    {
-        try {
-            $resp = Cache::remember("ignite_sales_calendar_{$year}", 21600, function () use ($year) {
-                return $this->ignite->salesCalendar($year);
-            });
+{
+    try {
+        $resp = Cache::remember("ignite_sales_calendar_{$year}", 21600, function () use ($year) {
+            return $this->ignite->salesCalendar($year);
+        });
 
-            if (($resp['code'] ?? null) !== ResultCode::OK->value) {
-                return null;
-            }
+        if (($resp['code'] ?? null) !== ResultCode::OK->value) {
+            return null;
+        }
 
-            $data = $resp['data'] ?? [];
+        $data = $resp['data'] ?? [];
 
-            // Timezone helpers
-            $utc8 = new \DateTimeZone('Asia/Singapore');
-            $ist  = new \DateTimeZone('Asia/Kolkata');
+        $utc8 = new \DateTimeZone('Asia/Singapore');
+        $ist  = new \DateTimeZone('Asia/Kolkata');
 
-            $toIst = function (?string $date) use ($utc8, $ist): ?string {
-                if (!$date) return null;
-                // Date aati hai "Y-m-d" format me (ignite sdk docblock ke hisaab se)
-                $dt = new \DateTime("{$date} 00:00:00", $utc8);
-                $dt->setTimezone($ist);
-                return $dt->format('Y-m-d'); // Poster me sirf date chahiye
-            };
+        $toIst = function (?string $date, string $time = '00:00:00') use ($utc8, $ist): ?string {
+            if (!$date) return null;
+            $dt = new \DateTime("{$date} {$time}", $utc8);
+            $dt->setTimezone($ist);
+            return $dt->format('Y-m-d H:i:s'); // ✅ Ab time bhi aayega
+        };
 
-            $allMonths = [];
+        $allMonths = [];
 
-            foreach (($data['months'] ?? []) as $month) {
-                $weeksData = [];
-                foreach (($month['weeks'] ?? []) as $week) {
-                    $weeksData[] = [
-                        'week_no'    => $week['week_no'] ?? null,
-                        'start'      => $toIst($week['start_date'] ?? null),
-                        'end'        => $toIst($week['end_date'] ?? null),
-                        // Poster me "Commission Payout" date hai, jo week ke end ke baad wale Saturday ko hoti hai
-                        'payout_date' => $toIst($week['end_date'] ?? null) 
-                            ? date('d M Y', strtotime($toIst($week['end_date']) . ' +1 day')) 
-                            : null,
-                        'is_current' => (bool) ($week['is_current'] ?? false),
-                        'is_settled' => (bool) ($week['is_settled'] ?? false),
-                    ];
-                }
+        foreach (($data['months'] ?? []) as $month) {
+            $weeksData = [];
+            foreach (($month['weeks'] ?? []) as $week) {
+                // Payout date nikaalne ke liye end_date ko 00:00:00 UTC+8 se shift karke +1 day karenge
+                $endDateTime = $week['end_date'] ? (new \DateTime("{$week['end_date']} 00:00:00", $utc8))->modify('+1 day') : null;
 
-                $allMonths[] = [
-                    'month_no'   => $month['month_no'] ?? null,
-                    'label'      => $month['label'] ?? null,
-                    'is_current' => (bool) ($month['is_current'] ?? false),
-                    'weeks'      => $weeksData,
+                $weeksData[] = [
+                    'week_no'    => $week['week_no'] ?? null,
+                    'start'      => $toIst($week['start_date'] ?? null, '00:00:00'),
+                    'end'        => $toIst($week['end_date'] ?? null, '23:59:59'), // ✅ Week end me 23:59:59 dikhega
+                    'payout_date' => $endDateTime ? $toIst($endDateTime->format('Y-m-d'), '00:00:00') : null,
+                    'is_current' => (bool) ($week['is_current'] ?? false),
+                    'is_settled' => (bool) ($week['is_settled'] ?? false),
                 ];
             }
 
-            return [
-                'year'       => $data['year'] ?? $year,
-                'all_months' => $allMonths, // ✅ Frontend ko sab kuch bhej diya
+            $allMonths[] = [
+                'month_no'   => $month['month_no'] ?? null,
+                'label'      => $month['label'] ?? null,
+                'is_current' => (bool) ($month['is_current'] ?? false),
+                'weeks'      => $weeksData,
             ];
-        } catch (\Throwable $e) {
-            Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
-            return null;
         }
+
+        return [
+            'year'       => $data['year'] ?? $year,
+            'all_months' => $allMonths, 
+        ];
+    } catch (\Throwable $e) {
+        Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
+        return null;
     }
+}
 
     /**
      * Calculate general user statistics.
