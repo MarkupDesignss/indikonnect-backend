@@ -680,9 +680,7 @@ class GenealogyController extends Controller
         }
 
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
-
-        // Fetch unilevel tree (depth 1 = direct referrals)
-        $response = $this->ignite->unilevelTree($mainBaId, 1);
+        $response = $this->ignite->unilevelTree($mainBaId, 3);
 
         if (($response['code'] ?? null) !== ResultCode::OK->value) {
             return response()->json([
@@ -693,25 +691,58 @@ class GenealogyController extends Controller
         }
 
         $rows = $response['data']['rows'] ?? [];
+        $referrals = collect($rows)->where('level', '>', 0)->values();
 
-        // Filter out the root (level 0 = self); keep only level 1
-        $referrals = collect($rows)->where('level', 1)->values();
-
-        // Enrich with local names and join dates
+        // BA IDs
         $baIds = $referrals->pluck('ba_id')->filter()->values()->all();
-
         $localUsers = User::whereIn('distributor_id', $baIds)
-            ->get(['distributor_id', 'full_name', 'created_at'])
+            ->get(['distributor_id', 'full_name', 'email', 'created_at'])
             ->keyBy('distributor_id');
 
-        $data = $referrals->map(function ($row) use ($localUsers) {
-            $baId      = $row['ba_id'] ?? null;
+        // Rank names
+        $rankNames = $this->getRankNames();
+
+        // Count referrals per parent (from same tree)
+        $referralsByParent = collect($rows)
+            ->groupBy('unilevel_parent_ba_id')
+            ->map->count();
+
+        // Enrich each with memberDetails (SLOW — consider queuing)
+        $data = $referrals->map(function ($row) use ($localUsers, $rankNames, $referralsByParent) {
+            $baId = $row['ba_id'] ?? null;
             $localUser = $baId ? ($localUsers[$baId] ?? null) : null;
 
-            $row['name']      = $localUser?->full_name;
-            $row['joined_at'] = $localUser?->created_at?->toDateTimeString();
+            // Fetch memberDetails for rank + status
+            $member = [];
+            if ($baId) {
+                try {
+                    $mResp = $this->ignite->memberDetails($baId);
+                    if (($mResp['code'] ?? null) === ResultCode::OK->value) {
+                        $member = $mResp['data'] ?? [];
+                    }
+                } catch (\Throwable $e) {
+                    // ignore
+                }
+            }
 
-            return $row;
+            $rankNo = $member['rank_no'] ?? 0;
+            $cvLeft = (float) ($member['cv_left'] ?? $row['cv_left'] ?? 0);
+            $cvRight = (float) ($member['cv_right'] ?? $row['cv_right'] ?? 0);
+
+            return [
+                'member_id'   => $row['member_id'] ?? null,
+                'ba_id'       => $baId,
+                'full_name'   => $localUser?->full_name,
+                'email'       => $localUser?->email,
+                'rank_no'     => $rankNo,
+                'rank_name'   => $rankNames[$rankNo] ?? '—',
+                'cv'          => number_format($cvLeft + $cvRight, 2, '.', ''),
+                'referrals'   => $referralsByParent[$baId] ?? 0,
+                'status'      => ucfirst($member['membership_status'] ?? '—'),
+                'joined_at'   => $localUser?->created_at?->toDateTimeString(),
+                'level'       => $row['level'] ?? null,
+                'binary_side' => $row['binary_side'] ?? null,
+            ];
         })->values()->all();
 
         return response()->json([
