@@ -1942,8 +1942,47 @@ class CheckoutService
     //         ], $gatewayPayload);
     //     });
     // }
+
+    private function assertMandatoryProductRule(
+        int $userId,
+        int $mandatoryProductId,
+        iterable $cartItems
+    ): void {
+        // 1. Is the mandatory product already in the current order?
+        $inCurrentOrder = collect($cartItems)->contains(
+            fn($item) => (int) ($item->product_id ?? 0) === $mandatoryProductId
+        );
+
+        if ($inCurrentOrder) {
+            return;
+        }
+
+        // 2. Has the user purchased it before (in any prior order)?
+        $hasPurchasedBefore = \App\Models\OrderLine::query()
+            ->where('product_id', $mandatoryProductId)
+            ->whereHas('order', function ($q) use ($userId) {
+                $q->where('user_id', $userId)
+                    ->whereNotIn('status', ['cancelled', 'failed', 'refunded']);
+            })
+            ->exists();
+
+        if ($hasPurchasedBefore) {
+            return;
+        }
+
+        // 3. Reject with a friendly product name
+        $productName = \App\Models\Product::whereKey($mandatoryProductId)->value('name')
+            ?? "Product #{$mandatoryProductId}";
+
+        throw new \Exception(
+            "The product \"{$productName}\" is mandatory for your first purchase. " .
+                "Please add it to your order to continue."
+        );
+    }
     public function placeOrder(int $userId, array $data): array
     {
+
+
         $address = Address::findOrFail($data['address_id']);
         $user = User::findOrFail($userId);
 
@@ -1996,6 +2035,12 @@ class CheckoutService
             }
 
             $cartItems = $cart->items;
+        }
+
+        $mandatoryProductId = 32;
+
+        if ($mandatoryProductId > 0) {
+            $this->assertMandatoryProductRule($userId, $mandatoryProductId, $cartItems);
         }
 
         // ---------- Coin redemption ----------
