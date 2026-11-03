@@ -1146,106 +1146,163 @@ class UserDashboardController extends Controller
      * GET /distributor/wallet
      */
     public function getWalletDetails(Request $request)
-{
-    $user = $request->user();
+    {
+        $user = $request->user();
 
-    if (!$user || empty($user->distributor_id)) {
-        return response()->json([
-            'success' => false, 
-            'message' => 'Not registered on Ignite'
-        ], 422);
-    }
-
-    $baId = $user->distributor_id;
-
-    // 1. Fetch Member Details (Balances)
-    $memberResp = $this->ignite->memberDetails($baId);
-    if (($memberResp['code'] ?? null) !== ResultCode::OK->value) {
-        return response()->json([
-            'success' => false, 
-            'message' => 'Failed to fetch wallet balances from Ignite'
-        ], 422);
-    }
-    $member = $memberResp['data'];
-
-    // Exchange Rate for INR
-    $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
-        ->where('key', 'usd_to_inr')->value('value') ?: 0;
-
-    // 2. Fetch Transactions (First page of pointTxs)
-    $txResp = $this->ignite->pointTxs($baId, 0, 100); // 100 txs fetch kar rahe hain
-    $rawTxs = $txResp['data']['rows'] ?? [];
-    $hasMore = $txResp['data']['has_more'] ?? false;
-
-    // Calculate Retail Profit from history
-    $retailProfit = 0;
-    foreach ($rawTxs as $tx) {
-        if ($tx['point_type'] === 'cash_bal' && $tx['description'] === 'comm_retail') {
-            $retailProfit += (float) $tx['amount'];
+        if (!$user || empty($user->distributor_id)) {
+            return response()->json([
+                'success' => false, 
+                'message' => 'Not registered on Ignite'
+            ], 422);
         }
-    }
 
-    // 3. Filter Transactions for UI Table
-    $transactions = [];
-    $withdrawals  = [];
+        $baId = $user->distributor_id;
 
-    foreach ($rawTxs as $tx) {
-        // Category logic
-        $category = match ($tx['tx_type']) {
-            'comm'  => 'Commission',
-            'cr'    => 'RedeemCoin',
-            'wd'    => 'Withdrawal',
-            'adj'   => 'Adjustment',
-            'pv'    => 'CV',
-            default => ucfirst($tx['tx_type'] ?? 'Other'),
-        };
+        // 1. Fetch Member Details (Balances)
+        $memberResp = $this->ignite->memberDetails($baId);
+        if (($memberResp['code'] ?? null) !== ResultCode::OK->value) {
+            return response()->json([
+                'success' => false, 
+                'message' => 'Failed to fetch wallet balances from Ignite'
+            ], 422);
+        }
+        $member = $memberResp['data'];
 
-        $formattedTx = [
-            'id'            => $tx['id'],
-            'date'          => $tx['created_at'],
-            'category'      => $category,
-            'description'   => $tx['description'] ?? '-', // e.g., comm_pairing, comm_retail
-            'wallet_change' => $tx['point_type'] === 'cash_bal' ? (float)$tx['amount'] : 0,
-            'green_coin'    => $tx['point_type'] === 'green_bal' ? (float)$tx['amount'] : 0,
-            'yellow_coin'   => $tx['point_type'] === 'yellow_bal' ? (float)$tx['amount'] : 0,
-            'blue_coin'     => $tx['point_type'] === 'blue_bal' ? (float)$tx['amount'] : 0,
-            'order_id'      => $tx['order_no'] ?? null,
-            'related_member'=> $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
-        ];
+        // Exchange Rate for INR
+        $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+            ->where('key', 'usd_to_inr')->value('value') ?: 0;
 
-        // Transactions tab ke liye sab
-        $transactions[] = $formattedTx;
+        // 2. Fetch Dynamic Rates for Coins from Ignite (Plan Ranks)
+        $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
+            try {
+                $resp = $this->ignite->planRanks();
+                return ($resp['code'] ?? null) === ResultCode::OK->value
+                    ? ($resp['data']['plan'] ?? [])
+                    : [];
+            } catch (\Throwable $e) {
+                return [];
+            }
+        });
 
-        // Withdrawals tab ke liye sirf 'wd' (Withdrawal) wale alag karo
-        if ($tx['tx_type'] === 'wd') {
-            $withdrawals[] = [
-                'id'     => $tx['id'],
-                'date'   => $tx['created_at'],
-                'amount' => (float) $tx['amount'],
-                'status' => 'Paid', // Ignite mein withdraw hote hi paid maana jata hai
-                'remark' => $tx['description'] ?? 'Withdrawal',
+        $yellowSmallRate = (float) ($planResp['yellow_usd_small'] ?? 30);
+        $yellowLargeRate = (float) ($planResp['yellow_usd_large'] ?? 40);
+        $blueRate        = (float) ($planResp['blue_usd']         ?? 12.5);
+        $greenRate       = (float) ($planResp['green_redeem_usd'] ?? 125);
+
+        // 3. Fetch Transactions (First page of pointTxs)
+        $txResp = $this->ignite->pointTxs($baId, 0, 100); // 100 txs fetch kar rahe hain
+        $rawTxs = $txResp['data']['rows'] ?? [];
+        $hasMore = $txResp['data']['has_more'] ?? false;
+
+        // Calculate Retail Profit from history
+        $retailProfit = 0;
+        foreach ($rawTxs as $tx) {
+            if ($tx['point_type'] === 'cash_bal' && $tx['description'] === 'comm_retail') {
+                $retailProfit += (float) $tx['amount'];
+            }
+        }
+
+        // 4. Filter Transactions for UI Table (INR + USD both)
+        $transactions = [];
+        $withdrawals  = [];
+
+        foreach ($rawTxs as $tx) {
+            // Category logic
+            $category = match ($tx['tx_type']) {
+                'comm'  => 'Commission',
+                'cr'    => 'RedeemCoin',
+                'wd'    => 'Withdrawal',
+                'adj'   => 'Adjustment',
+                'pv'    => 'CV',
+                default => ucfirst($tx['tx_type'] ?? 'Other'),
+            };
+
+            // Amount Calculations (USD to INR)
+            $amt = (float) $tx['amount'];
+            $walletChangeUsd = $tx['point_type'] === 'cash_bal' ? $amt : 0;
+            $walletChangeInr = round($walletChangeUsd * $usdRate, 2);
+
+            // Coins Calculation
+            $greenCoin = $tx['point_type'] === 'green_bal' ? $amt : 0;
+            $yellowCoin = $tx['point_type'] === 'yellow_bal' ? $amt : 0;
+            $blueCoin = $tx['point_type'] === 'blue_bal' ? $amt : 0;
+
+            // Coin INR Values (Approximate as per Ignite rates)
+            // Note: Ye exact band-based rates hain, agar client ko chahiye toh
+            $greenValueInr = round((floor($greenCoin / 6) * $greenRate) * $usdRate, 2);
+            $yellowValueInr = round(($yellowCoin * ($yellowCoin >= 3 ? $yellowLargeRate : $yellowSmallRate)) * $usdRate, 2);
+            $blueValueInr = round(($blueCoin * $blueRate) * $usdRate, 2);
+
+            $formattedTx = [
+                'id'            => $tx['id'],
+                'date'          => $tx['created_at'],
+                'category'      => $category,
+                'description'   => $tx['description'] ?? '-',
+                
+                // Wallet Change (USD & INR)
+                'wallet_change_usd' => $walletChangeUsd,
+                'wallet_change_inr' => $walletChangeInr,
+                
+                // Coins
+                'green_coin'    => $greenCoin,
+                'yellow_coin'   => $yellowCoin,
+                'blue_coin'     => $blueCoin,
+
+                // Coins Value in INR
+                'green_value_inr' => $greenValueInr,
+                'yellow_value_inr'=> $yellowValueInr,
+                'blue_value_inr'  => $blueValueInr,
+
+                'order_id'      => $tx['order_no'] ?? null,
+                'related_member'=> $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
             ];
-        }
-    }
 
-    // 4. Final Response
-    return response()->json([
-        'success' => true,
-        'data' => [
-            'balances' => [
-                'cash_bal_usd'      => (float) ($member['cash_bal'] ?? 0),
-                'cash_bal_inr'      => round((float) ($member['cash_bal'] ?? 0) * $usdRate, 2),
-                'retail_profit_usd' => $retailProfit,
-                'green_bal'         => (float) ($member['green_bal'] ?? 0),
-                'yellow_bal'        => (float) ($member['yellow_bal'] ?? 0),
-                'blue_bal'          => (float) ($member['blue_bal'] ?? 0),
-                'exchange_rate'     => $usdRate,
-            ],
-            'transactions'          => $transactions,
-            'has_more_transactions' => $hasMore,
-            'withdrawals'           => $withdrawals, // Ignite pointTxs se nikale gaye withdrawals
-        ]
-    ]);
-}
+            // Transactions tab ke liye sab
+            $transactions[] = $formattedTx;
+
+            // Withdrawals tab ke liye sirf 'wd' (Withdrawal) wale alag karo
+            if ($tx['tx_type'] === 'wd') {
+                $withdrawals[] = [
+                    'id'     => $tx['id'],
+                    'date'   => $tx['created_at'],
+                    'amount_usd' => $amt,
+                    'amount_inr' => $walletChangeInr,
+                    'status' => 'Paid', 
+                    'remark' => $tx['description'] ?? 'Withdrawal',
+                ];
+            }
+        }
+
+        // 5. Final Response
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'balances' => [
+                    // Cash Balance
+                    'cash_bal_usd'      => (float) ($member['cash_bal'] ?? 0),
+                    'cash_bal_inr'      => round((float) ($member['cash_bal'] ?? 0) * $usdRate, 2),
+                    
+                    // Retail Profit
+                    'retail_profit_usd' => $retailProfit,
+                    'retail_profit_inr' => round($retailProfit * $usdRate, 2),
+
+                    // Coins (Quantity)
+                    'green_bal'         => (float) ($member['green_bal'] ?? 0),
+                    'yellow_bal'        => (float) ($member['yellow_bal'] ?? 0),
+                    'blue_bal'          => (float) ($member['blue_bal'] ?? 0),
+
+                    // Coins Value (INR)
+                    'green_value_inr'   => round((floor((float)($member['green_bal'] ?? 0) / 6) * $greenRate) * $usdRate, 2),
+                    'yellow_value_inr'  => round(((float)($member['yellow_bal'] ?? 0) * ($member['yellow_bal'] >= 3 ? $yellowLargeRate : $yellowSmallRate)) * $usdRate, 2),
+                    'blue_value_inr'    => round(((float)($member['blue_bal'] ?? 0) * $blueRate) * $usdRate, 2),
+
+                    'exchange_rate'     => $usdRate,
+                ],
+                'transactions'          => $transactions,
+                'has_more_transactions' => $hasMore,
+                'withdrawals'           => $withdrawals,
+            ]
+        ]);
+    }
 
 }
