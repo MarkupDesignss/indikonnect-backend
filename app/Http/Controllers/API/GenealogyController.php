@@ -658,6 +658,27 @@ class GenealogyController extends Controller
     }
 
         /**
+     * Fetch rank names from planRanks (cached 1 hour).
+     * Returns array: [rank_no => name].
+     */
+    private function getRankNames(): array
+    {
+        return Cache::remember('ignite_rank_names', 3600, function () {
+            try {
+                $resp = $this->ignite->planRanks();
+                if (($resp['code'] ?? null) !== ResultCode::OK->value) {
+                    return [];
+                }
+                $ranks = $resp['data']['ranks'] ?? [];
+                return collect($ranks)->pluck('name', 'rank_no')->all();
+            } catch (\Throwable $e) {
+                Log::warning('planRanks failed', ['error' => $e->getMessage()]);
+                return [];
+            }
+        });
+    }
+
+        /**
      * Get the authenticated distributor's direct referrals (level 1).
      *
      * Fetches the unilevel tree at depth 1 from Ignite (which includes the
@@ -693,37 +714,31 @@ class GenealogyController extends Controller
         $rows = $response['data']['rows'] ?? [];
         $referrals = collect($rows)->where('level', '>', 0)->values();
 
-        // BA IDs
-        $baIds = $referrals->pluck('ba_id')->filter()->values()->all();
+        // Pagination
+        $perPage = min((int) $request->input('per_page', 20), 50);
+        $page    = max((int) $request->input('page', 1), 1);
+        $total   = $referrals->count();
+        $paginated = $referrals->slice(($page - 1) * $perPage, $perPage)->values();
+
+        // Enrich only paginated rows
+        $baIds = $paginated->pluck('ba_id')->filter()->values()->all();
         $localUsers = User::whereIn('distributor_id', $baIds)
             ->get(['distributor_id', 'full_name', 'email', 'created_at'])
             ->keyBy('distributor_id');
 
-        // Rank names
         $rankNames = $this->getRankNames();
 
-        // Count referrals per parent (from same tree)
+        // Referrals count map (from full tree)
         $referralsByParent = collect($rows)
             ->groupBy('unilevel_parent_ba_id')
             ->map->count();
 
-        // Enrich each with memberDetails (SLOW — consider queuing)
-        $data = $referrals->map(function ($row) use ($localUsers, $rankNames, $referralsByParent) {
+        $data = $paginated->map(function ($row) use ($localUsers, $rankNames, $referralsByParent) {
             $baId = $row['ba_id'] ?? null;
             $localUser = $baId ? ($localUsers[$baId] ?? null) : null;
 
-            // Fetch memberDetails for rank + status
-            $member = [];
-            if ($baId) {
-                try {
-                    $mResp = $this->ignite->memberDetails($baId);
-                    if (($mResp['code'] ?? null) === ResultCode::OK->value) {
-                        $member = $mResp['data'] ?? [];
-                    }
-                } catch (\Throwable $e) {
-                    // ignore
-                }
-            }
+            // ✅ Cached memberDetails
+            $member = $baId ? $this->fetchMemberDetails($baId) : [];
 
             $rankNo = $member['rank_no'] ?? 0;
             $cvLeft = (float) ($member['cv_left'] ?? $row['cv_left'] ?? 0);
@@ -746,9 +761,14 @@ class GenealogyController extends Controller
         })->values()->all();
 
         return response()->json([
-            'success' => true,
-            'data'    => $data,
-            'total'   => count($data),
+            'success'    => true,
+            'data'       => $data,
+            'pagination' => [
+                'total'        => $total,
+                'per_page'     => $perPage,
+                'current_page' => $page,
+                'last_page'    => (int) ceil($total / $perPage),
+            ],
         ]);
     }
 
