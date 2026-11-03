@@ -720,4 +720,112 @@ class GenealogyController extends Controller
             'total'   => count($data),
         ]);
     }
+
+        /**
+     * Get all of the user's accounts.
+     *
+     * Returns the base accounts (-001, -002, -003) and any extra TCs
+     * (-004 onward) that were placed under this user's network.
+     * Rank names are mapped from the plan ladder.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function myAccounts(Request $request)
+    {
+        $user = Auth::user();
+
+        if (!$user->distributor_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You are not registered on Ignite yet.',
+            ], 422);
+        }
+
+        $mainBaId   = $this->normalizeMainBaId($user->distributor_id);
+        $baseId     = preg_replace('/-(001|002|003)$/', '', $mainBaId);
+        $member     = $this->fetchMemberDetails($mainBaId);
+        $myMemberId = $member['member_id'] ?? null;
+
+        // Fetch rank ladder to map rank_no => name
+        $planRanks = Cache::remember('ignite_plan_ranks_full', 3600, function () {
+            try {
+                $resp = $this->ignite->planRanks();
+                return ($resp['code'] ?? null) === ResultCode::OK->value
+                    ? ($resp['data']['ranks'] ?? [])
+                    : [];
+            } catch (\Throwable $e) {
+                return [];
+            }
+        });
+        $rankMap = collect($planRanks)->pluck('name', 'rank_no')->toArray();
+
+        $accounts = [];
+
+        // 1. Base Accounts (-001, -002, -003)
+        foreach (['-001', '-002', '-003'] as $suffix) {
+            $baId = $baseId . $suffix;
+            $acc  = $this->fetchMemberDetails($baId);
+            
+            $rankNo = (int) ($acc['rank_no'] ?? 0);
+            $status = strtolower($acc['membership_status'] ?? 'inactive');
+            
+            $accounts[] = [
+                'account_id' => $baId,
+                'member_id'  => $acc['member_id'] ?? null,
+                'rank'       => $rankMap[$rankNo] ?? 'Unranked',
+                'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
+                'type'       => 'base',
+            ];
+        }
+
+        // 2. Extra TCs (-004, -005, ...)
+        if ($myMemberId) {
+            $treeResp = $this->ignite->binaryTree($mainBaId, 5);
+            $rows     = $treeResp['data']['rows'] ?? [];
+
+            foreach ($rows as $row) {
+                // Skip the root node (self)
+                if (($row['level'] ?? 0) === 0) {
+                    continue;
+                }
+
+                // Only keep nodes directly sponsored by this user
+                if (($row['unilevel_parent_id'] ?? null) !== $myMemberId) {
+                    continue;
+                }
+
+                $baId = $row['ba_id'] ?? null;
+                if (!$baId) {
+                    continue;
+                }
+
+                // Skip duplicates already added
+                if (collect($accounts)->where('account_id', $baId)->isNotEmpty()) {
+                    continue;
+                }
+
+                $acc    = $this->fetchMemberDetails($baId);
+                $rankNo = (int) ($acc['rank_no'] ?? 0);
+                $status = strtolower($acc['membership_status'] ?? 'inactive');
+
+                $accounts[] = [
+                    'account_id' => $baId,
+                    'member_id'  => $row['member_id'] ?? null,
+                    'rank'       => $rankMap[$rankNo] ?? 'Unranked',
+                    'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
+                    'type'       => 'extra_tc',
+                ];
+            }
+        }
+
+        // Sort by account_id (001, 002, 003, 004...)
+        usort($accounts, fn($a, $b) => strcmp($a['account_id'], $b['account_id']));
+
+        return response()->json([
+            'success' => true,
+            'data'    => $accounts,
+            'total'   => count($accounts),
+        ]);
+    }
 }
