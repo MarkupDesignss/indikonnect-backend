@@ -1148,7 +1148,6 @@ class UserDashboardController extends Controller
     public function getWalletDetails(Request $request)
     {
         $user = Auth::user();
-        dd($user);
         
         if (!$user->distributor_id) {
             return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);

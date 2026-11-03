@@ -99,8 +99,6 @@ Route::get('/login', function () {
     ], 401);
 })->name('login');
 
-Route::get('/distributor/{distributor_id}', [AuthController::class, 'show']);
-
 // ============================
 // ADMIN AUTH ROUTES
 // ============================
@@ -973,3 +971,5 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get('/admin/correction-requests', [CorrectionRequestController::class, 'index']);
     Route::post('/admin/correction-requests/{id}/send-link', [CorrectionRequestController::class, 'sendLink']);
 });
+
+Route::get('/distributor/{distributor_id}', [AuthController::class, 'show']);
