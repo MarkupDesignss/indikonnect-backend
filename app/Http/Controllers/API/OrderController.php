@@ -839,6 +839,7 @@ class OrderController extends Controller
                     'product_id' => $line->product_id,
                     'item_reference_id' => $line->item_reference_id,
                     'product_name' => $product?->name ?? 'Product Not Found',
+                    'product_slug' => $product?->slug ?? 'Not Found',
                     'product_code' => $product?->product_code ?? 'N/A',
                     'quantity' => $line->quantity,
                     'unit_price' => (float) $line->unit_price,
