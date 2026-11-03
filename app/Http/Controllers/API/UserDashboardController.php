@@ -216,7 +216,7 @@ class UserDashboardController extends Controller
         }
     }
 
-    /**
+        /**
      * Fetch the member's commission history (Ledger) from Ignite.
      */
     private function getCommissionHistory(string $baId, int $afterId = 0, int $limit = 50): array
@@ -230,9 +230,8 @@ class UserDashboardController extends Controller
 
             $rows = $response['data']['rows'] ?? [];
 
-            // Map the raw Ignite rows to match your frontend table
             return array_map(function ($row) {
-                // 1. Category Name Formatting
+                // 1. Category formatting
                 $category = match ($row['tx_type']) {
                     'comm'  => 'Commission',
                     'cr'    => 'RedeemCoin',
@@ -242,19 +241,23 @@ class UserDashboardController extends Controller
                     default => ucfirst($row['tx_type'] ?? 'Other'),
                 };
 
-                // 2. Amount Formatting
+                // 2. Amount Formatting (+$120.00, -$30.00)
                 $amount = (float) ($row['amount'] ?? 0);
+                $amountString = ($amount > 0 ? '+' : '') . '$' . number_format(abs($amount), 2);
+
+                // 3. Date Formatting (24/10/2026)
+                $dateCreated = $row['created_at'] ? \Carbon\Carbon::parse($row['created_at'])->format('d/m/Y') : '-';
+                $dateRelease = $row['created_at'] ? \Carbon\Carbon::parse($row['created_at'])->format('d/m/Y') : '-';
 
                 return [
                     'id'            => $row['id'],
                     'category'      => $category, 
-                    'point_type'    => $row['point_type'] ?? null, 
-                    'date_created'  => $row['created_at'] ?? null, 
-                    'date_release'  => $row['created_at'] ?? null, // Created at as release date
+                    'date_created'  => $dateCreated, 
+                    'date_release'  => $dateRelease, 
                     'description'   => $row['description'] ?? '-', 
-                    'amount'        => $amount, // Number format handled by frontend
-                    'order_id'      => $row['order_no'] ?? '-', 
-                    'related_member'=> $row['rel_ba_id'] ?? $row['rel_member_id'] ?? '-', 
+                    'amount'        => $amountString, // UI mein direct string jaise "+$120.00" dikhega
+                    'related_orderid'=> $row['order_no'] ?: 'N/A', 
+                    'related_member'=> $row['rel_ba_id'] ?? $row['rel_member_id'] ?? 'N/A', 
                 ];
             }, $rows);
 
