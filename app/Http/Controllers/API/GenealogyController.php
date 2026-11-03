@@ -731,6 +731,16 @@ class GenealogyController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
+        /**
+     * Get all of the user's accounts.
+     *
+     * Returns the base accounts (-001, -002, -003) and any extra TCs
+     * (-004 onward) that were placed under this user's network.
+     * Rank names are mapped from the plan ladder.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function myAccounts(Request $request)
     {
         $user = Auth::user();
@@ -781,6 +791,7 @@ class GenealogyController extends Controller
 
         // 2. Extra TCs (-004, -005, ...)
         if ($myMemberId) {
+            // Try to get from binary tree first
             $treeResp = $this->ignite->binaryTree($mainBaId, 5);
             $rows     = $treeResp['data']['rows'] ?? [];
 
@@ -800,6 +811,12 @@ class GenealogyController extends Controller
                     continue;
                 }
 
+                // ✅ FIX: Only keep nodes that share this user's base ID (e.g., AIA1675197)
+                // This filters out referrals' base accounts (e.g., AIA2325349-001)
+                if (!str_starts_with($baId, $baseId . '-')) {
+                    continue;
+                }
+
                 // Skip duplicates already added
                 if (collect($accounts)->where('account_id', $baId)->isNotEmpty()) {
                     continue;
@@ -816,6 +833,33 @@ class GenealogyController extends Controller
                     'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
                     'type'       => 'extra_tc',
                 ];
+            }
+
+            // 3. ✅ FALLBACK: Safety net for extra TCs (-004 to -006) 
+            // Just in case they are not returned in the binary tree rows (e.g., deeper than level 5)
+            foreach (['-004', '-005', '-006'] as $suffix) {
+                $baId = $baseId . $suffix;
+
+                // Check if already added from tree traversal
+                if (collect($accounts)->where('account_id', $baId)->isNotEmpty()) {
+                    continue;
+                }
+
+                $acc = $this->fetchMemberDetails($baId);
+                
+                // If data exists, this extra TC belongs to the user
+                if (!empty($acc) && isset($acc['member_id'])) {
+                    $rankNo = (int) ($acc['rank_no'] ?? 0);
+                    $status = strtolower($acc['membership_status'] ?? 'inactive');
+
+                    $accounts[] = [
+                        'account_id' => $baId,
+                        'member_id'  => $acc['member_id'],
+                        'rank'       => $rankMap[$rankNo] ?? 'Unranked',
+                        'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
+                        'type'       => 'extra_tc',
+                    ];
+                }
             }
         }
 
