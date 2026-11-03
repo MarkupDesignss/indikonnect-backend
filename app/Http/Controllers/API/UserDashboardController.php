@@ -980,6 +980,7 @@ class UserDashboardController extends Controller
             $user = User::where('account_type', 'distributor')
                 ->where('id', $userId)
                 ->first();
+            dd($user);
 
             if (!$user) {
                 return response()->json([
