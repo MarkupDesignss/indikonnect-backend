@@ -608,6 +608,7 @@ Route::middleware('auth:sanctum')->prefix('distributor/genealogy')->group(functi
     Route::post('/set-placement', [GenealogyController::class, 'setPlacement']);
     Route::post('/place-banked-tc', [GenealogyController::class, 'placeBankedTc']);
     Route::get('/pairings', [GenealogyController::class, 'pairings']);
+    Route::get('/my-referrals', [GenealogyController::class, 'myReferrals']);
 });
 
 Route::middleware('auth:sanctum')->group(function () {
