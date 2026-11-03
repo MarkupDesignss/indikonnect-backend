@@ -35,12 +35,6 @@ class UserDashboardController extends Controller
 
     /**
      * Display the user dashboard.
-     *
-     * Returns common stats, latest order, recent activity, wishlist, and cart.
-     * For distributors, also includes Ignite member details (rank, CV, balances).
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function dashboard(Request $request)
     {
@@ -87,122 +81,8 @@ class UserDashboardController extends Controller
 
     /**
      * Get Ignite member details (rank, CV, balances) for a distributor.
-     *
-     * @param  string  $baId
-     * @return array|null
      */
-    // private function getIgniteMemberDetails(string $baId): ?array
-    // {
-    //     try {
-    //         $response = $this->ignite->memberDetails($baId);
-
-    //         if ($response['code'] !== ResultCode::OK->value) {
-    //             return null;
-    //         }
-
-    //         $data = $response['data'];
-
-    //         // Exchange rate from settings (same source as CheckoutService)
-    //         $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
-    //             ->where('key', 'usd_to_inr')
-    //             ->value('value') ?: 0;
-
-    //         // ============================================================
-    //         // Priority 2: Dynamic rates from planRanks() instead of hardcoded
-    //         // ============================================================
-    //         $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
-    //             try {
-    //                 $resp = $this->ignite->planRanks();
-    //                 return ($resp['code'] ?? null) === ResultCode::OK->value
-    //                     ? ($resp['data']['plan'] ?? [])
-    //                     : [];
-    //             } catch (\Throwable $e) {
-    //                 \Log::warning('planRanks failed', ['error' => $e->getMessage()]);
-    //                 return [];
-    //             }
-    //         });
-
-    //         $yellowSmallRate = (float) ($planResp['yellow_usd_small'] ?? 30);
-    //         $yellowLargeRate = (float) ($planResp['yellow_usd_large'] ?? 40);
-    //         $blueRate        = (float) ($planResp['blue_usd']         ?? 12.5);
-    //         $greenRate       = (float) ($planResp['green_redeem_usd'] ?? 125);
-
-    //         // Coin balances
-    //         $yellowBal = (float) ($data['yellow_bal'] ?? 0);
-    //         $blueBal   = (float) ($data['blue_bal']   ?? 0);
-    //         $greenBal  = (float) ($data['green_bal']  ?? 0);
-    //         $cashBal   = (float) ($data['cash_bal']   ?? 0);
-
-    //         // Coin values using dynamic rates
-    //         $yellowValueUsd = $yellowBal * ($yellowBal >= 3 ? $yellowLargeRate : $yellowSmallRate);
-    //         $blueValueUsd   = $blueBal >= 4 ? $blueBal * $blueRate : 0;
-    //         $greenValueUsd  = floor($greenBal / 6) * $greenRate;
-
-    //         return [
-    //             'member_id'         => $data['member_id'] ?? null,
-    //             'ba_id'             => $data['ba_id'] ?? null,
-    //             'rank_no'           => $data['rank_no'] ?? 0,
-    //             'base_rank_no'      => $data['base_rank_no'] ?? 0,
-    //             'eligible_rank_no'  => $data['eligible_rank_no'] ?? 0,
-    //             'cv_left'           => $data['cv_left'] ?? '0.0000',
-    //             'cv_right'          => $data['cv_right'] ?? '0.0000',
-    //             'floating_cv_left'  => $data['floating_cv_left'] ?? '0.0000',
-    //             'floating_cv_right' => $data['floating_cv_right'] ?? '0.0000',
-    //             'pending_cv_note'   => 'Settles on the settlement week shown per order',
-    //             'total_cv_left'     => $data['total_cv_left'] ?? '0.0000',
-    //             'total_cv_right'    => $data['total_cv_right'] ?? '0.0000',
-
-    //             // Cash balance
-    //             'cash_bal'          => $cashBal,
-    //             'cash_bal_inr'      => round($cashBal * $usdRate, 2),
-
-    //             // Green coins (auto-settle: every 6 = $greenRate)
-    //             'green_bal'         => $greenBal,
-    //             'green_value_usd'   => round($greenValueUsd, 2),
-    //             'green_value_inr'   => round($greenValueUsd * $usdRate, 2),
-    //             'green_note'        => "Every 6 Green Coins = \${$greenRate} (automatic Saturday settlement)",
-
-    //             // Yellow coins (1-2 = $yellowSmallRate, 3+ = $yellowLargeRate)
-    //             'yellow_bal'        => $yellowBal,
-    //             'yellow_value_usd'  => round($yellowValueUsd, 2),
-    //             'yellow_value_inr'  => round($yellowValueUsd * $usdRate, 2),
-
-    //             // Blue coins (4+ = $blueRate)
-    //             'blue_bal'          => $blueBal,
-    //             'blue_value_usd'    => round($blueValueUsd, 2),
-    //             'blue_value_inr'    => round($blueValueUsd * $usdRate, 2),
-
-    //             // Rate used for conversion
-    //             'exchange_rate'     => $usdRate,
-
-    //             'membership_status' => $data['membership_status'] ?? null,
-    //             'total_steps'       => $data['total_steps'] ?? 0,
-    //             'qualified_at'      => $data['qualified_at'] ?? null,
-    //             'is_placed'         => $data['is_placed'] ?? !empty($data['binary_parent_id']),
-    //             'placement_leg'     => $data['binary_side'] ?? null,
-
-    //             // ============================================================
-    //             // Priority 3: NEW fields for dashboard widgets
-    //             // ============================================================
-
-    //             // TC Bank — for "X extra TCs in bank — place now" widget
-    //             'tc_bank_available' => (int) ($data['tc_bank_available'] ?? 0),
-
-    //             // Far leg ends — for "Left leg end: AIA..." / "Right leg end: AIA..."
-    //             'far_left_id'       => $data['far_left_id']       ?? null,
-    //             'far_left_ba_id'    => $data['far_left_ba_id']    ?? null,
-    //             'far_right_id'      => $data['far_right_id']      ?? null,
-    //             'far_right_ba_id'   => $data['far_right_ba_id']   ?? null,
-    //         ];
-    //     } catch (\Exception $e) {
-    //         \Log::warning('Ignite memberDetails failed', [
-    //             'ba_id' => $baId,
-    //             'error' => $e->getMessage(),
-    //         ]);
-    //         return null;
-    //     }
-    // }
-        private function getIgniteMemberDetails(string $baId): ?array
+    private function getIgniteMemberDetails(string $baId): ?array
     {
         try {
             $response = $this->ignite->memberDetails($baId);
@@ -266,17 +146,17 @@ class UserDashboardController extends Controller
             $unilevelGreenCoin = 0;
 
             foreach ($history as $tx) {
-                // ✅ FIX: Yahan 'category' use karo, 'point_type' nahi
+                // ✅ FIX: point_type check kar rahe hain kyunki category ab UI ka naam hai
                 // Retail Profit
-                if ($tx['description'] === 'comm_retail' && $tx['category'] === 'cash_bal') {
+                if ($tx['description'] === 'comm_retail' && $tx['point_type'] === 'cash_bal') {
                     $retailProfitUsd += (float) $tx['amount'];
                 }
                 // Weekly Pairing 
-                if ($tx['description'] === 'comm_pairing' && $tx['category'] === 'cash_bal') {
+                if ($tx['description'] === 'comm_pairing' && $tx['point_type'] === 'cash_bal') {
                     $weeklyPairingUsd += (float) $tx['amount'];
                 }
                 // Unilevel Green Coin 
-                if ($tx['category'] === 'green_bal') {
+                if ($tx['point_type'] === 'green_bal') {
                     $unilevelGreenCoin += (float) $tx['amount'];
                 }
             }
@@ -332,7 +212,7 @@ class UserDashboardController extends Controller
                 'far_right_id'      => $data['far_right_id']      ?? null,
                 'far_right_ba_id'   => $data['far_right_ba_id']   ?? null,
 
-                // Commissions History Table
+                // Commissions History Table (Dashboard pe bhi bhej rahe hain)
                 'commissions_history' => $history,
             ];
         } catch (\Exception $e) {
@@ -344,10 +224,10 @@ class UserDashboardController extends Controller
         }
     }
 
-        /**
+    /**
      * Fetch the member's commission history (Ledger) from Ignite.
      */
-        private function getCommissionHistory(string $baId, int $afterId = 0, int $limit = 50): array
+    private function getCommissionHistory(string $baId, int $afterId = 0, int $limit = 50): array
     {
         try {
             $response = $this->ignite->pointTxs($baId, $afterId, $limit);
@@ -360,15 +240,30 @@ class UserDashboardController extends Controller
 
             // Map the raw Ignite rows to match your frontend table
             return array_map(function ($row) {
+                // 1. Category Name Formatting (comm -> Commission, cr -> RedeemCoin, etc.)
+                $category = match ($row['tx_type']) {
+                    'comm'  => 'Commission',
+                    'cr'    => 'RedeemCoin',
+                    'wd'    => 'Withdrawal',
+                    'adj'   => 'Adjustment',
+                    'pv'    => 'CV',
+                    default => ucfirst($row['tx_type'] ?? 'Other'),
+                };
+
                 return [
                     'id'            => $row['id'],
-                    'category'      => $row['point_type'] ?? null, // ✅ Mapped correctly
-                    'tx_type'       => $row['tx_type'] ?? null,
-                    'date_created'  => $row['created_at'] ?? null, 
-                    'description'   => $row['description'] ?? null,
-                    'amount'        => $row['amount'] ?? '0.0000',
-                    'order_id'      => $row['order_no'] ?? null,
-                    'related_member'=> $row['rel_ba_id'] ?? $row['rel_member_id'] ?? null,
+                    'category'      => $category, // UI mein Category column ke liye
+                    'point_type'    => $row['point_type'] ?? null, 
+                    'date_created'  => $row['created_at'] ?? null, // UI mein Date Created ke liye
+                    
+                    // Ignite API seedha "Date Release" nahi deta, isliye hum isko created_at se dikha rahe hain
+                    'date_release'  => $row['created_at'] ?? null, 
+                    
+                    'description'   => $row['description'] ?? null, // e.g., comm_pairing
+                    'amount'        => (float) ($row['amount'] ?? 0), // UI mein Amount column ke liye
+                    
+                    'order_id'      => $row['order_no'] ?? null, // Related Order
+                    'related_member'=> $row['rel_ba_id'] ?? $row['rel_member_id'] ?? null, // Related Member
                 ];
             }, $rows);
 
@@ -378,13 +273,14 @@ class UserDashboardController extends Controller
         }
     }
 
-        /**
+    /**
      * API Endpoint for infinite scroll / pagination on the Commissions History table.
      */
     public function commissionHistory(Request $request)
     {
-        $user = Auth::user();
-        if (!$user->distributor_id) {
+        $user = $request->user();
+        
+        if (!$user || empty($user->distributor_id)) {
             return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);
         }
 
@@ -402,146 +298,82 @@ class UserDashboardController extends Controller
         }
 
         return response()->json([
-            'success' => true,
-            'data'    => $history,
-            'has_more'=> $hasMore,
+            'success'  => true,
+            'data'     => $history,
+            'has_more' => $hasMore,
         ]);
     }
 
     /**
      * Get sales calendar for one year, cached for 6 hours.
      */
-    // private function getSalesCalendar(int $year): ?array
-    // {
-    //     try {
-    //         $resp = Cache::remember("ignite_sales_calendar_{$year}", 21600, function () use ($year) {
-    //             return $this->ignite->salesCalendar($year);
-    //         });
-
-    //         if (($resp['code'] ?? null) !== ResultCode::OK->value) {
-    //             return null;
-    //         }
-
-    //         $data = $resp['data'] ?? [];
-
-    //         // Find current month + current week
-    //         $currentMonth = null;
-    //         $currentWeek  = null;
-
-    //         foreach (($data['months'] ?? []) as $month) {
-    //             if (!empty($month['is_current'])) {
-    //                 $currentMonth = [
-    //                     'year'      => $month['year']      ?? null,
-    //                     'month_no'  => $month['month_no']  ?? null,
-    //                     'label'     => $month['label']     ?? null,
-    //                     'start'     => $month['start_date'] ?? null,
-    //                     'end'       => $month['end_date']   ?? null,
-    //                 ];
-
-    //                 foreach (($month['weeks'] ?? []) as $week) {
-    //                     if (!empty($week['is_current'])) {
-    //                         $currentWeek = [
-    //                             'year'        => $week['year']        ?? null,
-    //                             'week_no'     => $week['week_no']     ?? null,
-    //                             'start'       => $week['start_date']  ?? null,
-    //                             'end'         => $week['end_date']    ?? null,
-    //                             'is_settled'  => (bool) ($week['is_settled'] ?? false),
-    //                         ];
-    //                     }
-    //                 }
-    //             }
-    //         }
-
-    //         return [
-    //             'year'          => $data['year'] ?? $year,
-    //             'current_month' => $currentMonth,
-    //             'current_week'  => $currentWeek,
-    //         ];
-    //     } catch (\Throwable $e) {
-    //         Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
-    //         return null;
-    //     }
-    // }
-        /**
-     * Get sales calendar for one year, cached for 6 hours.
-     *
-     * Ignite returns dates in UTC+8. We convert them to IST (Asia/Kolkata)
-     * for display purposes only — the underlying data is unchanged.
-     */
     private function getSalesCalendar(int $year): ?array
-{
-    try {
-        $resp = Cache::remember("ignite_sales_calendar_{$year}", 21600, function () use ($year) {
-            return $this->ignite->salesCalendar($year);
-        });
+    {
+        try {
+            $resp = Cache::remember("ignite_sales_calendar_{$year}", 21600, function () use ($year) {
+                return $this->ignite->salesCalendar($year);
+            });
 
-        if (($resp['code'] ?? null) !== ResultCode::OK->value) {
-            return null;
-        }
+            if (($resp['code'] ?? null) !== ResultCode::OK->value) {
+                return null;
+            }
 
-        $data = $resp['data'] ?? [];
+            $data = $resp['data'] ?? [];
 
-        $utc8 = new \DateTimeZone('Asia/Singapore');
-        $ist  = new \DateTimeZone('Asia/Kolkata');
+            $utc8 = new \DateTimeZone('Asia/Singapore');
+            $ist  = new \DateTimeZone('Asia/Kolkata');
 
-        $toIst = function (?string $date, string $time = '00:00:00') use ($utc8, $ist): ?string {
-            if (!$date) return null;
-            $dt = new \DateTime("{$date} {$time}", $utc8);
-            $dt->setTimezone($ist);
-            return $dt->format('Y-m-d H:i:s'); // ✅ Ab time bhi aayega
-        };
+            $toIst = function (?string $date, string $time = '00:00:00') use ($utc8, $ist): ?string {
+                if (!$date) return null;
+                $dt = new \DateTime("{$date} {$time}", $utc8);
+                $dt->setTimezone($ist);
+                return $dt->format('Y-m-d H:i:s'); // ✅ Ab time bhi aayega
+            };
 
-        $allMonths = [];
+            $allMonths = [];
 
-        foreach (($data['months'] ?? []) as $month) {
-            $weeksData = [];
-            foreach (($month['weeks'] ?? []) as $week) {
-                // Payout date nikaalne ke liye end_date ko 00:00:00 UTC+8 se shift karke +1 day karenge
-                $endDateTime = $week['end_date'] ? (new \DateTime("{$week['end_date']} 00:00:00", $utc8))->modify('+1 day') : null;
+            foreach (($data['months'] ?? []) as $month) {
+                $weeksData = [];
+                foreach (($month['weeks'] ?? []) as $week) {
+                    // Payout date nikaalne ke liye end_date ko 00:00:00 UTC+8 se shift karke +1 day karenge
+                    $endDateTime = $week['end_date'] ? (new \DateTime("{$week['end_date']} 00:00:00", $utc8))->modify('+1 day') : null;
 
-                $weeksData[] = [
-                    'week_no'    => $week['week_no'] ?? null,
-                    'start'      => $toIst($week['start_date'] ?? null, '00:00:00'),
-                    'end'        => $toIst($week['end_date'] ?? null, '23:59:59'), // ✅ Week end me 23:59:59 dikhega
-                    'payout_date' => $endDateTime ? $toIst($endDateTime->format('Y-m-d'), '00:00:00') : null,
-                    'is_current' => (bool) ($week['is_current'] ?? false),
-                    'is_settled' => (bool) ($week['is_settled'] ?? false),
+                    $weeksData[] = [
+                        'week_no'    => $week['week_no'] ?? null,
+                        'start'      => $toIst($week['start_date'] ?? null, '00:00:00'),
+                        'end'        => $toIst($week['end_date'] ?? null, '23:59:59'), // ✅ Week end me 23:59:59 dikhega
+                        'payout_date' => $endDateTime ? $toIst($endDateTime->format('Y-m-d'), '00:00:00') : null,
+                        'is_current' => (bool) ($week['is_current'] ?? false),
+                        'is_settled' => (bool) ($week['is_settled'] ?? false),
+                    ];
+                }
+
+                $allMonths[] = [
+                    'month_no'   => $month['month_no'] ?? null,
+                    'label'      => $month['label'] ?? null,
+                    'is_current' => (bool) ($month['is_current'] ?? false),
+                    'weeks'      => $weeksData,
                 ];
             }
 
-            $allMonths[] = [
-                'month_no'   => $month['month_no'] ?? null,
-                'label'      => $month['label'] ?? null,
-                'is_current' => (bool) ($month['is_current'] ?? false),
-                'weeks'      => $weeksData,
+            return [
+                'year'       => $data['year'] ?? $year,
+                'all_months' => $allMonths, 
             ];
+        } catch (\Throwable $e) {
+            Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
+            return null;
         }
-
-        return [
-            'year'       => $data['year'] ?? $year,
-            'all_months' => $allMonths, 
-        ];
-    } catch (\Throwable $e) {
-        Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
-        return null;
     }
-}
 
     /**
      * Calculate general user statistics.
-     *
-     * @param  int  $userId
-     * @return array
      */
     private function getUserStats($userId)
     {
-        // FIX: count orders, not order lines
         $totalOrders = Order::where('user_id', $userId)->count();
-
         $wishlistCount = Wishlist::where('user_id', $userId)->count();
 
-        // FIX: points_earned = total CV from confirmed orders (Ignite commissionable_volume),
-        //      NOT coin_redeemed (which is coin count)
         $totalPoints = Order::where('user_id', $userId)
             ->where('status', 'confirmed')
             ->sum('commissionable_volume') ?? 0;
@@ -563,7 +395,7 @@ class UserDashboardController extends Controller
         return [
             'total_orders'   => $totalOrders,
             'wishlist'       => $wishlistCount,
-            'points_earned'  => number_format((float) $totalPoints, 2, '.', ''),  // FIX: string format
+            'points_earned'  => number_format((float) $totalPoints, 2, '.', ''),
             'reviews'        => $reviewsCount,
             'average_rating' => $averageRating ? round($averageRating, 1) : 0,
             'cart_items'     => $cartItemsCount,
@@ -572,9 +404,6 @@ class UserDashboardController extends Controller
 
     /**
      * Get the user's most recent order with product details.
-     *
-     * @param  int  $userId
-     * @return array|null
      */
     private function getLatestOrder($userId)
     {
@@ -636,9 +465,6 @@ class UserDashboardController extends Controller
 
     /**
      * Get recent activity for the user (orders, reviews, wishlist, cart).
-     *
-     * @param  int  $userId
-     * @return array
      */
     private function getRecentActivity($userId)
     {
@@ -656,7 +482,6 @@ class UserDashboardController extends Controller
                 ? (Product::find($orderLine->product_id)?->name ?? 'Product')
                 : 'Product';
 
-            // FIX: use commissionable_volume (CV), not coin_redeemed
             $cv = (float) ($order->commissionable_volume ?? 0);
 
             $activities[] = [
@@ -769,9 +594,6 @@ class UserDashboardController extends Controller
 
     /**
      * Get wishlist items with product details.
-     *
-     * @param  int  $userId
-     * @return array
      */
     private function getWishlistItems($userId)
     {
@@ -810,9 +632,6 @@ class UserDashboardController extends Controller
 
     /**
      * Get cart items with product details.
-     *
-     * @param  int  $userId
-     * @return array
      */
     private function getCartItems($userId)
     {
@@ -854,8 +673,6 @@ class UserDashboardController extends Controller
 
     /**
      * Get global marketplace statistics (public).
-     *
-     * @return \Illuminate\Http\JsonResponse
      */
     public function getStats()
     {
@@ -947,12 +764,6 @@ class UserDashboardController extends Controller
 
     /**
      * Get distributor-specific statistics including Ignite rank progress.
-     *
-     * Combines local order data with Ignite rank progress. Requires the
-     * authenticated user to be a distributor.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function getDistributorStats(Request $request)
     {
@@ -999,8 +810,8 @@ class UserDashboardController extends Controller
                     DB::raw('COUNT(DISTINCT o.id) as total_orders'),
                     DB::raw('COALESCE(SUM(p.distributor_mrp * ol.quantity), 0) as total_amount_mrp'),
                     DB::raw('COALESCE(SUM((p.distributor_mrp - p.distributor_price) * ol.quantity), 0) as total_savings'),
-                    DB::raw('COALESCE(SUM(o.commissionable_volume), 0) as total_cv'),          // FIX: CV
-                    DB::raw('COALESCE(SUM(o.coin_redeemed), 0) as total_coins_redeemed'),      // keep separate
+                    DB::raw('COALESCE(SUM(o.commissionable_volume), 0) as total_cv'),
+                    DB::raw('COALESCE(SUM(o.coin_redeemed), 0) as total_coins_redeemed'),
                 ])
                 ->first();
 
@@ -1014,7 +825,7 @@ class UserDashboardController extends Controller
                         $rankProgress = $response['data'];
                     }
                 } catch (\Exception $e) {
-                    // Silently ignore Ignite errors — local stats still returned
+                    // Silently ignore Ignite errors
                 }
             }
 
@@ -1027,8 +838,8 @@ class UserDashboardController extends Controller
                 'total_orders'         => (int) $stats->total_orders,
                 'total_amount_mrp'     => (float) $stats->total_amount_mrp,
                 'total_savings'        => (float) $stats->total_savings,
-                'total_cv'             => number_format((float) $stats->total_cv, 2, '.', ''),         // FIX
-                'total_coins_redeemed' => (int) $stats->total_coins_redeemed,                          // FIX
+                'total_cv'             => number_format((float) $stats->total_cv, 2, '.', ''),
+                'total_coins_redeemed' => (int) $stats->total_coins_redeemed,
                 'account_type'         => $user->account_type,
                 'joined_at'            => $user->created_at->toDateTimeString(),
                 'rank_progress'        => $rankProgress,
@@ -1142,8 +953,6 @@ class UserDashboardController extends Controller
 
     /**
      * Get full wallet data for the UI (Balances + Transactions + Withdrawals) with INR conversion.
-     *
-     * GET /distributor/wallet
      */
     public function getWalletDetails(Request $request)
     {
@@ -1330,5 +1139,4 @@ class UserDashboardController extends Controller
             ]
         ]);
     }
-
 }
