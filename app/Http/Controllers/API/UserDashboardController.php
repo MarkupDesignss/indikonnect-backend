@@ -1141,7 +1141,7 @@ class UserDashboardController extends Controller
     }
 
     /**
-     * Get full wallet data for the UI (Balances + Transactions + Withdrawals).
+     * Get full wallet data for the UI (Balances + Transactions + Withdrawals) with INR conversion.
      *
      * GET /distributor/wallet
      */
@@ -1168,11 +1168,11 @@ class UserDashboardController extends Controller
         }
         $member = $memberResp['data'];
 
-        // Exchange Rate for INR
+        // 2. Exchange Rate for INR
         $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
             ->where('key', 'usd_to_inr')->value('value') ?: 0;
 
-        // 2. Fetch Dynamic Rates for Coins from Ignite (Plan Ranks)
+        // 3. Fetch Dynamic Rates for Coins from Ignite (Plan Ranks)
         $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
             try {
                 $resp = $this->ignite->planRanks();
@@ -1189,20 +1189,20 @@ class UserDashboardController extends Controller
         $blueRate        = (float) ($planResp['blue_usd']         ?? 12.5);
         $greenRate       = (float) ($planResp['green_redeem_usd'] ?? 125);
 
-        // 3. Fetch Transactions (First page of pointTxs)
-        $txResp = $this->ignite->pointTxs($baId, 0, 100); // 100 txs fetch kar rahe hain
-        $rawTxs = $txResp['data']['rows'] ?? [];
+        // 4. Fetch Transactions (First page of pointTxs)
+        $txResp  = $this->ignite->pointTxs($baId, 0, 100);
+        $rawTxs  = $txResp['data']['rows'] ?? [];
         $hasMore = $txResp['data']['has_more'] ?? false;
 
-        // Calculate Retail Profit from history
-        $retailProfit = 0;
+        // 5. Calculate Retail Profit
+        $retailProfitUsd = 0;
         foreach ($rawTxs as $tx) {
             if ($tx['point_type'] === 'cash_bal' && $tx['description'] === 'comm_retail') {
-                $retailProfit += (float) $tx['amount'];
+                $retailProfitUsd += (float) $tx['amount'];
             }
         }
 
-        // 4. Filter Transactions for UI Table (INR + USD both)
+        // 6. Filter Transactions for UI Table (INR + USD both)
         $transactions = [];
         $withdrawals  = [];
 
@@ -1217,21 +1217,31 @@ class UserDashboardController extends Controller
                 default => ucfirst($tx['tx_type'] ?? 'Other'),
             };
 
-            // Amount Calculations (USD to INR)
+            // Amount (USD)
             $amt = (float) $tx['amount'];
+            
+            // Wallet Change (Cash)
             $walletChangeUsd = $tx['point_type'] === 'cash_bal' ? $amt : 0;
             $walletChangeInr = round($walletChangeUsd * $usdRate, 2);
 
-            // Coins Calculation
-            $greenCoin = $tx['point_type'] === 'green_bal' ? $amt : 0;
+            // Coins Quantity
+            $greenCoin  = $tx['point_type'] === 'green_bal'  ? $amt : 0;
             $yellowCoin = $tx['point_type'] === 'yellow_bal' ? $amt : 0;
-            $blueCoin = $tx['point_type'] === 'blue_bal' ? $amt : 0;
+            $blueCoin   = $tx['point_type'] === 'blue_bal'   ? $amt : 0;
 
-            // Coin INR Values (Approximate as per Ignite rates)
-            // Note: Ye exact band-based rates hain, agar client ko chahiye toh
-            $greenValueInr = round((floor($greenCoin / 6) * $greenRate) * $usdRate, 2);
-            $yellowValueInr = round(($yellowCoin * ($yellowCoin >= 3 ? $yellowLargeRate : $yellowSmallRate)) * $usdRate, 2);
-            $blueValueInr = round(($blueCoin * $blueRate) * $usdRate, 2);
+            // Coins INR Value (absolute value use kiya hai taaki negative redeem par bhi sahi kaam kare)
+            $greenAbs  = abs($greenCoin);
+            $yellowAbs = abs($yellowCoin);
+            $blueAbs   = abs($blueCoin);
+
+            $greenValueInr  = round((floor($greenAbs / 6) * $greenRate) * $usdRate, 2);
+            $yellowValueInr = round(($yellowAbs * ($yellowAbs >= 3 ? $yellowLargeRate : $yellowSmallRate)) * $usdRate, 2);
+            $blueValueInr   = round(($blueAbs * $blueRate) * $usdRate, 2);
+
+            // Sign preserve karo INR value me (agar redeem hua toh negative)
+            if ($greenCoin < 0)  $greenValueInr  = -$greenValueInr;
+            if ($yellowCoin < 0) $yellowValueInr = -$yellowValueInr;
+            if ($blueCoin < 0)   $blueValueInr   = -$blueValueInr;
 
             $formattedTx = [
                 'id'            => $tx['id'],
@@ -1243,7 +1253,7 @@ class UserDashboardController extends Controller
                 'wallet_change_usd' => $walletChangeUsd,
                 'wallet_change_inr' => $walletChangeInr,
                 
-                // Coins
+                // Coins Quantity
                 'green_coin'    => $greenCoin,
                 'yellow_coin'   => $yellowCoin,
                 'blue_coin'     => $blueCoin,
@@ -1263,38 +1273,54 @@ class UserDashboardController extends Controller
             // Withdrawals tab ke liye sirf 'wd' (Withdrawal) wale alag karo
             if ($tx['tx_type'] === 'wd') {
                 $withdrawals[] = [
-                    'id'     => $tx['id'],
-                    'date'   => $tx['created_at'],
+                    'id'         => $tx['id'],
+                    'date'       => $tx['created_at'],
                     'amount_usd' => $amt,
-                    'amount_inr' => $walletChangeInr,
-                    'status' => 'Paid', 
-                    'remark' => $tx['description'] ?? 'Withdrawal',
+                    'amount_inr' => round($amt * $usdRate, 2),
+                    'status'     => 'Paid',
+                    'remark'     => $tx['description'] ?? 'Withdrawal',
                 ];
             }
         }
 
-        // 5. Final Response
+        // 7. Balances Calculation (USD + INR)
+        $cashUsd     = (float) ($member['cash_bal'] ?? 0);
+        $greenQty    = (float) ($member['green_bal'] ?? 0);
+        $yellowQty   = (float) ($member['yellow_bal'] ?? 0);
+        $blueQty     = (float) ($member['blue_bal'] ?? 0);
+
+        // Coin Value USD (As per Ignite Rates)
+        $greenValUsd  = floor($greenQty / 6) * $greenRate;
+        $yellowValUsd = $yellowQty * ($yellowQty >= 3 ? $yellowLargeRate : $yellowSmallRate);
+        $blueValUsd   = $blueQty >= 4 ? $blueQty * $blueRate : 0;
+
+        // 8. Final Response
         return response()->json([
             'success' => true,
             'data' => [
                 'balances' => [
                     // Cash Balance
-                    'cash_bal_usd'      => (float) ($member['cash_bal'] ?? 0),
-                    'cash_bal_inr'      => round((float) ($member['cash_bal'] ?? 0) * $usdRate, 2),
+                    'cash_bal_usd'      => round($cashUsd, 2),
+                    'cash_bal_inr'      => round($cashUsd * $usdRate, 2),
                     
                     // Retail Profit
-                    'retail_profit_usd' => $retailProfit,
-                    'retail_profit_inr' => round($retailProfit * $usdRate, 2),
+                    'retail_profit_usd' => round($retailProfitUsd, 2),
+                    'retail_profit_inr' => round($retailProfitUsd * $usdRate, 2),
 
                     // Coins (Quantity)
-                    'green_bal'         => (float) ($member['green_bal'] ?? 0),
-                    'yellow_bal'        => (float) ($member['yellow_bal'] ?? 0),
-                    'blue_bal'          => (float) ($member['blue_bal'] ?? 0),
+                    'green_bal'         => $greenQty,
+                    'yellow_bal'        => $yellowQty,
+                    'blue_bal'          => $blueQty,
+
+                    // Coins Value (USD)
+                    'green_value_usd'   => round($greenValUsd, 2),
+                    'yellow_value_usd'  => round($yellowValUsd, 2),
+                    'blue_value_usd'    => round($blueValUsd, 2),
 
                     // Coins Value (INR)
-                    'green_value_inr'   => round((floor((float)($member['green_bal'] ?? 0) / 6) * $greenRate) * $usdRate, 2),
-                    'yellow_value_inr'  => round(((float)($member['yellow_bal'] ?? 0) * ($member['yellow_bal'] >= 3 ? $yellowLargeRate : $yellowSmallRate)) * $usdRate, 2),
-                    'blue_value_inr'    => round(((float)($member['blue_bal'] ?? 0) * $blueRate) * $usdRate, 2),
+                    'green_value_inr'   => round($greenValUsd * $usdRate, 2),
+                    'yellow_value_inr'  => round($yellowValUsd * $usdRate, 2),
+                    'blue_value_inr'    => round($blueValUsd * $usdRate, 2),
 
                     'exchange_rate'     => $usdRate,
                 ],
