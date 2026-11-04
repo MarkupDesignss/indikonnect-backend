@@ -215,6 +215,14 @@ class UserDashboardController extends Controller
                 'far_right_id'      => $data['far_right_id']      ?? null,
                 'far_right_ba_id'   => $data['far_right_ba_id']   ?? null,
 
+                'commission_breakdown' => [
+                    'cash_count'   => collect($history)->where('point_type', 'cash_bal')->count(),
+                    'yellow_count' => collect($history)->where('point_type', 'yellow_bal')->count(),
+                    'green_count'  => collect($history)->where('point_type', 'green_bal')->count(),
+                    'blue_count'   => collect($history)->where('point_type', 'blue_bal')->count(),
+                    'other_count'  => collect($history)->whereNotIn('point_type', ['cash_bal', 'yellow_bal', 'green_bal', 'blue_bal'])->count(),
+                ],
+
                 'commissions_history' => $history,
             ];
         } catch (\Exception $e) {
