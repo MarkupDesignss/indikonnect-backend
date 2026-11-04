@@ -187,8 +187,11 @@ class UserDashboardController extends Controller
                 'green_bal'         => $greenBal,
                 'green_value_usd'   => round($greenValueUsd, 2),
                 'green_value_inr'   => round($greenValueUsd * $usdRate, 2),
-                'green_note'        => "Every 6 Green Coins = \${$greenRate} (automatic Saturday settlement)",
-
+                'green_note' => $greenBal >= 6
+                            ? floor($greenBal / 6) . " redemption(s) ready = \$" . number_format(floor($greenBal / 6) * $greenRate, 2)
+                            : ($greenBal > 0
+                                ? "Need " . (6 - (int) $greenBal) . " more Green Coins to redeem \$" . number_format($greenRate, 2)
+                                : "Every 6 Green Coins = \$" . number_format($greenRate, 2)),
                 'yellow_bal'        => $yellowBal,
                 'yellow_value_usd'  => round($yellowValueUsd, 2),
                 'yellow_value_inr'  => round($yellowValueUsd * $usdRate, 2),
@@ -263,7 +266,8 @@ class UserDashboardController extends Controller
 
                 // Display string — currency-correct
                 if ($isCashRow) {
-                    $amountDisplay = ($amount > 0 ? '+' : '') . '$' . number_format(abs($amount), 2);
+                    $sign = $amount < 0 ? '-' : ($amount > 0 ? '+' : '');
+                    $amountDisplay = $sign . '$' . number_format(abs($amount), 2);
                 } elseif ($isCoinRow) {
                     $unit = match ($pointType) {
                         'green_bal'  => 'GC',
@@ -271,11 +275,14 @@ class UserDashboardController extends Controller
                         'blue_bal'   => 'BC',
                         default      => '',
                     };
-                    $amountDisplay = ($amount > 0 ? '+' : '') . number_format(abs($amount), 2) . ' ' . $unit;
+                    $sign = $amount < 0 ? '-' : ($amount > 0 ? '+' : '');
+                    $amountDisplay = $sign . number_format(abs($amount), 2) . ' ' . $unit;
                 } elseif ($isCvRow) {
-                    $amountDisplay = ($amount > 0 ? '+' : '') . number_format(abs($amount), 2) . ' CV';
+                    $sign = $amount < 0 ? '-' : ($amount > 0 ? '+' : '');
+                    $amountDisplay = $sign . number_format(abs($amount), 2) . ' CV';
                 } else {
-                    $amountDisplay = ($amount > 0 ? '+' : '') . number_format(abs($amount), 2);
+                    $sign = $amount < 0 ? '-' : ($amount > 0 ? '+' : '');
+                    $amountDisplay = $sign . number_format(abs($amount), 2);
                 }
 
                 $dateCreated = $row['created_at'] ? \Carbon\Carbon::parse($row['created_at'])->format('d/m/Y') : '-';
@@ -692,8 +699,14 @@ class UserDashboardController extends Controller
                     'name' => $product->name,
                     'slug' => $product->slug,
                     'quantity' => $cartItem->quantity,
-                    'unit_price' => $cartItem->unit_price,
-                    'line_total' => $cartItem->unit_price * $cartItem->quantity,
+                    'unit_price' => number_format(
+                        (float) ($cartItem->unit_price > 0 ? $cartItem->unit_price : $product->distributor_price),
+                        2, '.', ''
+                    ),
+                    'line_total' => number_format(
+                        (float) ($cartItem->unit_price > 0 ? $cartItem->unit_price : $product->distributor_price) * $cartItem->quantity,
+                        2, '.', ''
+                    ),
                     'currency' => 'INR',
                     'images' => $product->images->map(function ($image) {
                         return [
