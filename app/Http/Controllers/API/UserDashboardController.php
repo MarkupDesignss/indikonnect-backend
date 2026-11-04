@@ -266,8 +266,8 @@ class UserDashboardController extends Controller
 
                 // Display string — currency-correct
                 if ($isCashRow) {
-                    $sign = $amount < 0 ? '-' : ($amount > 0 ? '+' : '');
-                    $amountDisplay = $sign . 'INR ' . number_format(abs($amount * $usdRate), 2) . ' ($' . number_format(abs($amount), 2) . ')';
+                   $sign = $amount < 0 ? '-' : ($amount > 0 ? '+' : '');
+                   $amountDisplay = $sign . '₹' . number_format(abs($amount * $usdRate), 2);
                 } elseif ($isCoinRow) {
                     $unit = match ($pointType) {
                         'green_bal'  => 'GC',
