@@ -949,7 +949,14 @@ class OrderController extends Controller
                         'state' => $billingAddress->billing_state,
                         'postal_code' => $billingAddress->billing_postcode,
                         'country' => $billingAddress->billing_country ?? 'India',
-                        'full_address' => $this->formatAddress($billingAddress),
+                        'full_address' => collect([
+                            $billingAddress->billing_address_line_1,
+                            $billingAddress->billing_address_line_2,
+                            $billingAddress->billing_city,
+                            $billingAddress->billing_state,
+                            $billingAddress->billing_postcode,
+                            $billingAddress->billing_country ?? 'India',
+                        ])->filter()->implode(', '),
                     ] : null,
 
                     'delivery_address' => $deliveryAddress ? [
@@ -963,7 +970,14 @@ class OrderController extends Controller
                         'state' => $deliveryAddress->state,
                         'postal_code' => $deliveryAddress->postal_code,
                         'country' => $deliveryAddress->country ?? 'India',
-                        'full_address' => $this->formatAddress($deliveryAddress),
+                        'full_address' => collect([
+                            $deliveryAddress->address_line_1,
+                            $deliveryAddress->address_line_2,
+                            $deliveryAddress->city,
+                            $deliveryAddress->state,
+                            $deliveryAddress->postal_code,
+                            $deliveryAddress->country ?? 'India',
+                        ])->filter()->implode(', '),
                     ] : null,
 
                     // User Info
