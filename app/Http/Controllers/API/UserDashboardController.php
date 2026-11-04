@@ -823,6 +823,9 @@ class UserDashboardController extends Controller
     /**
      * Get distributor-specific statistics including Ignite rank progress.
      */
+        /**
+     * Get distributor-specific statistics including Ignite rank progress.
+     */
     public function getDistributorStats(Request $request)
     {
         try {
@@ -858,6 +861,7 @@ class UserDashboardController extends Controller
                 ], 404);
             }
 
+            // Local order statistics
             $stats = DB::table('orders as o')
                 ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
                 ->join('products as p', 'ol.product_id', '=', 'p.id')
@@ -868,16 +872,33 @@ class UserDashboardController extends Controller
                     DB::raw('COALESCE(SUM(p.distributor_mrp * ol.quantity), 0) as total_amount_mrp'),
                     DB::raw('COALESCE(SUM((p.distributor_mrp - p.distributor_price) * ol.quantity), 0) as total_savings'),
                     DB::raw('COALESCE(SUM(o.commissionable_volume), 0) as total_cv'),
-                    DB::raw('COALESCE(SUM(o.coin_redeemed), 0) as total_coins_redeemed'),
                 ])
                 ->first();
 
+            // Ignite rank progress (if registered)
             $rankProgress = null;
+            $totalCoinsRedeemed = 0;
+
             if ($user->distributor_id) {
                 try {
                     $response = $this->ignite->rankProgress($user->distributor_id);
                     if ($response['code'] === ResultCode::OK->value) {
                         $rankProgress = $response['data'];
+                    }
+                } catch (\Exception $e) {
+                    // Ignore
+                }
+
+                // Tarika 2: Ignite Ledger se Total Coins Redeemed nikaalna
+                try {
+                    $txResp = $this->ignite->pointTxs($user->distributor_id, 0, 500); // Fetch up to 500 recent txs
+                    $txRows = $txResp['data']['rows'] ?? [];
+                    
+                    foreach ($txRows as $tx) {
+                        // 'cr_out' matlab coin deduct hua (redeem hua)
+                        if (($tx['tx_type'] ?? null) === 'cr' && ($tx['description'] ?? '') === 'cr_out') {
+                            $totalCoinsRedeemed += abs((float) $tx['amount']);
+                        }
                     }
                 } catch (\Exception $e) {
                     // Ignore
@@ -897,7 +918,10 @@ class UserDashboardController extends Controller
                 'total_savings_currency'    => 'INR',
                 'total_cv'             => number_format((float) $stats->total_cv, 2, '.', ''),
                 'total_cv_unit'        => 'CV',
-                'total_coins_redeemed' => (int) $stats->total_coins_redeemed,
+                
+                // Yahan Ignite se aaya hua data set ho raha hai
+                'total_coins_redeemed' => (int) $totalCoinsRedeemed, 
+                
                 'account_type'         => $user->account_type,
                 'joined_at'            => $user->created_at->toDateTimeString(),
                 'rank_progress'        => $rankProgress,
