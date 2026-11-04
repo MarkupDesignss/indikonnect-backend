@@ -373,11 +373,19 @@ class GenealogyController extends Controller
     /**
      * Place one extra TC from the member's TC Bank at a free slot.
      */
+        /**
+     * Seat an extra TC from the main account's TC Bank at a specific position in the binary tree.
+     * 
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function placeBankedTc(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'ba_id' => 'required|string',
-            'side'  => 'required|in:1,2',
+            'ba_id'               => 'required|string',
+            'side'                => 'required|in:1,2',
+            'placement_ba_id'     => 'nullable|string',  // Specific node BA ID
+            'placement_member_id' => 'nullable|integer', // Fallback for outside nodes
         ]);
 
         if ($validator->fails()) {
@@ -399,36 +407,64 @@ class GenealogyController extends Controller
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
         $side     = (int) $request->side;
 
-        $member  = $this->fetchMemberDetails($mainBaId);
-        $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
-        $slotId  = $member[$slotKey] ?? null;
+        // Validate that the ba_id belongs to the logged-in user (or their sub-accounts)
+        $requestedBaId = $request->ba_id;
+        $baseId = preg_replace('/-(001|002|003)$/', '', $mainBaId);
+        $allowedBaIds = [$baseId . '-001', $baseId . '-002', $baseId . '-003'];
 
-        if (empty($slotId)) {
+        if (!in_array($requestedBaId, $allowedBaIds)) {
             return response()->json([
                 'success' => false,
-                'message' => 'That side is not available for placement.',
-            ], 422);
+                'message' => 'You can only place TCs from your own account.',
+            ], 403);
         }
 
+        $placementParent = null;
+
+        // 1. If frontend sends a specific node BA ID (e.g., AIA1675197-002)
+        if ($request->filled('placement_ba_id')) {
+            $placementParent = $request->placement_ba_id;
+        } 
+        // 2. If frontend sends a specific member ID (for outside nodes)
+        elseif ($request->filled('placement_member_id')) {
+            $placementParent = (int) $request->placement_member_id;
+        } 
+        // 3. Fallback: If no specific node is chosen, auto-detect the far end of the leg
+        else {
+            $member  = $this->fetchMemberDetails($mainBaId);
+            $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
+            $slotId  = $member[$slotKey] ?? null;
+
+            if (empty($slotId)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'That side is not available for placement.',
+                ], 422);
+            }
+            $placementParent = (int) $slotId;
+        }
+
+        // Call Ignite SDK
         try {
             $response = $this->ignite->placeBankedTc(
-                baId:            $request->ba_id,
-                placementParent: (int) $slotId,
+                baId:            $requestedBaId,
+                placementParent: $placementParent, // Can be string (BA ID) or int (member_id)
                 side:            $side,
             );
         } catch (\Throwable $e) {
             Log::error('Ignite placeBankedTc threw', [
-                'ba_id' => $request->ba_id,
+                'ba_id' => $requestedBaId,
                 'error' => $e->getMessage(),
             ]);
             return response()->json([
                 'success' => false,
-                'message' => 'Ignite unreachable',
+                'message' => 'Ignite unreachable. Please try again later.',
             ], 503);
         }
 
         $code = $response['code'] ?? null;
 
+        // Handle specific refusals from Ignite
         if ($code === ResultCode::TC_BANK_EMPTY->value) {
             return response()->json([
                 'success' => false,
@@ -448,9 +484,17 @@ class GenealogyController extends Controller
         if ($code === ResultCode::PLACEMENT_REFUSED->value) {
             return response()->json([
                 'success' => false,
-                'message' => $response['msg'] ?? 'That position is not available.',
+                'message' => $response['msg'] ?? 'That position is not available. It might be taken.',
                 'code'    => ResultCode::PLACEMENT_REFUSED->value,
             ], 422);
+        }
+
+        if ($code === ResultCode::NETWORK_BUSY->value) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Network is busy. Another placement is in progress. Please try again.',
+                'code'    => ResultCode::NETWORK_BUSY->value,
+            ], 503);
         }
 
         if ($code !== ResultCode::OK->value) {
@@ -461,13 +505,14 @@ class GenealogyController extends Controller
             ], 422);
         }
 
+        // Clear caches to reflect the new node
         Cache::forget("ignite_member_{$mainBaId}");
-        Cache::forget("ignite_member_{$request->ba_id}");
+        Cache::forget("ignite_member_{$requestedBaId}");
         Cache::forget("ignite_binary_tree_{$mainBaId}");
 
         return response()->json([
             'success' => true,
-            'message' => 'TC placed successfully.',
+            'message' => 'TC placed successfully at the selected position.',
             'data'    => $response['data'] ?? null,
         ]);
     }
@@ -859,6 +904,75 @@ class GenealogyController extends Controller
                 'week_result' => $pairingRow,
                 'is_settled'  => $pairingRow !== null,
             ],
+        ]);
+    }
+
+    /**
+     * Get a unique list of nodes that have at least one free slot in the binary tree.
+     * This is used to populate the "Placement BA ID" dropdown in TC Allocation.
+     * 
+     * GET /distributor/genealogy/available-placements
+     */
+    public function availablePlacements(Request $request)
+    {
+        $user = Auth::user();
+
+        if (!$user->distributor_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You are not registered on Ignite yet.',
+            ], 422);
+        }
+
+        $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+
+        // Fetch full tree up to depth 5 (or whatever max depth you want)
+        try {
+            $response = $this->ignite->binaryTree($mainBaId, 5);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch tree from Ignite',
+            ], 503);
+        }
+
+        if (($response['code'] ?? null) !== ResultCode::OK->value) {
+            return response()->json([
+                'success' => false,
+                'message' => $response['msg'] ?? 'Failed to fetch binary tree',
+            ], 422);
+        }
+
+        $rows = $response['data']['rows'] ?? [];
+        $availableNodes = [];
+
+        foreach ($rows as $row) {
+            $baId = $row['ba_id'] ?? null;
+            
+            // Skip root (-001) and empty BA IDs
+            if (empty($baId) || str_ends_with($baId, '-001')) {
+                continue;
+            }
+
+            // Check if either side has a free slot
+            $isLeftFree = empty($row['far_left_id']) && empty($row['far_left_ba_id']);
+            $isRightFree = empty($row['far_right_id']) && empty($row['far_right_ba_id']);
+
+            if ($isLeftFree || $isRightFree) {
+                $availableNodes[] = [
+                    'ba_id' => $baId,
+                    'member_id' => $row['member_id'] ?? null,
+                    'display_label' => $baId, // Frontend isko direct dropdown me dikha sakta hai
+                    'left_available' => $isLeftFree,
+                    'right_available' => $isRightFree,
+                ];
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => $availableNodes,
+            'total'   => count($availableNodes),
         ]);
     }
 }
