@@ -188,13 +188,6 @@ class GenealogyController extends Controller
     /**
      * Get a flat list of the authenticated user's unilevel downline.
      */
-        /**
-     * Get a flat list of the authenticated user's unilevel downline.
-     * Enriches Ignite data with local user details (name, status, rank).
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
-     */
     public function downlineList(Request $request)
     {
         $user = Auth::user();
@@ -209,54 +202,23 @@ class GenealogyController extends Controller
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
         $depth    = min(max((int) $request->input('depth', 3), 1), 3);
 
-        // 1. Fetch data from Ignite
         $response = $this->ignite->unilevelTree($mainBaId, $depth);
 
-        if (($response['code'] ?? null) !== ResultCode::OK->value) {
+        if ($response['code'] !== ResultCode::OK->value) {
             return response()->json([
                 'success' => false,
                 'message' => $response['msg'] ?? 'Failed to fetch downline',
-                'code'    => $response['code'] ?? null,
+                'code'    => $response['code'],
             ], 422);
         }
 
         $rows = $response['data']['rows'] ?? [];
 
-        // 2. Enrich with Local DB (Name, Status) and Ignite (Rank)
-        $downlines = collect($rows)->map(function ($row) use ($mainBaId) {
-            // Self ko chhod do agar UI me sirf downline chahiye (optional)
-            if (($row['level'] ?? 0) === 0) {
-                return null; 
-            }
-
-            $baId = $row['ba_id'] ?? null;
-            $localUser = $baId ? User::where('distributor_id', $baId)->first() : null;
-
-            // Fetch memberDetails for Rank & Status (Cached)
-            $memberDetails = $baId ? $this->fetchMemberDetails($baId) : [];
-
-            return [
-                'member_id'       => $row['member_id'] ?? null,
-                'ba_id'           => $baId,
-                'full_name'       => $localUser?->full_name ?? 'Unknown', // Local DB se
-                'email'           => $localUser?->email,
-                'phone'           => $localUser?->phone,
-                'joined_at'       => $localUser?->created_at?->format('d/m/Y'),
-                'rank_no'         => $memberDetails['rank_no'] ?? 0,
-                'status'          => ucfirst($memberDetails['membership_status'] ?? 'Inactive'),
-                'level'           => $row['level'] ?? null,
-                'binary_side'     => $row['binary_side'] ?? null,
-                'cv_left'         => $row['cv_left'] ?? '0.0000',
-                'cv_right'        => $row['cv_right'] ?? '0.0000',
-                'floating_cv_left'=> $row['floating_cv_left'] ?? '0.0000',
-                'floating_cv_right'=> $row['floating_cv_right'] ?? '0.0000',
-            ];
-        })->filter()->values();
-
         return response()->json([
             'success' => true,
-            'data'    => $downlines,
-            'total'   => $downlines->count(),
+            'unit'    => 'CV',
+            'data'    => $rows,
+            'total'   => count($rows),
         ]);
     }
 
