@@ -23,15 +23,6 @@ class GenealogyController extends Controller
 
     /**
      * Get the binary tree for the authenticated distributor.
-     *
-     * Retrieves the binary tree from Ignite using the distributor's BA ID.
-     * Supports an optional `depth` query parameter (default 3, max 5).
-     *
-     * Volumes (left/right) are fetched from memberDetails() because
-     * binaryTree() rows do NOT include CV volumes.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function tree(Request $request)
     {
@@ -44,12 +35,9 @@ class GenealogyController extends Controller
             ], 422);
         }
 
-        // Normalize -001 (in case user.distributor_id is -002/-003)
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
-
         $depth = min(max((int) $request->input('depth', 3), 1), 5);
 
-        // 1) Fetch binary tree from Ignite
         $response = $this->ignite->binaryTree($mainBaId, $depth);
 
         if ($response['code'] !== ResultCode::OK->value) {
@@ -61,17 +49,15 @@ class GenealogyController extends Controller
         }
 
         $rows = $response['data']['rows'] ?? [];
-
-        // Root node (level 0)
         $root = collect($rows)->firstWhere('level', 0);
 
-        // 2) Volumes come from memberDetails, NOT binaryTree rows
-        $member     = $this->fetchMemberDetails($mainBaId);
+        $member      = $this->fetchMemberDetails($mainBaId);
         $leftVolume  = (float) ($member['cv_left']  ?? 0) + (float) ($member['floating_cv_left']  ?? 0);
         $rightVolume = (float) ($member['cv_right'] ?? 0) + (float) ($member['floating_cv_right'] ?? 0);
 
         return response()->json([
             'success' => true,
+            'unit'    => 'CV',   // all volumes here are CV
             'data' => [
                 'root'             => $root,
                 'rows'             => $rows,
@@ -90,13 +76,6 @@ class GenealogyController extends Controller
 
     /**
      * Get the direct children (left and right) of a specific node.
-     *
-     * Lazy-load friendly: accepts `ba_id` directly (preferred) OR `userId`
-     * (fallback, looks up local User.distributor_id).
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  int|null  $userId
-     * @return \Illuminate\Http\JsonResponse
      */
     public function children(Request $request, ?int $userId = null)
     {
@@ -109,10 +88,8 @@ class GenealogyController extends Controller
             ], 422);
         }
 
-        // Preferred: ba_id from query/body
         $baId = $request->input('ba_id');
 
-        // Fallback: local userId → distributor_id
         if (!$baId && $userId) {
             $targetUser = User::find($userId);
             $baId = $targetUser?->distributor_id;
@@ -126,8 +103,6 @@ class GenealogyController extends Controller
         }
 
         $baId = $this->normalizeMainBaId($baId);
-
-        // Fetch depth-1 binary tree from Ignite
         $response = $this->ignite->binaryTree($baId, 1);
 
         if ($response['code'] !== ResultCode::OK->value) {
@@ -146,11 +121,11 @@ class GenealogyController extends Controller
 
         return response()->json([
             'success' => true,
+            'unit'    => 'CV',
             'data' => [
                 'ba_id'  => $baId,
                 'left'   => $left,
                 'right'  => $right,
-                // Explicit nulls make the guide's "outside IDK" case visible
                 'left_available'  => $left  === null,
                 'right_available' => $right === null,
                 'userId' => $userId,
@@ -160,11 +135,6 @@ class GenealogyController extends Controller
 
     /**
      * Search for a distributor by BA ID within the authenticated user's downline.
-     *
-     * Scoped to the unilevel tree (max 3 levels per Ignite).
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function search(Request $request)
     {
@@ -187,8 +157,6 @@ class GenealogyController extends Controller
         }
 
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
-
-        // Unilevel max depth = 3 per Ignite
         $response = $this->ignite->unilevelTree($mainBaId, 3);
 
         if ($response['code'] !== ResultCode::OK->value) {
@@ -219,9 +187,6 @@ class GenealogyController extends Controller
 
     /**
      * Get a flat list of the authenticated user's unilevel downline.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function downlineList(Request $request)
     {
@@ -251,6 +216,7 @@ class GenealogyController extends Controller
 
         return response()->json([
             'success' => true,
+            'unit'    => 'CV',
             'data'    => $rows,
             'total'   => count($rows),
         ]);
@@ -258,12 +224,6 @@ class GenealogyController extends Controller
 
     /**
      * Get pending placements for the authenticated sponsor.
-     *
-     * Includes slot availability info (far_left/far_right free or not)
-     * so the frontend can show "Left slot free / Right occupied".
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function pendingPlacements(Request $request)
     {
@@ -277,8 +237,6 @@ class GenealogyController extends Controller
         }
 
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
-
-        // 1) Pending placements
         $response = $this->ignite->pendingPlacements($mainBaId);
 
         if (($response['code'] ?? null) !== ResultCode::OK->value) {
@@ -291,7 +249,6 @@ class GenealogyController extends Controller
 
         $rows = $response['data']['rows'] ?? [];
 
-        // 2) Slot availability from binaryTree (far_left_ba_id / far_right_ba_id live here)
         $treeResp = $this->ignite->binaryTree($mainBaId, 1);
 
         if (($treeResp['code'] ?? null) !== ResultCode::OK->value) {
@@ -321,18 +278,6 @@ class GenealogyController extends Controller
 
     /**
      * Set the binary placement for a downline.
-     *
-     * Uses memberDetails().far_left_id / far_right_id (integers) instead of
-     * binaryTree().far_left_ba_id / far_right_ba_id, because the latter are
-     * null for outsiders (members belonging to another partner or the
-     * Ignite world plan) while the member_id form is always populated.
-     *
-     * Body:
-     *   - ba_id : the downline BA ID being placed (e.g. AIA...-001)
-     *   - side  : 1 (left) or 2 (right)
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function setPlacement(Request $request)
     {
@@ -353,9 +298,7 @@ class GenealogyController extends Controller
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
         $side     = (int) $request->side;
 
-        // Read memberDetails instead of binaryTree for slot discovery
-        $member = $this->fetchMemberDetails($mainBaId);
-        
+        $member  = $this->fetchMemberDetails($mainBaId);
         $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
         $slotId  = $member[$slotKey] ?? null;
 
@@ -369,7 +312,7 @@ class GenealogyController extends Controller
         try {
             $response = $this->ignite->setPlacement(
                 baId:            $request->ba_id,
-                placementParent: (int) $slotId,   // int → placement_member_id
+                placementParent: (int) $slotId,
                 side:            $side,
             );
         } catch (\Throwable $e) {
@@ -380,7 +323,6 @@ class GenealogyController extends Controller
             return response()->json(['success' => false, 'message' => 'Ignite unreachable'], 503);
         }
 
-        // Specific explicit error code handling
         $code = $response['code'] ?? null;
 
         if ($code === ResultCode::PLACEMENT_DEADLINE_PASSED->value) {
@@ -407,12 +349,10 @@ class GenealogyController extends Controller
             ], 422);
         }
 
-        // Cache invalidation
         Cache::forget("ignite_member_{$mainBaId}");
         Cache::forget("ignite_member_{$request->ba_id}");
         Cache::forget("ignite_binary_tree_{$mainBaId}");
 
-        // Re-dispatch parked orders
         $placedUser = User::where('distributor_id', $request->ba_id)->first();
         if ($placedUser) {
             \App\Models\Order::where('user_id', $placedUser->id)
@@ -432,18 +372,6 @@ class GenealogyController extends Controller
 
     /**
      * Place one extra TC from the member's TC Bank at a free slot.
-     *
-     * Uses memberDetails().far_left_id / far_right_id (integers) instead of
-     * binaryTree().far_left_ba_id / far_right_ba_id, because the latter are
-     * null for outsiders (members belonging to another partner or the
-     * Ignite world plan) while the member_id form is always populated.
-     *
-     * Body:
-     *   - ba_id : the main account (-001) whose TC Bank to draw from
-     *   - side  : 1 (left) or 2 (right) — the slot on the sponsor's tree
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function placeBankedTc(Request $request)
     {
@@ -471,9 +399,7 @@ class GenealogyController extends Controller
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
         $side     = (int) $request->side;
 
-        // 1) Read sponsor's memberDetails to get the free slot
-        $member = $this->fetchMemberDetails($mainBaId);
-
+        $member  = $this->fetchMemberDetails($mainBaId);
         $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
         $slotId  = $member[$slotKey] ?? null;
 
@@ -484,11 +410,10 @@ class GenealogyController extends Controller
             ], 422);
         }
 
-        // 2) Call Ignite placeBankedTc with the slot as member_id
         try {
             $response = $this->ignite->placeBankedTc(
                 baId:            $request->ba_id,
-                placementParent: (int) $slotId,   // int → placement_member_id
+                placementParent: (int) $slotId,
                 side:            $side,
             );
         } catch (\Throwable $e) {
@@ -502,7 +427,6 @@ class GenealogyController extends Controller
             ], 503);
         }
 
-        // 3) Handle specific refusals before the generic fallback
         $code = $response['code'] ?? null;
 
         if ($code === ResultCode::TC_BANK_EMPTY->value) {
@@ -537,12 +461,10 @@ class GenealogyController extends Controller
             ], 422);
         }
 
-        // 4) Invalidate caches so tree/memberDetails reflect the new TC
         Cache::forget("ignite_member_{$mainBaId}");
         Cache::forget("ignite_member_{$request->ba_id}");
         Cache::forget("ignite_binary_tree_{$mainBaId}");
 
-        // 5) Success — data contains the newly created node
         return response()->json([
             'success' => true,
             'message' => 'TC placed successfully.',
@@ -552,13 +474,7 @@ class GenealogyController extends Controller
 
     /**
      * Pairing commission results for one settled sales week.
-     *
-     * GET /distributor/pairings?year=2026&week_no=42
-     *
-     * Query params:
-     *   - year      (required, int)   sales year
-     *   - week_no   (required, int)   week number within that sales year
-     *   - ba_id     (optional, string) one node only; omit for all of this partner's nodes
+     * Every USD money field now carries an INR equivalent.
      */
     public function pairings(Request $request)
     {
@@ -603,19 +519,37 @@ class GenealogyController extends Controller
             ], 422);
         }
 
+        $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+            ->where('key', 'usd_to_inr')->value('value') ?: 0;
+
+        $rows = collect($response['data']['rows'] ?? [])->map(function ($r) use ($usdRate) {
+            // USD money fields → add INR
+            $r['step_comm_usd']   = (float) ($r['step_comm']   ?? 0);
+            $r['step_comm_inr']   = round($r['step_comm_usd'] * $usdRate, 2);
+
+            $r['green_taken_usd'] = (float) ($r['green_taken'] ?? 0);
+            $r['green_taken_inr'] = round($r['green_taken_usd'] * $usdRate, 2);
+
+            $r['cash_amount_usd'] = (float) ($r['cash_amount'] ?? 0);
+            $r['cash_amount_inr'] = round($r['cash_amount_usd'] * $usdRate, 2);
+
+            $r['exchange_rate']   = $usdRate;
+
+            // CV figures — leave untouched, they are counts
+            return $r;
+        })->all();
+
         return response()->json([
-            'success' => true,
-            'data'    => $response['data']['rows'] ?? [],
-            'total'   => count($response['data']['rows'] ?? []),
-            'week'    => ['year' => $year, 'week_no' => $weekNo],
+            'success'  => true,
+            'currency' => ['base' => 'USD', 'display' => 'INR', 'exchange_rate' => $usdRate],
+            'data'     => $rows,
+            'total'    => count($rows),
+            'week'     => ['year' => $year, 'week_no' => $weekNo],
         ]);
     }
 
     // ==================== PRIVATE HELPERS ====================
 
-    /**
-     * Normalize a BA ID to its main account (-001).
-     */
     private function normalizeMainBaId(string $baId): string
     {
         if (preg_match('/-(002|003)$/', $baId)) {
@@ -624,9 +558,6 @@ class GenealogyController extends Controller
         return $baId;
     }
 
-    /**
-     * Fetch memberDetails() with a short cache. Returns [] on error.
-     */
     private function fetchMemberDetails(string $baId): array
     {
         return Cache::remember("ignite_member_{$baId}", 60, function () use ($baId) {
@@ -642,13 +573,6 @@ class GenealogyController extends Controller
         });
     }
 
-    /**
-     * Determine the weaker leg based on left and right volumes.
-     *
-     * @param  float  $left
-     * @param  float  $right
-     * @return string  'left', 'right', or 'equal'
-     */
     private function getWeakerLeg(float $left, float $right): string
     {
         if ($left == 0 && $right == 0) return 'equal';
@@ -657,10 +581,6 @@ class GenealogyController extends Controller
         return 'equal';
     }
 
-        /**
-     * Fetch rank names from planRanks (cached 1 hour).
-     * Returns array: [rank_no => name].
-     */
     private function getRankNames(): array
     {
         return Cache::remember('ignite_rank_names', 3600, function () {
@@ -678,16 +598,8 @@ class GenealogyController extends Controller
         });
     }
 
-        /**
+    /**
      * Get the authenticated distributor's direct referrals (level 1).
-     *
-     * Fetches the unilevel tree at depth 1 from Ignite (which includes the
-     * distributor themselves at level 0) and filters out the root.
-     * Enriches each referral with their local full name and joined date
-     * from the users table, since Ignite does not return these fields.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function myReferrals(Request $request)
     {
@@ -714,13 +626,11 @@ class GenealogyController extends Controller
         $rows = $response['data']['rows'] ?? [];
         $referrals = collect($rows)->where('level', '>', 0)->values();
 
-        // Pagination
         $perPage = min((int) $request->input('per_page', 20), 50);
         $page    = max((int) $request->input('page', 1), 1);
         $total   = $referrals->count();
         $paginated = $referrals->slice(($page - 1) * $perPage, $perPage)->values();
 
-        // Enrich only paginated rows
         $baIds = $paginated->pluck('ba_id')->filter()->values()->all();
         $localUsers = User::whereIn('distributor_id', $baIds)
             ->get(['distributor_id', 'full_name', 'email', 'created_at'])
@@ -728,7 +638,6 @@ class GenealogyController extends Controller
 
         $rankNames = $this->getRankNames();
 
-        // Referrals count map (from full tree)
         $referralsByParent = collect($rows)
             ->groupBy('unilevel_parent_ba_id')
             ->map->count();
@@ -737,7 +646,6 @@ class GenealogyController extends Controller
             $baId = $row['ba_id'] ?? null;
             $localUser = $baId ? ($localUsers[$baId] ?? null) : null;
 
-            // ✅ Cached memberDetails
             $member = $baId ? $this->fetchMemberDetails($baId) : [];
 
             $rankNo = $member['rank_no'] ?? 0;
@@ -752,6 +660,7 @@ class GenealogyController extends Controller
                 'rank_no'     => $rankNo,
                 'rank_name'   => $rankNames[$rankNo] ?? '—',
                 'cv'          => number_format($cvLeft + $cvRight, 2, '.', ''),
+                'cv_unit'     => 'CV',
                 'referrals'   => $referralsByParent[$baId] ?? 0,
                 'status'      => ucfirst($member['membership_status'] ?? '—'),
                 'joined_at'   => $localUser?->created_at?->toDateTimeString(),
@@ -772,25 +681,8 @@ class GenealogyController extends Controller
         ]);
     }
 
-        /**
+    /**
      * Get all of the user's accounts.
-     *
-     * Returns the base accounts (-001, -002, -003) and any extra TCs
-     * (-004 onward) that were placed under this user's network.
-     * Rank names are mapped from the plan ladder.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-        /**
-     * Get all of the user's accounts.
-     *
-     * Returns the base accounts (-001, -002, -003) and any extra TCs
-     * (-004 onward) that were placed under this user's network.
-     * Rank names are mapped from the plan ladder.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function myAccounts(Request $request)
     {
@@ -808,7 +700,6 @@ class GenealogyController extends Controller
         $member     = $this->fetchMemberDetails($mainBaId);
         $myMemberId = $member['member_id'] ?? null;
 
-        // Fetch rank ladder to map rank_no => name
         $planRanks = Cache::remember('ignite_plan_ranks_full', 3600, function () {
             try {
                 $resp = $this->ignite->planRanks();
@@ -823,14 +714,13 @@ class GenealogyController extends Controller
 
         $accounts = [];
 
-        // 1. Base Accounts (-001, -002, -003)
         foreach (['-001', '-002', '-003'] as $suffix) {
             $baId = $baseId . $suffix;
             $acc  = $this->fetchMemberDetails($baId);
-            
+
             $rankNo = (int) ($acc['rank_no'] ?? 0);
             $status = strtolower($acc['membership_status'] ?? 'inactive');
-            
+
             $accounts[] = [
                 'account_id' => $baId,
                 'member_id'  => $acc['member_id'] ?? null,
@@ -840,19 +730,15 @@ class GenealogyController extends Controller
             ];
         }
 
-        // 2. Extra TCs (-004, -005, ...)
         if ($myMemberId) {
-            // Try to get from binary tree first
             $treeResp = $this->ignite->binaryTree($mainBaId, 5);
             $rows     = $treeResp['data']['rows'] ?? [];
 
             foreach ($rows as $row) {
-                // Skip the root node (self)
                 if (($row['level'] ?? 0) === 0) {
                     continue;
                 }
 
-                // Only keep nodes directly sponsored by this user
                 if (($row['unilevel_parent_id'] ?? null) !== $myMemberId) {
                     continue;
                 }
@@ -862,13 +748,10 @@ class GenealogyController extends Controller
                     continue;
                 }
 
-                // ✅ FIX: Only keep nodes that share this user's base ID (e.g., AIA1675197)
-                // This filters out referrals' base accounts (e.g., AIA2325349-001)
                 if (!str_starts_with($baId, $baseId . '-')) {
                     continue;
                 }
 
-                // Skip duplicates already added
                 if (collect($accounts)->where('account_id', $baId)->isNotEmpty()) {
                     continue;
                 }
@@ -886,19 +769,15 @@ class GenealogyController extends Controller
                 ];
             }
 
-            // 3. ✅ FALLBACK: Safety net for extra TCs (-004 to -006) 
-            // Just in case they are not returned in the binary tree rows (e.g., deeper than level 5)
             foreach (['-004', '-005', '-006'] as $suffix) {
                 $baId = $baseId . $suffix;
 
-                // Check if already added from tree traversal
                 if (collect($accounts)->where('account_id', $baId)->isNotEmpty()) {
                     continue;
                 }
 
                 $acc = $this->fetchMemberDetails($baId);
-                
-                // If data exists, this extra TC belongs to the user
+
                 if (!empty($acc) && isset($acc['member_id'])) {
                     $rankNo = (int) ($acc['rank_no'] ?? 0);
                     $status = strtolower($acc['membership_status'] ?? 'inactive');
@@ -914,7 +793,6 @@ class GenealogyController extends Controller
             }
         }
 
-        // Sort by account_id (001, 002, 003, 004...)
         usort($accounts, fn($a, $b) => strcmp($a['account_id'], $b['account_id']));
 
         return response()->json([
@@ -925,64 +803,62 @@ class GenealogyController extends Controller
     }
 
     /**
- * CV Counter — kis week, kis TC account ka CV dikhana hai.
- * GET /distributor/genealogy/cv-counter?ba_id=...&year=...&week_no=...
- */
-public function cvCounter(Request $request)
-{
-    $user = Auth::user();
+     * CV Counter — kis week, kis TC account ka CV dikhana hai.
+     * CV-only endpoint — no USD/INR conversion needed.
+     */
+    public function cvCounter(Request $request)
+    {
+        $user = Auth::user();
 
-    if (!$user->distributor_id) {
-        return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);
-    }
-
-    $validator = Validator::make($request->all(), [
-        'ba_id'   => 'required|string|max:50',
-        'year'    => 'required|integer|min:2020|max:2100',
-        'week_no' => 'required|integer|min:1|max:53',
-    ]);
-
-    if ($validator->fails()) {
-        return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
-    }
-
-    $baId   = trim($request->ba_id);
-    $year   = (int) $request->year;
-    $weekNo = (int) $request->week_no;
-
-    // 1) Live CV from memberDetails
-    $member = $this->fetchMemberDetails($baId);
-
-    // 2) Week's pairing result
-    $pairingRow = null;
-    try {
-        $resp = $this->ignite->pairings($year, $weekNo, $baId);
-        if (($resp['code'] ?? null) === ResultCode::OK->value) {
-            $pairingRow = $resp['data']['rows'][0] ?? null;
+        if (!$user->distributor_id) {
+            return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);
         }
-    } catch (\Throwable $e) {
-        Log::warning('pairings failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
-    }
 
-    return response()->json([
-        'success' => true,
-        'data' => [
-            'ba_id' => $baId,
-            'week'  => ['year' => $year, 'week_no' => $weekNo],
-            'current' => [
-                'cv_left'           => $member['cv_left']           ?? '0.0000',
-                'cv_right'          => $member['cv_right']          ?? '0.0000',
-                'floating_cv_left'  => $member['floating_cv_left']  ?? '0.0000',
-                'floating_cv_right' => $member['floating_cv_right'] ?? '0.0000',
-                'total_cv_left'     => $member['total_cv_left']     ?? '0.0000',
-                'total_cv_right'    => $member['total_cv_right']    ?? '0.0000',
-                'rank_no'           => $member['rank_no']           ?? 0,
-                'total_steps'       => $member['total_steps']       ?? 0,
+        $validator = Validator::make($request->all(), [
+            'ba_id'   => 'required|string|max:50',
+            'year'    => 'required|integer|min:2020|max:2100',
+            'week_no' => 'required|integer|min:1|max:53',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $baId   = trim($request->ba_id);
+        $year   = (int) $request->year;
+        $weekNo = (int) $request->week_no;
+
+        $member = $this->fetchMemberDetails($baId);
+
+        $pairingRow = null;
+        try {
+            $resp = $this->ignite->pairings($year, $weekNo, $baId);
+            if (($resp['code'] ?? null) === ResultCode::OK->value) {
+                $pairingRow = $resp['data']['rows'][0] ?? null;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('pairings failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'unit'    => 'CV',
+            'data' => [
+                'ba_id' => $baId,
+                'week'  => ['year' => $year, 'week_no' => $weekNo],
+                'current' => [
+                    'cv_left'           => $member['cv_left']           ?? '0.0000',
+                    'cv_right'          => $member['cv_right']          ?? '0.0000',
+                    'floating_cv_left'  => $member['floating_cv_left']  ?? '0.0000',
+                    'floating_cv_right' => $member['floating_cv_right'] ?? '0.0000',
+                    'total_cv_left'     => $member['total_cv_left']     ?? '0.0000',
+                    'total_cv_right'    => $member['total_cv_right']    ?? '0.0000',
+                    'rank_no'           => $member['rank_no']           ?? 0,
+                    'total_steps'       => $member['total_steps']       ?? 0,
+                ],
+                'week_result' => $pairingRow,
+                'is_settled'  => $pairingRow !== null,
             ],
-            'week_result' => $pairingRow,
-            'is_settled'  => $pairingRow !== null,
-        ],
-    ]);
-}
-
+        ]);
+    }
 }

@@ -18,7 +18,7 @@ class IgniteHistoryController extends Controller
     }
 
     /**
-     * Balance movement history (pointTxs).
+     * Balance movement history (pointTxs) with USD + INR per row.
      * Query: after_id (default 0), limit (default 50, max 500)
      */
     public function pointTxs(Request $request)
@@ -41,17 +41,38 @@ class IgniteHistoryController extends Controller
             ], 422);
         }
 
+        $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+            ->where('key', 'usd_to_inr')->value('value') ?: 0;
+
+        $rows = collect($response['data']['rows'] ?? [])->map(function ($row) use ($usdRate) {
+            $pointType = $row['point_type'] ?? '';
+            $isCash    = $pointType === 'cash_bal';
+
+            $amount   = (float) ($row['amount'] ?? 0);
+            $balAfter = (float) ($row['bal_after'] ?? 0);
+
+            $row['amount_usd']    = $amount;
+            $row['amount_inr']    = $isCash ? round($amount * $usdRate, 2) : null;
+
+            $row['bal_after_usd'] = $balAfter;
+            $row['bal_after_inr'] = $isCash ? round($balAfter * $usdRate, 2) : null;
+
+            $row['exchange_rate'] = $usdRate;
+            return $row;
+        })->all();
+
         return response()->json([
             'success'  => true,
-            'data'     => $response['data']['rows'] ?? [],
-            'total'    => count($response['data']['rows'] ?? []),
+            'currency' => ['base' => 'USD', 'display' => 'INR', 'exchange_rate' => $usdRate],
+            'data'     => $rows,
+            'total'    => count($rows),
             'has_more' => (bool) ($response['data']['has_more'] ?? false),
             'after_id' => $afterId,
         ]);
     }
 
     /**
-     * Pending (floating) CV rows.
+     * Pending (floating) CV rows — CV counts, no USD/INR conversion needed.
      * Query: after_id (default 0), limit (default 50, max 500)
      */
     public function floatingCvTxs(Request $request)
@@ -76,6 +97,7 @@ class IgniteHistoryController extends Controller
 
         return response()->json([
             'success'  => true,
+            'unit'     => 'CV',
             'data'     => $response['data']['rows'] ?? [],
             'total'    => count($response['data']['rows'] ?? []),
             'has_more' => (bool) ($response['data']['has_more'] ?? false),
