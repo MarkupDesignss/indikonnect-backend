@@ -246,6 +246,7 @@ Route::patch('best-seller/products/{id}', [ProductController::class, 'toggleBest
 Route::post('/create/variants', [ProductController::class, 'createVariant']);
 Route::post('/products/{productId}/set-primary', [ProductController::class, 'setPrimaryProduct']);
 Route::post('move-product-image/{product}', [ProductController::class, 'swapImageOrder']);
+Route::get('mandatoryProduct', [ProductController::class, 'mandatoryProduct']);
 
 Route::prefix('products')->group(function () {
     Route::middleware('optional.auth:sanctum')->group(function () {

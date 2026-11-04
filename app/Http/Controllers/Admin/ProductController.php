@@ -11372,6 +11372,25 @@ class ProductController extends Controller
         }
     }
 
+    public function mandatoryProduct()
+    {
+        $product = Product::with('images', 'category', 'subcategory', 'brand', 'taxCategory')
+            ->where('id', 32)
+            ->get();
+
+        $product->each(function ($item) {
+            $item->images->each(function ($image) {
+                $image->image_url = asset('storage/' . $image->image);
+            });
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Data fetched successfully',
+            'data'   => $product
+        ]);
+    }
+
     public function checkCartStock($id)
     {
         try {
