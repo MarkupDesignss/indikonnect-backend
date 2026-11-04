@@ -2007,8 +2007,6 @@ class CheckoutService
 
     public function placeOrder(int $userId, array $data): array
     {
-
-
         $address = Address::findOrFail($data['address_id']);
         $user = User::findOrFail($userId);
 
@@ -2065,8 +2063,12 @@ class CheckoutService
 
         $mandatoryProductId = 32;
 
-        if ($mandatoryProductId > 0) {
-            $this->assertMandatoryProductRule($userId, $mandatoryProductId, $cartItems);
+        if ($user->account_type === 'distributor' && $mandatoryProductId > 0) {
+            $this->assertMandatoryProductRule(
+                $userId,
+                $mandatoryProductId,
+                $cartItems
+            );
         }
 
         // ---------- Coin redemption ----------

@@ -222,10 +222,10 @@ Route::prefix('contact')->group(function () {
         Route::get('/', [ContactController::class, 'index']);
         Route::get('/{id}', [ContactController::class, 'show']);
         Route::delete('/{id}', [ContactController::class, 'destroy']);
-        Route::post('/mark-read/{id}', [ContactController::class, 'markAsRead']);
-        Route::post('/bulk-delete', [ContactController::class, 'bulkDelete']);
     });
 });
+Route::post('/mark-read/{id}', [ContactController::class, 'markAsRead']);
+Route::post('/bulk-delete', [ContactController::class, 'bulkDelete']);
 
 // ============================
 // NEWSLETTERS / SUBSCRIBERS
