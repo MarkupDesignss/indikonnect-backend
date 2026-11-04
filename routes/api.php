@@ -214,10 +214,9 @@ Route::prefix('categories')->group(function () {
 // ============================
 // CONTACT US
 // ============================
+Route::post('/send-request', [ContactController::class, 'store']);
 Route::prefix('contact')->group(function () {
-    Route::middleware('optional.auth:sanctum')->group(function () {
-        Route::post('/send-request', [ContactController::class, 'store']);
-    });
+    Route::middleware('optional.auth:sanctum')->group(function () {});
 
     Route::middleware(['auth:sanctum', 'admin'])->group(function () {
         Route::get('/', [ContactController::class, 'index']);
