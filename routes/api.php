@@ -613,6 +613,7 @@ Route::middleware('auth:sanctum')->prefix('distributor/genealogy')->group(functi
     Route::get('/my-accounts', [GenealogyController::class, 'myAccounts']);
     Route::get('/cv-counter', [GenealogyController::class, 'cvCounter']);
     Route::get('/available-placements', [GenealogyController::class, 'availablePlacements']);
+    Route::get('/tc-bank-dashboard', [GenealogyController::class, 'tcBankDashboard']);
 });
 
 Route::middleware('auth:sanctum')->group(function () {
