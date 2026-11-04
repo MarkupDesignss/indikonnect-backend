@@ -191,9 +191,9 @@ Route::prefix('contents')->group(function () {
         Route::post('/add', [ContentController::class, 'store']);
         Route::post('/update/{id}', [ContentController::class, 'update']);
         Route::delete('/delete/{id}', [ContentController::class, 'destroy']);
-        Route::delete('/content-media/{id}', [ContentController::class, 'deleteMedia']);
     });
 });
+Route::delete('/content-media/{id}', [ContentController::class, 'deleteMedia']);
 
 // ============================
 // CATEGORIES
