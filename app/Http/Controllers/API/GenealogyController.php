@@ -264,8 +264,8 @@ class GenealogyController extends Controller
         }
 
         $downlines = collect($rows)->map(function ($row) use ($igniteNames) {
-            if (($row['level'] ?? 0) === 0) {
-                return null; // Skip root
+            if ((int) ($row['level'] ?? 0) === 0) {
+                return null;
             }
 
             $baId = $row['ba_id'] ?? null;
