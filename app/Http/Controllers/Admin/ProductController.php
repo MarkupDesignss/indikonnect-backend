@@ -1985,6 +1985,7 @@ class ProductController extends Controller
                 'ignite_product_id' => $product->ignite_product_id ?? null,
                 'is_best_seller' => $product->is_best_seller ?? null,
                 'product_code' => $product->product_code,
+                'service_charge' => $product->service_charge,
                 'name' => $product->name,
                 'brand_id' => $product->brand_id ?? null,
                 'commission_value' => $product->commission_value ?? null,
@@ -2318,6 +2319,7 @@ class ProductController extends Controller
                 'product_code' => $product->product_code,
                 'is_mandatory' => $product->is_mandatory,
                 'ignite_product_id' => $product->ignite_product_id,
+                'service_charge' => $product->service_charge,
                 'is_best_seller' => $product->is_best_seller,
                 'commission_value' => $product->commission_value,
                 'name' => $product->name,
@@ -2712,6 +2714,7 @@ class ProductController extends Controller
             'is_mandatory' => $product->is_mandatory,
             'ignite_product_id' => $product->ignite_product_id,
             'is_best_seller' => $product->is_best_seller,
+            'service_charge' => $product->service_charge,
             'name' => $product->name,
             'slug' => $product->slug,
             'commission_value' => $product->commission_value,
@@ -3686,6 +3689,7 @@ class ProductController extends Controller
             'specification' => ['nullable', 'string'],
             'ignite_product_id' => ['required'],
             'brand_id' => ['nullable'],
+            'service_charge' => ['nullable'],
             'hsn_code' => ['nullable', 'string', 'max:50'],
             'uom' => ['nullable', 'string', 'max:50'],
             'category_id' => ['required', 'exists:categories,id'],
@@ -3770,6 +3774,7 @@ class ProductController extends Controller
             $productData['stock_quantity'] = $productData['stock_quantity'] ?? 0;
             $productData['total_added_quantity'] = $productData['stock_quantity'];
             $productData['shipping_charge'] = $productData['shipping_charge'] ?? 0;
+            $productData['service_charge'] = $productData['service_charge'] ?? 0;
             $productData['commission_value'] = $productData['commission_value'] ?? 0;
 
             // Create product
@@ -4999,6 +5004,7 @@ class ProductController extends Controller
             'description' => ['nullable', 'string'],
             'specification' => ['nullable', 'string'],
             'brand_id' => ['nullable'],
+            'service_charge' => ['service_charge'],
             'ignite_product_id' => ['sometimes', 'required'],
             'hsn_code' => ['nullable', 'string', 'max:50'],
             'uom' => ['nullable', 'string', 'max:50'],
@@ -5109,6 +5115,7 @@ class ProductController extends Controller
                 'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
                 'low_stock_threshold' => $product->low_stock_threshold,
                 'shipping_charge' => $product->shipping_charge,
+                'service_charge' => $product->service_charge,
                 'commission_value' => $product->commission_value,
 
                 'is_published' => $product->is_published,
@@ -5411,6 +5418,7 @@ class ProductController extends Controller
                 'distributor_discount_value' => $product->distributor_discount_value,
 
                 'stock_quantity' => $product->stock_quantity,
+                'service_charge' => $product->service_charge,
                 'initial_stock' => $product->initial_stock,
                 'total_added_quantity' => $product->total_added_quantity,
                 'manual_stock_adjustment' => $product->manual_stock_adjustment,
@@ -7129,6 +7137,7 @@ class ProductController extends Controller
             'data' => [
                 'id' => $product->id,
                 'product_code' => $product->product_code,
+                'service_charge' => $product->service_charge,
                 'name' => $product->name,
                 'is_mandatory' => $product->is_mandatory,
                 'slug' => $product->slug,
