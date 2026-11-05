@@ -106,47 +106,48 @@ class CartController extends Controller
      * Skips duplicates and inactive products.
      */
     protected function ensureMandatoryProductsInCart(Cart $cart): void
-    {
-        $user = auth('sanctum')->user();
-    
-        // Mandatory products are applicable only to logged-in users
-        if (!$user) {
-            return;
-        }
-    
-        // Check whether user has already placed an order
-        $hasOrdered = Order::where('user_id', $user->id)->exists();
-    
-        if ($hasOrdered) {
-            return;
-        }
-    
-        $mandatoryProducts = Product::where('is_mandatory', true)
-            ->where('is_mandatory', true)
-            ->get();
-    
-        foreach ($mandatoryProducts as $product) {
-    
-            // Check whether this product already exists in cart
-            $exists = CartItem::where('cart_id', $cart->id)
-                ->where('product_id', $product->id)
-                ->whereNull('variant_id')
-                ->exists();
-    
-            if ($exists) {
-                continue;
-            }
-    
-            CartItem::create([
-                'cart_id'         => $cart->id,
-                'product_id'      => $product->id,
-                'variant_id'      => null,
-                'quantity'        => 1,
-                'unit_price'      => 0,
-                'shipping_charge' => $product->shipping_charge ?? 0,
-            ]);
-        }
+{
+    // Already seeded? Don't add again.
+    if ($cart->mandatory_products_seeded) {
+        return;
     }
+
+    $user = auth('sanctum')->user();
+
+    if (!$user) {
+        return;
+    }
+
+    // Only for users who haven't placed an order
+    $hasOrdered = Order::where('user_id', $user->id)->exists();
+
+    if ($hasOrdered) {
+        $cart->mandatory_products_seeded = true;
+        $cart->save();
+        return;
+    }
+
+    $mandatoryProducts = Product::where('is_mandatory', true)->get();
+
+    foreach ($mandatoryProducts as $product) {
+
+        CartItem::firstOrCreate(
+            [
+                'cart_id' => $cart->id,
+                'product_id' => $product->id,
+                'variant_id' => null,
+            ],
+            [
+                'quantity' => 1,
+                'unit_price' => 0,
+                'shipping_charge' => $product->shipping_charge ?? 0,
+            ]
+        );
+    }
+
+    $cart->mandatory_products_seeded = true;
+    $cart->save();
+}
     
     public function add(Request $request)
 {
