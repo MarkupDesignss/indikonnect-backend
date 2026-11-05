@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\OrderShippingDetail;
+use App\Models\Product;
 use App\Models\Refund;
 use App\Models\Setting;
 use App\Services\CheckoutService;
@@ -72,6 +73,19 @@ class OrderController extends Controller
                     'success' => false,
                     'message' => 'Cancellation is not allowed for this item',
                 ], 400);
+            }
+
+            $mandatoryProductId = Product::where('is_mandatory', 1)->value('id');
+
+            if ($mandatoryProductId && (int) $orderLine->product_id === (int) $mandatoryProductId) {
+                $mandatoryProductName = Product::where('id', $mandatoryProductId)->value('name')
+                    ?? 'the mandatory product';
+
+                return response()->json([
+                    'success'              => false,
+                    'message'              => "The item \"{$mandatoryProductName}\" is a mandatory product and cannot be cancelled.",
+                    'mandatory_product_id' => (int) $mandatoryProductId,
+                ], 403);
             }
 
             // Check if line is already cancelled or in pending state

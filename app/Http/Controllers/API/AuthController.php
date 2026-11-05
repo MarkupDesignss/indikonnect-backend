@@ -3438,200 +3438,22 @@ class AuthController extends Controller
         }
     }
 
+
+    /**
+     * Case-insensitive, spelling-exact match against settings value.
+     */
+    private function matchesSettingText(string $input, string $expected): bool
+    {
+        // Normalize unicode if needed
+        $input    = trim($input);
+        $expected = trim($expected);
+
+        // Case-insensitive compare (spelling must still match exactly)
+        return mb_strtolower($input) === mb_strtolower($expected);
+    }
     /**
      * DISTRIBUTOR: Step 7 - Review & Submit
      */
-    // public function distributorStep7Submit(Request $request)
-    // {
-    //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'phone' => 'required|min:10',
-    //             'accept_terms' => 'required|in:0,1',
-    //             'accept_agreement' => 'required|in:0,1',
-    //             'accept_code_of_conduct' => 'required|in:0,1',
-    //         ]);
-
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'errors' => $validator->errors()
-    //             ], 422);
-    //         }
-
-    //         // Check all acceptances
-    //         if ($request->accept_terms != 1 || $request->accept_agreement != 1 || $request->accept_code_of_conduct != 1) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Please accept all terms and conditions.'
-    //             ], 422);
-    //         }
-
-    //         $user = User::where('phone', $request->phone)->first();
-
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'User not found.'
-    //             ], 422);
-    //         }
-
-    //         // Check if step 6 is completed
-    //         if ($user->registration_step < 6) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Please complete step 6 (Location) first.'
-    //             ], 422);
-    //         }
-
-    //         // Check all previous steps completed
-    //         $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
-    //         if (!$distributorProfile) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Please complete all previous steps.'
-    //             ], 422);
-    //         }
-
-    //         // Verify all required verifications are complete
-    //         if (!$user->phone_verified || !$user->email_verified_at) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Phone and email verification required.'
-    //             ], 422);
-    //         }
-
-    //         if (!$distributorProfile->aadhaar_verified) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Aadhaar verification required.'
-    //             ], 422);
-    //         }
-
-    //         if (!$distributorProfile->pan_verified) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'PAN verification required.'
-    //             ], 422);
-    //         }
-
-    //         if (empty($distributorProfile->encrypted_bank_account)) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Bank details required.'
-    //             ], 422);
-    //         }
-
-    //         // Finalize registration
-    //         $user->update([
-    //             'is_registered' => 1,
-    //             'distributor_status' => 'pending',
-    //             'registration_step' => max($user->registration_step ?? 0, 7),
-    //             'registration_completed_at' => now(),
-    //             'otp' => null,
-    //             'otp_expires_at' => null,
-    //             'email_otp' => null,
-    //             'email_otp_expires_at' => null,
-    //             'accept_terms' => $request->accept_terms,
-    //             'accept_agreement' => $request->accept_agreement,
-    //             'accept_code_of_conduct' => $request->accept_code_of_conduct
-    //         ]);
-
-    //         $distributorProfile->update([
-    //             'registration_completed' => 1,
-    //             'submitted_at' => now(),
-    //             'terms_accepted_at' => now(),
-    //             //'kyc_status' => 'verified'
-    //             'kyc_status' => 'pending',
-    //             'application_status' => 'submitted',
-    //         ]);
-
-    //         // Assign role
-    //         $this->assignRoleToUser($user);
-
-    //         // Send notification to admin
-    //         $admin = DB::table('admins')->first();
-    //         if ($admin) {
-    //             DB::table('admin_notifications')->insert([
-    //                 'admin_id' => $admin->id ?? '1',
-    //                 'type' => 'new_distributor_registration',
-    //                 'title' => 'New Distributor Registration',
-    //                 'message' => "{$user->full_name} has completed distributor registration.",
-    //                 'reference_type' => 'user',
-    //                 'reference_id' => $user->id,
-    //                 'priority' => 'high',
-    //                 'extra_data' => json_encode([
-    //                     'distributor_id' => $user->id,
-    //                     'name' => $user->full_name,
-    //                     'phone' => $user->phone,
-    //                     'email' => $user->email,
-    //                     'distributor_profile' => $distributorProfile
-    //                 ]),
-    //                 'created_at' => now(),
-    //                 'updated_at' => now()
-    //             ]);
-    //         }
-
-    //         UserNotificationSetting::updateOrCreate(
-    //             ['user_id' => $user->id],
-    //             [
-    //                 'email_notifications' => true,
-    //                 'order_updates' => true,
-    //                 'payment_alerts' => true,
-    //                 'promotional_emails' => true,
-    //                 'security_alerts' => true,
-    //             ]
-    //         );
-
-    //         // if ($user->email) {
-    //         //     try {
-    //         //         Mail::to($user->email)
-    //         //             ->send(new DistributorRegistrationCompletedMail($user));
-    //         //     } catch (\Exception $mailException) {
-    //         //         Log::error('Registration completion mail failed: ' . $mailException->getMessage());
-    //         //     }
-    //         // }
-
-    //         try {
-    //             $this->notificationService->sendUserNotification(
-    //                 $user,
-    //                 'distributor_registration_completed',
-    //                 [
-    //                     'title'         => 'Registration Submitted Successfully',
-    //                     'message'       => 'Your distributor registration has been submitted successfully. We will notify you once the KYC review is complete.',
-    //                     'customer_name' => $user->full_name ?? $user->name ?? 'Distributor',
-    //                     'phone'         => $user->phone,
-    //                     'email'         => $user->email,
-    //                     'submitted_at'  => now()->format('d M Y, h:i A'),
-    //                     'url'           => rtrim(config('app.frontend_url', config('app.url')), '/') . '/dashboard',
-    //                 ],
-    //                 ['database', 'mail']
-    //             );
-    //         } catch (\Throwable $e) {
-    //             Log::error('Distributor registration notification failed', [
-    //                 'user_id' => $user->id,
-    //                 'error'   => $e->getMessage(),
-    //             ]);
-    //         }
-
-    //         // Clear cache
-    //         \Illuminate\Support\Facades\Cache::forget('registration_token_' . $request->phone);
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'message' => 'Distributor registration submitted successfully. Please wait for admin approval.',
-    //             'user' => $user,
-    //             'distributor_profile' => $distributorProfile,
-    //             'status' => 'pending_approval'
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('Distributor step 7 submit error: ' . $e->getMessage());
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
     public function distributorStep7Submit(Request $request)
     {
         try {
@@ -3640,12 +3462,39 @@ class AuthController extends Controller
                 'accept_terms' => 'required|in:0,1',
                 'accept_agreement' => 'required|in:0,1',
                 'accept_code_of_conduct' => 'required|in:0,1',
+                'accept_terms_text' => 'required|string',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'status' => false,
                     'errors' => $validator->errors()
+                ], 422);
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Match acceptance text with settings (case-insensitive, spelling exact)
+            |--------------------------------------------------------------------------
+            */
+            $termsText = DB::table('settings')->where('key', 'terms_conditions')->value('value');
+
+            if (empty($termsText)) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Terms and conditions are not configured.',
+                ], 422);
+            }
+
+            $submittedTerms = (string) $request->input('accept_terms_text', $request->input('terms_text', ''));
+
+            if (!$this->matchesSettingText($submittedTerms, $termsText)) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Terms and conditions text does not match. Please read and accept the exact terms.',
+                    'errors'  => [
+                        'accept_terms_text' => ['The accepted terms text does not match the official terms.'],
+                    ],
                 ], 422);
             }
 
@@ -3972,8 +3821,8 @@ class AuthController extends Controller
             }
 
             /* =============================================
- | SEND REGISTRATION SUBMITTED SMS (TWILIO)
- ============================================= */
+        | SEND REGISTRATION SUBMITTED SMS (TWILIO)
+        ============================================= */
             $phone = $user->phone;
 
             // if ($phone) {
@@ -4847,6 +4696,7 @@ class AuthController extends Controller
                 $hasMandatoryProductInCart
             ) ? 1 : 0;
 
+
             // Get rejection duration from settings
             $rejectionDays = $this->getCorrectionRejectionDays();
 
@@ -4887,6 +4737,11 @@ class AuthController extends Controller
                     'https://www.markupdesigns.net/indikonnect/distributor/'
                     . $user->distributor_id;
             }
+            $buybackActivateRaw = DB::table('settings')
+                ->where('key', 'buyback_activate')
+                ->value('value');
+            $buybackActivate = filter_var($buybackActivateRaw, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            $buybackActivate = $buybackActivate ?? false;
 
             return response()->json([
                 'status' => true,
@@ -4895,6 +4750,7 @@ class AuthController extends Controller
                 'extra' => $extra,
                 'can_buy' => $canBuy,
                 // Correction rejection information
+                'buyback_activate' => $buybackActivate,
                 'correction_rejection_days' => $rejectionDays,
                 'next_allowed_at' => $nextAllowedAt
                     ? $nextAllowedAt->format('Y-m-d H:i:s')
