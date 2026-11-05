@@ -993,3 +993,29 @@ Route::middleware('throttle:20,1')->group(function () {
     );
 
 });
+
+
+// ============================================
+// INDIA POST API ROUTES
+// ============================================
+
+\Illuminate\Support\Facades\Route::middleware('throttle:20,1')
+    ->group(function () {
+
+        \Illuminate\Support\Facades\Route::get(
+            'shipping/indiapost/pincode/{pincode}',
+            [
+                \App\Http\Controllers\Api\IndiaPostPublicController::class,
+                'pincode'
+            ]
+        );
+
+        \Illuminate\Support\Facades\Route::get(
+            'shipping/indiapost/tariff/business-parcel',
+            [
+                \App\Http\Controllers\Api\IndiaPostPublicController::class,
+                'businessParcelTariff'
+            ]
+        );
+
+    });
