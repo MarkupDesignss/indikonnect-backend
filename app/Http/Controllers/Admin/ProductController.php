@@ -1980,6 +1980,7 @@ class ProductController extends Controller
             return [
                 'id' => $product->id,
                 'is_primary' => $product->is_primary ?? null,
+                'is_mandatory' => $product->is_mandatory ?? null,
                 'ignite_product_id' => $product->ignite_product_id ?? null,
                 'is_best_seller' => $product->is_best_seller ?? null,
                 'product_code' => $product->product_code,
@@ -2314,6 +2315,7 @@ class ProductController extends Controller
             $formattedProduct = [
                 'id' => $product->id,
                 'product_code' => $product->product_code,
+                'is_mandatory' => $product->is_mandatory,
                 'ignite_product_id' => $product->ignite_product_id,
                 'is_best_seller' => $product->is_best_seller,
                 'commission_value' => $product->commission_value,
@@ -2706,6 +2708,7 @@ class ProductController extends Controller
         return [
             'id' => $product->id,
             'product_code' => $product->product_code,
+            'is_mandatory' => $product->is_mandatory,
             'ignite_product_id' => $product->ignite_product_id,
             'is_best_seller' => $product->is_best_seller,
             'name' => $product->name,
@@ -7126,6 +7129,7 @@ class ProductController extends Controller
                 'id' => $product->id,
                 'product_code' => $product->product_code,
                 'name' => $product->name,
+                'is_mandatory' => $product->is_mandatory,
                 'slug' => $product->slug,
                 'description' => $product->description,
                 'specification' => $product->specification,
@@ -11519,6 +11523,91 @@ class ProductController extends Controller
                 'success' => false,
                 'message' => $e->getMessage(),
             ], 400);
+        }
+    }
+
+    public function toggleMandatory(Request $request, $id)
+    {
+        try {
+            $result = DB::transaction(function () use ($id) {
+
+                // Lock product records to prevent concurrent updates
+                $products = Product::query()
+                    ->lockForUpdate()
+                    ->get();
+
+                $product = $products->firstWhere('id', $id);
+
+                if (!$product) {
+                    return [
+                        'status' => false,
+                        'code' => 404,
+                        'message' => 'Product not found.',
+                    ];
+                }
+
+                // If the same product is already mandatory, turn it OFF
+                if ($product->is_mandatory) {
+
+                    $product->update([
+                        'is_mandatory' => false
+                    ]);
+
+                    return [
+                        'status' => true,
+                        'code' => 200,
+                        'message' => 'Mandatory status removed from this product.',
+                        'data' => [
+                            'product_id' => $product->id,
+                            'is_mandatory' => false,
+                        ],
+                    ];
+                }
+
+                // Find previous mandatory product
+                $previousProduct = $products->firstWhere('is_mandatory', true);
+
+                // Remove previous mandatory status
+                if ($previousProduct) {
+                    $previousProduct->update([
+                        'is_mandatory' => false
+                    ]);
+                }
+
+                // Set new mandatory product
+                $product->update([
+                    'is_mandatory' => true
+                ]);
+
+                return [
+                    'status' => true,
+                    'code' => 200,
+                    'message' => $previousProduct
+                        ? 'Previous mandatory product has been removed and the new product has been set as mandatory.'
+                        : 'Product has been set as mandatory.',
+                    'data' => [
+                        'product_id' => $product->id,
+                        'is_mandatory' => true,
+                        'previous_product' => $previousProduct ? [
+                            'id' => $previousProduct->id,
+                            'name' => $previousProduct->name,
+                        ] : null,
+                    ],
+                ];
+            });
+
+            return response()->json(
+                collect($result)->except('code')->all(),
+                $result['code']
+            );
+        } catch (\Throwable $e) {
+
+            \Log::error('Toggle mandatory product error: ' . $e->getMessage());
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Something went wrong.',
+            ], 500);
         }
     }
 }

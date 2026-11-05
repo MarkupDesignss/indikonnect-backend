@@ -658,7 +658,7 @@ Route::prefix('external')->middleware(['outbound.api'])->group(function () {
     Route::get('/orders', [OrderController::class, 'externalIndex']);
     Route::get('/orders/{orderReference}', [OrderController::class, 'externalShow']);
 });
-
+Route::post('/toggle-mandatory/{id}', [ProductController::class, 'toggleMandatory']);
 // ============================
 // DISTRIBUTOR COOLING-OFF
 // ============================
