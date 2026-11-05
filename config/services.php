@@ -104,6 +104,15 @@ return [
             'webhook_password' => env('HDFC_IE_WEBHOOK_PASSWORD'),
         ],
     ],
+    
+    'indiapost_node' => [
+        'enabled' => env('INDIAPOST_NODE_ENABLED', false),
+        'url' => env(
+            'INDIAPOST_NODE_URL',
+            'https://www.markupdesigns.net/bvc-api'
+        ),
+        'api_key' => env('INDIAPOST_NODE_API_KEY'),
+    ],
 
     'axispg' => [
         'merchant_id'  => env('AXISPG_MERCHANT_ID'),

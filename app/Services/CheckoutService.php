@@ -2506,7 +2506,280 @@ class CheckoutService
      * FR-CO-006: Confirm order via webhook
      */
 
-    public function confirmOrder(string|array $orderReferences, array $gatewayData): array
+    // public function confirmOrder(string|array $orderReferences, array $gatewayData): array
+    // {
+    //     if (is_string($orderReferences)) {
+    //         $orderReferences = array_filter(array_map('trim', explode(',', $orderReferences)));
+    //     }
+
+    //     if (empty($orderReferences)) {
+    //         throw new Exception('No order references provided for confirmation');
+    //     }
+
+    //     $orders = Order::whereIn('order_reference', $orderReferences)
+    //         ->with(['lines.product', 'user'])
+    //         ->get();
+
+    //     if ($orders->isEmpty()) {
+    //         throw new Exception('No orders found for the provided references');
+    //     }
+
+    //     if ($orders->every(fn($o) => $o->status === 'confirmed')) {
+    //         return [
+    //             'success'          => true,
+    //             'message'          => 'Orders already confirmed',
+    //             'order_references' => $orders->pluck('order_reference')->toArray(),
+    //         ];
+    //     }
+
+    //     return DB::transaction(function () use ($orders, $gatewayData) {
+    //         /** @var InventoryReservationService $reservationService */
+    //         $reservationService = app(InventoryReservationService::class);
+
+    //         $confirmedOrders   = [];
+    //         $allLowStockAlerts = [];
+    //         $stockFailures     = [];
+
+    //         foreach ($orders as $order) {
+    //             if ($order->status === 'confirmed') {
+    //                 $confirmedOrders[] = $order;
+    //                 continue;
+    //             }
+
+    //             $oldStatus = $order->status;
+
+    //             // =============================================
+    //             // CONSUME RESERVATIONS (atomic)
+    //             // =============================================
+    //             $consumed = $reservationService->consume($order->id);
+
+    //             if (!$consumed) {
+    //                 // Reservation expired / missing — payment late.
+    //                 foreach ($order->lines as $line) {
+    //                     if (!$reservationService->hasAvailability(
+    //                         $line->product_id,
+    //                         $line->quantity
+    //                     )) {
+    //                         $stockFailures[] = [
+    //                             'order_reference' => $order->order_reference,
+    //                             'product_id'      => $line->product_id,
+    //                             'product_name'    => $line->product?->name,
+    //                             'quantity'        => $line->quantity,
+    //                         ];
+    //                     }
+    //                 }
+
+    //                 if (!empty($stockFailures)) {
+    //                     $order->update([
+    //                         'status'                 => 'stock_unavailable',
+    //                         'payment_gateway'        => $gatewayData['gateway'] ?? $order->payment_gateway,
+    //                         'gateway_transaction_id' => $gatewayData['transaction_id'] ?? null,
+    //                         'amount_paid'            => $order->total_payable,
+    //                     ]);
+
+    //                     $this->logAudit(
+    //                         'order_confirm_failed_no_stock',
+    //                         'orders',
+    //                         ['order_reference' => $order->order_reference, 'status' => $oldStatus],
+    //                         ['failures' => $stockFailures, 'gateway' => $gatewayData],
+    //                         null,
+    //                         $this->getClientIp()
+    //                     );
+
+    //                     continue; // refund/manual handle
+    //                 }
+
+    //                 // No reservation, but stock available → decrement directly
+    //                 foreach ($order->lines as $line) {
+    //                     DB::table('products')
+    //                         ->where('id', $line->product_id)
+    //                         ->whereRaw('(stock_quantity - reserved_inventory) >= ?', [$line->quantity])
+    //                         ->update(['stock_quantity' => DB::raw('stock_quantity - ' . $line->quantity)]);
+    //                 }
+    //             }
+
+    //             // =============================================
+    //             // UPDATE ORDER STATUS
+    //             // =============================================
+    //             $order->update([
+    //                 'status'                 => 'confirmed',
+    //                 'confirmed_at'           => now(),
+    //                 'payment_gateway'        => $gatewayData['gateway'] ?? $order->payment_gateway,
+    //                 'gateway_transaction_id' => $gatewayData['transaction_id'] ?? null,
+    //                 'amount_paid'            => $order->total_payable,
+    //             ]);
+
+    //             // =============================================
+    //             // COIN REDEMPTION (post-payment — actual Ignite call)
+    //             // =============================================
+    //             $pendingRedemption = CoinRedemption::where('order_id', $order->id)
+    //                 ->where('status', 'pending_payment')
+    //                 ->first();
+
+    //             if ($pendingRedemption) {
+    //                 $this->redeemCoinsOnIgnite($order, $pendingRedemption);
+    //             }
+
+    //             // =============================================
+    //             // COUPON USAGE
+    //             // =============================================
+    //             if ($order->coupon_code) {
+    //                 $coupon = Coupon::where('code', $order->coupon_code)->first();
+    //                 if ($coupon) {
+    //                     $existingUsage = CouponUsage::where('order_id', $order->id)->first();
+    //                     if (!$existingUsage) {
+    //                         CouponUsage::create([
+    //                             'coupon_id'       => $coupon->id,
+    //                             'user_id'         => $order->user_id,
+    //                             'order_id'        => $order->id,
+    //                             'discount_amount' => $order->coupon_discount,
+    //                         ]);
+    //                         $coupon->increment('used_count');
+    //                     }
+    //                 }
+    //             }
+
+    //             $lowStockAlerts = [];
+
+    //             // =============================================
+    //             // STOCK MOVEMENTS + LOW STOCK CHECK
+    //             // (stock already decremented by consume())
+    //             // =============================================
+    //             foreach ($order->lines as $line) {
+    //                 $product = Product::find($line->product_id);
+    //                 if ($product) {
+    //                     StockMovement::create([
+    //                         'product_id'               => $line->product_id,
+    //                         'item_reference_id'        => $line->item_reference_id,
+    //                         'quantity'                 => -$line->quantity,
+    //                         'available_quantity_after' => $product->stock_quantity,
+    //                         'reason'                   => 'Order confirmed: ' . $order->order_reference . ' [' . $line->item_reference_id . ']',
+    //                         'order_id'                 => $order->id,
+    //                     ]);
+
+    //                     if ($product->stock_quantity <= $product->low_stock_threshold) {
+    //                         $this->sendLowStockNotification($order, $line, 'product');
+    //                         $alert = [
+    //                             'product_id'        => $line->product_id,
+    //                             'item_reference_id' => $line->item_reference_id,
+    //                             'product_name'      => $product->name,
+    //                             'stock'             => $product->stock_quantity,
+    //                             'threshold'         => $product->low_stock_threshold,
+    //                             'alert_type'        => 'product_low_stock',
+    //                         ];
+    //                         $lowStockAlerts[]    = $alert;
+    //                         $allLowStockAlerts[] = $alert;
+    //                     }
+    //                 }
+
+    //                 $line->update(['delivery_status' => 'confirmed']);
+    //             }
+
+    //             // =============================================
+    //             // AUDIT LOG
+    //             // =============================================
+    //             $this->logAudit(
+    //                 'order_confirm',
+    //                 'orders',
+    //                 [
+    //                     'order_reference' => $order->order_reference,
+    //                     'status'          => $oldStatus,
+    //                     'total_amount'    => $order->total_payable,
+    //                     'user_id'         => $order->user_id ?? Auth::id(),
+    //                 ],
+    //                 [
+    //                     'order_reference'  => $order->order_reference,
+    //                     'status'           => 'confirmed',
+    //                     'confirmed_at'     => now()->toDateTimeString(),
+    //                     'payment_gateway'  => $gatewayData['gateway'] ?? null,
+    //                     'transaction_id'   => $gatewayData['transaction_id'] ?? null,
+    //                     'amount_paid'      => $order->total_payable,
+    //                     'low_stock_alerts' => $lowStockAlerts,
+    //                     'confirmed_by'     => $this->getAdminId(),
+    //                 ]
+    //             );
+
+    //             foreach ($lowStockAlerts as $alert) {
+    //                 $this->logAudit('low_stock_alert', 'inventory', null, $alert, null, $this->getClientIp());
+    //             }
+
+    //             // =============================================
+    //             // COMMISSION + SMS + NOTIFICATIONS
+    //             // =============================================
+    //             $payload = $this->buildCommissionPayload($order);
+
+    //             $phone = $order->user?->phone;
+    //             if ($phone) {
+    //                 $message = "Hi {$order->user->name}! Your order {$order->order_reference} "
+    //                     . "has been confirmed. Total: " . number_format((float) $order->total_payable, 2)
+    //                     . ". Thank you for your purchase!";
+    //                 try {
+    //                     app(TwilioSmsService::class)->send($phone, $message);
+    //                 } catch (\Throwable $e) {
+    //                     Log::error('Order confirmation SMS failed', [
+    //                         'order_reference' => $order->order_reference,
+    //                         'error'           => $e->getMessage(),
+    //                     ]);
+    //                 }
+    //             }
+
+    //             CommissionApiEvent::create([
+    //                 'event_type'    => 'order_post',
+    //                 'order_id'      => $order->id,
+    //                 'payload'       => $payload,
+    //                 'status'        => 'pending',
+    //                 'retry_count'   => 0,
+    //                 'max_retries'   => 5,
+    //                 'last_attempt'  => null,
+    //                 'error_message' => null,
+    //                 'response_data' => null,
+    //             ]);
+
+    //             $orderIdForIgnite = $order->id;
+    //             DB::afterCommit(function () use ($orderIdForIgnite) {
+    //                 \App\Jobs\PostOrderToIgniteJob::dispatch($orderIdForIgnite);
+    //             });
+
+    //             $this->sendOrderConfirmationNotification($order, $gatewayData);
+
+    //             $confirmedOrders[] = $order;
+    //         }
+
+    //         // =============================================
+    //         // DELETE CART
+    //         // =============================================
+    //         $firstOrder = $confirmedOrders[0] ?? null;
+    //         if ($firstOrder && $firstOrder->checkout_type !== 'buy_now') {
+    //             $cart = Cart::where('user_id', $firstOrder->user_id)->first();
+    //             if ($cart) {
+    //                 $cart->items()->delete();
+    //                 $cart->delete();
+    //             }
+    //         }
+
+    //         // =============================================
+    //         // PROFORMA INVOICE
+    //         // =============================================
+    //         foreach ($confirmedOrders as $confirmedOrder) {
+    //             if ($confirmedOrder->user?->account_type === 'distributor') {
+    //                 $this->proformaInvoiceService->generateForOrder($confirmedOrder);
+    //             }
+    //         }
+
+    //         return [
+    //             'success'          => true,
+    //             'order_ids'        => array_map(fn($o) => $o->id, $confirmedOrders),
+    //             'order_references' => array_map(fn($o) => $o->order_reference, $confirmedOrders),
+    //             'total_orders'     => count($confirmedOrders),
+    //             'total_amount'     => round(collect($confirmedOrders)->sum('total_payable'), 2),
+    //             'status'           => 'confirmed',
+    //             'low_stock_alerts' => $allLowStockAlerts,
+    //             'invoice_number'   => null,
+    //             'stock_failures'   => $stockFailures,
+    //         ];
+    //     });
+    // }
+     public function confirmOrder(string|array $orderReferences, array $gatewayData): array
     {
         if (is_string($orderReferences)) {
             $orderReferences = array_filter(array_map('trim', explode(',', $orderReferences)));
@@ -2743,6 +3016,19 @@ class CheckoutService
                 $this->sendOrderConfirmationNotification($order, $gatewayData);
 
                 $confirmedOrders[] = $order;
+            }
+
+            // Notify India Post Node.js when payment/order is confirmed
+            if (config('services.indiapost_node.enabled', false)) {
+                $orderIdForIndiaPost = (int) $order->id;
+
+                DB::afterCommit(function () use ($orderIdForIndiaPost) {
+                    \App\Jobs\NotifyIndiaPostOrderConfirmed::dispatch(
+                        $orderIdForIndiaPost
+                    )
+                    ->onConnection('database')
+                    ->onQueue('indiapost');
+                });
             }
 
             // =============================================
