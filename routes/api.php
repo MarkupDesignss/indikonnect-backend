@@ -789,6 +789,22 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('orders')->group(function (
     Route::get('/{orderId}/indiapost/readiness',
         [\App\Http\Controllers\Api\IndiaPostDispatchReadinessController::class, 'show']
     )->middleware('throttle:10,1');
+    // Managed India Post flow; admin-only + server-side internal Node key.
+    Route::post('/{orderId}/indiapost/allocate-awb',
+        [\App\Http\Controllers\Api\IndiaPostShippingFlowController::class, 'allocate']
+    )->middleware('throttle:5,1');
+    Route::post('/{orderId}/indiapost/booking/preview',
+        [\App\Http\Controllers\Api\IndiaPostShippingFlowController::class, 'preview']
+    )->middleware('throttle:10,1');
+    Route::post('/{orderId}/indiapost/booking/submit',
+        [\App\Http\Controllers\Api\IndiaPostShippingFlowController::class, 'book']
+    )->middleware('throttle:3,1');
+    Route::get('/{orderId}/indiapost/shipments',
+        [\App\Http\Controllers\Api\IndiaPostShippingFlowController::class, 'shipments']
+    )->middleware('throttle:15,1');
+    Route::post('/{orderId}/indiapost/sync',
+        [\App\Http\Controllers\Api\IndiaPostShippingFlowController::class, 'sync']
+    )->middleware('throttle:5,1');
     Route::get('/{orderReference}/shipping-details', [OrderController::class, 'getShippingDetails']);
     Route::post('order-lines/{orderLine}/cancel', [OrderController::class, 'adminCancel']);
 });

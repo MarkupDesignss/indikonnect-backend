@@ -553,10 +553,11 @@ class CartController extends Controller
     //     }
     // }
 
-public function remove(Request $request, $itemId)
+    public function remove(Request $request, $itemId)
 {
-    try {
+    DB::beginTransaction();
 
+    try {
         $cart = $this->getCart($request);
         $user = auth('sanctum')->user();
 
@@ -566,6 +567,7 @@ public function remove(Request $request, $itemId)
             ->first();
 
         if (!$cartItem) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
                 'message' => 'Item not found in cart',
@@ -584,8 +586,9 @@ public function remove(Request $request, $itemId)
         // Apply restriction only for first-time users
         if (!$hasOrdered && $isMandatoryItem) {
 
-            // Check if any normal product exists in cart
-            $hasNormalItem = CartItem::where('cart_id', $cart->id)
+            // Get all other non-mandatory products from cart
+            $otherProducts = CartItem::with('product')
+                ->where('cart_id', $cart->id)
                 ->where('id', '!=', $cartItem->id)
                 ->whereHas('product', function ($query) {
                     $query->where(function ($q) {
@@ -593,13 +596,24 @@ public function remove(Request $request, $itemId)
                             ->orWhereNull('is_mandatory');
                     });
                 })
-                ->exists();
+                ->get();
 
-            // Block mandatory removal only if normal product exists
-            if ($hasNormalItem) {
+            // Block mandatory product removal if other products exist
+            if ($otherProducts->isNotEmpty()) {
+
+                $productNames = $otherProducts
+                    ->map(function ($item) {
+                        return $item->product->name ?? 'Unknown Product';
+                    })
+                    ->unique()
+                    ->values()
+                    ->implode(', ');
+
+                DB::rollBack();
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'Please remove normal products first. You can remove mandatory products after removing all normal products.',
+                    'message' => "Please remove {$productNames} first. Mandatory products can only be removed after removing these products.",
                 ], 422);
             }
         }
@@ -610,11 +624,14 @@ public function remove(Request $request, $itemId)
             ->delete();
 
         if (!$deleted) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
                 'message' => 'Unable to remove item from cart',
             ], 500);
         }
+
+        DB::commit();
 
         // Refresh cart relations
         $cart->unsetRelation('items');
@@ -635,6 +652,7 @@ public function remove(Request $request, $itemId)
         ]);
 
     } catch (\Exception $e) {
+        DB::rollBack();
 
         return response()->json([
             'success' => false,
@@ -643,6 +661,7 @@ public function remove(Request $request, $itemId)
         ], 500);
     }
 }
+
 
 
 
