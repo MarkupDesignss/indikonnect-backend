@@ -453,422 +453,845 @@ class ContentController extends Controller
     // }
 
 
+    // public function update(Request $request, $id)
+    // {
+    //     try {
+
+    //         // STEP 1: Validation
+    //         $validator = Validator::make($request->all(), [
+
+    //             'title' => 'nullable|string|max:255',
+    //             'status' => 'nullable|in:draft,published',
+    //             'type' => 'nullable|in:home,landing_page',
+
+    //             'blocks' => 'nullable|array|min:1',
+
+    //             'blocks.*.id' => 'nullable|integer|exists:content_blocks,id',
+    //             'blocks.*.heading' => 'nullable|string|max:255',
+    //             'blocks.*.short_description' => 'nullable|string',
+    //             'blocks.*.description' => 'nullable|string',
+    //             'blocks.*.sort_order' => 'nullable|integer',
+
+    //             // New images
+    //             'blocks.*.images' => 'nullable|array',
+    //             'blocks.*.images.*' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp,svg',
+
+    //             // New videos
+    //             'blocks.*.videos' => 'nullable|array',
+    //             'blocks.*.videos.*' => 'nullable|file|mimes:mp4,avi,mov,wmv',
+
+    //             // Existing images
+    //             'blocks.*.existing_images' => 'nullable|array',
+    //             'blocks.*.existing_images.*.id' => 'required|integer|exists:content_media,id',
+    //             'blocks.*.existing_images.*.is_primary' => 'nullable|boolean',
+
+    //             // Existing videos
+    //             'blocks.*.existing_videos' => 'nullable|array',
+    //             'blocks.*.existing_videos.*.id' => 'required|integer|exists:content_media,id',
+    //             'blocks.*.existing_videos.*.is_primary' => 'nullable|boolean',
+
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Validation failed',
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         // STEP 2: Find original content
+    //         $originalContent = Content::with('blocks.media')->find($id);
+
+    //         if (!$originalContent) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Content not found'
+    //             ], 404);
+    //         }
+
+    //         // STEP 3: Validate block ownership
+    //         foreach ($request->input('blocks', []) as $index => $blockData) {
+
+    //             if (!empty($blockData['id'])) {
+
+    //                 $originalBlock = $originalContent->blocks
+    //                     ->firstWhere('id', $blockData['id']);
+
+    //                 if (!$originalBlock) {
+    //                     return response()->json([
+    //                         'success' => false,
+    //                         'message' => "Invalid block ID at index {$index}."
+    //                     ], 422);
+    //                 }
+    //             } elseif (
+    //                 !empty($blockData['existing_images']) ||
+    //                 !empty($blockData['existing_videos'])
+    //             ) {
+
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => "Block ID is required when using existing media at index {$index}."
+    //                 ], 422);
+    //             }
+    //         }
+
+    //         DB::beginTransaction();
+
+    //         // STEP 4: Mark previous version as draft
+    //         $originalContent->status = 'draft';
+    //         $originalContent->save();
+
+    //         // STEP 5: Calculate next version
+    //         $latestVersion = Content::where('slug', $originalContent->slug)
+    //             ->orderByDesc('id')
+    //             ->value('current_version') ?? '1.0';
+
+    //         $newVersion = $this->calculateNextVersion($latestVersion);
+
+    //         // STEP 6: Create new content version
+    //         $newContent = $originalContent->replicate();
+
+    //         $newContent->title = $request->input(
+    //             'title',
+    //             $originalContent->title
+    //         );
+
+    //         $newContent->type = $request->input(
+    //             'type',
+    //             $originalContent->type
+    //         );
+
+    //         $newContent->slug = $originalContent->slug;
+    //         $newContent->current_version = $newVersion;
+    //         $newContent->status = $request->input('status', 'published');
+
+    //         $newContent->created_at = now();
+    //         $newContent->updated_at = now();
+
+    //         $newContent->save();
+
+    //         // STEP 7: Process blocks
+    //         if ($request->has('blocks') && is_array($request->blocks)) {
+
+    //             foreach ($request->blocks as $blockIndex => $blockData) {
+
+    //                 $originalBlock = null;
+
+    //                 // Find original block
+    //                 if (!empty($blockData['id'])) {
+
+    //                     $originalBlock = $originalContent->blocks
+    //                         ->firstWhere('id', $blockData['id']);
+    //                 }
+
+    //                 // Create new block
+    //                 $block = $newContent->blocks()->create([
+
+    //                     'heading' => $blockData['heading']
+    //                         ?? $originalBlock?->heading,
+
+    //                     'short_description' => $blockData['short_description']
+    //                         ?? $originalBlock?->short_description,
+
+    //                     'description' => $blockData['description']
+    //                         ?? $originalBlock?->description,
+
+    //                     'sort_order' => $blockData['sort_order']
+    //                         ?? $blockIndex,
+
+    //                 ]);
+
+    //                 /*
+    //             |--------------------------------------------------------------------------
+    //             | STEP 8: Copy existing images
+    //             |--------------------------------------------------------------------------
+    //             */
+
+    //                 $existingImages = $blockData['existing_images'] ?? [];
+
+    //                 $hasPrimaryImage = false;
+
+    //                 foreach ($existingImages as $sortIndex => $imageData) {
+
+    //                     $mediaId = $imageData['id'] ?? null;
+
+    //                     if (!$mediaId || !$originalBlock) {
+    //                         continue;
+    //                     }
+
+    //                     // Fetch image belonging to original block
+    //                     $originalMedia = ContentMedia::where('id', $mediaId)
+    //                         ->where('content_block_id', $originalBlock->id)
+    //                         ->where('type', 'image')
+    //                         ->first();
+
+    //                     if (!$originalMedia) {
+    //                         continue;
+    //                     }
+
+    //                     // Normalize path before saving
+    //                     $normalizedPath = $this->normalizeMediaPath(
+    //                         $originalMedia->path
+    //                     );
+
+    //                     $isPrimary = !$hasPrimaryImage &&
+    //                         (bool) ($imageData['is_primary'] ?? false);
+
+    //                     // Create new media record
+    //                     $block->media()->create([
+
+    //                         'type' => 'image',
+    //                         'path' => $normalizedPath,
+    //                         'alt_text' => $originalMedia->alt_text,
+    //                         'is_primary' => $isPrimary,
+    //                         'sort_order' => $sortIndex,
+
+    //                     ]);
+
+    //                     if ($isPrimary) {
+    //                         $hasPrimaryImage = true;
+    //                     }
+    //                 }
+
+    //                 /*
+    //             |--------------------------------------------------------------------------
+    //             | STEP 9: Upload new images
+    //             |--------------------------------------------------------------------------
+    //             */
+
+    //                 $newImages = $request->file(
+    //                     "blocks.{$blockIndex}.images",
+    //                     []
+    //                 );
+
+    //                 if (!is_array($newImages)) {
+    //                     $newImages = [$newImages];
+    //                 }
+
+    //                 $currentImageCount = $block->media()
+    //                     ->where('type', 'image')
+    //                     ->count();
+
+    //                 foreach ($newImages as $index => $image) {
+
+    //                     if (!$image || !$image->isValid()) {
+    //                         continue;
+    //                     }
+
+    //                     // Laravel returns relative path
+    //                     $path = $image->store(
+    //                         'content/images',
+    //                         'public'
+    //                     );
+
+    //                     $block->media()->create([
+
+    //                         'type' => 'image',
+    //                         'path' => $this->normalizeMediaPath($path),
+    //                         'alt_text' => null,
+    //                         'is_primary' => false,
+    //                         'sort_order' => $currentImageCount + $index,
+
+    //                     ]);
+    //                 }
+
+    //                 // Ensure at least one image is primary
+    //                 $primaryImageExists = $block->media()
+    //                     ->where('type', 'image')
+    //                     ->where('is_primary', true)
+    //                     ->exists();
+
+    //                 if (!$primaryImageExists) {
+
+    //                     $firstImage = $block->media()
+    //                         ->where('type', 'image')
+    //                         ->orderBy('sort_order')
+    //                         ->first();
+
+    //                     if ($firstImage) {
+    //                         $firstImage->update([
+    //                             'is_primary' => true
+    //                         ]);
+    //                     }
+    //                 }
+
+    //                 /*
+    //             |--------------------------------------------------------------------------
+    //             | STEP 10: Copy existing videos
+    //             |--------------------------------------------------------------------------
+    //             */
+
+    //                 $existingVideos = $blockData['existing_videos'] ?? [];
+
+    //                 foreach ($existingVideos as $sortIndex => $videoData) {
+
+    //                     $mediaId = $videoData['id'] ?? null;
+
+    //                     if (!$mediaId || !$originalBlock) {
+    //                         continue;
+    //                     }
+
+    //                     $originalMedia = ContentMedia::where('id', $mediaId)
+    //                         ->where('content_block_id', $originalBlock->id)
+    //                         ->where('type', 'video')
+    //                         ->first();
+
+    //                     if (!$originalMedia) {
+    //                         continue;
+    //                     }
+
+    //                     $block->media()->create([
+
+    //                         'type' => 'video',
+    //                         'path' => $this->normalizeMediaPath(
+    //                             $originalMedia->path
+    //                         ),
+    //                         'alt_text' => $originalMedia->alt_text,
+    //                         'is_primary' => false,
+    //                         'sort_order' => $sortIndex,
+
+    //                     ]);
+    //                 }
+
+    //                 /*
+    //             |--------------------------------------------------------------------------
+    //             | STEP 11: Upload new videos
+    //             |--------------------------------------------------------------------------
+    //             */
+
+    //                 $newVideos = $request->file(
+    //                     "blocks.{$blockIndex}.videos",
+    //                     []
+    //                 );
+
+    //                 if (!is_array($newVideos)) {
+    //                     $newVideos = [$newVideos];
+    //                 }
+
+    //                 $currentVideoCount = $block->media()
+    //                     ->where('type', 'video')
+    //                     ->count();
+
+    //                 foreach ($newVideos as $index => $video) {
+
+    //                     if (!$video || !$video->isValid()) {
+    //                         continue;
+    //                     }
+
+    //                     $path = $video->store(
+    //                         'content/videos',
+    //                         'public'
+    //                     );
+
+    //                     $block->media()->create([
+
+    //                         'type' => 'video',
+    //                         'path' => $this->normalizeMediaPath($path),
+    //                         'alt_text' => null,
+    //                         'is_primary' => false,
+    //                         'sort_order' => $currentVideoCount + $index,
+
+    //                     ]);
+    //                 }
+    //             }
+    //         } else {
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | STEP 12: Copy all blocks if blocks are not provided
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             foreach ($originalContent->blocks as $originalBlock) {
+
+    //                 $newBlock = $newContent->blocks()->create([
+
+    //                     'heading' => $originalBlock->heading,
+    //                     'short_description' => $originalBlock->short_description,
+    //                     'description' => $originalBlock->description,
+    //                     'sort_order' => $originalBlock->sort_order,
+
+    //                 ]);
+
+    //                 foreach ($originalBlock->media as $originalMedia) {
+
+    //                     $newBlock->media()->create([
+
+    //                         'type' => $originalMedia->type,
+
+    //                         // Normalize existing media paths
+    //                         'path' => $this->normalizeMediaPath(
+    //                             $originalMedia->path
+    //                         ),
+
+    //                         'alt_text' => $originalMedia->alt_text,
+    //                         'is_primary' => $originalMedia->is_primary,
+    //                         'sort_order' => $originalMedia->sort_order,
+
+    //                     ]);
+    //                 }
+    //             }
+    //         }
+
+    //         // STEP 13: Commit transaction
+    //         DB::commit();
+
+    //         // Load content with blocks and media
+    //         $newContent->load(['blocks.media']);
+
+    //         return response()->json([
+
+    //             'success' => true,
+    //             'message' => 'Content updated successfully',
+
+    //             'data' => $this->formatContent($newContent),
+
+    //             'version' => $newVersion,
+
+    //             'previous_version_id' => $originalContent->id,
+
+    //             'previous_version_status' => 'draft'
+
+    //         ], 200);
+    //     } catch (\Throwable $e) {
+
+    //         if (DB::transactionLevel() > 0) {
+    //             DB::rollBack();
+    //         }
+
+    //         return response()->json([
+
+    //             'success' => false,
+    //             'message' => 'Failed to update content',
+    //             'error' => $e->getMessage()
+
+    //         ], 500);
+    //     }
+    // }
     public function update(Request $request, $id)
-    {
-        try {
+{
+    try {
 
-            // STEP 1: Validation
-            $validator = Validator::make($request->all(), [
+        // STEP 1: Validation
+        $validator = Validator::make($request->all(), [
 
-                'title' => 'nullable|string|max:255',
-                'status' => 'nullable|in:draft,published',
-                'type' => 'nullable|in:home,landing_page',
+            'title' => 'nullable|string|max:255',
+            'status' => 'nullable|in:draft,published',
+            'type' => 'nullable|in:home,landing_page',
 
-                'blocks' => 'nullable|array|min:1',
+            'blocks' => 'nullable|array|min:1',
 
-                'blocks.*.id' => 'nullable|integer|exists:content_blocks,id',
-                'blocks.*.heading' => 'nullable|string|max:255',
-                'blocks.*.short_description' => 'nullable|string',
-                'blocks.*.description' => 'nullable|string',
-                'blocks.*.sort_order' => 'nullable|integer',
+            'blocks.*.id' => 'nullable|integer|exists:content_blocks,id',
+            'blocks.*.heading' => 'nullable|string|max:255',
+            'blocks.*.short_description' => 'nullable|string',
+            'blocks.*.description' => 'nullable|string',
+            'blocks.*.sort_order' => 'nullable|integer',
 
-                // New images
-                'blocks.*.images' => 'nullable|array',
-                'blocks.*.images.*' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp,svg',
+            // New images
+            'blocks.*.images' => 'nullable|array',
+            'blocks.*.images.*' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp,svg',
 
-                // New videos
-                'blocks.*.videos' => 'nullable|array',
-                'blocks.*.videos.*' => 'nullable|file|mimes:mp4,avi,mov,wmv',
+            // New videos
+            'blocks.*.videos' => 'nullable|array',
+            'blocks.*.videos.*' => 'nullable|file|mimes:mp4,avi,mov,wmv',
 
-                // Existing images
-                'blocks.*.existing_images' => 'nullable|array',
-                'blocks.*.existing_images.*.id' => 'required|integer|exists:content_media,id',
-                'blocks.*.existing_images.*.is_primary' => 'nullable|boolean',
+            // Existing images
+            'blocks.*.existing_images' => 'nullable|array',
+            'blocks.*.existing_images.*.id' => 'required|integer|exists:content_media,id',
+            'blocks.*.existing_images.*.is_primary' => 'nullable|boolean',
 
-                // Existing videos
-                'blocks.*.existing_videos' => 'nullable|array',
-                'blocks.*.existing_videos.*.id' => 'required|integer|exists:content_media,id',
-                'blocks.*.existing_videos.*.is_primary' => 'nullable|boolean',
+            // Existing videos
+            'blocks.*.existing_videos' => 'nullable|array',
+            'blocks.*.existing_videos.*.id' => 'required|integer|exists:content_media,id',
+            'blocks.*.existing_videos.*.is_primary' => 'nullable|boolean',
 
-            ]);
+        ]);
 
-            if ($validator->fails()) {
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // STEP 2: Find original content
+        $originalContent = Content::with('blocks.media')->find($id);
+
+        if (!$originalContent) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Content not found'
+            ], 404);
+        }
+
+        // STEP 3: Validate block ownership
+        foreach ($request->input('blocks', []) as $index => $blockData) {
+
+            if (!empty($blockData['id'])) {
+
+                $originalBlock = $originalContent->blocks
+                    ->firstWhere('id', $blockData['id']);
+
+                if (!$originalBlock) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Invalid block ID at index {$index}."
+                    ], 422);
+                }
+            } elseif (
+                !empty($blockData['existing_images']) ||
+                !empty($blockData['existing_videos'])
+            ) {
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'Validation failed',
-                    'errors' => $validator->errors()
+                    'message' => "Block ID is required when using existing media at index {$index}."
                 ], 422);
             }
+        }
 
-            // STEP 2: Find original content
-            $originalContent = Content::with('blocks.media')->find($id);
+        DB::beginTransaction();
 
-            if (!$originalContent) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Content not found'
-                ], 404);
-            }
+        // STEP 4: Mark previous version as draft
+        $originalContent->status = 'draft';
+        $originalContent->save();
 
-            // STEP 3: Validate block ownership
-            foreach ($request->input('blocks', []) as $index => $blockData) {
+        // STEP 5: Calculate next version
+        $latestVersion = Content::where('slug', $originalContent->slug)
+            ->orderByDesc('id')
+            ->value('current_version') ?? '1.0';
 
+        $newVersion = $this->calculateNextVersion($latestVersion);
+
+        // STEP 6: Create new content version
+        $newContent = $originalContent->replicate();
+
+        $newContent->title = $request->input(
+            'title',
+            $originalContent->title
+        );
+
+        $newContent->type = $request->input(
+            'type',
+            $originalContent->type
+        );
+
+        $newContent->slug = $originalContent->slug;
+        $newContent->current_version = $newVersion;
+        $newContent->status = $request->input('status', 'published');
+
+        $newContent->created_at = now();
+        $newContent->updated_at = now();
+
+        $newContent->save();
+
+        // STEP 7: Process blocks
+        if ($request->has('blocks') && is_array($request->blocks)) {
+
+            foreach ($request->blocks as $blockIndex => $blockData) {
+
+                $originalBlock = null;
+
+                // Find original block
                 if (!empty($blockData['id'])) {
 
                     $originalBlock = $originalContent->blocks
                         ->firstWhere('id', $blockData['id']);
-
-                    if (!$originalBlock) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => "Invalid block ID at index {$index}."
-                        ], 422);
-                    }
-                } elseif (
-                    !empty($blockData['existing_images']) ||
-                    !empty($blockData['existing_videos'])
-                ) {
-
-                    return response()->json([
-                        'success' => false,
-                        'message' => "Block ID is required when using existing media at index {$index}."
-                    ], 422);
                 }
-            }
 
-            DB::beginTransaction();
+                // Create new block
+                // NOTE: array_key_exists() is used so that an explicitly-sent
+                // null (e.g. "heading": null) is stored as null, instead of
+                // falling back to the original value via ??.
+                $block = $newContent->blocks()->create([
 
-            // STEP 4: Mark previous version as draft
-            $originalContent->status = 'draft';
-            $originalContent->save();
+                    'heading' => array_key_exists('heading', $blockData)
+                        ? $blockData['heading']
+                        : $originalBlock?->heading,
 
-            // STEP 5: Calculate next version
-            $latestVersion = Content::where('slug', $originalContent->slug)
-                ->orderByDesc('id')
-                ->value('current_version') ?? '1.0';
+                    'short_description' => array_key_exists('short_description', $blockData)
+                        ? $blockData['short_description']
+                        : $originalBlock?->short_description,
 
-            $newVersion = $this->calculateNextVersion($latestVersion);
+                    'description' => array_key_exists('description', $blockData)
+                        ? $blockData['description']
+                        : $originalBlock?->description,
 
-            // STEP 6: Create new content version
-            $newContent = $originalContent->replicate();
+                    'sort_order' => array_key_exists('sort_order', $blockData)
+                        ? $blockData['sort_order']
+                        : $blockIndex,
 
-            $newContent->title = $request->input(
-                'title',
-                $originalContent->title
-            );
-
-            $newContent->type = $request->input(
-                'type',
-                $originalContent->type
-            );
-
-            $newContent->slug = $originalContent->slug;
-            $newContent->current_version = $newVersion;
-            $newContent->status = $request->input('status', 'published');
-
-            $newContent->created_at = now();
-            $newContent->updated_at = now();
-
-            $newContent->save();
-
-            // STEP 7: Process blocks
-            if ($request->has('blocks') && is_array($request->blocks)) {
-
-                foreach ($request->blocks as $blockIndex => $blockData) {
-
-                    $originalBlock = null;
-
-                    // Find original block
-                    if (!empty($blockData['id'])) {
-
-                        $originalBlock = $originalContent->blocks
-                            ->firstWhere('id', $blockData['id']);
-                    }
-
-                    // Create new block
-                    $block = $newContent->blocks()->create([
-
-                        'heading' => $blockData['heading']
-                            ?? $originalBlock?->heading,
-
-                        'short_description' => $blockData['short_description']
-                            ?? $originalBlock?->short_description,
-
-                        'description' => $blockData['description']
-                            ?? $originalBlock?->description,
-
-                        'sort_order' => $blockData['sort_order']
-                            ?? $blockIndex,
-
-                    ]);
-
-                    /*
-                |--------------------------------------------------------------------------
-                | STEP 8: Copy existing images
-                |--------------------------------------------------------------------------
-                */
-
-                    $existingImages = $blockData['existing_images'] ?? [];
-
-                    $hasPrimaryImage = false;
-
-                    foreach ($existingImages as $sortIndex => $imageData) {
-
-                        $mediaId = $imageData['id'] ?? null;
-
-                        if (!$mediaId || !$originalBlock) {
-                            continue;
-                        }
-
-                        // Fetch image belonging to original block
-                        $originalMedia = ContentMedia::where('id', $mediaId)
-                            ->where('content_block_id', $originalBlock->id)
-                            ->where('type', 'image')
-                            ->first();
-
-                        if (!$originalMedia) {
-                            continue;
-                        }
-
-                        // Normalize path before saving
-                        $normalizedPath = $this->normalizeMediaPath(
-                            $originalMedia->path
-                        );
-
-                        $isPrimary = !$hasPrimaryImage &&
-                            (bool) ($imageData['is_primary'] ?? false);
-
-                        // Create new media record
-                        $block->media()->create([
-
-                            'type' => 'image',
-                            'path' => $normalizedPath,
-                            'alt_text' => $originalMedia->alt_text,
-                            'is_primary' => $isPrimary,
-                            'sort_order' => $sortIndex,
-
-                        ]);
-
-                        if ($isPrimary) {
-                            $hasPrimaryImage = true;
-                        }
-                    }
-
-                    /*
-                |--------------------------------------------------------------------------
-                | STEP 9: Upload new images
-                |--------------------------------------------------------------------------
-                */
-
-                    $newImages = $request->file(
-                        "blocks.{$blockIndex}.images",
-                        []
-                    );
-
-                    if (!is_array($newImages)) {
-                        $newImages = [$newImages];
-                    }
-
-                    $currentImageCount = $block->media()
-                        ->where('type', 'image')
-                        ->count();
-
-                    foreach ($newImages as $index => $image) {
-
-                        if (!$image || !$image->isValid()) {
-                            continue;
-                        }
-
-                        // Laravel returns relative path
-                        $path = $image->store(
-                            'content/images',
-                            'public'
-                        );
-
-                        $block->media()->create([
-
-                            'type' => 'image',
-                            'path' => $this->normalizeMediaPath($path),
-                            'alt_text' => null,
-                            'is_primary' => false,
-                            'sort_order' => $currentImageCount + $index,
-
-                        ]);
-                    }
-
-                    // Ensure at least one image is primary
-                    $primaryImageExists = $block->media()
-                        ->where('type', 'image')
-                        ->where('is_primary', true)
-                        ->exists();
-
-                    if (!$primaryImageExists) {
-
-                        $firstImage = $block->media()
-                            ->where('type', 'image')
-                            ->orderBy('sort_order')
-                            ->first();
-
-                        if ($firstImage) {
-                            $firstImage->update([
-                                'is_primary' => true
-                            ]);
-                        }
-                    }
-
-                    /*
-                |--------------------------------------------------------------------------
-                | STEP 10: Copy existing videos
-                |--------------------------------------------------------------------------
-                */
-
-                    $existingVideos = $blockData['existing_videos'] ?? [];
-
-                    foreach ($existingVideos as $sortIndex => $videoData) {
-
-                        $mediaId = $videoData['id'] ?? null;
-
-                        if (!$mediaId || !$originalBlock) {
-                            continue;
-                        }
-
-                        $originalMedia = ContentMedia::where('id', $mediaId)
-                            ->where('content_block_id', $originalBlock->id)
-                            ->where('type', 'video')
-                            ->first();
-
-                        if (!$originalMedia) {
-                            continue;
-                        }
-
-                        $block->media()->create([
-
-                            'type' => 'video',
-                            'path' => $this->normalizeMediaPath(
-                                $originalMedia->path
-                            ),
-                            'alt_text' => $originalMedia->alt_text,
-                            'is_primary' => false,
-                            'sort_order' => $sortIndex,
-
-                        ]);
-                    }
-
-                    /*
-                |--------------------------------------------------------------------------
-                | STEP 11: Upload new videos
-                |--------------------------------------------------------------------------
-                */
-
-                    $newVideos = $request->file(
-                        "blocks.{$blockIndex}.videos",
-                        []
-                    );
-
-                    if (!is_array($newVideos)) {
-                        $newVideos = [$newVideos];
-                    }
-
-                    $currentVideoCount = $block->media()
-                        ->where('type', 'video')
-                        ->count();
-
-                    foreach ($newVideos as $index => $video) {
-
-                        if (!$video || !$video->isValid()) {
-                            continue;
-                        }
-
-                        $path = $video->store(
-                            'content/videos',
-                            'public'
-                        );
-
-                        $block->media()->create([
-
-                            'type' => 'video',
-                            'path' => $this->normalizeMediaPath($path),
-                            'alt_text' => null,
-                            'is_primary' => false,
-                            'sort_order' => $currentVideoCount + $index,
-
-                        ]);
-                    }
-                }
-            } else {
+                ]);
 
                 /*
             |--------------------------------------------------------------------------
-            | STEP 12: Copy all blocks if blocks are not provided
+            | STEP 8: Copy existing images
             |--------------------------------------------------------------------------
             */
 
-                foreach ($originalContent->blocks as $originalBlock) {
+                $existingImages = $blockData['existing_images'] ?? [];
 
-                    $newBlock = $newContent->blocks()->create([
+                $hasPrimaryImage = false;
 
-                        'heading' => $originalBlock->heading,
-                        'short_description' => $originalBlock->short_description,
-                        'description' => $originalBlock->description,
-                        'sort_order' => $originalBlock->sort_order,
+                foreach ($existingImages as $sortIndex => $imageData) {
+
+                    $mediaId = $imageData['id'] ?? null;
+
+                    if (!$mediaId || !$originalBlock) {
+                        continue;
+                    }
+
+                    // Fetch image belonging to original block
+                    $originalMedia = ContentMedia::where('id', $mediaId)
+                        ->where('content_block_id', $originalBlock->id)
+                        ->where('type', 'image')
+                        ->first();
+
+                    if (!$originalMedia) {
+                        continue;
+                    }
+
+                    // Normalize path before saving
+                    $normalizedPath = $this->normalizeMediaPath(
+                        $originalMedia->path
+                    );
+
+                    $isPrimary = !$hasPrimaryImage &&
+                        (bool) ($imageData['is_primary'] ?? false);
+
+                    // Create new media record
+                    $block->media()->create([
+
+                        'type' => 'image',
+                        'path' => $normalizedPath,
+                        'alt_text' => $originalMedia->alt_text,
+                        'is_primary' => $isPrimary,
+                        'sort_order' => $sortIndex,
 
                     ]);
 
-                    foreach ($originalBlock->media as $originalMedia) {
+                    if ($isPrimary) {
+                        $hasPrimaryImage = true;
+                    }
+                }
 
-                        $newBlock->media()->create([
+                /*
+            |--------------------------------------------------------------------------
+            | STEP 9: Upload new images
+            |--------------------------------------------------------------------------
+            */
 
-                            'type' => $originalMedia->type,
+                $newImages = $request->file(
+                    "blocks.{$blockIndex}.images",
+                    []
+                );
 
-                            // Normalize existing media paths
-                            'path' => $this->normalizeMediaPath(
-                                $originalMedia->path
-                            ),
+                if (!is_array($newImages)) {
+                    $newImages = [$newImages];
+                }
 
-                            'alt_text' => $originalMedia->alt_text,
-                            'is_primary' => $originalMedia->is_primary,
-                            'sort_order' => $originalMedia->sort_order,
+                $currentImageCount = $block->media()
+                    ->where('type', 'image')
+                    ->count();
 
+                foreach ($newImages as $index => $image) {
+
+                    if (!$image || !$image->isValid()) {
+                        continue;
+                    }
+
+                    // Laravel returns relative path
+                    $path = $image->store(
+                        'content/images',
+                        'public'
+                    );
+
+                    $block->media()->create([
+
+                        'type' => 'image',
+                        'path' => $this->normalizeMediaPath($path),
+                        'alt_text' => null,
+                        'is_primary' => false,
+                        'sort_order' => $currentImageCount + $index,
+
+                    ]);
+                }
+
+                // Ensure at least one image is primary
+                $primaryImageExists = $block->media()
+                    ->where('type', 'image')
+                    ->where('is_primary', true)
+                    ->exists();
+
+                if (!$primaryImageExists) {
+
+                    $firstImage = $block->media()
+                        ->where('type', 'image')
+                        ->orderBy('sort_order')
+                        ->first();
+
+                    if ($firstImage) {
+                        $firstImage->update([
+                            'is_primary' => true
                         ]);
                     }
                 }
+
+                /*
+            |--------------------------------------------------------------------------
+            | STEP 10: Copy existing videos
+            |--------------------------------------------------------------------------
+            */
+
+                $existingVideos = $blockData['existing_videos'] ?? [];
+
+                foreach ($existingVideos as $sortIndex => $videoData) {
+
+                    $mediaId = $videoData['id'] ?? null;
+
+                    if (!$mediaId || !$originalBlock) {
+                        continue;
+                    }
+
+                    $originalMedia = ContentMedia::where('id', $mediaId)
+                        ->where('content_block_id', $originalBlock->id)
+                        ->where('type', 'video')
+                        ->first();
+
+                    if (!$originalMedia) {
+                        continue;
+                    }
+
+                    $block->media()->create([
+
+                        'type' => 'video',
+                        'path' => $this->normalizeMediaPath(
+                            $originalMedia->path
+                        ),
+                        'alt_text' => $originalMedia->alt_text,
+                        'is_primary' => false,
+                        'sort_order' => $sortIndex,
+
+                    ]);
+                }
+
+                /*
+            |--------------------------------------------------------------------------
+            | STEP 11: Upload new videos
+            |--------------------------------------------------------------------------
+            */
+
+                $newVideos = $request->file(
+                    "blocks.{$blockIndex}.videos",
+                    []
+                );
+
+                if (!is_array($newVideos)) {
+                    $newVideos = [$newVideos];
+                }
+
+                $currentVideoCount = $block->media()
+                    ->where('type', 'video')
+                    ->count();
+
+                foreach ($newVideos as $index => $video) {
+
+                    if (!$video || !$video->isValid()) {
+                        continue;
+                    }
+
+                    $path = $video->store(
+                        'content/videos',
+                        'public'
+                    );
+
+                    $block->media()->create([
+
+                        'type' => 'video',
+                        'path' => $this->normalizeMediaPath($path),
+                        'alt_text' => null,
+                        'is_primary' => false,
+                        'sort_order' => $currentVideoCount + $index,
+
+                    ]);
+                }
             }
+        } else {
 
-            // STEP 13: Commit transaction
-            DB::commit();
+            /*
+        |--------------------------------------------------------------------------
+        | STEP 12: Copy all blocks if blocks are not provided
+        |--------------------------------------------------------------------------
+        */
 
-            // Load content with blocks and media
-            $newContent->load(['blocks.media']);
+            foreach ($originalContent->blocks as $originalBlock) {
 
-            return response()->json([
+                $newBlock = $newContent->blocks()->create([
 
-                'success' => true,
-                'message' => 'Content updated successfully',
+                    'heading' => $originalBlock->heading,
+                    'short_description' => $originalBlock->short_description,
+                    'description' => $originalBlock->description,
+                    'sort_order' => $originalBlock->sort_order,
 
-                'data' => $this->formatContent($newContent),
+                ]);
 
-                'version' => $newVersion,
+                foreach ($originalBlock->media as $originalMedia) {
 
-                'previous_version_id' => $originalContent->id,
+                    $newBlock->media()->create([
 
-                'previous_version_status' => 'draft'
+                        'type' => $originalMedia->type,
 
-            ], 200);
-        } catch (\Throwable $e) {
+                        // Normalize existing media paths
+                        'path' => $this->normalizeMediaPath(
+                            $originalMedia->path
+                        ),
 
-            if (DB::transactionLevel() > 0) {
-                DB::rollBack();
+                        'alt_text' => $originalMedia->alt_text,
+                        'is_primary' => $originalMedia->is_primary,
+                        'sort_order' => $originalMedia->sort_order,
+
+                    ]);
+                }
             }
-
-            return response()->json([
-
-                'success' => false,
-                'message' => 'Failed to update content',
-                'error' => $e->getMessage()
-
-            ], 500);
         }
+
+        // STEP 13: Commit transaction
+        DB::commit();
+
+        // Load content with blocks and media
+        $newContent->load(['blocks.media']);
+
+        return response()->json([
+
+            'success' => true,
+            'message' => 'Content updated successfully',
+
+            'data' => $this->formatContent($newContent),
+
+            'version' => $newVersion,
+
+            'previous_version_id' => $originalContent->id,
+
+            'previous_version_status' => 'draft'
+
+        ], 200);
+    } catch (\Throwable $e) {
+
+        if (DB::transactionLevel() > 0) {
+            DB::rollBack();
+        }
+
+        return response()->json([
+
+            'success' => false,
+            'message' => 'Failed to update content',
+            'error' => $e->getMessage()
+
+        ], 500);
     }
+}
 
 
     private function normalizeMediaPath($path)

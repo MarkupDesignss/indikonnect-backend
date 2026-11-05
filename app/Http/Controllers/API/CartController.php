@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Coupon;
+use App\Models\Order;
 use App\Models\CouponUsage;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -106,25 +107,36 @@ class CartController extends Controller
      */
     protected function ensureMandatoryProductsInCart(Cart $cart): void
     {
-        $mandatoryProducts = Product::where('is_mandatory', true)
-            ->where('is_mandatory', true)          // ← agar aapke schema me hai
-            ->get();
-
-        if ($mandatoryProducts->isEmpty()) {
+        $user = auth('sanctum')->user();
+    
+        // Mandatory products are applicable only to logged-in users
+        if (!$user) {
             return;
         }
-
-        // Already present product_ids in cart (product-level, no variant)
-        $existingProductIds = CartItem::where('cart_id', $cart->id)
-            ->whereNull('variant_id')
-            ->pluck('product_id')
-            ->toArray();
-
+    
+        // Check whether user has already placed an order
+        $hasOrdered = Order::where('user_id', $user->id)->exists();
+    
+        if ($hasOrdered) {
+            return;
+        }
+    
+        $mandatoryProducts = Product::where('is_mandatory', true)
+            ->where('is_mandatory', true)
+            ->get();
+    
         foreach ($mandatoryProducts as $product) {
-            if (in_array($product->id, $existingProductIds, true)) {
-                continue; // already in cart
+    
+            // Check whether this product already exists in cart
+            $exists = CartItem::where('cart_id', $cart->id)
+                ->where('product_id', $product->id)
+                ->whereNull('variant_id')
+                ->exists();
+    
+            if ($exists) {
+                continue;
             }
-
+    
             CartItem::create([
                 'cart_id'         => $cart->id,
                 'product_id'      => $product->id,
@@ -135,7 +147,184 @@ class CartController extends Controller
             ]);
         }
     }
+    
+    public function add(Request $request)
+{
+    $validator = Validator::make($request->all(), [
+        'product_id'    => ['required_without:variant_id', 'exists:products,id'],
+        'variant_id'    => ['required_without:product_id', 'exists:product_variants,id'],
+        'quantity'      => ['nullable', 'integer', 'min:1'],
+        'from_wishlist' => ['nullable', 'boolean'],
+    ]);
 
+    if ($validator->fails()) {
+        return response()->json([
+            'errors' => $validator->errors()
+        ], 422);
+    }
+
+    $productId    = $request->product_id;
+    $variantId    = $request->variant_id;
+    $quantity     = $request->quantity ?? 1;
+    $fromWishlist = $request->boolean('from_wishlist');
+
+    // ==========================================
+    // GET PRODUCT / VARIANT
+    // ==========================================
+
+    if ($variantId) {
+
+        $variant = ProductVariant::with('product')->find($variantId);
+
+        if (!$variant) {
+            return response()->json([
+                'message' => 'Variant not found'
+            ], 404);
+        }
+
+        $product = $variant->product;
+
+        if (!$product) {
+            return response()->json([
+                'message' => 'Product not found'
+            ], 404);
+        }
+
+    } else {
+
+        $product = Product::find($productId);
+
+        if (!$product) {
+            return response()->json([
+                'message' => 'Product not found'
+            ], 404);
+        }
+    }
+
+    DB::beginTransaction();
+
+    try {
+
+        $user = auth('sanctum')->user();
+
+        $cart = $this->getCart($request);
+
+        // ==========================================
+        // ADD REQUESTED PRODUCT TO CART
+        // ==========================================
+
+        $shippingCharge = $product->shipping_charge ?? 0;
+
+        $cartItem = CartItem::where('cart_id', $cart->id)
+            ->where('product_id', $product->id)
+            ->where('variant_id', $variantId)
+            ->first();
+
+        if ($cartItem) {
+
+            $cartItem->quantity += $quantity;
+            $cartItem->unit_price = 0;
+            $cartItem->shipping_charge = $shippingCharge;
+            $cartItem->save();
+
+        } else {
+
+            CartItem::create([
+                'cart_id'         => $cart->id,
+                'product_id'      => $product->id,
+                'variant_id'      => $variantId,
+                'quantity'        => $quantity,
+                'unit_price'      => 0,
+                'shipping_charge' => $shippingCharge,
+            ]);
+        }
+
+        // ==========================================
+        // AUTO ADD MANDATORY PRODUCTS
+        // ONLY IF USER HAS NOT PLACED ANY ORDER
+        // ==========================================
+
+        if ($user) {
+
+            $hasOrdered = Order::where('user_id', $user->id)
+                ->exists();
+
+            if (!$hasOrdered) {
+
+                $mandatoryProducts = Product::where('is_mandatory', true)
+                    ->where('is_mandatory', true)
+                    ->get();
+
+                foreach ($mandatoryProducts as $mandatoryProduct) {
+
+                    // Already exists in cart?
+                    $exists = CartItem::where('cart_id', $cart->id)
+                        ->where('product_id', $mandatoryProduct->id)
+                        ->whereNull('variant_id')
+                        ->exists();
+
+                    if ($exists) {
+                        continue;
+                    }
+
+                    CartItem::create([
+                        'cart_id'         => $cart->id,
+                        'product_id'      => $mandatoryProduct->id,
+                        'variant_id'      => null,
+                        'quantity'        => 1,
+                        'unit_price'      => 0,
+                        'shipping_charge' => $mandatoryProduct->shipping_charge ?? 0,
+                    ]);
+                }
+            }
+        }
+
+        // ==========================================
+        // REMOVE FROM WISHLIST
+        // ==========================================
+
+        if ($fromWishlist && $user) {
+
+            Wishlist::where('user_id', $user->id)
+                ->where('product_id', $product->id)
+                ->when($variantId, function ($query) use ($variantId) {
+                    return $query->where('variant_id', $variantId);
+                }, function ($query) {
+                    return $query->whereNull('variant_id');
+                })
+                ->delete();
+        }
+
+        DB::commit();
+
+        // ==========================================
+        // LOAD CART DATA
+        // ==========================================
+
+        $cart->load([
+            'items.product.taxCategory',
+            'items.product.images',
+            'items.product.primaryImage',
+            'items.variant.images',
+        ]);
+
+        return response()->json([
+            'message'   => 'Item added to cart successfully',
+            'data'      => $this->formatCart($cart, $user),
+            'summary'   => $this->getCartSummary($cart, $user),
+            'user_type' => $this->getUserType(),
+        ], 201);
+
+    } catch (\Exception $e) {
+
+        DB::rollBack();
+
+        return response()->json([
+            'message' => 'Failed to add item to cart',
+            'error'   => $e->getMessage(),
+        ], 500);
+    }
+}
     /**
      * Add item to cart (supports both product and variant)
      */
@@ -234,110 +423,7 @@ class CartController extends Controller
     //         ], 500);
     //     }
     // }
-    public function add(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'product_id'    => ['required_without:variant_id', 'exists:products,id'],
-            'variant_id'    => ['required_without:product_id', 'exists:product_variants,id'],
-            'quantity'      => ['nullable', 'integer', 'min:1'],
-            'from_wishlist' => ['nullable', 'boolean'],
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-
-        $productId    = $request->product_id;
-        $variantId    = $request->variant_id;
-        $quantity     = $request->quantity ?? 1;
-        $fromWishlist = $request->boolean('from_wishlist') ?? false;
-
-        if ($variantId) {
-            $variant = ProductVariant::with('product')->find($variantId);
-            if (!$variant) {
-                return response()->json(['message' => 'Variant not found'], 404);
-            }
-            $product = $variant->product;
-            if (!$product) {
-                return response()->json(['message' => 'Product not found'], 404);
-            }
-        } else {
-            $product = Product::find($productId);
-            if (!$product) {
-                return response()->json(['message' => 'Product not found'], 404);
-            }
-        }
-
-        DB::beginTransaction();
-
-        try {
-            $cart = $this->getCart($request);
-
-            $shippingCharge = $product->shipping_charge ?? 0;
-
-            $cartItem = CartItem::where('cart_id', $cart->id)
-                ->where('product_id', $product->id)
-                ->when($variantId, function ($query) use ($variantId) {
-                    return $query->where('variant_id', $variantId);
-                })
-                ->first();
-
-            if ($cartItem) {
-                $cartItem->quantity += $quantity;
-                $cartItem->unit_price = 0;
-                $cartItem->shipping_charge = $shippingCharge;
-                $cartItem->save();
-            } else {
-                CartItem::create([
-                    'cart_id'         => $cart->id,
-                    'product_id'      => $product->id,
-                    'variant_id'      => $variantId,
-                    'quantity'        => $quantity,
-                    'unit_price'      => 0,
-                    'shipping_charge' => $shippingCharge,
-                ]);
-            }
-
-            $this->ensureMandatoryProductsInCart($cart);
-
-            if ($fromWishlist) {
-                $user = auth('sanctum')->user();
-                if ($user) {
-                    Wishlist::where('user_id', $user->id)
-                        ->where('product_id', $product->id)
-                        ->when($variantId, function ($query) use ($variantId) {
-                            return $query->where('variant_id', $variantId);
-                        })
-                        ->delete();
-                }
-            }
-
-            DB::commit();
-
-            $cart->load([
-                'items.product.taxCategory',
-                'items.product.images',
-                'items.product.primaryImage',
-                'items.variant.images',
-            ]);
-
-            $user = auth('sanctum')->user();
-
-            return response()->json([
-                'message'   => 'Item added to cart successfully',
-                'data'      => $this->formatCart($cart, $user),
-                'summary'   => $this->getCartSummary($cart, $user),
-                'user_type' => $this->getUserType(),
-            ], 201);
-        } catch (\Exception $e) {
-            DB::rollBack();
-
-            return response()->json([
-                'message' => 'Failed to add item to cart',
-                'error'   => $e->getMessage(),
-            ], 500);
-        }
-    }
+  
 
     /**
      * Update cart item quantity
@@ -466,66 +552,100 @@ class CartController extends Controller
     //         ], 500);
     //     }
     // }
-    public function remove(Request $request, $itemId)
-    {
-        DB::beginTransaction();
-        try {
-            $cart = $this->getCart($request);
-    
-            $cartItem = CartItem::where('cart_id', $cart->id)
-                ->where('id', $itemId)
-                ->first();
-    
-            if (!$cartItem) {
-                return response()->json(['message' => 'Item not found in cart'], 404);
-            }
-    
-            // andatory product protection
-            // Agar item mandatory hai, to tab hi remove hone do
-            // jab cart me koi normal (non-mandatory) item na bache.
-            $isMandatoryItem = $cartItem->product
-                && $cartItem->product->is_mandatory;
-    
-            if ($isMandatoryItem) {
-                // Kya cart me koi normal (non-mandatory) item hai?
-                $hasNormalItem = CartItem::where('cart_id', $cart->id)
-                    ->where('id', '!=', $cartItem->id)
-                    ->whereHas('product', function ($query) {
-                        $query->where('is_mandatory', false)
-                              ->orWhereNull('is_mandatory');
-                    })
-                    ->exists();
-    
-                if ($hasNormalItem) {
-                    DB::rollBack();
-                    return response()->json([
-                        'message' => 'Please remove normal items first. Mandatory products can only be removed after all other items are removed.',
-                        'success' => false,
-                    ], 422);
-                }
-            }
-    
-            $cartItem->delete();
-    
-            DB::commit();
-    
-            $cart->load(['items.product.images', 'items.variant.images']);
-            $user = auth('sanctum')->user();
-    
+
+public function remove(Request $request, $itemId)
+{
+    try {
+
+        $cart = $this->getCart($request);
+        $user = auth('sanctum')->user();
+
+        $cartItem = CartItem::with('product')
+            ->where('cart_id', $cart->id)
+            ->where('id', $itemId)
+            ->first();
+
+        if (!$cartItem) {
             return response()->json([
-                'message' => 'Item removed from cart',
-                'data' => $this->formatCart($cart, $user),
-                'summary' => $this->getCartSummary($cart, $user),
-                'user_type' => $this->getUserType(),
-            ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
+                'success' => false,
+                'message' => 'Item not found in cart',
+            ], 404);
+        }
+
+        // Check whether user has placed any order
+        $hasOrdered = $user
+            ? Order::where('user_id', $user->id)->exists()
+            : true;
+
+        // Check whether requested item is mandatory
+        $isMandatoryItem = $cartItem->product
+            && (bool) $cartItem->product->is_mandatory;
+
+        // Apply restriction only for first-time users
+        if (!$hasOrdered && $isMandatoryItem) {
+
+            // Check if any normal product exists in cart
+            $hasNormalItem = CartItem::where('cart_id', $cart->id)
+                ->where('id', '!=', $cartItem->id)
+                ->whereHas('product', function ($query) {
+                    $query->where(function ($q) {
+                        $q->where('is_mandatory', false)
+                            ->orWhereNull('is_mandatory');
+                    });
+                })
+                ->exists();
+
+            // Block mandatory removal only if normal product exists
+            if ($hasNormalItem) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Please remove normal products first. You can remove mandatory products after removing all normal products.',
+                ], 422);
+            }
+        }
+
+        // Delete requested cart item
+        $deleted = CartItem::where('cart_id', $cart->id)
+            ->where('id', $itemId)
+            ->delete();
+
+        if (!$deleted) {
             return response()->json([
-                'message' => 'Failed to remove item from cart',
-                'error' => $e->getMessage()
+                'success' => false,
+                'message' => 'Unable to remove item from cart',
             ], 500);
         }
+
+        // Refresh cart relations
+        $cart->unsetRelation('items');
+
+        $cart->load([
+            'items.product.taxCategory',
+            'items.product.images',
+            'items.product.primaryImage',
+            'items.variant.images',
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Item removed from cart successfully',
+            'data' => $this->formatCart($cart, $user),
+            'summary' => $this->getCartSummary($cart, $user),
+            'user_type' => $this->getUserType(),
+        ]);
+
+    } catch (\Exception $e) {
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to remove item from cart',
+            'error' => $e->getMessage(),
+        ], 500);
     }
+}
+
+
+
 
     /**
      * Clear entire cart
