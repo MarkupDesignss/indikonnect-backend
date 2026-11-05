@@ -100,6 +100,34 @@ class CartController extends Controller
         return $user->account_type ?? 'customer';
     }
 
+    protected function ensureMandatoryProductsInCart(Cart $cart): Cart
+    {
+        $mandatoryProducts = Product::where('is_mandatory', true)
+            ->where('is_active', true) // agar aisa column hai
+            ->get();
+
+        foreach ($mandatoryProducts as $product) {
+            // Check if already in cart (product-level, no variant)
+            $exists = CartItem::where('cart_id', $cart->id)
+                ->where('product_id', $product->id)
+                ->whereNull('variant_id')
+                ->exists();
+
+            if (!$exists) {
+                CartItem::create([
+                    'cart_id'         => $cart->id,
+                    'product_id'      => $product->id,
+                    'variant_id'      => null,
+                    'quantity'        => 1,
+                    'unit_price'      => 0,
+                    'shipping_charge' => $product->shipping_charge ?? 0,
+                ]);
+            }
+        }
+
+        return $cart;
+    }
+
     /**
      * Add item to cart (supports both product and variant)
      */
