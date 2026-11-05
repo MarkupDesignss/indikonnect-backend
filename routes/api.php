@@ -406,6 +406,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/orders/confirmed/{order_reference}', [OrderController::class, 'getConfirmedOrder']);
     Route::get('/my-orders', [OrderController::class, 'getOrder']);
+    // India Post live tracking - authenticated customer, rate limited.
+    Route::get(
+        '/orders/{orderId}/indiapost/tracking',
+        [\App\Http\Controllers\Api\IndiaPostOrderTrackingController::class, 'show']
+    )->middleware('throttle:10,1');
     Route::post('/orders/{orderReference}/cancel/{id}', [OrderController::class, 'requestCancellation']);
     Route::post('/orders/{orderReference}/withdrawCancel/{id}', [OrderController::class, 'withdrawCancel']);
 });
@@ -975,25 +980,6 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
 });
 
 Route::get('/distributor/{distributor_id}', [AuthController::class, 'show']);
-
-// =============================================
-// INDIA POST CUSTOMER FRONTEND ROUTES
-// =============================================
-
-Route::middleware('throttle:20,1')->group(function () {
-
-    Route::get(
-        'shipping/indiapost/pincode/{pincode}',
-        [IndiaPostPublicController::class, 'pincode']
-    );
-
-    Route::get(
-        'shipping/indiapost/tariff/business-parcel',
-        [IndiaPostPublicController::class, 'businessParcelTariff']
-    );
-
-});
-
 
 // ============================================
 // INDIA POST API ROUTES
