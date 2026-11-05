@@ -11375,8 +11375,8 @@ class ProductController extends Controller
     public function mandatoryProduct()
     {
         $product = Product::with('images', 'category', 'subcategory', 'brand', 'taxCategory')
-            ->where('id', 32)
-            ->get();
+            ->where('is_mandatory', 1)
+            ->first();
 
         $product->each(function ($item) {
             $item->images->each(function ($image) {

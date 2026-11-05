@@ -2063,7 +2063,8 @@ class CheckoutService
             $cartItems = $cart->items;
         }
 
-        $mandatoryProductId = 32;
+        // $mandatoryProductId = 32;
+        $mandatoryProductId = Product::where('is_mandatory', 1)->value('id');
 
         if ($user->account_type === 'distributor' && $mandatoryProductId > 0) {
             $this->assertMandatoryProductRule(

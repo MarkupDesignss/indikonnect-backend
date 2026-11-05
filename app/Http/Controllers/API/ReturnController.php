@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\OrderReturn;
+use App\Models\Product;
 use App\Models\Refund;
 use App\Models\User;
 use App\Services\ReturnService;
@@ -326,7 +327,30 @@ class ReturnController extends Controller
                 ], 403);
             }
 
+            $mandatoryProductId = Product::where('is_mandatory', 1)->value('id');
+
+            if ($mandatoryProductId) {
+                $lineProductMap = OrderLine::whereIn('id', $lineIds)
+                    ->pluck('product_id', 'id');
+
+                $mandatoryLineIds = $lineProductMap
+                    ->filter(fn($productId) => (int) $productId === (int) $mandatoryProductId)
+                    ->keys();
+
+                if ($mandatoryLineIds->isNotEmpty()) {
+                    $mandatoryProductName = Product::where('id', $mandatoryProductId)->value('name')
+                        ?? 'the mandatory product';
+
+                    return response()->json([
+                        'success'            => false,
+                        'message'            => "The item \"{$mandatoryProductName}\" is a mandatory product and cannot be returned.",
+                        'blocked_line_ids'   => $mandatoryLineIds->values(),
+                        'mandatory_product_id' => (int) $mandatoryProductId,
+                    ], 403);
+                }
+            }
             $returnReason = $request->input('items.0.reason');
+
 
             /*
          * Store uploaded images and convert them
