@@ -247,6 +247,7 @@ Route::post('/create/variants', [ProductController::class, 'createVariant']);
 Route::post('/products/{productId}/set-primary', [ProductController::class, 'setPrimaryProduct']);
 Route::post('move-product-image/{product}', [ProductController::class, 'swapImageOrder']);
 Route::get('mandatoryProduct', [ProductController::class, 'mandatoryProduct']);
+Route::get('get_catalogueData', [ProductController::class, 'catalogue']);
 
 Route::prefix('products')->group(function () {
     Route::middleware('optional.auth:sanctum')->group(function () {
