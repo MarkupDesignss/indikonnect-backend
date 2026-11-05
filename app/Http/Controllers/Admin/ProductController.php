@@ -15,6 +15,7 @@ use Exception;
 
 use App\Models\ProductReview;
 use App\Models\ProductVariant;
+use App\Models\Setting;
 use Throwable;
 use App\Models\User;
 use Carbon\Carbon;
@@ -11609,5 +11610,147 @@ class ProductController extends Controller
                 'message' => 'Something went wrong.',
             ], 500);
         }
+    }
+
+    public function catalogue(Request $request)
+    {
+        // 1. Base Query (Eager load relationships)
+        $query = Product::with([
+            'brand',
+            'category',
+            'subcategory',
+            'images' => function ($q) {
+                $q->limit(4);
+            }
+        ])->whereHas('brand', function ($q) {
+            $q->where('status', true);
+        });
+
+        // 2. Apply Filters
+        // Category filter
+        if ($request->has('category_ids') && $request->category_ids) {
+            $categoryIds = is_array($request->category_ids)
+                ? $request->category_ids
+                : explode(',', $request->category_ids);
+
+            $query->whereIn('category_id', array_filter($categoryIds));
+        }
+
+        // Subcategory filter
+        if ($request->has('subcategory_ids') && $request->subcategory_ids) {
+            $subcategoryIds = is_array($request->subcategory_ids)
+                ? $request->subcategory_ids
+                : explode(',', $request->subcategory_ids);
+
+            $query->whereIn('subcategory_id', array_filter($subcategoryIds));
+        }
+
+        // Brand filter
+        if ($request->has('brand_ids') && $request->brand_ids) {
+            $brandIds = is_array($request->brand_ids)
+                ? $request->brand_ids
+                : explode(',', $request->brand_ids);
+
+            $query->whereIn('brand_id', array_filter($brandIds));
+        }
+
+        // Search filter
+        if ($request->has('search') && trim($request->search) !== '') {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'LIKE', "%{$search}%")
+                    ->orWhere('product_code', 'LIKE', "%{$search}%")
+                    ->orWhere('slug', 'LIKE', "%{$search}%");
+            });
+        }
+
+        // Sort by distributor price
+        $sortParam = $request->get('sort');
+        if ($sortParam === 'price-low') {
+            $query->orderBy('distributor_price', 'asc');
+        } elseif ($sortParam === 'price-high') {
+            $query->orderBy('distributor_price', 'asc');
+        } else {
+            $query->orderBy('created_at', 'asc');
+        }
+
+        // 3. Fetch Products
+        $products = $query->get();
+
+        // 4. Format & Group by Category -> Brand
+        $groupedData = $products->groupBy(function ($product) {
+            // Primary Group: Category ID
+            return $product->category_id ?? 0;
+        })->map(function ($categoryProducts, $categoryId) {
+
+            $firstProduct = $categoryProducts->first();
+            $category = $firstProduct->category;
+
+            // Secondary Group: Brand ID
+            $brands = $categoryProducts->groupBy(function ($product) {
+                return $product->brand_id ?? 0;
+            })->map(function ($brandProducts, $brandId) {
+
+                $firstBrandProduct = $brandProducts->first();
+                $brand = $firstBrandProduct->brand;
+
+                return [
+                    'brand_id'    => $brandId,
+                    'brand_title' => $brand ? $brand->title : 'Unknown Brand',
+                    'brand_logo'  => $brand && $brand->logo
+                        ? asset('storage/' . $brand->logo)
+                        : null,
+
+                    'products' => $brandProducts->map(function ($product) {
+                        return [
+                            'id'              => $product->id,
+                            'name'            => $product->name,
+                            'slug'            => $product->slug,
+                            'product_code'    => $product->product_code,
+                            'description'     => $product->description,
+
+                            // Subcategory Data
+                            'subcategory_name' => $product->subcategory?->name,
+
+                            // Distributor Pricing Only
+                            'distributor_price' => $product->distributor_price,
+                            'distributor_mrp'   => $product->distributor_mrp,
+
+                            // Images (Max 4)
+                            'images' => $product->images->map(function ($image) {
+                                return [
+                                    'id'         => $image->id,
+                                    'image_url'  => asset('storage/' . $image->image),
+                                    'is_primary' => (bool) $image->is_primary,
+                                ];
+                            })->values()->toArray(),
+                        ];
+                    })->values()->toArray(),
+                ];
+            })->values()->toArray();
+
+            return [
+                'category_id'    => $categoryId,
+                'category_title' => $category ? $category->title : 'Uncategorized',
+                'category_logo'  => $category && $category->image
+                    ? asset('storage/categories/' . $category->image)
+                    : null,
+                'brands'         => $brands,
+            ];
+        })->values()->toArray();
+
+        // 5. Get Settings (About Konnecto)
+        $aboutSetting = Setting::where('key', 'about_konnecto')->first();
+        $aboutKonnecto = $aboutSetting ? $aboutSetting->value : null;
+
+        // 6. Return Response
+        return response()->json([
+            'success'        => true,
+            'total_categories' => count($groupedData),
+            'data'           => $groupedData, // Grouped: Category -> Brand -> Products
+            'settings'       => [
+                'about_konnecto' => $aboutKonnecto
+            ]
+        ]);
     }
 }
