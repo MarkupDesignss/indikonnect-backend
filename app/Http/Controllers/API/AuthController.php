@@ -3462,7 +3462,7 @@ class AuthController extends Controller
                 'accept_terms' => 'required|in:0,1',
                 'accept_agreement' => 'required|in:0,1',
                 'accept_code_of_conduct' => 'required|in:0,1',
-                'accept_terms_text' => 'required|string',
+                'accept_terms_text' => 'nullable|string',
             ]);
 
             if ($validator->fails()) {
@@ -3477,26 +3477,26 @@ class AuthController extends Controller
             | Match acceptance text with settings (case-insensitive, spelling exact)
             |--------------------------------------------------------------------------
             */
-            $termsText = DB::table('settings')->where('key', 'terms_conditions')->value('value');
+            // $termsText = DB::table('settings')->where('key', 'terms_conditions')->value('value');
 
-            if (empty($termsText)) {
-                return response()->json([
-                    'status'  => false,
-                    'message' => 'Terms and conditions are not configured.',
-                ], 422);
-            }
+            // if (empty($termsText)) {
+            //     return response()->json([
+            //         'status'  => false,
+            //         'message' => 'Terms and conditions are not configured.',
+            //     ], 422);
+            // }
 
-            $submittedTerms = (string) $request->input('accept_terms_text', $request->input('terms_text', ''));
+            // $submittedTerms = (string) $request->input('accept_terms_text', $request->input('terms_text', ''));
 
-            if (!$this->matchesSettingText($submittedTerms, $termsText)) {
-                return response()->json([
-                    'status'  => false,
-                    'message' => 'Terms and conditions text does not match. Please read and accept the exact terms.',
-                    'errors'  => [
-                        'accept_terms_text' => ['The accepted terms text does not match the official terms.'],
-                    ],
-                ], 422);
-            }
+            // if (!$this->matchesSettingText($submittedTerms, $termsText)) {
+            //     return response()->json([
+            //         'status'  => false,
+            //         'message' => 'Terms and conditions text does not match. Please read and accept the exact terms.',
+            //         'errors'  => [
+            //             'accept_terms_text' => ['The accepted terms text does not match the official terms.'],
+            //         ],
+            //     ], 422);
+            // }
 
             /*
             |--------------------------------------------------------------------------
