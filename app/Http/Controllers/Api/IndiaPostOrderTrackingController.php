@@ -71,6 +71,41 @@ class IndiaPostOrderTrackingController extends Controller
 
             $providerByBarcode = [];
             $warning = null;
+            $allocatedAwb = null;
+            $allocatedAt = null;
+
+            // A newly allocated barcode is in indiapost_awb_allocations, NOT yet
+            // in indiapost_shipments. Query the protected Node adapter ONLY after
+            // Laravel has verified this customer owns the requested order.
+            // Read-only; never book or request tracking from India Post here.
+            if (count($barcodes) === 0) {
+                try {
+                    $allocationResponse = $client->get($base . '/api/indiapost/orders/' . $order->id . '/awb');
+                    $allocationData = $allocationResponse->json();
+                    if ($allocationResponse->successful() && is_array($allocationData)
+                        && ($allocationData['success'] ?? false) === true
+                        && (int) ($allocationData['orderId'] ?? 0) === (int) $order->id
+                    ) {
+                        $allocation = $allocationData['allocation'] ?? null;
+                        if (is_array($allocation)) {
+                            $candidate = strtoupper((string) ($allocation['barcode_no'] ?? ''));
+                            if (preg_match('/^[A-Z]{2}[0-9]{9}IN$/D', $candidate) === 1) {
+                                $allocatedAwb = $candidate;
+                                $allocatedAt = $this->safeText($allocation['allocated_at'] ?? null, 60);
+                            }
+                        }
+                    } else {
+                        $warning = 'Allocated tracking number is temporarily unavailable.';
+                    }
+                } catch (Throwable $e) {
+                    Log::warning('India Post AWB allocation lookup failed', [
+                        'order_id' => $order->id,
+                        'exception_type' => get_class($e),
+                    ]);
+                    $warning = 'Allocated tracking number is temporarily unavailable.';
+                }
+            }
+
             if (count($barcodes)) {
                 try {
                     $tracking = Http::acceptJson()
@@ -134,6 +169,8 @@ class IndiaPostOrderTrackingController extends Controller
                 'success' => true,
                 'data' => [
                     'order_id' => (int) $order->id,
+                    'allocated_awb' => $allocatedAwb,
+                    'allocated_at' => $allocatedAt,
                     'shipments' => $shipments,
                     'warning' => $warning,
                 ],
