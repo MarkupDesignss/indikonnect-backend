@@ -28,12 +28,12 @@ Artisan::command('inspire', function () {
 */
 
 Schedule::command('commission:process --limit=50')
-    ->everyFiveMinutes()          // Changed from everyMinute()
+    ->everyFiveMinutes()
     ->withoutOverlapping()
     ->runInBackground()
     ->onOneServer();
 
 Schedule::command('reservations:release-expired')
-    ->everyFiveMinutes()          // Changed from everySecond()
+    ->everyFiveMinutes()
     ->withoutOverlapping(1)
     ->runInBackground();
