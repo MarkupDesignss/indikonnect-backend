@@ -784,6 +784,11 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('orders')->group(function (
     Route::post('/dispatch', [OrderController::class, 'dispatch']);
     Route::post('/ship', [OrderController::class, 'ship']);
     Route::post('/deliver', [OrderController::class, 'deliver']);
+
+    // India Post post-confirmation admin readiness (READ-ONLY; no booking/AWB write).
+    Route::get('/{orderId}/indiapost/readiness',
+        [\App\Http\Controllers\Api\IndiaPostDispatchReadinessController::class, 'show']
+    )->middleware('throttle:10,1');
     Route::get('/{orderReference}/shipping-details', [OrderController::class, 'getShippingDetails']);
     Route::post('order-lines/{orderLine}/cancel', [OrderController::class, 'adminCancel']);
 });
