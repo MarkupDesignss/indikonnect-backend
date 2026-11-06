@@ -380,6 +380,7 @@ class WishlistController extends Controller
             'id' => $product->id,
             'product_code' => $product->product_code,
             'name' => $product->name,
+            'allowed_purchsed' => $product->allowed_purchsed,
             'slug' => $product->slug,
             'description' => $product->description,
             'specification' => $product->specification,
