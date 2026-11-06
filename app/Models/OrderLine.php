@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class OrderLine extends Model
 {
@@ -94,6 +95,10 @@ class OrderLine extends Model
             ->values();
 
         return OrderLine::whereIn('id', $lineIds);
+    }
+    public function invoice(): HasOne
+    {
+        return $this->hasOne(Invoice::class, 'order_line_id', 'id');
     }
 
     public function order()
