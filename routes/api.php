@@ -926,7 +926,7 @@ Route::middleware('optional.auth:sanctum')->group(function () {
 });
 
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
-    Route::post('/combo/create', [ProductController::class, 'createCombo']);
+    Route::post('/combo/{parent_product_id}/create', [ProductController::class, 'createCombo']);
     Route::delete('/combo/{parentComboId}', [ProductController::class, 'deleteCombo']);
 });
 
