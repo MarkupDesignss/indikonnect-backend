@@ -1989,6 +1989,8 @@ class ProductController extends Controller
                 'name' => $product->name,
                 'brand_id' => $product->brand_id ?? null,
                 'commission_value' => $product->commission_value ?? null,
+                'manufacturer' => $product->manufacturer ?? null,
+                'marketed_by' => $product->marketed_by ?? null,
 
                 'brand_name' => $product->brand?->title,
                 'brand_logo' => $product->brand?->logo
@@ -2328,7 +2330,8 @@ class ProductController extends Controller
                 'specification' => $product->specification,
                 'hsn_code' => $product->hsn_code,
                 'uom' => $product->uom,
-
+                'manufacturer' => $product->manufacturer ?? null,
+                'marketed_by' => $product->marketed_by ?? null,
                 'brand_id' => $product->brand_id ?? null,
                 'category_id' => $product->category_id,
 
@@ -2723,7 +2726,8 @@ class ProductController extends Controller
             'shipping_charge' => $product->shipping_charge,
             'hsn_code' => $product->hsn_code,
             'uom' => $product->uom,
-
+            'manufacturer' => $product->manufacturer ?? null,
+            'marketed_by' => $product->marketed_by ?? null,
             'category_id' => $product->category_id,
 
             'category' => $product->category ? [
@@ -3690,6 +3694,8 @@ class ProductController extends Controller
             'ignite_product_id' => ['required'],
             'brand_id' => ['nullable'],
             'service_charge' => ['nullable'],
+            'marketed_by' => ['nullable'],
+            'manufacturer' => ['nullable'],
             'hsn_code' => ['nullable', 'string', 'max:50'],
             'uom' => ['nullable', 'string', 'max:50'],
             'category_id' => ['required', 'exists:categories,id'],
@@ -3774,6 +3780,8 @@ class ProductController extends Controller
             $productData['stock_quantity'] = $productData['stock_quantity'] ?? 0;
             $productData['total_added_quantity'] = $productData['stock_quantity'];
             $productData['shipping_charge'] = $productData['shipping_charge'] ?? 0;
+            $productData['manufacturer'] = $productData['manufacturer'] ?? 'IndieKonnect';
+            $productData['marketed_by'] = $productData['marketed_by'] ?? 'IndieKonnect';
             $productData['service_charge'] = $productData['service_charge'] ?? 0;
             $productData['commission_value'] = $productData['commission_value'] ?? 0;
 
@@ -5016,6 +5024,8 @@ class ProductController extends Controller
             'retail_mrp' => ['sometimes', 'required', 'numeric', 'min:0'],
             'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
             'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+            'marketed_by' => ['nullable'],
+            'manufacturer' => ['nullable'],
 
             'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
             'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
@@ -5104,6 +5114,8 @@ class ProductController extends Controller
                 'retail_discount_value' => $product->retail_discount_value,
 
                 'distributor_mrp' => $product->distributor_mrp,
+                'manufacturer' => $product->manufacturer,
+                'marketed_by' => $product->marketed_by,
                 'distributor_price' => $product->distributor_price,
                 'distributor_discount_type' => $product->distributor_discount_type,
                 'distributor_discount_value' => $product->distributor_discount_value,
@@ -5411,7 +5423,8 @@ class ProductController extends Controller
                 'retail_price' => $product->retail_price,
                 'retail_discount_type' => $product->retail_discount_type,
                 'retail_discount_value' => $product->retail_discount_value,
-
+                'manufacturer' => $product->manufacturer,
+                'marketed_by' => $product->marketed_by,
                 'distributor_mrp' => $product->distributor_mrp,
                 'distributor_price' => $product->distributor_price,
                 'distributor_discount_type' => $product->distributor_discount_type,
@@ -7155,7 +7168,8 @@ class ProductController extends Controller
                     'name' => $product->taxCategory->name,
                     'rate' => $product->taxCategory->rate,
                 ] : null,
-
+                'manufacturer' => $product->manufacturer ?? null,
+                'marketed_by' => $product->marketed_by ?? null,
                 'subcategory_id ' => $product->subcategory_id,
                 'subcategory' => $product->subcategory ? [
                     'id' => $product->subcategory->id,

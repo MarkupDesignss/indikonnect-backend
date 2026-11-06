@@ -80,123 +80,94 @@ class ReturnController extends Controller
     // {
     //     try {
     //         $validated = $request->validate([
-    //             'order_reference' => 'required|string|exists:orders,order_reference',
-    //             'items' => 'required|array|min:1',
-    //             'items.*.order_line_id' => 'required|exists:order_lines,id',
-    //             'items.*.quantity' => 'required|integer|min:1',
-    //             'items.*.reason' => 'nullable|string|max:500',
-    //             'return_reason' => 'nullable|string|max:1000',
-    //         ]);
-
-    //         $result = $this->returnService->initiateReturn(
-    //             auth()->id(),
-    //             $validated
-    //         );
-
-    //         return response()->json($result);
-    //     } catch (ValidationException $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Invalid parameters provided',
-    //             'errors' => $e->errors(),
-    //         ], 422);
-    //     } catch (Exception $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 400);
-    //     }
-    // }
-
-    /**
-     * Initiate a return request.
-     */
-    // public function initiate(Request $request): JsonResponse
-    // {
-    //     try {
-    //         $validated = $request->validate([
     //             'order_reference' => [
     //                 'required',
     //                 'string',
     //                 'exists:orders,order_reference',
     //             ],
     //             'return_method' => 'required|in:doorstep,courier',
-
-    //             'items' => [
-    //                 'required',
-    //                 'array',
-    //                 'min:1',
-    //             ],
-
-    //             'items.*.order_line_id' => [
-    //                 'required',
-    //                 'integer',
-    //                 'exists:order_lines,id',
-    //             ],
-
-    //             'items.*.quantity' => [
-    //                 'required',
-    //                 'integer',
-    //                 'min:1',
-    //             ],
-
-    //             'items.*.reason' => [
+    //             'tracking_id'   => [
+    //                 'required_if:return_method,courier',
     //                 'nullable',
     //                 'string',
-    //                 'max:500',
+    //                 'max:100',
     //             ],
-
-    //             /*
-    //              * Item-specific images
-    //              */
-    //             'items.*.images' => [
+    //             'courier' => [
+    //                 'required_if:return_method,courier',
     //                 'nullable',
-    //                 'array',
-    //                 'max:5',
+    //                 'string',
+    //                 'max:100',
     //             ],
-
-    //             'items.*.images.*' => [
-    //                 'image',
-    //                 'mimes:jpeg,png,jpg,gif,avif',
-    //                 'max:5120',
-    //             ],
-
-    //             /*
-    //              * General return information
-    //              */
     //             'return_reason' => [
     //                 'nullable',
     //                 'string',
     //                 'max:1000',
     //             ],
-
-    //             /*
-    //              * General return images
-    //              */
     //             'return_images' => [
     //                 'nullable',
     //                 'array',
     //                 'max:10',
     //             ],
-
     //             'return_images.*' => [
     //                 'image',
-    //                 'mimes:jpeg,png,jpg,gif,avif,webp',
     //                 'max:5120',
     //             ],
     //         ]);
-    //         $returnReason = $request->input('items.0.reason');
 
-    //         /*
-    //          * Store uploaded images and convert them
-    //          * into file paths.
-    //          */
+    //         // Resolve order belonging to auth user
+    //         $order = Order::where('order_reference', $validated['order_reference'])
+    //             ->where('user_id', auth()->id())
+    //             ->with('lines.product')
+    //             ->first();
+
+    //         if (!$order) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Order not found or does not belong to this user.',
+    //             ], 404);
+    //         }
+
+    //         // Only DELIVERED lines qualify for return
+    //         $deliveredLines = $order->lines->where('delivery_status', 'delivered');
+
+    //         if ($deliveredLines->isEmpty()) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'No items in this order have been delivered yet.',
+    //             ], 403);
+    //         }
+
+    //         $lineIds = $deliveredLines->pluck('id');
+
+    //         // Blocked-line check (is_cancel_return_allowed = false / null)
+    //         $blockedLines = OrderLine::whereIn('id', $lineIds)
+    //             ->where(function ($q) {
+    //                 $q->where('is_cancel_return_allowed', false)
+    //                     ->orWhereNull('is_cancel_return_allowed');
+    //             })
+    //             ->get(['id', 'product_id']);
+
+    //         if ($blockedLines->isNotEmpty()) {
+    //             $productNames = $blockedLines->map(function ($line) {
+    //                 return $line->product->name ?? "Line #{$line->id}";
+    //             })->implode(', ');
+
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => "Return is not allowed for the following item(s): {$productNames}",
+    //                 'blocked_line_ids' => $blockedLines->pluck('id')->values(),
+    //             ], 403);
+    //         }
+
+    //         $returnReason = $validated['return_reason'] ?? null;
+
+    //         // Store uploaded images and convert to file paths
     //         $processedData = $this->processReturnImages($validated);
     //         $processedData['return_method'] = $validated['return_method'];
+    //         $processedData['tracking_id']   = $validated['tracking_id'] ?? null;
+    //         $processedData['courier']       = $validated['courier'] ?? null;
+    //         $processedData['return_reason'] = $returnReason;
 
-    //         /*
-    //          * Send only processed data to service.
-    //          */
     //         $result = $this->returnService->initiateReturn(
     //             auth()->id(),
     //             $processedData,
@@ -205,14 +176,12 @@ class ReturnController extends Controller
 
     //         return response()->json($result);
     //     } catch (ValidationException $e) {
-
     //         return response()->json([
     //             'success' => false,
     //             'message' => 'Invalid parameters provided.',
-    //             'errors' => $e->errors(),
+    //             'errors'  => $e->errors(),
     //         ], 422);
     //     } catch (Exception $e) {
-
     //         return response()->json([
     //             'success' => false,
     //             'message' => $e->getMessage(),
@@ -586,35 +555,6 @@ class ReturnController extends Controller
      * Admin: Approve return request
      * POST /api/admin/returns/{id}/approve
      */
-    // public function adminApprove(Request $request, int $returnId): JsonResponse
-    // {
-    //     try {
-    //         $validated = $request->validate([
-    //             'admin_notes' => 'nullable|string|max:500',
-    //         ]);
-
-    //         $result = $this->returnService->approveReturn(
-    //             $returnId,
-    //             auth()->id(),
-    //             $validated['admin_notes'] ?? null
-    //         );
-
-
-
-    //         return response()->json($result);
-    //     } catch (ValidationException $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Invalid parameters provided',
-    //             'errors' => $e->errors(),
-    //         ], 422);
-    //     } catch (Exception $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 400);
-    //     }
-    // }
 
     public function adminApprove(Request $request, int $returnId): JsonResponse
     {
@@ -678,33 +618,6 @@ class ReturnController extends Controller
      * Admin: Reject return request
      * POST /api/admin/returns/{id}/reject
      */
-    // public function adminReject(Request $request, int $returnId): JsonResponse
-    // {
-    //     try {
-    //         $validated = $request->validate([
-    //             'rejection_reason' => 'required|string|max:500',
-    //         ]);
-
-    //         $result = $this->returnService->rejectReturn(
-    //             $returnId,
-    //             auth()->id(),
-    //             $validated['rejection_reason']
-    //         );
-
-    //         return response()->json($result);
-    //     } catch (ValidationException $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Invalid parameters provided',
-    //             'errors' => $e->errors(),
-    //         ], 422);
-    //     } catch (Exception $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 400);
-    //     }
-    // }
 
     public function adminReject(Request $request, int $returnId): JsonResponse
     {
@@ -766,56 +679,6 @@ class ReturnController extends Controller
      * Admin: Mark return as received
      * POST /api/admin/returns/{id}/received
      */
-
-    // public function adminMarkReceived(Request $request, int $returnId): JsonResponse
-    // {
-    //     try {
-    //         $request->validate([
-    //             'admin_notes'   => 'nullable|string|max:500',
-    //             'refund_amount' => 'nullable|numeric|min:0',
-    //         ]);
-
-    //         $refundAmount = $request->filled('refund_amount')
-    //             ? (float) $request->refund_amount
-    //             : null;
-
-    //         // Pre-validate against refundable balance (fail fast before touching DB)
-    //         if ($refundAmount !== null) {
-    //             $returnOrder = OrderReturn::with('order')->findOrFail($returnId);
-    //             $order = $returnOrder->order;
-
-    //             if ($order) {
-    //                 $refundable = $this->returnService->getRefundableAmount($order);
-
-    //                 if ($refundAmount > $refundable) {
-    //                     return response()->json([
-    //                         'success' => false,
-    //                         'message' => "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}).",
-    //                     ], 422);
-    //                 }
-    //             }
-    //         }
-
-    //         $result = $this->returnService->markReturnReceived(
-    //             $returnId,
-    //             $refundAmount,
-    //             $request->admin_notes,
-    //             auth()->id(),
-    //         );
-
-    //         return response()->json($result, 200);
-    //     } catch (\Throwable $e) {
-    //         Log::error('Admin mark return received failed', [
-    //             'return_id' => $returnId,
-    //             'error'     => $e->getMessage(),
-    //         ]);
-
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 400);
-    //     }
-    // }
 
     public function adminMarkReceived(Request $request, int $returnId): JsonResponse
     {
