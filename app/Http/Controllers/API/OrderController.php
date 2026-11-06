@@ -1304,9 +1304,9 @@ class OrderController extends Controller
                             'phone'          => $order->user->phone ?? null,
                             'is_distributor' => $order->user->isDistributor(),
                         ],
-                        'invoice' => $order->invoice ? [
-                            'id'             => $order->invoice->id,
-                            'invoice_number' => $order->invoice->invoice_number,
+                        'invoice' => $line->invoice ? [
+                            'id'             => $line->invoice->id,
+                            'invoice_number' => $line->invoice->invoice_number,
                         ] : null,
 
                         // Returns

@@ -3245,7 +3245,7 @@ class CheckoutService
     //     });
     // }
 
-    public function placeOrder(int $userId, array $data): array
+public function placeOrder(int $userId, array $data): array
     {
         $address = Address::findOrFail($data['address_id']);
         $user    = User::findOrFail($userId);
