@@ -939,6 +939,7 @@ class CartController extends Controller
                 'product' => $product ? [
                     'id' => $product->id,
                     'name' => $product->name,
+                    'allowed_purchsed' => $product->allowed_purchsed,
                     'slug' => $product->slug,
                     'service_charge' => $product->service_charge,
                     'product_code' => $product->product_code,
