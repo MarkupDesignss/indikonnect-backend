@@ -9575,107 +9575,107 @@ class ProductController extends Controller
      * POST /admin/combo/create
      * Body: { "product_ids": [1, 2] }
      */
-    public function createCombo(Request $request)
+    public function createCombo(Request $request, $parent_product_id)
     {
         $request->validate([
-            'product_ids'   => 'required|array|min:2',
-            'product_ids.*' => 'integer|distinct|exists:products,id',
+            'product_ids'   => 'required|array|min:1',
+            'product_ids.*' => 'required|integer|distinct|exists:products,id',
         ], [
-            'product_ids.required'   => 'Please select at least two products.',
+            'product_ids.required'   => 'Please select at least one product.',
             'product_ids.array'      => 'Product IDs must be provided as an array.',
-            'product_ids.min'        => 'At least two products are required to create a combo.',
+            'product_ids.min'        => 'At least one product is required.',
             'product_ids.*.integer'  => 'Each product ID must be a valid integer.',
             'product_ids.*.distinct' => 'Duplicate product IDs are not allowed.',
             'product_ids.*.exists'   => 'One or more selected products do not exist.',
         ]);
 
-        // Sorted combo signature — order independent
-        $combo = collect($request->product_ids)
-            ->map(fn($id) => (int) $id)
-            ->unique()
-            ->sort()
-            ->values()
-            ->toArray();
-
-        // 1. Same combination already exists?
-        //    Har product ke parent_combo_id (array of arrays) me check karo
-        $products = Product::whereIn('id', $combo)
-            ->whereNull('deleted_at')
-            ->get(['id', 'name', 'parent_combo_id']);
-
-        foreach ($products as $product) {
-
-            $existingCombos = $product->parent_combo_id ?? [];
-
-            // SAFETY CHECK: Ensure it's an array
-            if (!is_array($existingCombos)) {
-                $existingCombos = [];
-            }
-
-            foreach ($existingCombos as $existing) {
-
-                // SAFETY CHECK: Ensure each item is an array
-                if (!is_array($existing)) {
-                    continue;
-                }
-
-                $existingSorted = collect($existing)
-                    ->map(fn($id) => (int) $id)
-                    ->sort()
-                    ->values()
-                    ->toArray();
-
-                if ($existingSorted === $combo) {
-                    return response()->json([
-                        'status'  => false,
-                        'message' => 'This exact combination already exists (combo: [' . implode(', ', $combo) . ']).',
-                    ], 422);
-                }
-            }
-        }
-
-        // 2. Add combo to each product's parent_combo_id array
         DB::beginTransaction();
+
         try {
 
-            foreach ($products as $product) {
+            // 1. Find parent product
+            $parent = Product::whereNull('deleted_at')
+                ->lockForUpdate()
+                ->find($parent_product_id);
 
-                $existing = $product->parent_combo_id ?? [];
-
-                // SAFETY CHECK: Ensure it's an array
-                if (!is_array($existing)) {
-                    $existing = [];
-                }
-
-                // Append new combo if not already present
-                $existing[] = $combo;
-
-                // Dedupe and ensure valid structure
-                $unique = collect($existing)
-                    ->filter(fn($c) => is_array($c)) // Only keep arrays
-                    ->map(fn($c) => collect($c)->sort()->values()->toArray())
-                    ->unique(fn($c) => implode('-', $c))
-                    ->values()
-                    ->toArray();
-
-                $product->parent_combo_id = $unique;
-                $product->updated_at = now();
-                $product->save();
+            if (!$parent) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Parent product not found.',
+                ], 404);
             }
+
+            $productIds = array_map('intval', $request->product_ids);
+
+            // Parent cannot be its own child
+            if (in_array((int) $parent_product_id, $productIds, true)) {
+                DB::rollBack();
+
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Parent product cannot be added to itself.',
+                ], 422);
+            }
+
+            // 2. Fetch selected products
+            $products = Product::whereIn('id', $productIds)
+                ->whereNull('deleted_at')
+                ->lockForUpdate()
+                ->get();
+
+            if ($products->count() !== count($productIds)) {
+                DB::rollBack();
+
+                return response()->json([
+                    'status' => false,
+                    'message' => 'One or more products are unavailable.',
+                ], 422);
+            }
+
+            // 3. Check if products are already assigned
+            $alreadyAssigned = $products->filter(function ($product) {
+                return !is_null($product->parent_combo_id);
+            });
+
+            if ($alreadyAssigned->isNotEmpty()) {
+
+                DB::rollBack();
+
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Some products are already assigned to another combo.',
+                    'products' => $alreadyAssigned->map(function ($product) {
+                        return [
+                            'id' => $product->id,
+                            'name' => $product->name,
+                            'parent_combo_id' => $product->parent_combo_id,
+                        ];
+                    })->values(),
+                ], 422);
+            }
+
+            // 4. Assign parent ID to selected products
+            Product::whereIn('id', $productIds)->update([
+                'parent_combo_id' => $parent->id,
+                'updated_at' => now(),
+            ]);
 
             DB::commit();
 
             return response()->json([
-                'status'   => true,
-                'message'  => 'Combo created successfully.',
-                'combo'    => $combo,
-                'products' => Product::whereIn('id', $combo)->get(),
-            ], 201);
+                'status' => true,
+                'message' => 'Combo products assigned successfully.',
+                'parent_product' => $parent->fresh(),
+                'products' => Product::whereIn('id', $productIds)->get(),
+            ], 200);
         } catch (\Throwable $e) {
+
             DB::rollBack();
+
             return response()->json([
-                'status'  => false,
-                'message' => 'Failed to create combo: ' . $e->getMessage(),
+                'status' => false,
+                'message' => 'Failed to assign combo products.',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
