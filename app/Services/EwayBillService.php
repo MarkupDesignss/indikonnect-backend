@@ -173,7 +173,7 @@ class EwayBillService
             throw new Exception("Delivery address is missing for order {$order->order_reference}.");
         }
 
-        // ✅ FIX: Pass only THIS invoice's line to buildItems (not the whole order)
+        // FIX: Pass only THIS invoice's line to buildItems (not the whole order)
         $items = $this->buildItems($invoice);
 
         // Consignor (your company)
@@ -198,10 +198,10 @@ class EwayBillService
         $consigneeAddr1 = $deliveryAddress->address_line_1;
         $consigneeAddr2 = $deliveryAddress->address_line_2 ?? '';
         $consigneePlace = $deliveryAddress->city;
-        $consigneePin   = $deliveryAddress->postal_code ?? $deliveryAddress->pincode;
+        $consigneePin = $deliveryAddress->postcode ?? $deliveryAddress->postal_code ?? $deliveryAddress->pincode;
         $consigneeState = $this->getStateCodeFromName($deliveryAddress->state);
 
-        // ✅ FIX: Validate required fields before sending to NIC
+        // FIX: Validate required fields before sending to NIC
         if (empty($consigneeAddr1) || empty($consigneePlace) || empty($consigneePin)) {
             throw new Exception(
                 "Incomplete delivery address for order {$order->order_reference}. " .
@@ -262,7 +262,7 @@ class EwayBillService
         $items = [];
         $slNo  = 1;
 
-        // ✅ FIX: Filter to only the line(s) belonging to THIS invoice.
+        // FIX: Filter to only the line(s) belonging to THIS invoice.
         // Your dispatch() creates one invoice per order_line, so we need the matching line.
         $orderLines = $invoice->order->lines ?? collect();
 
@@ -284,7 +284,7 @@ class EwayBillService
                 );
             }
 
-            // ✅ CRITICAL FIX: taxableAmount = unit_price × quantity (NOT per-unit)
+            // CRITICAL FIX: taxableAmount = unit_price × quantity (NOT per-unit)
             $taxableAmount = (float) ($line->taxable_amount
                 ?? ($line->unit_price * $line->quantity));
 
