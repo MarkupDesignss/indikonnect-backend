@@ -25,6 +25,64 @@ class Product extends Model
         'parent_combo_id' => 'array',
     ];
 
+    public static function normalizeComboGroups($raw): array
+    {
+        if (is_array($raw)) {
+            $data = $raw;
+        } elseif (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            $data = is_array($decoded) ? $decoded : [];
+        } else {
+            return [];
+        }
+
+        if (empty($data)) {
+            return [];
+        }
+
+        if (!is_array(reset($data))) {
+            return [array_values(array_map('intval', $data))];
+        }
+
+        return array_values(array_map(
+            fn($g) => array_values(array_map('intval', (array) $g)),
+            array_filter($data, 'is_array')
+        ));
+    }
+
+    /**
+     * Children contained in this product's combo groups (flattened).
+     */
+    public function comboChildren()
+    {
+        $groups   = self::normalizeComboGroups($this->parent_combo_id);
+        $childIds = collect($groups)->flatten()->map(fn($v) => (int) $v)->unique()->values()->all();
+
+        if (empty($childIds)) {
+            return Product::whereRaw('1 = 0');
+        }
+
+        return Product::whereIn('id', $childIds)
+            ->where('id', '!=', $this->id)
+            ->whereNull('deleted_at');
+    }
+
+    /**
+     * Parents whose parent_combo_id contains this product's id.
+     */
+    public function comboParents()
+    {
+        $id = (int) $this->id;
+
+        return Product::query()
+            ->where('id', '!=', $id)
+            ->whereNotNull('parent_combo_id')
+            ->where(function ($q) use ($id) {
+                $q->whereRaw("JSON_CONTAINS(parent_combo_id, ?)", [json_encode($id)])
+                    ->orWhereRaw("JSON_SEARCH(parent_combo_id, 'one', ?) IS NOT NULL", [(string) $id]);
+            });
+    }
+
     protected $attributes = [
         'stock_quantity' => 0,
         'is_published' => false,
