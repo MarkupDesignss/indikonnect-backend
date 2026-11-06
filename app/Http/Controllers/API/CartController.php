@@ -15,9 +15,16 @@ use App\Models\Wishlist;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use App\Services\StockGuardService;
 
 class CartController extends Controller
 {
+    protected StockGuardService $stockGuard;
+
+    public function __construct(StockGuardService $stockGuard)
+    {
+        $this->stockGuard = $stockGuard;
+    }
     /**
      * Get the current price for a product based on user account type
      */
@@ -149,6 +156,183 @@ class CartController extends Controller
         $cart->save();
     }
 
+    // public function add(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'product_id'    => ['required_without:variant_id', 'exists:products,id'],
+    //         'variant_id'    => ['required_without:product_id', 'exists:product_variants,id'],
+    //         'quantity'      => ['nullable', 'integer', 'min:1'],
+    //         'from_wishlist' => ['nullable', 'boolean'],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json([
+    //             'errors' => $validator->errors()
+    //         ], 422);
+    //     }
+
+    //     $productId    = $request->product_id;
+    //     $variantId    = $request->variant_id;
+    //     $quantity     = $request->quantity ?? 1;
+    //     $fromWishlist = $request->boolean('from_wishlist');
+
+    //     // ==========================================
+    //     // GET PRODUCT / VARIANT
+    //     // ==========================================
+
+
+    //     if ($variantId) {
+
+    //         $variant = ProductVariant::with('product')->find($variantId);
+
+    //         if (!$variant) {
+    //             return response()->json([
+    //                 'message' => 'Variant not found'
+    //             ], 404);
+    //         }
+
+    //         $product = $variant->product;
+
+    //         if (!$product) {
+    //             return response()->json([
+    //                 'message' => 'Product not found'
+    //             ], 404);
+    //         }
+    //     } else {
+
+    //         $product = Product::find($productId);
+
+    //         if (!$product) {
+    //             return response()->json([
+    //                 'message' => 'Product not found'
+    //             ], 404);
+    //         }
+    //     }
+
+
+
+    //     DB::beginTransaction();
+
+    //     try {
+
+    //         $user = auth('sanctum')->user();
+
+    //         $cart = $this->getCart($request);
+
+    //         // ==========================================
+    //         // ADD REQUESTED PRODUCT TO CART
+    //         // ==========================================
+
+    //         $shippingCharge = $product->shipping_charge ?? 0;
+
+    //         $cartItem = CartItem::where('cart_id', $cart->id)
+    //             ->where('product_id', $product->id)
+    //             ->where('variant_id', $variantId)
+    //             ->first();
+
+    //         if ($cartItem) {
+
+    //             $cartItem->quantity += $quantity;
+    //             $cartItem->unit_price = 0;
+    //             $cartItem->shipping_charge = $shippingCharge;
+    //             $cartItem->save();
+    //         } else {
+
+    //             CartItem::create([
+    //                 'cart_id'         => $cart->id,
+    //                 'product_id'      => $product->id,
+    //                 'variant_id'      => $variantId,
+    //                 'quantity'        => $quantity,
+    //                 'unit_price'      => 0,
+    //                 'shipping_charge' => $shippingCharge,
+    //             ]);
+    //         }
+
+    //         // ==========================================
+    //         // AUTO ADD MANDATORY PRODUCTS
+    //         // ONLY IF USER HAS NOT PLACED ANY ORDER
+    //         // ==========================================
+
+    //         if ($user) {
+
+    //             $hasOrdered = Order::where('user_id', $user->id)
+    //                 ->exists();
+
+    //             if (!$hasOrdered) {
+
+    //                 $mandatoryProducts = Product::where('is_mandatory', true)
+    //                     ->where('is_mandatory', true)
+    //                     ->get();
+
+    //                 foreach ($mandatoryProducts as $mandatoryProduct) {
+
+    //                     // Already exists in cart?
+    //                     $exists = CartItem::where('cart_id', $cart->id)
+    //                         ->where('product_id', $mandatoryProduct->id)
+    //                         ->whereNull('variant_id')
+    //                         ->exists();
+
+    //                     if ($exists) {
+    //                         continue;
+    //                     }
+
+    //                     CartItem::create([
+    //                         'cart_id'         => $cart->id,
+    //                         'product_id'      => $mandatoryProduct->id,
+    //                         'variant_id'      => null,
+    //                         'quantity'        => 1,
+    //                         'unit_price'      => 0,
+    //                         'shipping_charge' => $mandatoryProduct->shipping_charge ?? 0,
+    //                     ]);
+    //                 }
+    //             }
+    //         }
+
+    //         // ==========================================
+    //         // REMOVE FROM WISHLIST
+    //         // ==========================================
+
+    //         if ($fromWishlist && $user) {
+
+    //             Wishlist::where('user_id', $user->id)
+    //                 ->where('product_id', $product->id)
+    //                 ->when($variantId, function ($query) use ($variantId) {
+    //                     return $query->where('variant_id', $variantId);
+    //                 }, function ($query) {
+    //                     return $query->whereNull('variant_id');
+    //                 })
+    //                 ->delete();
+    //         }
+
+    //         DB::commit();
+
+    //         // ==========================================
+    //         // LOAD CART DATA
+    //         // ==========================================
+
+    //         $cart->load([
+    //             'items.product.taxCategory',
+    //             'items.product.images',
+    //             'items.product.primaryImage',
+    //             'items.variant.images',
+    //         ]);
+
+    //         return response()->json([
+    //             'message'   => 'Item added to cart successfully',
+    //             'data'      => $this->formatCart($cart, $user),
+    //             'summary'   => $this->getCartSummary($cart, $user),
+    //             'user_type' => $this->getUserType(),
+    //         ], 201);
+    //     } catch (\Exception $e) {
+
+    //         DB::rollBack();
+
+    //         return response()->json([
+    //             'message' => 'Failed to add item to cart',
+    //             'error'   => $e->getMessage(),
+    //         ], 500);
+    //     }
+    // }
     public function add(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -169,50 +353,39 @@ class CartController extends Controller
         $quantity     = $request->quantity ?? 1;
         $fromWishlist = $request->boolean('from_wishlist');
 
-        // ==========================================
-        // GET PRODUCT / VARIANT
-        // ==========================================
+        $variant = null;
 
         if ($variantId) {
-
             $variant = ProductVariant::with('product')->find($variantId);
-
             if (!$variant) {
-                return response()->json([
-                    'message' => 'Variant not found'
-                ], 404);
+                return response()->json(['message' => 'Variant not found'], 404);
             }
-
             $product = $variant->product;
-
             if (!$product) {
-                return response()->json([
-                    'message' => 'Product not found'
-                ], 404);
+                return response()->json(['message' => 'Product not found'], 404);
             }
         } else {
-
             $product = Product::find($productId);
-
             if (!$product) {
-                return response()->json([
-                    'message' => 'Product not found'
-                ], 404);
+                return response()->json(['message' => 'Product not found'], 404);
             }
         }
 
         DB::beginTransaction();
 
         try {
-
             $user = auth('sanctum')->user();
-
             $cart = $this->getCart($request);
 
-            // ==========================================
-            // ADD REQUESTED PRODUCT TO CART
-            // ==========================================
+            // ---------- Stock guard (respects allowed_purchased) ----------
+            $existingQty = (int) (CartItem::where('cart_id', $cart->id)
+                ->where('product_id', $product->id)
+                ->where('variant_id', $variantId)
+                ->value('quantity') ?? 0);
 
+            $this->stockGuard->assertCanAdd($product, $variant, (int) $quantity, $existingQty);
+
+            // ---------- Add / update cart item ----------
             $shippingCharge = $product->shipping_charge ?? 0;
 
             $cartItem = CartItem::where('cart_id', $cart->id)
@@ -221,13 +394,11 @@ class CartController extends Controller
                 ->first();
 
             if ($cartItem) {
-
                 $cartItem->quantity += $quantity;
                 $cartItem->unit_price = 0;
                 $cartItem->shipping_charge = $shippingCharge;
                 $cartItem->save();
             } else {
-
                 CartItem::create([
                     'cart_id'         => $cart->id,
                     'product_id'      => $product->id,
@@ -238,25 +409,14 @@ class CartController extends Controller
                 ]);
             }
 
-            // ==========================================
-            // AUTO ADD MANDATORY PRODUCTS
-            // ONLY IF USER HAS NOT PLACED ANY ORDER
-            // ==========================================
-
+            // ---------- Auto add mandatory products (first-time users) ----------
             if ($user) {
-
-                $hasOrdered = Order::where('user_id', $user->id)
-                    ->exists();
+                $hasOrdered = Order::where('user_id', $user->id)->exists();
 
                 if (!$hasOrdered) {
-
-                    $mandatoryProducts = Product::where('is_mandatory', true)
-                        ->where('is_mandatory', true)
-                        ->get();
+                    $mandatoryProducts = Product::where('is_mandatory', true)->get();
 
                     foreach ($mandatoryProducts as $mandatoryProduct) {
-
-                        // Already exists in cart?
                         $exists = CartItem::where('cart_id', $cart->id)
                             ->where('product_id', $mandatoryProduct->id)
                             ->whereNull('variant_id')
@@ -278,12 +438,8 @@ class CartController extends Controller
                 }
             }
 
-            // ==========================================
-            // REMOVE FROM WISHLIST
-            // ==========================================
-
+            // ---------- Remove from wishlist ----------
             if ($fromWishlist && $user) {
-
                 Wishlist::where('user_id', $user->id)
                     ->where('product_id', $product->id)
                     ->when($variantId, function ($query) use ($variantId) {
@@ -295,10 +451,6 @@ class CartController extends Controller
             }
 
             DB::commit();
-
-            // ==========================================
-            // LOAD CART DATA
-            // ==========================================
 
             $cart->load([
                 'items.product.taxCategory',
@@ -314,92 +466,86 @@ class CartController extends Controller
                 'user_type' => $this->getUserType(),
             ], 201);
         } catch (\Exception $e) {
-
             DB::rollBack();
-
             return response()->json([
-                'message' => 'Failed to add item to cart',
-                'error'   => $e->getMessage(),
-            ], 500);
+                'message' => $e->getMessage(),
+                'success' => false,
+            ], 422);
         }
     }
     /**
      * Add item to cart (supports both product and variant)
      */
-    // public function add(Request $request)
+
+
+    /**
+     * Update cart item quantity
+     */
+    // public function update(Request $request, $itemId)
     // {
     //     $validator = Validator::make($request->all(), [
-    //         'product_id' => ['required_without:variant_id', 'exists:products,id'],
-    //         'variant_id' => ['required_without:product_id', 'exists:product_variants,id'],
     //         'quantity' => ['nullable', 'integer', 'min:1'],
-    //         'from_wishlist' => ['nullable', 'boolean'],
+    //         'action' => ['nullable', 'in:increment,decrement,set'],
     //     ]);
 
     //     if ($validator->fails()) {
     //         return response()->json(['errors' => $validator->errors()], 422);
     //     }
 
-    //     $productId = $request->product_id;
-    //     $variantId = $request->variant_id;
-    //     $quantity = $request->quantity ?? 1;
-    //     $fromWishlist = $request->boolean('from_wishlist') ?? false;
-
-    //     if ($variantId) {
-    //         $variant = ProductVariant::with('product')->find($variantId);
-    //         if (!$variant) {
-    //             return response()->json(['message' => 'Variant not found'], 404);
-    //         }
-    //         $product = $variant->product;
-    //         if (!$product) {
-    //             return response()->json(['message' => 'Product not found'], 404);
-    //         }
-    //     } else {
-    //         $product = Product::find($productId);
-    //         if (!$product) {
-    //             return response()->json(['message' => 'Product not found'], 404);
-    //         }
-    //     }
-
     //     DB::beginTransaction();
-
     //     try {
     //         $cart = $this->getCart($request);
-
-    //         $shippingCharge = $product->shipping_charge ?? 0;
-
     //         $cartItem = CartItem::where('cart_id', $cart->id)
-    //             ->where('product_id', $product->id)
-    //             ->when($variantId, function ($query) use ($variantId) {
-    //                 return $query->where('variant_id', $variantId);
-    //             })
+    //             ->where('id', $itemId)
     //             ->first();
 
-    //         if ($cartItem) {
-    //             $cartItem->quantity += $quantity;
-    //             $cartItem->unit_price = 0;
-    //             $cartItem->shipping_charge = $shippingCharge;
-    //             $cartItem->save();
-    //         } else {
-    //             $cartItem = CartItem::create([
-    //                 'cart_id'         => $cart->id,
-    //                 'product_id'      => $product->id,
-    //                 'variant_id'      => $variantId,
-    //                 'quantity'        => $quantity,
-    //                 'unit_price'      => 0,
-    //                 'shipping_charge' => $shippingCharge,
-    //             ]);
+    //         if (!$cartItem) {
+    //             return response()->json(['message' => 'Item not found in cart'], 404);
     //         }
-    //         $this->ensureMandatoryProductsInCart($cart);
-    //         if ($fromWishlist) {
-    //             $user = auth('sanctum')->user();
-    //             if ($user) {
-    //                 Wishlist::where('user_id', $user->id)
-    //                     ->where('product_id', $product->id)
-    //                     ->when($variantId, function ($query) use ($variantId) {
-    //                         return $query->where('variant_id', $variantId);
-    //                     })
-    //                     ->delete();
-    //             }
+
+    //         $action = $request->action ?? 'set';
+    //         $quantity = $request->quantity ?? 1;
+
+    //         switch ($action) {
+    //             case 'increment':
+    //                 $cartItem->quantity += 1;
+    //                 break;
+    //             case 'decrement':
+    //                 $cartItem->quantity -= 1;
+    //                 if ($cartItem->quantity <= 0) {
+    //                     $cartItem->delete();
+    //                     DB::commit();
+    //                     $cart->load(['items.product.images', 'items.variant.images']);
+    //                     $user = auth('sanctum')->user();
+    //                     return response()->json([
+    //                         'message' => 'Item removed from cart',
+    //                         'data' => $this->formatCart($cart, $user),
+    //                         'summary' => $this->getCartSummary($cart, $user),
+    //                         'user_type' => $this->getUserType(),
+    //                     ]);
+    //                 }
+    //                 break;
+    //             case 'set':
+    //                 if ($quantity <= 0) {
+    //                     $cartItem->delete();
+    //                     DB::commit();
+    //                     $cart->load(['items.product.images', 'items.variant.images']);
+    //                     $user = auth('sanctum')->user();
+    //                     return response()->json([
+    //                         'message' => 'Item removed from cart',
+    //                         'data' => $this->formatCart($cart, $user),
+    //                         'summary' => $this->getCartSummary($cart, $user),
+    //                         'user_type' => $this->getUserType(),
+    //                     ]);
+    //                 }
+    //                 $cartItem->quantity = $quantity;
+    //                 break;
+    //             default:
+    //                 return response()->json(['message' => 'Invalid action'], 400);
+    //         }
+
+    //         if (isset($cartItem) && $cartItem->exists) {
+    //             $cartItem->save();
     //         }
 
     //         DB::commit();
@@ -408,29 +554,24 @@ class CartController extends Controller
     //         $user = auth('sanctum')->user();
 
     //         return response()->json([
-    //             'message'   => 'Item added to cart successfully',
-    //             'data'      => $this->formatCart($cart, $user),
-    //             'summary'   => $this->getCartSummary($cart, $user),
+    //             'message' => 'Cart updated successfully',
+    //             'data' => $this->formatCart($cart, $user),
+    //             'summary' => $this->getCartSummary($cart, $user),
     //             'user_type' => $this->getUserType(),
-    //         ], 201);
+    //         ]);
     //     } catch (\Exception $e) {
     //         DB::rollBack();
     //         return response()->json([
-    //             'message' => 'Failed to add item to cart',
-    //             'error'   => $e->getMessage()
+    //             'message' => 'Failed to update cart',
+    //             'error' => $e->getMessage()
     //         ], 500);
     //     }
     // }
-
-
-    /**
-     * Update cart item quantity
-     */
     public function update(Request $request, $itemId)
     {
         $validator = Validator::make($request->all(), [
             'quantity' => ['nullable', 'integer', 'min:1'],
-            'action' => ['nullable', 'in:increment,decrement,set'],
+            'action'   => ['nullable', 'in:increment,decrement,set'],
         ]);
 
         if ($validator->fails()) {
@@ -440,7 +581,8 @@ class CartController extends Controller
         DB::beginTransaction();
         try {
             $cart = $this->getCart($request);
-            $cartItem = CartItem::where('cart_id', $cart->id)
+            $cartItem = CartItem::with(['product', 'variant'])
+                ->where('cart_id', $cart->id)
                 ->where('id', $itemId)
                 ->first();
 
@@ -448,50 +590,56 @@ class CartController extends Controller
                 return response()->json(['message' => 'Item not found in cart'], 404);
             }
 
-            $action = $request->action ?? 'set';
+            $action   = $request->action ?? 'set';
             $quantity = $request->quantity ?? 1;
 
-            switch ($action) {
-                case 'increment':
-                    $cartItem->quantity += 1;
-                    break;
-                case 'decrement':
-                    $cartItem->quantity -= 1;
-                    if ($cartItem->quantity <= 0) {
-                        $cartItem->delete();
-                        DB::commit();
-                        $cart->load(['items.product.images', 'items.variant.images']);
-                        $user = auth('sanctum')->user();
-                        return response()->json([
-                            'message' => 'Item removed from cart',
-                            'data' => $this->formatCart($cart, $user),
-                            'summary' => $this->getCartSummary($cart, $user),
-                            'user_type' => $this->getUserType(),
-                        ]);
-                    }
-                    break;
-                case 'set':
-                    if ($quantity <= 0) {
-                        $cartItem->delete();
-                        DB::commit();
-                        $cart->load(['items.product.images', 'items.variant.images']);
-                        $user = auth('sanctum')->user();
-                        return response()->json([
-                            'message' => 'Item removed from cart',
-                            'data' => $this->formatCart($cart, $user),
-                            'summary' => $this->getCartSummary($cart, $user),
-                            'user_type' => $this->getUserType(),
-                        ]);
-                    }
-                    $cartItem->quantity = $quantity;
-                    break;
-                default:
-                    return response()->json(['message' => 'Invalid action'], 400);
+            // Compute proposed final quantity
+            $proposedQty = match ($action) {
+                'increment' => $cartItem->quantity + 1,
+                'decrement' => $cartItem->quantity - 1,
+                'set'       => (int) $quantity,
+                default     => $cartItem->quantity,
+            };
+
+            // ---------- Remove item branches ----------
+            if ($action === 'decrement' && $proposedQty <= 0) {
+                $cartItem->delete();
+                DB::commit();
+                $cart->load(['items.product.images', 'items.variant.images']);
+                $user = auth('sanctum')->user();
+                return response()->json([
+                    'message'   => 'Item removed from cart',
+                    'data'      => $this->formatCart($cart, $user),
+                    'summary'   => $this->getCartSummary($cart, $user),
+                    'user_type' => $this->getUserType(),
+                ]);
             }
 
-            if (isset($cartItem) && $cartItem->exists) {
-                $cartItem->save();
+            if ($action === 'set' && $proposedQty <= 0) {
+                $cartItem->delete();
+                DB::commit();
+                $cart->load(['items.product.images', 'items.variant.images']);
+                $user = auth('sanctum')->user();
+                return response()->json([
+                    'message'   => 'Item removed from cart',
+                    'data'      => $this->formatCart($cart, $user),
+                    'summary'   => $this->getCartSummary($cart, $user),
+                    'user_type' => $this->getUserType(),
+                ]);
             }
+
+            // ---------- Stock guard ----------
+            if ($proposedQty > $cartItem->quantity) {
+                // only check when increasing
+                $this->stockGuard->assertCanAdd(
+                    $cartItem->product,
+                    $cartItem->variant,
+                    $proposedQty
+                );
+            }
+
+            $cartItem->quantity = $proposedQty;
+            $cartItem->save();
 
             DB::commit();
 
@@ -499,17 +647,17 @@ class CartController extends Controller
             $user = auth('sanctum')->user();
 
             return response()->json([
-                'message' => 'Cart updated successfully',
-                'data' => $this->formatCart($cart, $user),
-                'summary' => $this->getCartSummary($cart, $user),
+                'message'   => 'Cart updated successfully',
+                'data'      => $this->formatCart($cart, $user),
+                'summary'   => $this->getCartSummary($cart, $user),
                 'user_type' => $this->getUserType(),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
-                'message' => 'Failed to update cart',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => $e->getMessage(),
+                'success' => false,
+            ], 422);
         }
     }
 

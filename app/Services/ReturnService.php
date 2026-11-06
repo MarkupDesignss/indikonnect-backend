@@ -126,6 +126,467 @@ class ReturnService
     /**
      * Initiate return request
      */
+
+    // public function initiateReturn(
+    //     int $userId,
+    //     array $data,
+    //     ?string $returnReason = null
+    // ): array {
+    //     /*
+    //  * Validate processed data.
+    //  */
+    //     $validator = Validator::make($data, [
+    //         'order_reference' => [
+    //             'required',
+    //             'string',
+    //             'exists:orders,order_reference',
+    //         ],
+    //         'return_method' => [
+    //             'required',
+    //             'in:doorstep,courier',
+    //         ],
+    //         'tracking_id' => [
+    //             'required_if:return_method,courier',
+    //             'nullable',
+    //             'string',
+    //             'max:100',
+    //         ],
+    //         'courier' => [
+    //             'required_if:return_method,courier',
+    //             'nullable',
+    //             'string',
+    //             'max:100',
+    //         ],
+    //         'return_reason' => [
+    //             'nullable',
+    //             'string',
+    //             'max:1000',
+    //         ],
+    //         'general_image_paths' => [
+    //             'nullable',
+    //             'array',
+    //             'max:10',
+    //         ],
+    //         'general_image_paths.*' => [
+    //             'string',
+    //         ],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         throw new Exception($validator->errors()->first());
+    //     }
+
+    //     /*
+    //  * Get order belonging to authenticated user with lines.
+    //  */
+    //     $order = Order::where('order_reference', $data['order_reference'])
+    //         ->where('user_id', $userId)
+    //         ->with(['lines.product', 'lines.variant'])
+    //         ->first();
+
+    //     if (!$order) {
+    //         throw new Exception('Order not found or does not belong to this user.');
+    //     }
+
+    //     /*
+    //  * RETURN-WINDOW ANCHOR RESOLUTION
+    //  * Replacement orders inherit root order's dispatch date.
+    //  */
+    //     $anchorOrder = $this->getReturnWindowAnchor($order);
+
+    //     if ($anchorOrder->id !== $order->id) {
+    //         $anchorOrder->loadMissing('lines');
+    //     }
+
+    //     /*
+    //  * Check if order has any delivered items.
+    //  */
+    //     $deliveredItemsCount = $order->lines->filter(function ($line) {
+    //         return $line->delivery_status === 'delivered';
+    //     })->count();
+
+    //     if ($deliveredItemsCount == 0) {
+    //         throw new Exception('No items in this order have been delivered yet.');
+    //     }
+
+    //     /*
+    //  * Check return window — anchored to ROOT order's dispatch date.
+    //  */
+    //     $firstDispatchedAt = $anchorOrder->lines
+    //         ->whereNotNull('dispatched_at')
+    //         ->min('dispatched_at');
+
+    //     if (!$firstDispatchedAt) {
+    //         throw new Exception('Order has not been dispatched yet.');
+    //     }
+
+    //     $returnWindowDays  = (int) setting('return_window_days', 30);
+    //     $firstDispatchedAt = Carbon::parse($firstDispatchedAt);
+    //     $returnDeadline    = $firstDispatchedAt->copy()->addDays($returnWindowDays);
+
+    //     if (now()->gt($returnDeadline)) {
+    //         $context = $anchorOrder->id !== $order->id
+    //             ? ' (inherited from original order ' . $anchorOrder->order_reference . ')'
+    //             : '';
+
+    //         throw new Exception(
+    //             "Return window has expired. Returns must be initiated within "
+    //                 . "{$returnWindowDays} days from the original dispatch date "
+    //                 . "({$firstDispatchedAt->toDateString()}){$context}."
+    //         );
+    //     }
+
+    //     /*
+    //  * Mandatory product (if configured) — we SKIP that line, not block whole order.
+    //  */
+    //     $mandatoryProductId = Product::where('is_mandatory', 1)->value('id');
+
+    //     /*
+    //  * Build return items from ORDER LINES (not user input).
+    //  */
+    //     $returnItems         = [];
+    //     $refundSubtotal      = 0.00;
+    //     $refundTax           = 0.00;
+    //     $refundShipping      = 0.00;
+    //     $refundTotal         = 0.00;
+    //     $returnableItems     = [];
+    //     $nonReturnableItems  = [];
+    //     $skippedLines        = [];
+    //     $processedOrderLines = [];
+
+    //     foreach ($order->lines as $orderLine) {
+    //         // Skip non-delivered
+    //         if ($orderLine->delivery_status !== 'delivered') {
+    //             $skippedLines[] = [
+    //                 'order_line_id' => $orderLine->id,
+    //                 'product_name'  => $orderLine->product?->name ?? 'Unknown',
+    //                 'reason'        => 'not_delivered',
+    //             ];
+    //             continue;
+    //         }
+
+    //         // Prevent duplicate processing (safety)
+    //         if (in_array($orderLine->id, $processedOrderLines, true)) {
+    //             continue;
+    //         }
+    //         $processedOrderLines[] = $orderLine->id;
+
+    //         // Already returned
+    //         if ($orderLine->return_status === 'returned') {
+    //             $skippedLines[] = [
+    //                 'order_line_id' => $orderLine->id,
+    //                 'product_name'  => $orderLine->product?->name ?? 'Unknown',
+    //                 'reason'        => 'already_returned',
+    //             ];
+    //             continue;
+    //         }
+
+    //         // Pending/approved return already exists
+    //         if (in_array($orderLine->return_status, ['pending', 'approved'], true)) {
+    //             $skippedLines[] = [
+    //                 'order_line_id' => $orderLine->id,
+    //                 'product_name'  => $orderLine->product?->name ?? 'Unknown',
+    //                 'reason'        => 'return_in_progress',
+    //             ];
+    //             continue;
+    //         }
+
+    //         // Mandatory product — skip this line only
+    //         if ($mandatoryProductId && (int) $orderLine->product_id === (int) $mandatoryProductId) {
+    //             $skippedLines[] = [
+    //                 'order_line_id' => $orderLine->id,
+    //                 'product_name'  => $orderLine->product?->name ?? 'Unknown',
+    //                 'reason'        => 'mandatory_product',
+    //             ];
+    //             continue;
+    //         }
+
+    //         // Non-returnable line — skip
+    //         if (!$orderLine->is_returnable) {
+    //             $nonReturnableItems[] = $orderLine->product?->name ?? 'Unknown';
+    //             $skippedLines[] = [
+    //                 'order_line_id' => $orderLine->id,
+    //                 'product_name'  => $orderLine->product?->name ?? 'Unknown',
+    //                 'reason'        => 'not_returnable',
+    //             ];
+    //             continue;
+    //         }
+
+    //         // Available quantity (full — no partial)
+    //         $available = (int) $orderLine->getAvailableForReturnAttribute();
+
+    //         if ($available <= 0) {
+    //             $skippedLines[] = [
+    //                 'order_line_id' => $orderLine->id,
+    //                 'product_name'  => $orderLine->product?->name ?? 'Unknown',
+    //                 'reason'        => 'no_quantity_available',
+    //             ];
+    //             continue;
+    //         }
+
+    //         $quantity = $available;
+
+    //         /*
+    //      * Refund calculation.
+    //      */
+    //         $unitPrice = (float) $orderLine->unit_price;
+    //         $gstRate   = (float) ($orderLine->gst_rate ?? 0);
+
+    //         $subtotal = round($unitPrice * $quantity, 2);
+    //         $gstPercentage = $gstRate / 100;
+    //         $tax = round($subtotal * $gstPercentage, 2);
+    //         $lineTotal = round($subtotal + $tax, 2);
+
+    //         $itemShippingRefund = round(
+    //             (float) ($orderLine->shipping_charge ?? 0) * $quantity,
+    //             2
+    //         );
+
+    //         // Per-line images ab nahi hain — general images hi use hongi
+    //         $imagePaths = [];
+
+    //         $returnItem = [
+    //             'order_line_id'   => $orderLine->id,
+    //             'product_id'      => $orderLine->product_id,
+    //             'product_name'    => $orderLine->product?->name ?? 'Unknown Product',
+    //             'quantity'        => $quantity,
+    //             'unit_price'      => $unitPrice,
+    //             'gst_rate'        => $gstRate,
+    //             'subtotal'        => $subtotal,
+    //             'tax'             => $tax,
+    //             'line_total'      => $lineTotal,
+    //             'shipping_refund' => $itemShippingRefund,
+    //             'reason'          => $returnReason,
+    //             'image_paths'     => $imagePaths,
+    //             'return_status'   => 'pending',
+    //         ];
+
+    //         $returnItems[]     = $returnItem;
+    //         $returnableItems[] = $orderLine->product?->name ?? 'Unknown';
+
+    //         $refundSubtotal += $subtotal;
+    //         $refundTax      += $tax;
+    //         $refundShipping += $itemShippingRefund;
+    //         $refundTotal    += $lineTotal;
+    //     }
+
+    //     /*
+    //  * No returnable items left.
+    //  */
+    //     if (empty($returnItems)) {
+    //         $msg = 'No valid returnable items found in this order.';
+    //         if (!empty($nonReturnableItems)) {
+    //             $msg .= ' Non-returnable items: ' . implode(', ', $nonReturnableItems);
+    //         }
+
+    //         return [
+    //             'success'        => false,
+    //             'message'        => $msg,
+    //             'skipped_lines'  => $skippedLines,
+    //         ];
+    //     }
+
+    //     /*
+    //  * Round totals.
+    //  */
+    //     $refundSubtotal = round($refundSubtotal, 2);
+    //     $refundTax      = round($refundTax, 2);
+    //     $refundShipping = round($refundShipping, 2);
+    //     $refundTotal    = round($refundTotal, 2);
+    //     $totalRefund    = round($refundTotal + $refundShipping, 2);
+
+    //     /*
+    //  * General images.
+    //  */
+    //     $generalImagePaths = $data['general_image_paths'] ?? [];
+    //     if (!is_array($generalImagePaths)) {
+    //         $generalImagePaths = [];
+    //     }
+
+    //     /*
+    //  * CV reversal.
+    //  */
+    //     $totalCvReversed = $this->calculateCvReversal($order, $returnItems);
+
+    //     /*
+    //  * Create return request inside transaction.
+    //  */
+    //     return DB::transaction(function () use (
+    //         $order,
+    //         $anchorOrder,
+    //         $userId,
+    //         $returnItems,
+    //         $generalImagePaths,
+    //         $refundSubtotal,
+    //         $refundTax,
+    //         $refundShipping,
+    //         $refundTotal,
+    //         $totalRefund,
+    //         $totalCvReversed,
+    //         $data,
+    //         $returnDeadline,
+    //         $returnWindowDays,
+    //         $returnReason,
+    //         $skippedLines
+    //     ) {
+    //         // Create return order (order_line_id nullable now)
+    //         $returnOrder = OrderReturn::create([
+    //             'order_id'            => $order->id,
+    //             'order_line_id'       => null, // multi-line return — items JSON is source of truth
+    //             'user_id'             => $userId,
+    //             'return_method'       => $data['return_method'],
+    //             'tracking_id'         => $data['tracking_id'] ?? null,
+    //             'courier'             => $data['courier'] ?? null,
+    //             'items'               => $returnItems,
+    //             'status'              => OrderReturn::STATUS_PENDING,
+    //             'reason'              => $returnReason ?? null,
+    //             'general_images'      => $generalImagePaths,
+    //             'refund_subtotal'     => $refundSubtotal,
+    //             'refund_tax'          => $refundTax,
+    //             'refund_shipping'     => $refundShipping,
+    //             'total_refund_amount' => $totalRefund,
+    //             'total_cv_reversed'   => $totalCvReversed,
+    //         ]);
+
+    //         // Update individual order lines
+    //         foreach ($returnItems as $item) {
+    //             $orderLine = OrderLine::find($item['order_line_id']);
+
+    //             if ($orderLine) {
+    //                 $currentReturnedQuantity = (int) ($orderLine->returned_quantity ?? 0);
+    //                 $newReturnedQuantity     = $currentReturnedQuantity + (int) $item['quantity'];
+
+    //                 $orderLine->update([
+    //                     'returned_quantity'   => $newReturnedQuantity,
+    //                     'return_status'       => 'pending',
+    //                     'delivery_status'     => 'return_pending',
+    //                     'return_requested_at' => now(),
+    //                     'return_reason'       => $item['reason'] ?? null,
+    //                 ]);
+    //             }
+    //         }
+
+    //         // Update order-level return status
+    //         $this->updateOrderReturnStatus($order);
+
+    //         /*
+    //      * SMS
+    //      */
+    //         $this->sendReturnSms(
+    //             $userId,
+    //             "Hi {$order->user->name}! Your return request for order {$order->order_reference} "
+    //                 . "has been submitted. "
+    //                 . "We will notify you once it is reviewed.",
+    //             [
+    //                 'event'           => 'return_initiated',
+    //                 'return_id'       => $returnOrder->id,
+    //                 'order_reference' => $order->order_reference,
+    //             ]
+    //         );
+
+    //         /*
+    //      * Notification
+    //      */
+    //         $this->createReturnNotification($returnOrder, 'pending');
+
+    //         Mail::to($order->user->email)->send(
+    //             new ReturnInitiatedMail(
+    //                 $returnOrder,
+    //                 $returnItems,
+    //                 [
+    //                     'subtotal' => $refundSubtotal,
+    //                     'tax'      => $refundTax,
+    //                     'shipping' => $refundShipping,
+    //                     'total'    => $totalRefund,
+    //                 ],
+    //                 $order->user->name ?? 'Customer'
+    //             )
+    //         );
+
+    //         /*
+    //      * Logging
+    //      */
+    //         Log::info('Return request initiated', [
+    //             'return_id'         => $returnOrder->id,
+    //             'order_reference'   => $order->order_reference,
+    //             'anchor_order_ref'  => $anchorOrder->order_reference,
+    //             'is_replacement'    => (bool) $order->is_replacement,
+    //             'user_id'           => $userId,
+    //             'total_refund'      => $totalRefund,
+    //             'refund_breakdown'  => [
+    //                 'subtotal'   => $refundSubtotal,
+    //                 'tax'        => $refundTax,
+    //                 'shipping'   => $refundShipping,
+    //                 'line_total' => $refundTotal,
+    //                 'total'      => $totalRefund,
+    //             ],
+    //             'items_returned'    => count($returnItems),
+    //             'items'             => array_map(function ($item) {
+    //                 return [
+    //                     'order_line_id'   => $item['order_line_id'],
+    //                     'product_name'    => $item['product_name'] ?? 'Unknown',
+    //                     'quantity'        => $item['quantity'],
+    //                     'line_total'      => $item['line_total'],
+    //                     'shipping_refund' => $item['shipping_refund'] ?? 0,
+    //                     'status'          => 'pending',
+    //                 ];
+    //             }, $returnItems),
+    //             'skipped_lines'     => $skippedLines,
+    //         ]);
+
+    //         /*
+    //      * Response
+    //      */
+    //         return [
+    //             'success'             => true,
+    //             'return_id'           => $returnOrder->id,
+    //             'order_id'            => $order->id,
+    //             'order_reference'     => $order->order_reference,
+    //             'order_status'        => $order->status,
+    //             'order_return_status' => $order->return_status,
+    //             'status'              => OrderReturn::STATUS_PENDING,
+    //             'message'             => 'Return request submitted successfully. Admin will review and notify you.',
+    //             'return_window'       => [
+    //                 'anchor_order_reference' => $anchorOrder->order_reference,
+    //                 'anchor_dispatched_at'   => Carbon::parse(
+    //                     $anchorOrder->lines->whereNotNull('dispatched_at')->min('dispatched_at')
+    //                 )->toIso8601String(),
+    //                 'deadline'               => $returnDeadline->toIso8601String(),
+    //                 'window_days'            => $returnWindowDays,
+    //                 'inherited'              => $anchorOrder->id !== $order->id,
+    //             ],
+    //             'refund_details'      => [
+    //                 'subtotal'    => $refundSubtotal,
+    //                 'tax'         => $refundTax,
+    //                 'shipping'    => $refundShipping,
+    //                 'line_total'  => $refundTotal,
+    //                 'total'       => $totalRefund,
+    //                 'cv_reversed' => $totalCvReversed,
+    //             ],
+    //             'items_returned'      => array_map(function ($item) {
+    //                 return [
+    //                     'order_line_id'   => $item['order_line_id'],
+    //                     'product_id'      => $item['product_id'],
+    //                     'product_name'    => $item['product_name'] ?? 'Unknown',
+    //                     'quantity'        => $item['quantity'],
+    //                     'unit_price'      => $item['unit_price'],
+    //                     'gst_rate'        => $item['gst_rate'],
+    //                     'subtotal'        => $item['subtotal'],
+    //                     'tax'             => $item['tax'],
+    //                     'line_total'      => $item['line_total'],
+    //                     'shipping_refund' => $item['shipping_refund'] ?? 0,
+    //                     'return_status'   => 'pending',
+    //                     'reason'          => $item['reason'] ?? null,
+    //                 ];
+    //             }, $returnItems),
+    //             'skipped_lines'       => $skippedLines,
+    //             'images'              => [
+    //                 'general'      => $generalImagePaths,
+    //                 'general_urls' => $this->getImageUrls($generalImagePaths),
+    //             ],
+    //         ];
+    //     });
+    // }
     public function initiateReturn(
         int $userId,
         array $data,
