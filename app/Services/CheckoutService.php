@@ -102,7 +102,7 @@ class CheckoutService
 
         foreach ($mandatoryProducts as $product) {
 
-            // ✅ Skip if user already purchased this mandatory product
+            //  Skip if user already purchased this mandatory product
             if ($this->hasUserPurchasedProduct($user->id, $product->id)) {
                 continue;
             }
@@ -144,7 +144,7 @@ class CheckoutService
 
         return $mandatoryProducts->map(function ($product) use ($user, $excludeProductId, $excludeVariantId) {
 
-            // ✅ Skip if user already purchased this mandatory product
+            //  Skip if user already purchased this mandatory product
             if ($this->hasUserPurchasedProduct($user->id, $product->id)) {
                 return null;
             }
@@ -192,7 +192,7 @@ class CheckoutService
 
         return $mandatoryProducts->map(function ($product) use ($user, $excludeProductId, $excludeVariantId) {
 
-            // ✅ Skip if user already purchased this mandatory product
+            //  Skip if user already purchased this mandatory product
             if ($this->hasUserPurchasedProduct($user->id, $product->id)) {
                 return null;
             }
@@ -479,7 +479,7 @@ class CheckoutService
         $shippingData = null;
         $shippingBreakdown = [];
 
-        // ✅ SERVICE CHARGE — total init
+        //  SERVICE CHARGE — total init
         $totalServiceCharge = 0;
 
         foreach ($productDetails as $product) {
@@ -488,7 +488,7 @@ class CheckoutService
             $lineShipping = $product['line_shipping_charge'];
             $shippingCost += $lineShipping;
 
-            // ✅ SERVICE CHARGE — accumulate
+            //  SERVICE CHARGE — accumulate
             $totalServiceCharge += $product['line_service_charge'];
 
             $shippingBreakdown[] = [
@@ -499,7 +499,7 @@ class CheckoutService
                 'quantity' => $qty,
                 'shipping_charge_per_unit' => round($unitShipping, 2),
                 'total_shipping_charge' => round($lineShipping, 2),
-                // ✅ SERVICE CHARGE fields
+                //  SERVICE CHARGE fields
                 'service_charge_per_unit' => $product['product_service_charge'] !== null
                     ? round((float) $product['product_service_charge'], 2)
                     : null,
@@ -691,7 +691,7 @@ class CheckoutService
         |--------------------------------------------------------------------------
         */
 
-        // ✅ SERVICE CHARGE added to final formula
+        //  SERVICE CHARGE added to final formula
         $subtotalAfterDiscountAndTax = $subtotalAfterDiscount + $totalTax + $shippingCost + $totalServiceCharge;
 
         /*
@@ -944,7 +944,7 @@ class CheckoutService
     //             ->where('user_id', $userId)
     //             ->first();
 
-    //         // ✅ Agar cart nahi hai to create karo (mandatory products ke liye)
+    //         //  Agar cart nahi hai to create karo (mandatory products ke liye)
     //         if (!$cart) {
     //             $cart = Cart::create(['user_id' => $userId]);
     //             $cart->load([
@@ -955,10 +955,10 @@ class CheckoutService
     //             ]);
     //         }
 
-    //         // ✅ Mandatory products ensure karo (idempotent — duplicates nahi banenge)
+    //         //  Mandatory products ensure karo (idempotent — duplicates nahi banenge)
     //         $this->ensureMandatoryProductsInCart($cart);
 
-    //         // ✅ Relations reload after insert
+    //         //  Relations reload after insert
     //         $cart->load([
     //             'items.product.taxCategory',
     //             'items.product.images',

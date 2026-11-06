@@ -1985,6 +1985,7 @@ class ProductController extends Controller
                 'ignite_product_id' => $product->ignite_product_id ?? null,
                 'is_best_seller' => $product->is_best_seller ?? null,
                 'product_code' => $product->product_code,
+                'allowed_purchsed' => $product->allowed_purchsed,
                 'service_charge' => $product->service_charge,
                 'name' => $product->name,
                 'brand_id' => $product->brand_id ?? null,
@@ -2324,6 +2325,7 @@ class ProductController extends Controller
                 'service_charge' => $product->service_charge,
                 'is_best_seller' => $product->is_best_seller,
                 'commission_value' => $product->commission_value,
+                'allowed_purchsed' => $product->allowed_purchsed,
                 'name' => $product->name,
                 'slug' => $product->slug,
                 'description' => $product->description,
@@ -2718,6 +2720,7 @@ class ProductController extends Controller
             'ignite_product_id' => $product->ignite_product_id,
             'is_best_seller' => $product->is_best_seller,
             'service_charge' => $product->service_charge,
+            'allowed_purchsed' => $product->allowed_purchsed,
             'name' => $product->name,
             'slug' => $product->slug,
             'commission_value' => $product->commission_value,
@@ -7155,6 +7158,7 @@ class ProductController extends Controller
                 'is_mandatory' => $product->is_mandatory,
                 'slug' => $product->slug,
                 'description' => $product->description,
+                'allowed_purchsed' => $product->allowed_purchsed,
                 'specification' => $product->specification,
                 'hsn_code' => $product->hsn_code,
                 'uom' => $product->uom,
@@ -11775,5 +11779,56 @@ class ProductController extends Controller
                 'about_konnecto' => $aboutKonnecto
             ]
         ]);
+    }
+
+    public function updatePurchasePermission(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'product_ids' => 'required|array|min:1',
+            'product_ids.*' => 'required|integer|distinct|exists:products,id',
+            'allowed_purchsed' => 'required|boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+
+            DB::beginTransaction();
+
+            Product::whereIn('id', $request->product_ids)
+                ->update([
+                    'allowed_purchsed' => $request->allowed_purchsed,
+                    'updated_at' => now(),
+                ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => $request->allowed_purchsed
+                    ? 'Selected products are now allowed for purchase.'
+                    : 'Purchase permission removed from selected products.',
+                'data' => [
+                    'product_ids' => $request->product_ids,
+                    'allowed_purchsed' => (bool) $request->allowed_purchsed,
+                    'updated_count' => count($request->product_ids),
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Something went wrong.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 }
