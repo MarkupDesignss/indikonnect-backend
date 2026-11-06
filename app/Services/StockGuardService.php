@@ -9,6 +9,55 @@ use Exception;
 class StockGuardService
 {
     /**
+     * Resolve the "allowed purchased" flag for a product/variant.
+     *
+     * NOTE: The DB column is spelled `allowed_purchsed` (typo in schema).
+     * We check both spellings so this keeps working after a future rename.
+     */
+    public function isUnlimited(Product $product, ?ProductVariant $variant = null): bool
+    {
+        if ($variant) {
+            $variantFlag = $this->readFlag($variant);
+            if ($variantFlag !== null) {
+                return $variantFlag;
+            }
+        }
+
+        return $this->readFlag($product) ?? false;
+    }
+
+    /**
+     * Read the flag from a model supporting either spelling.
+     * Returns null if the attribute isn't present at all.
+     */
+    private function readFlag($model): ?bool
+    {
+        if (!$model) {
+            return null;
+        }
+
+        // Preferred correct spelling
+        if (array_key_exists('allowed_purchased', $model->getAttributes())) {
+            return (bool) $model->allowed_purchased;
+        }
+
+        // Actual DB column (typo)
+        if (array_key_exists('allowed_purchsed', $model->getAttributes())) {
+            return (bool) $model->allowed_purchsed;
+        }
+
+        // Fallback: accessor, if ever defined
+        if (isset($model->allowed_purchased)) {
+            return (bool) $model->allowed_purchased;
+        }
+        if (isset($model->allowed_purchsed)) {
+            return (bool) $model->allowed_purchsed;
+        }
+
+        return null;
+    }
+
+    /**
      * Resolve effective available stock for a product/variant.
      * Returns NULL when allowed_purchased = true (unlimited / bypass).
      * Otherwise returns physical stock - reserved (never negative).
@@ -31,18 +80,6 @@ class StockGuardService
     }
 
     /**
-     * True if allowed_purchased flag is enabled (stock cap bypassed).
-     */
-    public function isUnlimited(Product $product, ?ProductVariant $variant = null): bool
-    {
-        if ($variant && isset($variant->allowed_purchased)) {
-            return (bool) $variant->allowed_purchased;
-        }
-
-        return (bool) ($product->allowed_purchased ?? false);
-    }
-
-    /**
      * Assert requested quantity can be satisfied.
      *
      * @param int $requestedQty   quantity being added / final qty
@@ -59,7 +96,7 @@ class StockGuardService
         $available = $this->availableStock($product, $variant);
 
         if ($available === null) {
-            return; // allowed_purchased = true → no cap
+            return; // allowed_purchsed = true → no cap
         }
 
         $totalNeeded = $requestedQty + $alreadyInCart;

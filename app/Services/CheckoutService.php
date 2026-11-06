@@ -78,18 +78,35 @@ class CheckoutService
      * FR-CO-003: Calculate order summary
      */
 
+    protected function hasUserPurchasedProduct(int $userId, int $productId): bool
+    {
+        return \App\Models\OrderLine::query()
+            ->whereHas('order', function ($q) use ($userId) {
+                $q->where('user_id', $userId)
+                    ->whereNotIn('status', ['cancelled', 'failed', 'payment_failed']); // adjust to your statuses
+            })
+            ->where('product_id', $productId)
+            ->exists();
+    }
 
     protected function ensureMandatoryProductsInCart(Cart $cart): Cart
     {
-        $mandatoryProducts = Product::where('is_mandatory', true)
-            ->where('is_mandatory', true) // agar aisa column hai
-            ->get();
         $user = User::find($cart->user_id);
 
+        // Only distributors get mandatory products
         if (!$user || $user->account_type !== 'distributor') {
             return $cart;
         }
+
+        $mandatoryProducts = Product::where('is_mandatory', true)->get();
+
         foreach ($mandatoryProducts as $product) {
+
+            // ✅ Skip if user already purchased this mandatory product
+            if ($this->hasUserPurchasedProduct($user->id, $product->id)) {
+                continue;
+            }
+
             // Check if already in cart (product-level, no variant)
             $exists = CartItem::where('cart_id', $cart->id)
                 ->where('product_id', $product->id)
@@ -111,59 +128,88 @@ class CheckoutService
         return $cart;
     }
 
-    protected function buildMandatoryItems(?int $excludeProductId = null, ?int $excludeVariantId = null): \Illuminate\Support\Collection
-    {
-        $mandatoryProducts = Product::where('is_mandatory', true)
-            ->where('is_mandatory', true) // agar column hai
-            ->with(['taxCategory', 'images', 'primaryImage'])
-            ->get();
-        $user = auth('sanctum')->user();
 
-        if (!$user || $user->account_type !== 'distributor') {
-            return collect();
-        }
-        return $mandatoryProducts->map(function ($product) use ($excludeProductId, $excludeVariantId) {
-            // Skip if user is already buying this exact product (no variant)
-            if ($excludeProductId && $product->id == $excludeProductId && !$excludeVariantId) {
-                return null;
-            }
-
-            $obj = new \stdClass();
-            $obj->product_id = $product->id;
-            $obj->variant_id = null;
-            $obj->variant_sku = null;
-            $obj->variant_attributes = null;
-            $obj->quantity = 1;
-            $obj->product = $product;
-            $obj->variant = null;
-            return $obj;
-        })->filter()->values();
-    }
 
     protected function buildMandatoryItemsForBuyNow(?int $excludeProductId = null, ?int $excludeVariantId = null): \Illuminate\Support\Collection
     {
-        $mandatoryProducts = Product::where('is_mandatory', true)
-            ->with(['taxCategory', 'images', 'primaryImage'])
-            ->get();
         $user = auth('sanctum')->user();
 
         if (!$user || $user->account_type !== 'distributor') {
             return collect();
         }
-        return $mandatoryProducts->map(function ($product) use ($excludeProductId, $excludeVariantId) {
+
+        $mandatoryProducts = Product::where('is_mandatory', true)
+            ->with(['taxCategory', 'images', 'primaryImage'])
+            ->get();
+
+        return $mandatoryProducts->map(function ($product) use ($user, $excludeProductId, $excludeVariantId) {
+
+            // ✅ Skip if user already purchased this mandatory product
+            if ($this->hasUserPurchasedProduct($user->id, $product->id)) {
+                return null;
+            }
+
             // Skip if user is already buying this exact product (no variant selected)
             if (!$excludeVariantId && $excludeProductId && $product->id == $excludeProductId) {
                 return null;
             }
 
             $obj = new \stdClass();
-            $obj->product_id = $product->id;
-            $obj->variant_id = null;
-            $obj->variant_sku = null;
+            $obj->product_id         = $product->id;
+            $obj->variant_id         = null;
+            $obj->variant_sku        = null;
             $obj->variant_attributes = null;
-            $obj->quantity = 1;
-            $obj->product = $product;
-            $obj->variant = null;
+            $obj->quantity           = 1;
+            $obj->product            = $product;
+            $obj->variant            = null;
+            return $obj;
+        })->filter()->values();
+    }
+
+    protected function purchasedMandatoryProductIds(int $userId): array
+    {
+        return \App\Models\OrderLine::query()
+            ->whereHas('order', fn($q) => $q
+                ->where('user_id', $userId)
+                ->whereNotIn('status', ['cancelled', 'failed', 'payment_failed']))
+            ->whereHas('product', fn($q) => $q->where('is_mandatory', true))
+            ->pluck('product_id')
+            ->unique()
+            ->all();
+    }
+
+    protected function buildMandatoryItems(?int $excludeProductId = null, ?int $excludeVariantId = null): \Illuminate\Support\Collection
+    {
+        $user = auth('sanctum')->user();
+
+        if (!$user || $user->account_type !== 'distributor') {
+            return collect();
+        }
+
+        $mandatoryProducts = Product::where('is_mandatory', true)
+            ->with(['taxCategory', 'images', 'primaryImage'])
+            ->get();
+
+        return $mandatoryProducts->map(function ($product) use ($user, $excludeProductId, $excludeVariantId) {
+
+            // ✅ Skip if user already purchased this mandatory product
+            if ($this->hasUserPurchasedProduct($user->id, $product->id)) {
+                return null;
+            }
+
+            // Skip if user is already buying this exact product (no variant)
+            if ($excludeProductId && $product->id == $excludeProductId && !$excludeVariantId) {
+                return null;
+            }
+
+            $obj = new \stdClass();
+            $obj->product_id         = $product->id;
+            $obj->variant_id         = null;
+            $obj->variant_sku        = null;
+            $obj->variant_attributes = null;
+            $obj->quantity           = 1;
+            $obj->product            = $product;
+            $obj->variant            = null;
             return $obj;
         })->filter()->values();
     }
