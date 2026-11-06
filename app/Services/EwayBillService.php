@@ -17,7 +17,6 @@ class EwayBillService
 
     public function __construct()
     {
-        // Using the 'kyc' config block which holds your Sandbox credentials
         $this->baseUrl    = config('services.kyc.base_url', 'https://test-api.sandbox.co.in');
         $this->apiKey     = config('services.kyc.api_key');
         $this->apiSecret  = config('services.kyc.api_secret');
@@ -26,7 +25,7 @@ class EwayBillService
 
     /**
      * Generate an access token using API Key and Secret.
-     * The token is cached for 23 hours to avoid unnecessary API calls.
+     * Cached for 23 hours to avoid unnecessary API calls.
      */
     protected function getAccessToken(): string
     {
@@ -47,6 +46,33 @@ class EwayBillService
         });
     }
 
+    protected function getEwbAccessToken(): string
+    {
+        return Cache::remember('eway_bill_access_token', now()->addHours(5), function () {
+            $sandboxToken = $this->getAccessToken();
+
+            $response = Http::withHeaders([
+                'authorization' => $sandboxToken,
+                'x-api-key'     => $this->apiKey,
+                'x-api-version' => $this->apiVersion,
+                'Content-Type'  => 'application/json',
+            ])->post($this->baseUrl . '/gst/compliance/e-way-bill/tax-payer/authenticate', [
+                'username' => config('services.eway_bill.username'),
+                'password' => config('services.eway_bill.password'),
+                'gstin'    => config('services.eway_bill.gstin'),
+            ]);
+
+            $data = $response->json();
+
+            if (!isset($data['data']['access_token'])) {
+                Log::error('E-Way Bill portal auth failed', ['response' => $data]);
+                throw new Exception('Failed to authenticate with E-Way Bill portal. Check username/password/GSTIN.');
+            }
+
+            return $data['data']['access_token'];
+        });
+    }
+
     /**
      * Generate E-Way Bill Part A only (Transporter ID provided, no vehicle number).
      *
@@ -57,21 +83,21 @@ class EwayBillService
      */
     public function generatePartA(Invoice $invoice, string $transporterId): array
     {
-        // 1. Validate transporter ID format (15 chars, alphanumeric)
+        // 1. Validate transporter ID format
         if (empty($transporterId) || strlen($transporterId) !== 15) {
             throw new Exception("Invalid Transporter ID. It must be a 15-character GSTIN/TRANSIN.");
         }
 
-        // 2. Build the payload for Sandbox E-Way Bill Generate API
+        // 2. Build payload
         $payload = $this->buildPayload($invoice, $transporterId);
 
-        // 3. Get Access Token
+        // 3. Get token
         $token = $this->getAccessToken();
 
         // 4. Call Sandbox API
         try {
             $response = Http::withHeaders([
-                'authorization' => $token, // Raw JWT (No 'Bearer' prefix)
+                'authorization' => $token,
                 'x-api-key'     => $this->apiKey,
                 'x-api-version' => $this->apiVersion,
                 'Content-Type'  => 'application/json',
@@ -79,24 +105,26 @@ class EwayBillService
 
             $responseData = $response->json();
 
-            // 5. Handle Sandbox/NIC business failure (HTTP 200 but status_cd = 0)
+            // 5. Handle NIC business failure (HTTP 200 but status_cd != '1')
             if (!isset($responseData['data']['status_cd']) || $responseData['data']['status_cd'] !== '1') {
-                $errorData = $responseData['data']['error'] ?? [];
-                $errorMessage = is_array($errorData) ? ($errorData['message'] ?? 'Unknown E-Way Bill error') : $errorData;
+                $errorData    = $responseData['data']['error'] ?? [];
+                $errorMessage = is_array($errorData)
+                    ? ($errorData['message'] ?? 'Unknown E-Way Bill error')
+                    : $errorData;
                 $errorCode = is_array($errorData) ? ($errorData['error_cd'] ?? '') : '';
                 throw new Exception("E-Way Bill generation failed: {$errorMessage} (Code: {$errorCode})");
             }
 
-            // 6. Extract and validate EBN
-            $ewbNo = $responseData['data']['data']['ewayBillNo'] ?? null;
-            $ewbDate = $responseData['data']['data']['ewayBillDate'] ?? null;
+            // 6. Extract fields
+            $ewbNo     = $responseData['data']['data']['ewayBillNo'] ?? null;
+            $ewbDate   = $responseData['data']['data']['ewayBillDate'] ?? null;
             $validUpto = $responseData['data']['data']['validUpto'] ?? null;
 
             if (empty($ewbNo)) {
                 throw new Exception("E-Way Bill number not found in response.");
             }
 
-            // 7. Log any alert from Sandbox
+            // 7. Log alert (NIC sometimes returns warnings with success)
             $alert = $responseData['data']['data']['alert'] ?? null;
             if (!empty($alert)) {
                 Log::warning('E-Way Bill Part A generated with alert', [
@@ -106,7 +134,7 @@ class EwayBillService
                 ]);
             }
 
-            // 8. Return normalized result
+            // 8. Return normalized
             return [
                 'eway_bill_no'   => $ewbNo,
                 'eway_bill_date' => $ewbDate,
@@ -127,7 +155,7 @@ class EwayBillService
 
     /**
      * Build the E-Way Bill payload for Part A only.
-     * NO vehicle number is included. Transporter ID is provided.
+     * NO vehicle number, NO transport mode — only transporter ID.
      */
     protected function buildPayload(Invoice $invoice, string $transporterId): array
     {
@@ -136,7 +164,7 @@ class EwayBillService
             throw new Exception("Invoice has no associated order.");
         }
 
-        $order->loadMissing(['deliveryAddress', 'billingAddress', 'user']);
+        $order->loadMissing(['deliveryAddress', 'billingAddress', 'user', 'lines.product']);
 
         $deliveryAddress = $order->deliveryAddress;
         $user            = $order->user;
@@ -145,9 +173,10 @@ class EwayBillService
             throw new Exception("Delivery address is missing for order {$order->order_reference}.");
         }
 
+        // ✅ FIX: Pass only THIS invoice's line to buildItems (not the whole order)
         $items = $this->buildItems($invoice);
 
-        // Consignor (your company) details from config
+        // Consignor (your company)
         $consignorGstin = config('services.company.gstin');
         $consignorName  = config('services.company.name');
         $consignorAddr1 = config('services.company.address_line_1');
@@ -160,27 +189,43 @@ class EwayBillService
             throw new Exception("Consignor GSTIN is not configured.");
         }
 
-        // Consignee (buyer) details
-        // If buyer has no GSTIN, we must send 'URP' (Unregistered Person)
+        // Consignee (buyer) — 'URP' if no GSTIN
         $consigneeGstin = !empty($user->gstin) ? $user->gstin : 'URP';
-        $consigneeName  = $deliveryAddress->full_name ?? $user->name;
+        $consigneeName  = $deliveryAddress->recipient_name
+            ?? $deliveryAddress->full_name
+            ?? $user->name
+            ?? 'Customer';
         $consigneeAddr1 = $deliveryAddress->address_line_1;
         $consigneeAddr2 = $deliveryAddress->address_line_2 ?? '';
         $consigneePlace = $deliveryAddress->city;
-        $consigneePin   = $deliveryAddress->postal_code;
+        $consigneePin   = $deliveryAddress->postal_code ?? $deliveryAddress->pincode;
         $consigneeState = $this->getStateCodeFromName($deliveryAddress->state);
 
-        $totalInvoiceValue = (float) $invoice->total_value;
+        // ✅ FIX: Validate required fields before sending to NIC
+        if (empty($consigneeAddr1) || empty($consigneePlace) || empty($consigneePin)) {
+            throw new Exception(
+                "Incomplete delivery address for order {$order->order_reference}. " .
+                "Address line 1, city and pincode are required."
+            );
+        }
 
-        // Part A payload – Transporter ID provided, NO vehicle number, NO transport mode
+        if (!preg_match('/^\d{6}$/', (string) $consigneePin)) {
+            throw new Exception(
+                "Invalid consignee pincode '{$consigneePin}' for order {$order->order_reference}. Must be 6 digits."
+            );
+        }
+
+        $totalInvoiceValue = (float) ($invoice->total_value ?? $invoice->total_payable ?? 0);
+
+        // Part A payload
         return [
             'supplyType'       => 'O',
             'subSupplyType'    => '1',
-            'subSupplyDesc'    => '', // Required by NIC
+            'subSupplyDesc'    => '',
             'docType'          => 'INV',
             'docNo'            => $invoice->invoice_number,
             'docDate'          => $invoice->created_at->format('d/m/Y'),
-            
+
             'fromGstin'        => $consignorGstin,
             'fromTrdName'      => $consignorName,
             'fromAddr1'        => $consignorAddr1,
@@ -188,8 +233,8 @@ class EwayBillService
             'fromPlace'        => $consignorPlace,
             'fromPincode'      => (int) $consignorPin,
             'fromStateCode'    => (int) $consignorState,
-            'actFromStateCode' => (int) $consignorState, // Required
-            
+            'actFromStateCode' => (int) $consignorState,
+
             'toGstin'          => $consigneeGstin,
             'toTrdName'        => $consigneeName,
             'toAddr1'          => $consigneeAddr1,
@@ -197,28 +242,52 @@ class EwayBillService
             'toPlace'          => $consigneePlace,
             'toPincode'        => (int) $consigneePin,
             'toStateCode'      => (int) $consigneeState,
-            'actToStateCode'   => (int) $consigneeState, // Required
-            
-            'transactionType'  => 1, // 1 = Regular
+            'actToStateCode'   => (int) $consigneeState,
+
+            'transactionType'  => 1,
             'totalValue'       => $totalInvoiceValue,
             'totInvValue'      => $totalInvoiceValue,
             'transporterId'    => $transporterId,
-            
+
             'itemList'         => $items,
         ];
     }
 
     /**
-     * Build item list from invoice.
+     * Build item list for THIS invoice only.
+     * Each invoice is generated per order_line (as per your dispatch() flow).
      */
     protected function buildItems(Invoice $invoice): array
     {
         $items = [];
-        $slNo = 1;
+        $slNo  = 1;
+
+        // ✅ FIX: Filter to only the line(s) belonging to THIS invoice.
+        // Your dispatch() creates one invoice per order_line, so we need the matching line.
         $orderLines = $invoice->order->lines ?? collect();
+
+        // If invoice has order_line_id, filter to that line only
+        if (!empty($invoice->order_line_id)) {
+            $orderLines = $orderLines->where('id', $invoice->order_line_id);
+        }
+
+        if ($orderLines->isEmpty()) {
+            throw new Exception("No matching order line found for invoice {$invoice->invoice_number}.");
+        }
 
         foreach ($orderLines as $line) {
             $product = $line->product;
+
+            if (!$product) {
+                throw new Exception(
+                    "Product missing for order line {$line->id} in invoice {$invoice->invoice_number}."
+                );
+            }
+
+            // ✅ CRITICAL FIX: taxableAmount = unit_price × quantity (NOT per-unit)
+            $taxableAmount = (float) ($line->taxable_amount
+                ?? ($line->unit_price * $line->quantity));
+
             $items[] = [
                 'slNo'          => (string) $slNo++,
                 'productName'   => $product->name ?? 'Product',
@@ -226,7 +295,7 @@ class EwayBillService
                 'hsnCode'       => (int) ($product->hsn_code ?? 998232),
                 'quantity'      => (float) $line->quantity,
                 'qtyUnit'       => 'NOS',
-                'taxableAmount' => (float) $line->unit_price,
+                'taxableAmount' => round($taxableAmount, 2),
                 'cgstRate'      => (float) ($line->cgst_rate ?? 0),
                 'sgstRate'      => (float) ($line->sgst_rate ?? 0),
                 'igstRate'      => (float) ($line->igst_rate ?? 0),
@@ -257,9 +326,24 @@ class EwayBillService
             'West Bengal'   => '19',
             'Rajasthan'     => '08',
             'Kerala'        => '32',
+            'Punjab'        => '03',
+            'Haryana'       => '06',
+            'Madhya Pradesh'=> '23',
+            'Andhra Pradesh'=> '37',
+            'Bihar'         => '10',
+            'Odisha'        => '21',
+            'Assam'         => '18',
+            'Uttarakhand'   => '05',
+            'Himachal Pradesh' => '02',
+            'Goa'           => '30',
+            'Chhattisgarh'  => '22',
+            'Jharkhand'     => '20',
+            'Puducherry'    => '34',
+            'Chandigarh'    => '04',
+            'Jammu and Kashmir' => '01',
         ];
 
         $normalized = ucwords(strtolower(trim($stateName)));
-        return $map[$normalized] ?? '24'; // Default to Gujarat if unknown
+        return $map[$normalized] ?? '24'; // Default Gujarat
     }
 }
