@@ -1750,10 +1750,15 @@ class OrderController extends Controller
                 : [];
 
             // Merge both into the same key and remove duplicates
-            $statuses = array_values(array_unique([
-                ...$orderStatuses,
-                ...$orderLineStatuses,
-            ]));
+            $statuses = array_values(array_filter(
+                array_unique([
+                    ...$orderStatuses,
+                    ...$orderLineStatuses,
+                ]),
+                function ($status) {
+                    return stripos($status, 'partial') === false;
+                }
+            ));
 
             return response()->json([
                 'success' => true,
