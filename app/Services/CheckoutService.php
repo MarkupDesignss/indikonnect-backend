@@ -552,6 +552,7 @@ class CheckoutService
 
             // Product Information
             $productName = $product['item']->product->name;
+            $allowed_purchsed = $product['item']->product->allowed_purchsed;
             $productCommisionValue = $product['item']->product->commission_value;
             $productQuantity = $product['item']->product->stock_quantity;
             $productKey = 'product_' . ($index + 1) . '_' . str_replace(' ', '_', strtolower($productName));
@@ -567,6 +568,7 @@ class CheckoutService
             $productTaxBreakdown[$productKey] = [
                 'product_id' => $product['item']->product_id,
                 'product_name' => $productName,
+                'allowed_purchsed' => $allowed_purchsed,
                 'commision_value' => $productCommisionValue,
                 'max_stock' => $productQuantity,
                 'product_code' => $product['item']->product->product_code,
