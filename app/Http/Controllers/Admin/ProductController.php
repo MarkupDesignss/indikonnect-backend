@@ -6967,8 +6967,8 @@ class ProductController extends Controller
                     'description' => $product->description,
                     'product_code' => $product->product_code,
 
-                    // ✅ BRAND ADDED
                     'brand_id' => $product->brand_id,
+                    'allowed_purchsed' => $product->allowed_purchsed,
                     'brand' => $product->brand ? [
                         'id' => $product->brand->id,
                         'name' => $product->brand->title,
@@ -7935,6 +7935,7 @@ class ProductController extends Controller
                 'name' => $product->name,
                 'slug' => $product->slug,
                 'description' => $product->description,
+                'allowed_purchsed' => $product->allowed_purchsed,
 
                 // Category details
                 'category' => $product->category ? [
