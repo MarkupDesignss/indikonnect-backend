@@ -23,7 +23,13 @@ class Product extends Model
         'deal_of_the_day_ends_at' => 'datetime',
         'is_trending' => 'boolean',
         'parent_combo_id' => 'array',
+        'product_type' => 'string',
     ];
+
+    public function isCombo(): bool
+    {
+        return $this->product_type === 'combo';
+    }
 
     public static function normalizeComboGroups($raw): array
     {

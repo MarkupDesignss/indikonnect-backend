@@ -2274,236 +2274,6 @@ class ProductController extends Controller
             'new_product',
         ]);
     }
-    // public function store(Request $request)
-    // {
-    //     $validator = Validator::make($request->all(), [
-    //         'product_code' => ['required', 'string', 'max:255', Rule::unique('products')],
-    //         'name' => ['required', 'string', 'max:255'],
-    //         'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')],
-    //         'description' => ['nullable', 'string'],
-    //         'specification' => ['nullable', 'string'],
-    //         'brand_id' => ['nullable'],
-    //         'hsn_code' => ['nullable', 'string', 'max:50'],
-    //         'uom' => ['nullable', 'string', 'max:50'],
-    //         'category_id' => ['required', 'exists:categories,id'],
-    //         'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
-    //         'retail_mrp' => ['required', 'numeric', 'min:0'],
-    //         'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
-    //         'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
-    //         'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
-    //         'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
-    //         'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
-    //         'stock_quantity' => ['required_if:variants,null', 'nullable', 'integer', 'min:0'],
-    //         'shipping_charge' => ['required', 'min:0'],
-    //         'total_added_quantity' => ['nullable', 'min:0'],
-    //         'commission_value' => ['required', 'integer', 'min:0'],
-    //         'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
-    //         'is_published' => ['nullable', 'boolean'],
-    //         'is_trending' => ['nullable', 'boolean'],
-    //         'trending_sort_order' => ['nullable', 'integer', 'min:0'],
-    //         'sale_type' => ['nullable', 'string', 'in:today_best,limited'],
-    //         'product_images' => ['nullable', 'array'],
-    //         'product_images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
-    //         'product_images.*.sort_order' => ['nullable', 'integer'],
-    //         'product_images.*.is_primary' => ['nullable', 'boolean'],
-
-    //         // Variants validation
-    //         'variants' => ['nullable', 'array'],
-    //         'variants.*.sku' => ['required_with:variants', 'string', 'max:255'],
-    //         'variants.*.attributes' => ['required_with:variants'],
-    //         'variants.*.retail_mrp' => ['required_with:variants', 'numeric', 'min:0'],
-    //         'variants.*.retail_discount_type' => ['nullable', 'in:percentage,fixed'],
-    //         'variants.*.retail_discount_value' => ['nullable', 'numeric', 'min:0'],
-    //         'variants.*.distributor_mrp' => ['nullable', 'numeric', 'min:0'],
-    //         'variants.*.distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
-    //         'variants.*.distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
-    //         'variants.*.stock_quantity' => ['required_with:variants', 'integer', 'min:0'],
-    //         'variants.*.low_stock_threshold' => ['nullable', 'integer', 'min:0'],
-    //         'variants.*.sort_order' => ['nullable', 'integer', 'min:0'],
-    //         'variants.*.is_active' => ['nullable', 'boolean'],
-    //         'variants.*.images' => ['nullable', 'array'],
-    //         'variants.*.images.*.image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif'],
-    //         'variants.*.images.*.sort_order' => ['nullable', 'integer'],
-    //         'variants.*.images.*.is_primary' => ['nullable', 'boolean'],
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json(['errors' => $validator->errors()], 422);
-    //     }
-
-    //     DB::beginTransaction();
-    //     try {
-    //         $validated = $validator->validated();
-
-    //         // Extract product data
-    //         $productData = collect($validated)->except(['product_images', 'variants'])->toArray();
-    //         if (empty($productData['brand_id'])) {
-    //             $productData['brand_id'] = 1;
-    //         }
-
-    //         // Calculate retail price
-    //         $productData['retail_price'] = $this->calculatePrice(
-    //             $productData['retail_mrp'],
-    //             $productData['retail_discount_type'] ?? null,
-    //             $productData['retail_discount_value'] ?? null
-    //         );
-
-    //         // Calculate distributor price
-    //         if (!empty($productData['distributor_mrp'])) {
-    //             $productData['distributor_price'] = $this->calculatePrice(
-    //                 $productData['distributor_mrp'],
-    //                 $productData['distributor_discount_type'] ?? null,
-    //                 $productData['distributor_discount_value'] ?? null
-    //             );
-    //         } else {
-    //             $productData['distributor_price'] = null;
-    //             $productData['distributor_mrp'] = null;
-    //             $productData['distributor_discount_type'] = null;
-    //             $productData['distributor_discount_value'] = null;
-    //         }
-
-    //         // Generate slug if not provided
-    //         if (empty($productData['slug'])) {
-    //             $productData['slug'] = Str::slug($productData['name']);
-    //         }
-    //         $productData['slug'] = $this->generateUniqueSlug($productData['slug']);
-    //         $productData['is_published'] = $productData['is_published'] ?? false;
-    //         $productData['low_stock_threshold'] = $productData['low_stock_threshold'] ?? 5;
-    //         $productData['total_added_quantity'] = $productData['stock_quantity'] ?? 0;
-    //         $productData['shipping_charge'] = $productData['shipping_charge'] ?? 0;
-    //         $productData['commission_value'] = $productData['commission_value'] ?? 0;
-
-    //         // Check if variants exist
-    //         $hasVariants = !empty($validated['variants']);
-
-    //         // If variants exist, product stock will be calculated from variants
-    //         if ($hasVariants) {
-    //             // Remove stock_quantity from product data if variants exist
-    //             // It will be calculated from variants sum
-    //             unset($productData['stock_quantity']);
-    //         } else {
-    //             // If no variants, use the provided stock_quantity
-    //             if (!isset($productData['stock_quantity'])) {
-    //                 $productData['stock_quantity'] = 0;
-    //             }
-    //         }
-
-    //         // Create product
-    //         $product = Product::create($productData);
-
-    //         // Handle product images
-    //         $this->handleProductImages($request, $product);
-
-    //         // Handle variants with their images
-    //         $variantDetails = [];
-    //         if ($hasVariants) {
-    //             $totalStock = 0;
-
-    //             foreach ($validated['variants'] as $variantIndex => $variantData) {
-    //                 // Extract images from variant data
-    //                 $variantImages = $variantData['images'] ?? [];
-    //                 unset($variantData['images']);
-
-    //                 // Create the variant
-    //                 $variant = $this->createVariant($product, $variantData);
-
-    //                 // Add variant stock to total
-    //                 $totalStock += $variantData['stock_quantity'] ?? 0;
-
-    //                 //  Handle variant images with file uploads — pass $variantIndex
-    //                 if (!empty($variantImages)) {
-    //                     $this->handleVariantImages($request, $variant, $variantImages, $variantIndex);
-    //                 }
-
-    //                 $variantDetails[] = [
-    //                     'sku' => $variantData['sku'],
-    //                     'attributes' => $variantData['attributes'],
-    //                     'retail_mrp' => $variantData['retail_mrp'],
-    //                     'distributor_mrp' => $variantData['distributor_mrp'] ?? null,
-    //                     'stock_quantity' => $variantData['stock_quantity'] ?? 0,
-    //                     'is_active' => $variantData['is_active'] ?? true,
-    //                 ];
-    //             }
-
-    //             // Update product stock with total from variants
-    //             $product->update(['stock_quantity' => $totalStock]);
-    //         }
-
-    //         DB::commit();
-    //         $product->load(['category', 'taxCategory', 'images', 'variants.images']);
-
-    //         try {
-    //             $users = User::whereHas('notificationSettings', function ($query) {
-    //                 $query->where('promotional_emails', true);
-    //             })->get();
-
-    //             foreach ($users as $user) {
-    //                 $templateData = [
-    //                     'product_name' => $product->name,
-    //                     'product_code' => $product->product_code,
-    //                     'product_slug' => $product->slug,
-    //                     'retail_price' => number_format($product->retail_price, 2),
-    //                     'product_id' => $product->id,
-    //                     'category_name' => $product->category?->name ?? '',
-    //                     'customer_name' => $user->full_name ?? $user->name ?? 'Customer',
-    //                 ];
-
-    //                 $this->notificationService->sendUserNotification(
-    //                     $user,
-    //                     'product_added',
-    //                     $templateData,
-    //                     ['mail']
-    //                 );
-    //             }
-    //         } catch (\Throwable $e) {
-    //             Log::error('Failed to send new product promotional notifications', [
-    //                 'product_id' => $product->id,
-    //                 'error' => $e->getMessage(),
-    //             ]);
-    //         }
-
-    //         $this->logAudit(
-    //             'product_create',
-    //             'catalogue',
-    //             null,
-    //             [
-    //                 'product_id' => $product->id,
-    //                 'product_code' => $product->product_code,
-    //                 'name' => $product->name,
-    //                 'slug' => $product->slug,
-    //                 'category_id' => $product->category_id,
-    //                 'category_name' => $product->category?->name,
-    //                 'tax_category_id' => $product->tax_category_id,
-    //                 'retail_mrp' => $product->retail_mrp,
-    //                 'retail_price' => $product->retail_price,
-    //                 'distributor_mrp' => $product->distributor_mrp,
-    //                 'distributor_price' => $product->distributor_price,
-    //                 'stock_quantity' => $product->stock_quantity,
-    //                 'low_stock_threshold' => $product->low_stock_threshold,
-    //                 'is_published' => $product->is_published,
-    //                 'is_trending' => $product->is_trending,
-    //                 'sale_type' => $product->sale_type,
-    //                 'has_variants' => $hasVariants,
-    //                 'variants_count' => count($variantDetails),
-    //                 'variants' => $variantDetails,
-    //                 'created_by' => $this->getAdminId(),
-    //                 'created_at' => now()->toDateTimeString(),
-    //             ]
-    //         );
-
-    //         return response()->json($this->formatProduct($product), 201);
-    //     } catch (\Exception $e) {
-    //         DB::rollBack();
-    //         Log::error('Product creation failed:', [
-    //             'error' => $e->getMessage(),
-    //             'trace' => $e->getTraceAsString()
-    //         ]);
-    //         return response()->json([
-    //             'message' => 'Failed to create product',
-    //             'error' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
 
 
     /**
@@ -2862,7 +2632,13 @@ class ProductController extends Controller
             'uom' => ['nullable', 'string', 'max:50'],
             'category_id' => ['required', 'exists:categories,id'],
             'subcategory_id' => ['required', 'exists:subcategories,id'],
-            'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+            // 'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+            'tax_category_id' => [
+                'nullable',
+                'exists:tax_categories,id',
+                Rule::requiredIf(fn() => $request->input('product_type') == 'single'),
+            ],
+            'product_type' => ['required', 'string', 'in:single,combo'],
             'retail_mrp' => ['required', 'numeric', 'min:0'],
             'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
             'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
@@ -2887,13 +2663,19 @@ class ProductController extends Controller
             'variants.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
             'variants.*.hax_color' => ['required', 'string', 'max:50'],
 
-            'combo_product_ids' => ['nullable', 'array'],
+            'combo_product_ids' => [
+                'nullable',
+                'array',
+                Rule::requiredIf(fn() => $request->input('product_type') === 'combo'),
+                'min:1',
+            ],
             'combo_product_ids.*' => ['integer', 'distinct', 'exists:products,id'],
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
+
 
         if ($duplicate = $this->validateIgniteProductIdUniqueness(
             $request->input('ignite_product_id')
@@ -2904,6 +2686,9 @@ class ProductController extends Controller
         DB::beginTransaction();
         try {
             $validated = $validator->validated();
+            if ($validated['product_type'] === 'combo') {
+                $validated['tax_category_id'] = null;
+            }
 
             $productData = collect($validated)
                 ->except(['product_images', 'variants', 'combo_product_ids'])
@@ -3566,656 +3351,6 @@ class ProductController extends Controller
     /**
      * Update a product with variants
      */
-
-
-    // public function update(Request $request, $id)
-    // {
-    //     $product = Product::where('id', $id)->first();
-    //     if (!$product) {
-    //         return response()->json([
-    //             'message' => 'Product not found'
-    //         ], 422);
-    //     }
-
-    //     $validator = Validator::make($request->all(), [
-    //         'product_code' => ['sometimes', 'required', 'string', 'max:255'],
-    //         'name' => ['sometimes', 'required', 'string', 'max:255'],
-    //         'slug' => [
-    //             'nullable',
-    //             'string',
-    //             'max:255',
-    //             Rule::unique('products')->ignore($product->id)
-    //         ],
-    //         'description' => ['nullable', 'string'],
-    //         'specification' => ['nullable', 'string'],
-    //         'brand_id' => ['nullable'],
-    //         'hsn_code' => ['nullable', 'string', 'max:50'],
-    //         'uom' => ['nullable', 'string', 'max:50'],
-    //         'category_id' => ['sometimes', 'required', 'exists:categories,id'],
-    //         'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
-    //         'subcategory_id' => ['nullable', 'exists:subcategories,id'],
-
-    //         // Product pricing
-    //         'retail_mrp' => ['sometimes', 'required', 'numeric', 'min:0'],
-    //         'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
-    //         'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
-
-    //         'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
-    //         'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
-    //         'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
-
-    //         // Stock
-    //         'stock_quantity' => ['nullable', 'integer', 'min:0'],
-    //         'total_added_quantity' => ['nullable', 'integer', 'min:0'],
-    //         'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
-    //         'shipping_charge' => ['nullable', 'min:0'],
-    //         'commission_value' => ['nullable', 'min:0'],
-
-    //         // ============================================================
-    //         // MANUAL STOCK ADJUSTMENT (operation-based)
-    //         // ============================================================
-    //         'manual_stock_adjustment' => ['nullable', 'integer', 'min:0'],
-    //         'manual_stock_adjustment_operation' => ['nullable', 'in:add,subtract', 'required_with:manual_stock_adjustment'],
-    //         'reason_for_stock_adjustment' => ['nullable', 'string', 'max:2000'],
-
-    //         // Status
-    //         'is_published' => ['sometimes', 'boolean'],
-    //         'is_trending' => ['sometimes', 'boolean'],
-    //         'trending_sort_order' => ['nullable', 'integer', 'min:0'],
-    //         'sale_type' => ['nullable', 'string', 'in:today_best,limited'],
-
-    //         // Product images
-    //         'product_images' => ['nullable', 'array'],
-    //         'product_images.*.image' => [
-    //             'nullable',
-    //             'mimes:jpg,jpeg,png,webp,avif'
-    //         ],
-    //         'product_images.*.sort_order' => ['nullable', 'integer'],
-    //         'product_images.*.is_primary' => ['nullable', 'boolean'],
-
-    //         'remove_images' => ['nullable', 'array'],
-    //         'remove_images.*' => ['exists:product_images,id'],
-
-    //         // Variants
-    //         'variants' => ['nullable', 'array'],
-    //         'variants.*.id' => [
-    //             'nullable',
-    //             'exists:product_variants,id'
-    //         ],
-    //         'variants.*.sku' => [
-    //             'nullable',
-    //             'string',
-    //             'max:255'
-    //         ],
-    //         'variants.*.attributes' => ['nullable'],
-
-    //         'variants.*.retail_mrp' => [
-    //             'nullable',
-    //             'numeric',
-    //             'min:0'
-    //         ],
-    //         'variants.*.retail_discount_type' => [
-    //             'nullable',
-    //             'in:percentage,fixed'
-    //         ],
-    //         'variants.*.retail_discount_value' => [
-    //             'nullable',
-    //             'numeric',
-    //             'min:0'
-    //         ],
-
-    //         'variants.*.distributor_mrp' => [
-    //             'nullable',
-    //             'numeric',
-    //             'min:0'
-    //         ],
-    //         'variants.*.distributor_discount_type' => [
-    //             'nullable',
-    //             'in:percentage,fixed'
-    //         ],
-    //         'variants.*.distributor_discount_value' => [
-    //             'nullable',
-    //             'numeric',
-    //             'min:0'
-    //         ],
-
-    //         'variants.*.stock_quantity' => [
-    //             'nullable',
-    //             'integer',
-    //             'min:0'
-    //         ],
-    //         'variants.*.low_stock_threshold' => [
-    //             'nullable',
-    //             'integer',
-    //             'min:0'
-    //         ],
-    //         'variants.*.sort_order' => [
-    //             'nullable',
-    //             'integer',
-    //             'min:0'
-    //         ],
-    //         'variants.*.is_active' => [
-    //             'nullable',
-    //             'boolean'
-    //         ],
-
-    //         // Variant Images Validation
-    //         'variants.*.images' => ['nullable', 'array'],
-    //         'variants.*.images.*.image' => [
-    //             'nullable',
-    //             'image',
-    //             'mimes:jpg,jpeg,png,webp,avif',
-    //             'max:2048',
-    //         ],
-    //         'variants.*.images.*.sort_order' => ['nullable', 'integer', 'min:0'],
-    //         'variants.*.images.*.is_primary' => ['nullable', 'boolean'],
-    //         'variants.*.remove_images' => ['nullable', 'array'],
-    //         'variants.*.remove_images.*' => ['exists:variant_images,id'],
-
-    //         'remove_variants' => ['nullable', 'array'],
-    //         'remove_variants.*' => [
-    //             'nullable',
-    //             'exists:product_variants,id'
-    //         ],
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json([
-    //             'errors' => $validator->errors()
-    //         ], 422);
-    //     }
-
-    //     DB::beginTransaction();
-    //     try {
-
-    //         $validated = $validator->validated();
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | OLD VALUES
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         $oldValues = [
-    //             'product_id' => $product->id,
-    //             'product_code' => $product->product_code,
-    //             'name' => $product->name,
-    //             'slug' => $product->slug,
-    //             'brand_id' => $product->brand_id,
-    //             'category_id' => $product->category_id,
-    //             'tax_category_id' => $product->tax_category_id,
-    //             'subcategory_id' => $product->subcategory_id,
-
-    //             'retail_mrp' => $product->retail_mrp,
-    //             'retail_price' => $product->retail_price,
-    //             'retail_discount_type' => $product->retail_discount_type,
-    //             'retail_discount_value' => $product->retail_discount_value,
-
-    //             'distributor_mrp' => $product->distributor_mrp,
-    //             'distributor_price' => $product->distributor_price,
-    //             'distributor_discount_type' => $product->distributor_discount_type,
-    //             'distributor_discount_value' => $product->distributor_discount_value,
-
-    //             'stock_quantity' => $product->stock_quantity,
-    //             'initial_stock' => $product->initial_stock,
-    //             'total_added_quantity' => $product->total_added_quantity,
-    //             'manual_stock_adjustment' => $product->manual_stock_adjustment,
-    //             'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
-    //             'low_stock_threshold' => $product->low_stock_threshold,
-    //             'shipping_charge' => $product->shipping_charge,
-    //             'commission_value' => $product->commission_value,
-
-    //             'is_published' => $product->is_published,
-    //             'is_trending' => $product->is_trending,
-    //             'sale_type' => $product->sale_type,
-
-    //             'description' => $product->description,
-    //             'specification' => $product->specification,
-    //             'hsn_code' => $product->hsn_code,
-    //             'uom' => $product->uom,
-    //         ];
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | MANUAL STOCK ADJUSTMENT (operation-based)
-    //     |--------------------------------------------------------------------------
-    //     | add / subtract ke hisaab se teeno fields adjust honge:
-    //     |   stock_quantity, initial_stock, total_added_quantity
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         $adjustmentOld = null;
-    //         $adjustmentNew = null;
-    //         $adjustmentApplied = false;
-
-    //         if (
-    //             array_key_exists('manual_stock_adjustment', $validated)
-    //             && $validated['manual_stock_adjustment'] !== null
-    //             && (int) $validated['manual_stock_adjustment'] > 0
-    //         ) {
-    //             try {
-    //                 [$adjustmentOld, $adjustmentNew] = $this->applyManualStockAdjustment(
-    //                     $product,
-    //                     (int) $validated['manual_stock_adjustment'],
-    //                     $validated['manual_stock_adjustment_operation'] ?? 'subtract',
-    //                     $validated['reason_for_stock_adjustment'] ?? null
-    //                 );
-    //                 $adjustmentApplied = true;
-
-    //                 // Refresh so that subsequent diff calculations use adjusted values
-    //                 $product->refresh();
-    //             } catch (\Exception $e) {
-    //                 DB::rollBack();
-    //                 return response()->json([
-    //                     'message' => $e->getMessage(),
-    //                     'errors' => [
-    //                         'manual_stock_adjustment' => [$e->getMessage()]
-    //                     ]
-    //                 ], 422);
-    //             }
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | UPDATE PRODUCT DATA
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         $productData = collect($validated)
-    //             ->except([
-    //                 'product_images',
-    //                 'variants',
-    //                 'remove_images',
-    //                 'remove_variants',
-    //                 'total_added_quantity',                 // handled separately below
-    //                 'manual_stock_adjustment',              // handled above
-    //                 'manual_stock_adjustment_operation',    // handled above
-    //                 'reason_for_stock_adjustment',          // handled above
-    //             ])
-    //             ->toArray();
-
-    //         if ($request->has('is_trending')) {
-    //             $isTrending = $request->input('is_trending');
-
-    //             if (
-    //                 $isTrending === '0' ||
-    //                 $isTrending === 0 ||
-    //                 $isTrending === false ||
-    //                 $isTrending === 'false'
-    //             ) {
-    //                 unset($productData['is_trending']);
-    //             }
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | CAST BOOLEAN VALUES PROPERLY
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         if (array_key_exists('is_published', $productData)) {
-    //             $productData['is_published'] = filter_var($productData['is_published'], FILTER_VALIDATE_BOOLEAN);
-    //         }
-
-    //         if (array_key_exists('is_trending', $productData)) {
-    //             $productData['is_trending'] = filter_var($productData['is_trending'], FILTER_VALIDATE_BOOLEAN);
-    //         }
-
-    //         if (array_key_exists('variants', $validated)) {
-    //             foreach ($validated['variants'] as $key => $variant) {
-    //                 if (array_key_exists('is_active', $variant)) {
-    //                     $validated['variants'][$key]['is_active'] = filter_var($variant['is_active'], FILTER_VALIDATE_BOOLEAN);
-    //                 }
-    //             }
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | SET DEFAULT BRAND ID
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         if (array_key_exists('brand_id', $productData)) {
-    //             if (empty($productData['brand_id'])) {
-    //                 $productData['brand_id'] = 1;
-    //             }
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | RETAIL PRICE
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         if (array_key_exists('retail_mrp', $productData)) {
-    //             $productData['retail_price'] = $this->calculatePrice(
-    //                 $productData['retail_mrp'],
-    //                 $productData['retail_discount_type'] ?? null,
-    //                 $productData['retail_discount_value'] ?? null
-    //             );
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | DISTRIBUTOR PRICE
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         if (
-    //             array_key_exists('distributor_mrp', $productData)
-    //             && $productData['distributor_mrp'] !== null
-    //             && $productData['distributor_mrp'] !== ''
-    //         ) {
-    //             $productData['distributor_price'] = $this->calculatePrice(
-    //                 $productData['distributor_mrp'],
-    //                 $productData['distributor_discount_type'] ?? null,
-    //                 $productData['distributor_discount_value'] ?? null
-    //             );
-    //         } elseif (
-    //             array_key_exists('distributor_mrp', $productData)
-    //             && (
-    //                 $productData['distributor_mrp'] === null
-    //                 || $productData['distributor_mrp'] === ''
-    //             )
-    //         ) {
-    //             $productData['distributor_price'] = null;
-    //             $productData['distributor_mrp'] = null;
-    //             $productData['distributor_discount_type'] = null;
-    //             $productData['distributor_discount_value'] = null;
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | SLUG
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         if (
-    //             array_key_exists('slug', $productData)
-    //             || array_key_exists('name', $productData)
-    //         ) {
-    //             if (
-    //                 empty($productData['slug'])
-    //                 && array_key_exists('name', $productData)
-    //             ) {
-    //                 $productData['slug'] = Str::slug($productData['name']);
-    //             }
-
-    //             if (
-    //                 array_key_exists('slug', $productData)
-    //                 && $productData['slug'] !== $product->slug
-    //             ) {
-    //                 $productData['slug'] = $this->generateUniqueSlug(
-    //                     $productData['slug'],
-    //                     $product->id
-    //                 );
-    //             }
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | VARIANTS EXIST?
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         $hasVariants = array_key_exists('variants', $validated)
-    //             && is_array($validated['variants'])
-    //             && count($validated['variants']) > 0;
-
-    //         $oldProductStock = $product->stock_quantity;
-    //         $oldVariantStocks = [];
-
-    //         if ($product->variants()->count() > 0) {
-    //             $oldVariantStocks = $product->variants()
-    //                 ->pluck('stock_quantity', 'id')
-    //                 ->toArray();
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | STOCK + TOTAL_ADDED_QUANTITY HANDLING (PRODUCT LEVEL)
-    //     |--------------------------------------------------------------------------
-    //     | Note: agar adjustment already apply ho chuka hai, toh product->stock_quantity
-    //     | ab adjusted value hai. Isliye diff calculate karte waqt wahi use karo.
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         if ($hasVariants) {
-    //             if (array_key_exists('stock_quantity', $productData)) {
-    //                 unset($productData['stock_quantity']);
-    //             }
-    //         } else {
-    //             if (array_key_exists('stock_quantity', $validated)) {
-    //                 $newStock = (int) $validated['stock_quantity'];
-    //                 $oldStock = (int) $product->stock_quantity;
-    //                 $diff = $newStock - $oldStock;
-
-    //                 if ($diff > 0) {
-    //                     $productData['total_added_quantity'] =
-    //                         (int) $product->total_added_quantity + $diff;
-    //                 }
-
-    //                 $productData['stock_quantity'] = $newStock;
-    //             }
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | UPDATE PRODUCT
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         if (!empty($productData)) {
-    //             $product->update($productData);
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | PRODUCT IMAGES
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         $this->handleProductImageUpdates($request, $product);
-
-    //         $variantUpdateDetails = [];
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | REMOVE VARIANTS
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         if (
-    //             array_key_exists('remove_variants', $validated)
-    //             && !empty($validated['remove_variants'])
-    //         ) {
-    //             ProductVariant::where('product_id', $product->id)
-    //                 ->whereIn('id', $validated['remove_variants'])
-    //                 ->delete();
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | HANDLE VARIANTS
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         if ($hasVariants) {
-    //             $totalStock = $this->handleVariantUpdates(
-    //                 $product,
-    //                 $request,
-    //                 $validated
-    //             );
-
-    //             $product->update([
-    //                 'stock_quantity' => $totalStock
-    //             ]);
-
-    //             $updatedVariants = $product->variants()->get();
-
-    //             foreach ($updatedVariants as $variant) {
-    //                 $oldStock = $oldVariantStocks[$variant->id] ?? 0;
-    //                 $newStock = $variant->stock_quantity;
-
-    //                 if ($oldStock == 0 && $newStock > 0) {
-    //                     $this->sendBackInStockNotifications(null, $variant->id);
-    //                 }
-    //             }
-
-    //             foreach ($updatedVariants as $variant) {
-    //                 $variantUpdateDetails[] = [
-    //                     'id' => $variant->id,
-    //                     'sku' => $variant->sku,
-    //                     'attributes' => $variant->attributes,
-    //                     'retail_mrp' => $variant->retail_mrp,
-    //                     'retail_price' => $variant->retail_price,
-    //                     'retail_discount_type' => $variant->retail_discount_type,
-    //                     'retail_discount_value' => $variant->retail_discount_value,
-
-    //                     'distributor_mrp' => $variant->distributor_mrp,
-    //                     'distributor_price' => $variant->distributor_price,
-    //                     'distributor_discount_type' => $variant->distributor_discount_type,
-    //                     'distributor_discount_value' => $variant->distributor_discount_value,
-
-    //                     'stock_quantity' => $variant->stock_quantity,
-    //                     'total_added_quantity' => $variant->total_added_quantity,
-    //                     'low_stock_threshold' => $variant->low_stock_threshold,
-    //                     'sort_order' => $variant->sort_order,
-    //                     'is_active' => $variant->is_active,
-
-    //                     'images' => $variant->images->map(function ($image) {
-    //                         return [
-    //                             'id' => $image->id,
-    //                             'image' => asset('storage/' . $image->image),
-    //                             'sort_order' => $image->sort_order,
-    //                             'is_primary' => $image->is_primary,
-    //                         ];
-    //                     })->toArray(),
-    //                 ];
-    //             }
-    //         } else {
-    //             if (array_key_exists('stock_quantity', $validated)) {
-    //                 if ($oldProductStock == 0 && $product->stock_quantity > 0) {
-    //                     $this->sendBackInStockNotifications($product->id, null);
-    //                 }
-    //             }
-    //         }
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | COMMIT
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         DB::commit();
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | LOAD RELATIONS
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         $product->load([
-    //             'category',
-    //             'taxCategory',
-    //             'images',
-    //             'variants.images'
-    //         ]);
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | NEW VALUES / AUDIT
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         $newValues = [
-    //             'product_id' => $product->id,
-    //             'product_code' => $product->product_code,
-    //             'name' => $product->name,
-    //             'slug' => $product->slug,
-    //             'brand_id' => $product->brand_id,
-
-    //             'category_id' => $product->category_id,
-    //             'category_name' => $product->category?->name,
-
-    //             'tax_category_id' => $product->tax_category_id,
-    //             'subcategory_id' => $product->subcategory_id,
-
-    //             'retail_mrp' => $product->retail_mrp,
-    //             'retail_price' => $product->retail_price,
-    //             'retail_discount_type' => $product->retail_discount_type,
-    //             'retail_discount_value' => $product->retail_discount_value,
-
-    //             'distributor_mrp' => $product->distributor_mrp,
-    //             'distributor_price' => $product->distributor_price,
-    //             'distributor_discount_type' => $product->distributor_discount_type,
-    //             'distributor_discount_value' => $product->distributor_discount_value,
-
-    //             'stock_quantity' => $product->stock_quantity,
-    //             'initial_stock' => $product->initial_stock,
-    //             'total_added_quantity' => $product->total_added_quantity,
-    //             'manual_stock_adjustment' => $product->manual_stock_adjustment,
-    //             'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
-    //             'low_stock_threshold' => $product->low_stock_threshold,
-    //             'shipping_charge' => $product->shipping_charge,
-    //             'commission_value' => $product->commission_value,
-
-    //             'is_published' => $product->is_published,
-    //             'is_trending' => $product->is_trending,
-    //             'trending_sort_order' => $product->trending_sort_order,
-
-    //             'sale_type' => $product->sale_type,
-
-    //             'description' => $product->description,
-    //             'specification' => $product->specification,
-    //             'hsn_code' => $product->hsn_code,
-    //             'uom' => $product->uom,
-
-    //             'has_variants' => $hasVariants,
-    //             'variants_count' => count($variantUpdateDetails),
-    //             'variants' => $variantUpdateDetails,
-
-    //             // Manual adjustment audit
-    //             'manual_stock_adjustment_applied' => $adjustmentApplied,
-    //             'manual_stock_adjustment_old'     => $adjustmentOld,
-    //             'manual_stock_adjustment_new'     => $adjustmentNew,
-    //             'manual_stock_adjustment_operation' =>
-    //             $validated['manual_stock_adjustment_operation'] ?? null,
-
-    //             'updated_by' => $this->getAdminId(),
-    //             'updated_at' => now()->toDateTimeString(),
-    //         ];
-
-    //         $this->logAudit(
-    //             'product_update',
-    //             'catalogue',
-    //             $oldValues,
-    //             $newValues
-    //         );
-
-    //         /*
-    //     |--------------------------------------------------------------------------
-    //     | RESPONSE
-    //     |--------------------------------------------------------------------------
-    //     */
-
-    //         return response()->json(
-    //             $this->formatProduct($product)
-    //         );
-    //     } catch (\Exception $e) {
-    //         DB::rollBack();
-
-    //         Log::error('Failed to update product:', [
-    //             'error' => $e->getMessage(),
-    //             'trace' => $e->getTraceAsString()
-    //         ]);
-
-    //         return response()->json([
-    //             'message' => 'Failed to update product',
-    //             'error' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
     // public function update(Request $request, $id)
     // {
     //     $product = Product::where('id', $id)->first();
@@ -4715,6 +3850,484 @@ class ProductController extends Controller
     //         ], 500);
     //     }
     // }
+    // public function update(Request $request, $id)
+    // {
+    //     $product = Product::where('id', $id)->first();
+    //     if (!$product) {
+    //         return response()->json(['message' => 'Product not found'], 422);
+    //     }
+
+    //     $validator = Validator::make($request->all(), [
+    //         'product_code' => ['sometimes', 'required', 'string', 'max:255'],
+    //         'name' => ['sometimes', 'required', 'string', 'max:255'],
+    //         'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')->ignore($product->id)],
+    //         'description' => ['nullable', 'string'],
+    //         'specification' => ['nullable', 'string'],
+    //         'brand_id' => ['nullable'],
+    //         'service_charge' => ['nullable'],
+    //         'ignite_product_id' => ['sometimes', 'required'],
+    //         'hsn_code' => ['nullable', 'string', 'max:50'],
+    //         'uom' => ['nullable', 'string', 'max:50'],
+    //         'category_id' => ['sometimes', 'required', 'exists:categories,id'],
+    //         'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+    //         'subcategory_id' => ['nullable', 'exists:subcategories,id'],
+
+    //         'retail_mrp' => ['sometimes', 'required', 'numeric', 'min:0'],
+    //         'retail_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'retail_discount_value' => ['nullable', 'numeric', 'min:0'],
+    //         'marketed_by' => ['nullable'],
+    //         'manufacturer' => ['nullable'],
+
+    //         'distributor_mrp' => ['nullable', 'numeric', 'min:0'],
+    //         'distributor_discount_type' => ['nullable', 'in:percentage,fixed'],
+    //         'distributor_discount_value' => ['nullable', 'numeric', 'min:0'],
+
+    //         'stock_quantity' => ['nullable', 'integer', 'min:0'],
+    //         'total_added_quantity' => ['nullable', 'integer', 'min:0'],
+    //         'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
+    //         'shipping_charge' => ['nullable', 'min:0'],
+    //         'commission_value' => ['nullable', 'min:0'],
+
+    //         'manual_stock_adjustment' => ['nullable', 'integer', 'min:0'],
+    //         'manual_stock_adjustment_operation' => ['nullable', 'in:add,subtract', 'required_with:manual_stock_adjustment'],
+    //         'reason_for_stock_adjustment' => ['nullable', 'string', 'max:2000'],
+
+    //         'is_published' => ['sometimes', 'boolean'],
+    //         'is_trending' => ['sometimes', 'boolean'],
+    //         'trending_sort_order' => ['nullable', 'integer', 'min:0'],
+    //         'sale_type' => ['nullable', 'string', 'in:today_best,limited'],
+
+    //         'product_images' => ['nullable', 'array'],
+    //         'product_images.*.image' => ['nullable', 'mimes:jpg,jpeg,png,webp,avif'],
+    //         'product_images.*.sort_order' => ['nullable', 'integer'],
+    //         'product_images.*.is_primary' => ['nullable', 'boolean'],
+
+    //         'remove_images' => ['nullable', 'array'],
+    //         'remove_images.*' => ['exists:product_images,id'],
+
+    //         'variants' => ['nullable', 'array', 'min:1'],
+    //         'variants.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
+    //         'variants.*.hax_color' => ['required', 'string', 'max:50'],
+
+    //         'remove_variants' => ['nullable', 'array'],
+    //         'remove_variants.*' => ['nullable', 'exists:product_variants,id'],
+
+    //         'combo_product_ids' => ['nullable', 'array'],
+    //         'combo_product_ids.*' => ['integer', 'distinct', 'exists:products,id'],
+
+    //         'remove_combo_product_ids' => ['nullable', 'array'],
+    //         'remove_combo_product_ids.*' => ['integer', 'exists:products,id'],
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['errors' => $validator->errors()], 422);
+    //     }
+
+    //     if ($duplicate = $this->validateIgniteProductIdUniqueness(
+    //         $request->input('ignite_product_id'),
+    //         $product->id
+    //     )) {
+    //         return $duplicate;
+    //     }
+
+    //     DB::beginTransaction();
+    //     try {
+    //         $validated = $validator->validated();
+
+    //         $oldValues = [
+    //             'product_id' => $product->id,
+    //             'product_code' => $product->product_code,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'brand_id' => $product->brand_id,
+    //             'category_id' => $product->category_id,
+    //             'tax_category_id' => $product->tax_category_id,
+    //             'subcategory_id' => $product->subcategory_id,
+    //             'ignite_product_id' => $product->ignite_product_id,
+    //             'retail_mrp' => $product->retail_mrp,
+    //             'retail_price' => $product->retail_price,
+    //             'retail_discount_type' => $product->retail_discount_type,
+    //             'retail_discount_value' => $product->retail_discount_value,
+    //             'distributor_mrp' => $product->distributor_mrp,
+    //             'manufacturer' => $product->manufacturer,
+    //             'marketed_by' => $product->marketed_by,
+    //             'distributor_price' => $product->distributor_price,
+    //             'distributor_discount_type' => $product->distributor_discount_type,
+    //             'distributor_discount_value' => $product->distributor_discount_value,
+    //             'stock_quantity' => $product->stock_quantity,
+    //             'initial_stock' => $product->initial_stock,
+    //             'total_added_quantity' => $product->total_added_quantity,
+    //             'manual_stock_adjustment' => $product->manual_stock_adjustment,
+    //             'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
+    //             'low_stock_threshold' => $product->low_stock_threshold,
+    //             'shipping_charge' => $product->shipping_charge,
+    //             'service_charge' => $product->service_charge,
+    //             'commission_value' => $product->commission_value,
+    //             'is_published' => $product->is_published,
+    //             'is_trending' => $product->is_trending,
+    //             'sale_type' => $product->sale_type,
+    //             'description' => $product->description,
+    //             'specification' => $product->specification,
+    //             'hsn_code' => $product->hsn_code,
+    //             'uom' => $product->uom,
+    //             'combo_groups' => $this->decodeParentComboIds($product->parent_combo_id),
+    //         ];
+
+    //         /* MANUAL STOCK ADJUSTMENT */
+    //         $adjustmentOld = null;
+    //         $adjustmentNew = null;
+    //         $adjustmentApplied = false;
+
+    //         if (
+    //             array_key_exists('manual_stock_adjustment', $validated)
+    //             && $validated['manual_stock_adjustment'] !== null
+    //             && (int) $validated['manual_stock_adjustment'] > 0
+    //         ) {
+    //             try {
+    //                 [$adjustmentOld, $adjustmentNew] = $this->applyManualStockAdjustment(
+    //                     $product,
+    //                     (int) $validated['manual_stock_adjustment'],
+    //                     $validated['manual_stock_adjustment_operation'] ?? 'subtract',
+    //                     $validated['reason_for_stock_adjustment'] ?? null
+    //                 );
+    //                 $adjustmentApplied = true;
+    //                 $product->refresh();
+    //             } catch (\Exception $e) {
+    //                 DB::rollBack();
+    //                 return response()->json([
+    //                     'message' => $e->getMessage(),
+    //                     'errors'  => ['manual_stock_adjustment' => [$e->getMessage()]],
+    //                 ], 422);
+    //             }
+    //         }
+
+    //         /* PRODUCT DATA UPDATE */
+    //         $productData = collect($validated)
+    //             ->except([
+    //                 'product_images',
+    //                 'remove_images',
+    //                 'variants',
+    //                 'remove_variants',
+    //                 'combo_product_ids',
+    //                 'remove_combo_product_ids',
+    //                 'total_added_quantity',
+    //                 'manual_stock_adjustment',
+    //                 'manual_stock_adjustment_operation',
+    //                 'reason_for_stock_adjustment',
+    //                 'parent_combo_id',
+    //             ])
+    //             ->toArray();
+
+    //         if ($request->has('is_trending')) {
+    //             $isTrending = $request->input('is_trending');
+    //             if (
+    //                 $isTrending === '0' || $isTrending === 0 ||
+    //                 $isTrending === false || $isTrending === 'false'
+    //             ) {
+    //                 unset($productData['is_trending']);
+    //             }
+    //         }
+
+    //         if (array_key_exists('is_published', $productData)) {
+    //             $productData['is_published'] = filter_var($productData['is_published'], FILTER_VALIDATE_BOOLEAN);
+    //         }
+    //         if (array_key_exists('is_trending', $productData)) {
+    //             $productData['is_trending'] = filter_var($productData['is_trending'], FILTER_VALIDATE_BOOLEAN);
+    //         }
+    //         if (array_key_exists('brand_id', $productData) && empty($productData['brand_id'])) {
+    //             $productData['brand_id'] = 1;
+    //         }
+
+    //         if (array_key_exists('retail_mrp', $productData)) {
+    //             $productData['retail_price'] = $this->calculatePrice(
+    //                 $productData['retail_mrp'],
+    //                 $productData['retail_discount_type'] ?? null,
+    //                 $productData['retail_discount_value'] ?? null
+    //             );
+    //         }
+
+    //         if (
+    //             array_key_exists('distributor_mrp', $productData)
+    //             && $productData['distributor_mrp'] !== null
+    //             && $productData['distributor_mrp'] !== ''
+    //         ) {
+    //             $productData['distributor_price'] = $this->calculatePrice(
+    //                 $productData['distributor_mrp'],
+    //                 $productData['distributor_discount_type'] ?? null,
+    //                 $productData['distributor_discount_value'] ?? null
+    //             );
+    //         } elseif (
+    //             array_key_exists('distributor_mrp', $productData)
+    //             && ($productData['distributor_mrp'] === null || $productData['distributor_mrp'] === '')
+    //         ) {
+    //             $productData['distributor_price'] = null;
+    //             $productData['distributor_mrp'] = null;
+    //             $productData['distributor_discount_type'] = null;
+    //             $productData['distributor_discount_value'] = null;
+    //         }
+
+    //         if (
+    //             array_key_exists('slug', $productData)
+    //             || array_key_exists('name', $productData)
+    //         ) {
+    //             if (empty($productData['slug']) && array_key_exists('name', $productData)) {
+    //                 $productData['slug'] = Str::slug($productData['name']);
+    //             }
+    //             if (
+    //                 array_key_exists('slug', $productData)
+    //                 && $productData['slug'] !== $product->slug
+    //             ) {
+    //                 $productData['slug'] = $this->generateUniqueSlug(
+    //                     $productData['slug'],
+    //                     $product->id
+    //                 );
+    //             }
+    //         }
+
+    //         $oldProductStock = $product->stock_quantity;
+
+    //         if (array_key_exists('stock_quantity', $validated)) {
+    //             $newStock = (int) $validated['stock_quantity'];
+    //             $oldStock = (int) $product->stock_quantity;
+    //             $diff = $newStock - $oldStock;
+    //             if ($diff > 0) {
+    //                 $productData['total_added_quantity'] =
+    //                     (int) $product->total_added_quantity + $diff;
+    //             }
+    //             $productData['stock_quantity'] = $newStock;
+    //         }
+
+    //         if (!empty($productData)) {
+    //             $product->update($productData);
+    //         }
+
+    //         $this->handleProductImageUpdates($request, $product);
+
+    //         if (!empty($validated['remove_variants'])) {
+    //             ProductVariant::where('parent_product_id', $product->id)
+    //                 ->whereIn('id', $validated['remove_variants'])
+    //                 ->delete();
+    //         }
+
+    //         $variantDetails = [];
+    //         if (!empty($validated['variants'])) {
+    //             $invalidProductIds = collect($validated['variants'])
+    //                 ->pluck('product_id')
+    //                 ->filter(fn($pid) => (int) $pid === (int) $product->id)
+    //                 ->values()->all();
+
+    //             if (!empty($invalidProductIds)) {
+    //                 DB::rollBack();
+    //                 return response()->json([
+    //                     'message' => 'Validation failed',
+    //                     'errors'  => ['variants' => ['A product cannot be attached as a variant to itself.']],
+    //                 ], 422);
+    //             }
+
+    //             $existingProductIds = ProductVariant::where('parent_product_id', $product->id)
+    //                 ->pluck('product_id')
+    //                 ->map(fn($v) => (int) $v)
+    //                 ->all();
+
+    //             foreach ($validated['variants'] as $variantRow) {
+    //                 if (in_array((int) $variantRow['product_id'], $existingProductIds, true)) {
+    //                     continue;
+    //                 }
+    //                 $variant = ProductVariant::create([
+    //                     'parent_product_id' => $product->id,
+    //                     'product_id'        => $variantRow['product_id'],
+    //                     'hax_color'         => $variantRow['hax_color'],
+    //                 ]);
+    //                 $variantDetails[] = [
+    //                     'id'                => $variant->id,
+    //                     'parent_product_id' => $variant->parent_product_id,
+    //                     'product_id'        => $variant->product_id,
+    //                     'hax_color'         => $variant->hax_color,
+    //                 ];
+    //             }
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | COMBO GROUPS — REMOVE
+    //     |--------------------------------------------------------------------------
+    //     | Only touches THIS product's parent_combo_id.
+    //     | Children are not written to.
+    //     |--------------------------------------------------------------------------
+    //     */
+    //         $removedComboIds = [];
+
+    //         if (!empty($validated['remove_combo_product_ids'])) {
+    //             $removeIds = array_values(array_map('intval', $validated['remove_combo_product_ids']));
+
+    //             $parentGroupsBefore = $this->decodeParentComboIds($product->parent_combo_id);
+    //             $parentGroupsAfter  = $this->removeIdsFromComboGroups($parentGroupsBefore, $removeIds);
+
+    //             if ($parentGroupsBefore !== $parentGroupsAfter) {
+    //                 $product->parent_combo_id = $parentGroupsAfter;
+    //                 $product->save();
+    //                 $removedComboIds = $removeIds;
+    //             }
+
+    //             Log::info('[combo][update] REMOVED ids from groups', [
+    //                 'parent_product_id'    => $product->id,
+    //                 'removed'              => $removedComboIds,
+    //                 'parent_groups_before' => $parentGroupsBefore,
+    //                 'parent_groups_after'  => $parentGroupsAfter,
+    //             ]);
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | COMBO GROUPS — ADD (as a NEW group)
+    //     |--------------------------------------------------------------------------
+    //     | Only touches THIS product's parent_combo_id.
+    //     | Children are not written to.
+    //     |--------------------------------------------------------------------------
+    //     */
+    //         $addedComboIds = [];
+
+    //         if (!empty($validated['combo_product_ids'])) {
+    //             $comboIds = array_values(array_map('intval', $validated['combo_product_ids']));
+
+    //             if (in_array((int) $product->id, $comboIds, true)) {
+    //                 DB::rollBack();
+    //                 return response()->json([
+    //                     'message' => 'Validation failed',
+    //                     'errors'  => ['combo_product_ids' => ['A product cannot be added as a combo child to itself.']],
+    //                 ], 422);
+    //             }
+
+    //             $children = Product::whereIn('id', $comboIds)
+    //                 ->whereNull('deleted_at')
+    //                 ->lockForUpdate()
+    //                 ->get();
+
+    //             if ($children->count() !== count($comboIds)) {
+    //                 DB::rollBack();
+    //                 return response()->json([
+    //                     'message' => 'Validation failed',
+    //                     'errors'  => ['combo_product_ids' => ['One or more combo products are unavailable.']],
+    //                 ], 422);
+    //             }
+
+    //             $parentGroupsBefore = $this->decodeParentComboIds($product->parent_combo_id);
+    //             $parentGroupsAfter  = $this->mergeComboGroups($parentGroupsBefore, [$comboIds]);
+
+    //             if ($parentGroupsBefore !== $parentGroupsAfter) {
+    //                 $product->parent_combo_id = $parentGroupsAfter;
+    //                 $product->save();
+    //                 $addedComboIds = $comboIds;
+    //             }
+
+    //             Log::info('[combo][update] ADDED new group', [
+    //                 'parent_product_id'    => $product->id,
+    //                 'group'                => $comboIds,
+    //                 'parent_groups_before' => $parentGroupsBefore,
+    //                 'parent_groups_after'  => $parentGroupsAfter,
+    //             ]);
+    //         }
+
+    //         /* BACK IN STOCK */
+    //         if (array_key_exists('stock_quantity', $validated)) {
+    //             if ($oldProductStock == 0 && $product->stock_quantity > 0) {
+    //                 $this->sendBackInStockNotifications($product->id, null);
+    //             }
+    //         }
+
+    //         DB::commit();
+
+    //         $product->load(['category', 'taxCategory', 'images']);
+
+    //         $finalParentGroups  = $this->decodeParentComboIds($product->parent_combo_id);
+    //         $finalComboChildIds = collect($finalParentGroups)
+    //             ->flatten()->unique()->map(fn($v) => (int) $v)->values()->all();
+
+    //         $newValues = [
+    //             'product_id' => $product->id,
+    //             'product_code' => $product->product_code,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'brand_id' => $product->brand_id,
+    //             'category_id' => $product->category_id,
+    //             'category_name' => $product->category?->name,
+    //             'tax_category_id' => $product->tax_category_id,
+    //             'subcategory_id' => $product->subcategory_id,
+    //             'ignite_product_id' => $product->ignite_product_id,
+    //             'retail_mrp' => $product->retail_mrp,
+    //             'retail_price' => $product->retail_price,
+    //             'retail_discount_type' => $product->retail_discount_type,
+    //             'retail_discount_value' => $product->retail_discount_value,
+    //             'manufacturer' => $product->manufacturer,
+    //             'marketed_by' => $product->marketed_by,
+    //             'distributor_mrp' => $product->distributor_mrp,
+    //             'distributor_price' => $product->distributor_price,
+    //             'distributor_discount_type' => $product->distributor_discount_type,
+    //             'distributor_discount_value' => $product->distributor_discount_value,
+    //             'stock_quantity' => $product->stock_quantity,
+    //             'service_charge' => $product->service_charge,
+    //             'initial_stock' => $product->initial_stock,
+    //             'total_added_quantity' => $product->total_added_quantity,
+    //             'manual_stock_adjustment' => $product->manual_stock_adjustment,
+    //             'reason_for_stock_adjustment' => $product->reason_for_stock_adjustment,
+    //             'low_stock_threshold' => $product->low_stock_threshold,
+    //             'shipping_charge' => $product->shipping_charge,
+    //             'commission_value' => $product->commission_value,
+    //             'is_published' => $product->is_published,
+    //             'is_trending' => $product->is_trending,
+    //             'trending_sort_order' => $product->trending_sort_order,
+    //             'sale_type' => $product->sale_type,
+    //             'description' => $product->description,
+    //             'specification' => $product->specification,
+    //             'hsn_code' => $product->hsn_code,
+    //             'uom' => $product->uom,
+    //             'has_variants' => !empty($variantDetails),
+    //             'variants_count' => count($variantDetails),
+    //             'variants' => $variantDetails,
+    //             'combo_groups' => $finalParentGroups,
+    //             'combo_products' => [
+    //                 'groups'  => $finalParentGroups,
+    //                 'current' => $finalComboChildIds,
+    //                 'added'   => $addedComboIds,
+    //                 'removed' => $removedComboIds,
+    //             ],
+    //             'manual_stock_adjustment_applied'   => $adjustmentApplied,
+    //             'manual_stock_adjustment_old'       => $adjustmentOld,
+    //             'manual_stock_adjustment_new'       => $adjustmentNew,
+    //             'manual_stock_adjustment_operation' => $validated['manual_stock_adjustment_operation'] ?? null,
+    //             'updated_by' => $this->getAdminId(),
+    //             'updated_at' => now()->toDateTimeString(),
+    //         ];
+
+    //         $this->logAudit('product_update', 'catalogue', $oldValues, $newValues);
+
+    //         $response = $this->formatProduct($product);
+    //         if (is_array($response)) {
+    //             $response['combo_debug'] = [
+    //                 'parent_product_id' => $product->id,
+    //                 'requested_add'     => $validated['combo_product_ids'] ?? [],
+    //                 'requested_remove'  => $validated['remove_combo_product_ids'] ?? [],
+    //                 'added'             => $addedComboIds,
+    //                 'removed'           => $removedComboIds,
+    //                 'parent_groups'     => $finalParentGroups,
+    //                 'current_children'  => $finalComboChildIds,
+    //             ];
+    //         }
+
+    //         return response()->json($response);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         Log::error('Failed to update product:', [
+    //             'error' => $e->getMessage(),
+    //             'trace' => $e->getTraceAsString(),
+    //         ]);
+    //         return response()->json([
+    //             'message' => 'Failed to update product',
+    //             'error'   => $e->getMessage(),
+    //         ], 500);
+    //     }
+    // }
+
     public function update(Request $request, $id)
     {
         $product = Product::where('id', $id)->first();
@@ -4734,7 +4347,14 @@ class ProductController extends Controller
             'hsn_code' => ['nullable', 'string', 'max:50'],
             'uom' => ['nullable', 'string', 'max:50'],
             'category_id' => ['sometimes', 'required', 'exists:categories,id'],
-            'tax_category_id' => ['nullable', 'exists:tax_categories,id'],
+
+            'product_type' => ['sometimes', 'required', 'string', 'in:single,combo'],
+            'tax_category_id' => [
+                'nullable',
+                'exists:tax_categories,id',
+                Rule::requiredIf(fn() => $request->input('product_type', $product->product_type) === 'single'),
+            ],
+
             'subcategory_id' => ['nullable', 'exists:subcategories,id'],
 
             'retail_mrp' => ['sometimes', 'required', 'numeric', 'min:0'],
@@ -4799,11 +4419,20 @@ class ProductController extends Controller
         try {
             $validated = $validator->validated();
 
+            // Determine effective product type (request value or existing DB value)
+            $effectiveType = $validated['product_type'] ?? $product->product_type;
+
+            // Force tax_category_id = null for combo type
+            if ($effectiveType === 'combo') {
+                $validated['tax_category_id'] = null;
+            }
+
             $oldValues = [
                 'product_id' => $product->id,
                 'product_code' => $product->product_code,
                 'name' => $product->name,
                 'slug' => $product->slug,
+                'product_type' => $product->product_type,
                 'brand_id' => $product->brand_id,
                 'category_id' => $product->category_id,
                 'tax_category_id' => $product->tax_category_id,
@@ -4949,6 +4578,16 @@ class ProductController extends Controller
                 }
             }
 
+            /* FORCE tax_category_id = null for combo (even if not in request) */
+            if ($effectiveType === 'combo') {
+                $productData['tax_category_id'] = null;
+            }
+
+            /* When switching combo -> single, clear parent_combo_id to avoid stale combo data */
+            if ($effectiveType === 'single' && $product->product_type === 'combo') {
+                $productData['parent_combo_id'] = [];
+            }
+
             $oldProductStock = $product->stock_quantity;
 
             if (array_key_exists('stock_quantity', $validated)) {
@@ -5013,13 +4652,13 @@ class ProductController extends Controller
             }
 
             /*
-        |--------------------------------------------------------------------------
-        | COMBO GROUPS — REMOVE
-        |--------------------------------------------------------------------------
-        | Only touches THIS product's parent_combo_id.
-        | Children are not written to.
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | COMBO GROUPS — REMOVE
+    |--------------------------------------------------------------------------
+    | Only touches THIS product's parent_combo_id.
+    | Children are not written to.
+    |--------------------------------------------------------------------------
+    */
             $removedComboIds = [];
 
             if (!empty($validated['remove_combo_product_ids'])) {
@@ -5043,13 +4682,13 @@ class ProductController extends Controller
             }
 
             /*
-        |--------------------------------------------------------------------------
-        | COMBO GROUPS — ADD (as a NEW group)
-        |--------------------------------------------------------------------------
-        | Only touches THIS product's parent_combo_id.
-        | Children are not written to.
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | COMBO GROUPS — ADD (as a NEW group)
+    |--------------------------------------------------------------------------
+    | Only touches THIS product's parent_combo_id.
+    | Children are not written to.
+    |--------------------------------------------------------------------------
+    */
             $addedComboIds = [];
 
             if (!empty($validated['combo_product_ids'])) {
@@ -5113,6 +4752,7 @@ class ProductController extends Controller
                 'product_code' => $product->product_code,
                 'name' => $product->name,
                 'slug' => $product->slug,
+                'product_type' => $product->product_type,
                 'brand_id' => $product->brand_id,
                 'category_id' => $product->category_id,
                 'category_name' => $product->category?->name,
@@ -5192,6 +4832,7 @@ class ProductController extends Controller
             ], 500);
         }
     }
+
     private function handleVariantUpdates(Product $product, Request $request, array $validated): int
     {
         $totalStock = 0;

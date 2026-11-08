@@ -214,6 +214,39 @@ class CheckoutService
         })->filter()->values();
     }
 
+    /**
+     * For combo products, compute the effective tax rate
+     * = highest tax_category.rate among its combo children.
+     */
+    protected function resolveComboTaxRate(Product $product): ?float
+    {
+        if (($product->product_type ?? 'single') !== 'combo') {
+            return null; // not a combo, caller keeps existing logic
+        }
+
+        // Reuse the model helper that already normalizes parent_combo_id
+        $childIds = collect(\App\Models\Product::normalizeComboGroups($product->parent_combo_id))
+            ->flatten()
+            ->map(fn($v) => (int) $v)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($childIds)) {
+            return 0.0;
+        }
+
+        $maxRate = Product::query()
+            ->whereIn('id', $childIds)
+            ->whereNull('deleted_at')
+            ->with('taxCategory')
+            ->get()
+            ->map(fn($p) => (float) ($p->taxCategory->rate ?? 0))
+            ->max();
+
+        return $maxRate !== null ? (float) $maxRate : 0.0;
+    }
+
     public function calculateSummary(
         int $userId,
         ?int $addressId = null,
@@ -236,10 +269,10 @@ class CheckoutService
         $user = User::findOrFail($userId);
 
         /*
-        |--------------------------------------------------------------------------
-        | Cart / Buy Now
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Cart / Buy Now
+    |--------------------------------------------------------------------------
+    */
 
         $isBuyNow = $buyNowProductId !== null || $buyNowVariantId !== null;
 
@@ -331,10 +364,10 @@ class CheckoutService
         }
 
         /*
-        |--------------------------------------------------------------------------
-        | Calculate Subtotal
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Calculate Subtotal
+    |--------------------------------------------------------------------------
+    */
 
         $subtotal = 0;
         $productDetails = [];
@@ -377,7 +410,13 @@ class CheckoutService
                     ? ($item->product->distributor_price ?? $item->product->retail_price)
                     : $item->product->retail_price;
 
-                $taxRate = $item->product->taxCategory?->rate ?? 0;
+                // 👇 COMBO-AWARE TAX RATE (only new logic; non-combo path unchanged)
+                $taxRate = $item->product->taxCategory?->rate;
+                if ($taxRate === null && ($item->product->product_type ?? 'single') === 'combo') {
+                    $taxRate = $this->resolveComboTaxRate($item->product);
+                }
+                $taxRate = $taxRate ?? 0;
+
                 $variantImages = [];
 
                 // Get product images
@@ -431,10 +470,10 @@ class CheckoutService
         }
 
         /*
-        |--------------------------------------------------------------------------
-        | Coupon
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Coupon
+    |--------------------------------------------------------------------------
+    */
 
         $couponDiscount = 0;
         $couponData = null;
@@ -462,18 +501,18 @@ class CheckoutService
         }
 
         /*
-        |--------------------------------------------------------------------------
-        | Subtotal After Discount
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Subtotal After Discount
+    |--------------------------------------------------------------------------
+    */
 
         $subtotalAfterDiscount = $subtotal - $couponDiscount;
 
         /*
-        |--------------------------------------------------------------------------
-        | Shipping (Based on Product's Shipping Charge)
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Shipping (Based on Product's Shipping Charge)
+    |--------------------------------------------------------------------------
+    */
 
         $shippingCost = 0;
         $shippingData = null;
@@ -517,10 +556,10 @@ class CheckoutService
         }
 
         /*
-        |--------------------------------------------------------------------------
-        | Tax Variables
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Tax Variables
+    |--------------------------------------------------------------------------
+    */
 
         $productTaxTotal = 0;
         $productGstTotal = 0;
@@ -680,27 +719,27 @@ class CheckoutService
         }
 
         /*
-        |--------------------------------------------------------------------------
-        | Total Tax
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Total Tax
+    |--------------------------------------------------------------------------
+    */
 
         $totalTax = $productTaxTotal;
 
         /*
-        |--------------------------------------------------------------------------
-        | Subtotal + Tax + Shipping + Service Charge
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Subtotal + Tax + Shipping + Service Charge
+    |--------------------------------------------------------------------------
+    */
 
         //  SERVICE CHARGE added to final formula
         $subtotalAfterDiscountAndTax = $subtotalAfterDiscount + $totalTax + $shippingCost + $totalServiceCharge;
 
         /*
-        |--------------------------------------------------------------------------
-        | Coins
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Coins
+    |--------------------------------------------------------------------------
+    */
 
         $coinRedemptionData = null;
         $coinsUsed          = 0;
@@ -768,18 +807,18 @@ class CheckoutService
         }
 
         /*
-        |--------------------------------------------------------------------------
-        | Grand Total
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Grand Total
+    |--------------------------------------------------------------------------
+    */
 
         $grandTotal = round($subtotalAfterDiscountAndTax - $amountRedeemed, 2);
 
         /*
-        |--------------------------------------------------------------------------
-        | Final Response
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Final Response
+    |--------------------------------------------------------------------------
+    */
 
         return [
             'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
@@ -854,6 +893,647 @@ class CheckoutService
             ],
         ];
     }
+
+    // public function calculateSummary(
+    //     int $userId,
+    //     ?int $addressId = null,
+    //     ?string $couponCode = null,
+    //     ?int $shippingMethodId = null,
+    //     ?int $redemptionId = null,
+    //     ?int $buyNowProductId = null,
+    //     ?int $buyNowVariantId = null,
+    //     ?int $buyNowQuantity = null
+    // ): array {
+    //     // Fetch address if ID is provided
+    //     $address = null;
+    //     if ($addressId !== null) {
+    //         $address = Address::find($addressId);
+    //         if (!$address) {
+    //             throw new Exception('Invalid address ID');
+    //         }
+    //     }
+
+    //     $user = User::findOrFail($userId);
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Cart / Buy Now
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $isBuyNow = $buyNowProductId !== null || $buyNowVariantId !== null;
+
+    //     if ($isBuyNow) {
+    //         if (!$buyNowQuantity || $buyNowQuantity < 1) {
+    //             throw new Exception('Invalid product quantity');
+    //         }
+
+    //         $product = null;
+    //         $variant = null;
+    //         $variantAttributes = null;
+    //         $variantSku = null;
+    //         $variantId = null;
+
+    //         // If variant_id is provided
+    //         if ($buyNowVariantId) {
+    //             $variant = ProductVariant::with(['product.taxCategory', 'product.images', 'product.primaryImage'])
+    //                 ->findOrFail($buyNowVariantId);
+
+    //             $product = $variant->product;
+    //             $variantId = $variant->id;
+    //             $variantSku = $variant->sku;
+    //             $variantAttributes = $variant->attributes;
+    //         } else {
+    //             // If product_id is provided
+    //             $product = Product::with(['taxCategory', 'images', 'primaryImage'])
+    //                 ->findOrFail($buyNowProductId);
+    //         }
+
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Create temporary item object with variant support
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $item = new \stdClass();
+    //         $item->product_id = $product->id;
+    //         $item->variant_id = $variantId;
+    //         $item->variant_sku = $variantSku;
+    //         $item->variant_attributes = $variantAttributes;
+    //         $item->quantity = $buyNowQuantity;
+    //         $item->product = $product;
+    //         $item->variant = $variant;
+
+    //         // Buy Now + Mandatory products merge
+    //         $mandatoryItems = $this->buildMandatoryItemsForBuyNow($buyNowProductId, $buyNowVariantId);
+
+    //         $cartItems = collect([$item])->merge($mandatoryItems);
+    //     } else {
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | Existing Cart Flow with Variant Support
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $cart = Cart::with([
+    //             'items.product.taxCategory',
+    //             'items.product.images',
+    //             'items.product.primaryImage',
+    //             'items.variant',
+    //         ])
+    //             ->where('user_id', $userId)
+    //             ->first();
+
+    //         if (!$cart) {
+    //             $cart = Cart::create(['user_id' => $userId]);
+    //             $cart->load([
+    //                 'items.product.taxCategory',
+    //                 'items.product.images',
+    //                 'items.product.primaryImage',
+    //                 'items.variant',
+    //             ]);
+    //         }
+
+    //         $this->ensureMandatoryProductsInCart($cart);
+
+    //         $cart->load([
+    //             'items.product.taxCategory',
+    //             'items.product.images',
+    //             'items.product.primaryImage',
+    //             'items.variant',
+    //         ]);
+
+    //         if ($cart->items->isEmpty()) {
+    //             throw new Exception('Cart is empty');
+    //         }
+
+    //         $cartItems = $cart->items;
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Calculate Subtotal
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $subtotal = 0;
+    //     $productDetails = [];
+
+    //     foreach ($cartItems as $item) {
+    //         // Check if item has variant
+    //         $hasVariant = isset($item->variant) && $item->variant !== null;
+
+    //         // Determine unit price based on variant or product
+    //         if ($hasVariant) {
+    //             // Use variant pricing
+    //             $unitPrice = $user->isDistributor()
+    //                 ? ($item->variant->distributor_price ?? $item->variant->retail_price)
+    //                 : $item->variant->retail_price;
+
+    //             $taxRate = $item->product->taxCategory?->rate ?? 0;
+
+    //             // Get variant images
+    //             $variantImages = [];
+    //             if ($item->variant->images) {
+    //                 foreach ($item->variant->images as $image) {
+    //                     $variantImages[] = [
+    //                         'id' => $image->id,
+    //                         'image' => $image->image,
+    //                         'image_url' => asset('storage/' . $image->image),
+    //                         'is_primary' => $image->is_primary,
+    //                         'sort_order' => $image->sort_order,
+    //                     ];
+    //                 }
+    //             }
+
+    //             // Get variant primary image
+    //             $primaryImage = $item->variant->images->where('is_primary', true)->first()
+    //                 ?? $item->variant->images->first();
+
+    //             $primaryImageUrl = $primaryImage ? asset('storage/' . $primaryImage->image) : null;
+    //         } else {
+    //             // Use product pricing
+    //             $unitPrice = $user->isDistributor()
+    //                 ? ($item->product->distributor_price ?? $item->product->retail_price)
+    //                 : $item->product->retail_price;
+
+    //             $taxRate = $item->product->taxCategory?->rate ?? 0;
+    //             $variantImages = [];
+
+    //             // Get product images
+    //             $productImages = [];
+    //             if ($item->product->images) {
+    //                 foreach ($item->product->images as $image) {
+    //                     $productImages[] = [
+    //                         'id' => $image->id,
+    //                         'image' => $image->image,
+    //                         'image_url' => asset('storage/' . $image->image),
+    //                         'is_primary' => $image->is_primary,
+    //                         'sort_order' => $image->sort_order,
+    //                     ];
+    //                 }
+    //             }
+
+    //             $primaryImageUrl = $item->product->primaryImage
+    //                 ? asset('storage/' . $item->product->primaryImage->image)
+    //                 : null;
+    //         }
+
+    //         $lineTotal = $unitPrice * $item->quantity;
+    //         $subtotal += $lineTotal;
+
+    //         // Per-product shipping charge
+    //         $productShippingCharge = $item->product->shipping_charge ?? 0;
+    //         $lineShippingCharge = $productShippingCharge * $item->quantity;
+
+    //         $productServiceCharge = $item->product->service_charge ?? 0;
+    //         $lineServiceCharge = $productServiceCharge !== null
+    //             ? ((float) $productServiceCharge * $item->quantity)
+    //             : 0;
+
+    //         $productDetails[] = [
+    //             'item' => $item,
+    //             'has_variant' => $hasVariant,
+    //             'variant_id' => $hasVariant ? $item->variant->id : null,
+    //             'variant_sku' => $hasVariant ? $item->variant->sku : null,
+    //             'variant_attributes' => $hasVariant ? $item->variant->attributes : null,
+    //             'unitPrice' => $unitPrice,
+    //             'lineTotal' => $lineTotal,
+    //             'taxRate' => $taxRate,
+    //             'taxCategoryName' => $item->product->taxCategory?->name ?? 'No Tax',
+    //             'images' => $hasVariant ? $variantImages : $productImages,
+    //             'primary_image' => $hasVariant ? $primaryImageUrl : $primaryImageUrl,
+    //             'product_shipping_charge' => $productShippingCharge,
+    //             'line_shipping_charge' => $lineShippingCharge,
+    //             'product_service_charge' => $productServiceCharge,
+    //             'line_service_charge' => $lineServiceCharge,
+    //         ];
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Coupon
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $couponDiscount = 0;
+    //     $couponData = null;
+
+    //     if ($couponCode) {
+    //         $coupon = Coupon::where('code', strtoupper($couponCode))->first();
+    //         $validationResult = $this->validateCouponForUser($coupon, $userId);
+
+    //         if ($validationResult !== true) {
+    //             throw new Exception($validationResult);
+    //         }
+
+    //         if ($coupon && $coupon->isValid() && $this->validateCouponForUser($coupon, $userId)) {
+    //             $couponDiscount = $this->calculateCouponDiscount($coupon, $subtotal);
+    //             $couponData = [
+    //                 'code' => $coupon->code,
+    //                 'title' => $coupon->title,
+    //                 'type' => $coupon->type,
+    //                 'value' => (string) $coupon->value,
+    //                 'discount_amount' => round($couponDiscount, 2),
+    //             ];
+    //         } else {
+    //             throw new Exception('Invalid coupon code');
+    //         }
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Subtotal After Discount
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $subtotalAfterDiscount = $subtotal - $couponDiscount;
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Shipping (Based on Product's Shipping Charge)
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $shippingCost = 0;
+    //     $shippingData = null;
+    //     $shippingBreakdown = [];
+
+    //     //  SERVICE CHARGE — total init
+    //     $totalServiceCharge = 0;
+
+    //     foreach ($productDetails as $product) {
+    //         $unitShipping = $product['product_shipping_charge'];
+    //         $qty = $product['item']->quantity;
+    //         $lineShipping = $product['line_shipping_charge'];
+    //         $shippingCost += $lineShipping;
+
+    //         //  SERVICE CHARGE — accumulate
+    //         $totalServiceCharge += $product['line_service_charge'];
+
+    //         $shippingBreakdown[] = [
+    //             'product_id' => $product['item']->product_id,
+    //             'product_name' => $product['item']->product->name,
+    //             'variant_id' => $product['variant_id'] ?? null,
+    //             'variant_sku' => $product['variant_sku'] ?? null,
+    //             'quantity' => $qty,
+    //             'shipping_charge_per_unit' => round($unitShipping, 2),
+    //             'total_shipping_charge' => round($lineShipping, 2),
+    //             //  SERVICE CHARGE fields
+    //             'service_charge_per_unit' => $product['product_service_charge'] !== null
+    //                 ? round((float) $product['product_service_charge'], 2)
+    //                 : null,
+    //             'total_service_charge' => $product['product_service_charge'] !== null
+    //                 ? round($product['line_service_charge'], 2)
+    //                 : null,
+    //         ];
+    //     }
+
+    //     if ($shippingCost > 0) {
+    //         $shippingData = [
+    //             'name' => 'Product Shipping',
+    //             'cost' => round($shippingCost, 2),
+    //         ];
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Tax Variables
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $productTaxTotal = 0;
+    //     $productGstTotal = 0;
+    //     $productOtherTaxTotal = 0;
+
+    //     $itemsWithTax = [];
+    //     $taxBreakdown = [];
+    //     $taxByCategory = [];
+    //     $productTaxBreakdown = [];
+
+    //     // Get supplier state from config
+    //     $supplierState = config('app.supplier_state', 'Punjab');
+    //     $deliveryState = $address ? $address->state : null;
+
+    //     foreach ($productDetails as $index => $product) {
+    //         $proportion = $subtotal > 0 ? $product['lineTotal'] / $subtotal : 0;
+    //         $discountedLineTotal = $product['lineTotal'] - ($couponDiscount * $proportion);
+
+    //         $taxRate = $product['taxRate'];
+    //         $taxAmount = ($discountedLineTotal * $taxRate) / 100;
+    //         $productTaxTotal += $taxAmount;
+
+    //         // GST / Other Tax
+    //         if ($taxRate == 18) {
+    //             $productGstTotal += $taxAmount;
+    //         } else {
+    //             $productOtherTaxTotal += $taxAmount;
+    //         }
+
+    //         // Product Information
+    //         $productName = $product['item']->product->name;
+    //         $allowed_purchsed = $product['item']->product->allowed_purchsed;
+    //         $productCommisionValue = $product['item']->product->commission_value;
+    //         $productQuantity = $product['item']->product->stock_quantity;
+    //         $productKey = 'product_' . ($index + 1) . '_' . str_replace(' ', '_', strtolower($productName));
+
+    //         $serviceChargePerUnit = $product['product_service_charge'] !== null
+    //             ? round((float) $product['product_service_charge'], 2)
+    //             : null;
+    //         $lineServiceChargeVal = $product['product_service_charge'] !== null
+    //             ? round($product['line_service_charge'], 2)
+    //             : null;
+
+    //         // Product Tax Breakdown (with shipping)
+    //         $productTaxBreakdown[$productKey] = [
+    //             'product_id' => $product['item']->product_id,
+    //             'product_name' => $productName,
+    //             'allowed_purchsed' => $allowed_purchsed,
+    //             'commision_value' => $productCommisionValue,
+    //             'max_stock' => $productQuantity,
+    //             'product_code' => $product['item']->product->product_code,
+    //             'variant_id' => $product['variant_id'] ?? null,
+    //             'variant_sku' => $product['variant_sku'] ?? null,
+    //             'variant_attributes' => $product['variant_attributes'] ?? null,
+    //             'quantity' => $product['item']->quantity,
+    //             'unit_price' => round($product['unitPrice'], 2),
+    //             'tax_category' => $product['taxCategoryName'],
+    //             'tax_rate' => (string) $taxRate . '%',
+    //             'taxable_value' => round($discountedLineTotal, 2),
+    //             'tax_amount' => round($taxAmount, 2),
+    //             'line_total_after_tax' => round($discountedLineTotal + $taxAmount, 2),
+
+    //             // Shipping info per product
+    //             'shipping_charge_per_unit' => round($product['product_shipping_charge'], 2),
+    //             'total_shipping_charge' => round($product['line_shipping_charge'], 2),
+
+    //             'service_charge_per_unit' => $serviceChargePerUnit,
+    //             'total_service_charge' => $lineServiceChargeVal,
+
+    //             'images' => $product['images'],
+    //             'primary_image' => $product['primary_image'],
+    //         ];
+
+    //         // CGST / SGST / IGST
+    //         $cgst = 0;
+    //         $sgst = 0;
+    //         $igst = 0;
+
+    //         if ($deliveryState) {
+    //             if (strtolower($deliveryState) === strtolower($supplierState)) {
+    //                 $cgst = $taxAmount / 2;
+    //                 $sgst = $taxAmount / 2;
+    //             } else {
+    //                 $igst = $taxAmount;
+    //             }
+    //         } else {
+    //             $igst = $taxAmount;
+    //         }
+
+    //         // Items With Tax (with shipping)
+    //         $itemsWithTax[] = [
+    //             'product_id' => $product['item']->product_id,
+    //             'product_name' => $product['item']->product->name,
+    //             'product_code' => $product['item']->product->product_code,
+    //             'variant_id' => $product['variant_id'] ?? null,
+    //             'variant_sku' => $product['variant_sku'] ?? null,
+    //             'variant_attributes' => $product['variant_attributes'] ?? null,
+    //             'quantity' => $product['item']->quantity,
+    //             'unit_price' => round($product['unitPrice'], 2),
+    //             'tax_category' => $product['taxCategoryName'],
+    //             'tax_rate' => (string) $taxRate . '%',
+    //             'taxable_value' => round($discountedLineTotal, 2),
+    //             'cgst' => round($cgst, 2),
+    //             'sgst' => round($sgst, 2),
+    //             'igst' => round($igst, 2),
+    //             'total_tax' => round($taxAmount, 2),
+    //             'line_total' => round($discountedLineTotal + $taxAmount, 2),
+
+    //             // Shipping info per product
+    //             'shipping_charge_per_unit' => round($product['product_shipping_charge'], 2),
+    //             'total_shipping_charge' => round($product['line_shipping_charge'], 2),
+
+    //             'service_charge_per_unit' => $serviceChargePerUnit,
+    //             'total_service_charge' => $lineServiceChargeVal,
+
+    //             'images' => $product['images'],
+    //             'primary_image' => $product['primary_image'],
+    //         ];
+
+    //         // Tax Breakdown (with shipping)
+    //         $taxBreakdown[] = [
+    //             'product_name' => $product['item']->product->name,
+    //             'variant_sku' => $product['variant_sku'] ?? null,
+    //             'variant_attributes' => $product['variant_attributes'] ?? null,
+    //             'tax_category' => $product['taxCategoryName'],
+    //             'rate' => (string) $taxRate . '%',
+    //             'cgst' => round($cgst, 2),
+    //             'sgst' => round($sgst, 2),
+    //             'igst' => round($igst, 2),
+    //             'shipping_charge_per_unit' => round($product['product_shipping_charge'], 2),
+    //             'total_shipping_charge' => round($product['line_shipping_charge'], 2),
+    //             'service_charge_per_unit' => $serviceChargePerUnit,
+    //             'total_service_charge' => $lineServiceChargeVal,
+    //         ];
+
+    //         // Tax By Category
+    //         $categoryKey = $product['taxCategoryName'] . '_' . $taxRate;
+
+    //         if (!isset($taxByCategory[$categoryKey])) {
+    //             $taxByCategory[$categoryKey] = [
+    //                 'category' => $product['taxCategoryName'],
+    //                 'rate' => (string) $taxRate,
+    //                 'taxable_amount' => 0,
+    //                 'tax_amount' => 0,
+    //                 'cgst' => 0,
+    //                 'sgst' => 0,
+    //                 'igst' => 0,
+    //                 'is_gst' => ($taxRate == 18),
+    //             ];
+    //         }
+
+    //         $taxByCategory[$categoryKey]['taxable_amount'] += $discountedLineTotal;
+    //         $taxByCategory[$categoryKey]['tax_amount'] += $taxAmount;
+    //         $taxByCategory[$categoryKey]['cgst'] += $cgst;
+    //         $taxByCategory[$categoryKey]['sgst'] += $sgst;
+    //         $taxByCategory[$categoryKey]['igst'] += $igst;
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Total Tax
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $totalTax = $productTaxTotal;
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Subtotal + Tax + Shipping + Service Charge
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     //  SERVICE CHARGE added to final formula
+    //     $subtotalAfterDiscountAndTax = $subtotalAfterDiscount + $totalTax + $shippingCost + $totalServiceCharge;
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Coins
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $coinRedemptionData = null;
+    //     $coinsUsed          = 0;
+    //     $amountRedeemed     = 0;
+    //     $coinBalance        = 0;
+    //     $maxCoinsRedeemable = 0;
+    //     $coinBreakdown      = ['yellow' => 0, 'blue' => 0];
+
+    //     if ($user->isDistributor() && !empty($user->distributor_id)) {
+
+    //         // Always fetch balance for display
+    //         $member = Cache::remember("ignite_member_{$user->distributor_id}", 60, function () use ($user) {
+    //             $resp = app(\App\Sdks\Partner\IgniteClient::class)->memberDetails($user->distributor_id);
+    //             if (($resp['code'] ?? null) !== \App\Sdks\Partner\ResultCode::OK->value) {
+    //                 return [];
+    //             }
+    //             return $resp['data'];
+    //         });
+
+    //         $yellowBal = (int) ($member['yellow_bal'] ?? 0);
+    //         $blueBal   = (int) ($member['blue_bal']   ?? 0);
+
+    //         $coinBreakdown = [
+    //             'yellow' => $yellowBal,
+    //             'blue'   => $blueBal,
+    //         ];
+
+    //         $coinBalance        = $yellowBal + $blueBal;
+    //         $maxCoinsRedeemable = $coinBalance;
+
+    //         // Apply redemption if provided
+    //         if ($redemptionId !== null) {
+
+    //             $redemption = CoinRedemption::where('id', $redemptionId)
+    //                 ->where('user_id', $userId)
+    //                 ->first();
+
+    //             if (!$redemption) {
+    //                 throw new Exception('Invalid redemption ID');
+    //             }
+
+    //             if (strtolower($redemption->status) === 'authorized') {
+    //                 throw new Exception('This coin redemption has already been used.');
+    //             }
+
+    //             $coinsUsed      = (int) $redemption->coins_used;
+    //             $amountRedeemed = (float) $redemption->amount_redeemed;
+
+    //             if ($coinsUsed > $coinBalance) {
+    //                 throw new Exception(
+    //                     'Insufficient coin balance. Redemption requires ' .
+    //                         $coinsUsed . ' coins, available: ' . $coinBalance . '.'
+    //                 );
+    //             }
+
+    //             $coinRedemptionData = [
+    //                 'redemption_id'   => $redemption->id,
+    //                 'coins_used'      => $coinsUsed,
+    //                 'amount_redeemed' => round($amountRedeemed, 2),
+    //                 'point_type'      => $redemption->point_type,
+    //                 'status'          => $redemption->status,
+    //                 'remaining_coins' => $coinBalance - $coinsUsed,
+    //             ];
+    //         }
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Grand Total
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $grandTotal = round($subtotalAfterDiscountAndTax - $amountRedeemed, 2);
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Final Response
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     return [
+    //         'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',
+
+    //         'subtotal' => round($subtotal, 2),
+    //         'coupon_discount' => round($couponDiscount, 2),
+    //         'coupon' => $couponData,
+    //         'subtotal_after_discount' => round($subtotalAfterDiscount, 2),
+
+    //         'product_tax_breakdown' => $productTaxBreakdown,
+    //         'tax_summary' => [
+    //             'gst_18_percent' => round($productGstTotal, 2),
+    //             'other_tax' => round($productOtherTaxTotal, 2),
+    //             'total_product_tax' => round($productTaxTotal, 2),
+    //         ],
+    //         'total_tax' => round($totalTax, 2),
+    //         'tax_by_category' => array_values($taxByCategory),
+
+    //         // Total shipping (single place)
+    //         'shipping_cost' => round($shippingCost, 2),
+    //         'shipping_method' => $shippingData,
+
+    //         // Per-product shipping breakdown
+    //         'shipping_breakdown' => $shippingBreakdown,
+
+    //         'service_charge' => round($totalServiceCharge, 2),
+
+    //         'subtotal_after_discount_and_tax' => round($subtotalAfterDiscountAndTax, 2),
+
+    //         'coin_balance' => $coinBalance,
+    //         'coin_breakdown' => $coinBreakdown,
+    //         'max_coins_redeemable' => $maxCoinsRedeemable,
+    //         'coins_used' => $coinsUsed,
+    //         'amount_redeemed' => $amountRedeemed,
+    //         'coin_redemption' => $coinRedemptionData,
+
+    //         'grand_total' => $grandTotal,
+
+    //         'tax_breakdown' => $taxBreakdown,
+
+    //         'delivery_address' => $address ? [
+    //             'id' => $address->id,
+    //             'full_address' => $this->formatAddress($address),
+    //             'state' => $address->state,
+    //         ] : null,
+
+    //         'summary' => [
+    //             'subtotal' => round($subtotal, 2),
+    //             'less_coupon' => round($couponDiscount, 2),
+    //             'net_subtotal' => round($subtotalAfterDiscount, 2),
+    //             'product_gst_18' => round($productGstTotal, 2),
+    //             'product_other_tax' => round($productOtherTaxTotal, 2),
+    //             'total_tax' => round($totalTax, 2),
+    //             'plus_shipping' => round($shippingCost, 2),
+    //             'plus_service_charge' => round($totalServiceCharge, 2),
+    //             'less_coins' => round($amountRedeemed, 2),
+    //             'grand_total' => $grandTotal,
+    //             'coupon_code' => $couponData['code'] ?? null,
+    //             'tax_breakdown' => array_map(function ($item) {
+    //                 return [
+    //                     'product_name' => $item['product_name'],
+    //                     'variant_sku' => $item['variant_sku'] ?? null,
+    //                     'variant_attributes' => $item['variant_attributes'] ?? null,
+    //                     'tax_category' => $item['tax_category'],
+    //                     'rate' => (float) str_replace('%', '', $item['rate']),
+    //                     'shipping_charge_per_unit' => $item['shipping_charge_per_unit'] ?? 0,
+    //                     'total_shipping_charge' => $item['total_shipping_charge'] ?? 0,
+    //                     'service_charge_per_unit' => $item['service_charge_per_unit'] ?? null,
+    //                     'total_service_charge' => $item['total_service_charge'] ?? null,
+    //                 ];
+    //             }, $taxBreakdown),
+    //         ],
+    //     ];
+    // }
 
 
     // public function calculateSummary(
@@ -3245,7 +3925,7 @@ class CheckoutService
     //     });
     // }
 
-public function placeOrder(int $userId, array $data): array
+    public function placeOrder(int $userId, array $data): array
     {
         $address = Address::findOrFail($data['address_id']);
         $user    = User::findOrFail($userId);
@@ -3269,6 +3949,8 @@ public function placeOrder(int $userId, array $data): array
             }
 
             foreach ($summary['items'] as $itemData) {
+                // Eager-load taxCategory + combo children tax category so combo tax resolution
+                // never hits N+1 and always has what it needs.
                 $product = Product::with('taxCategory')->find($itemData['product_id']);
                 if (!$product) {
                     throw new Exception("Product not found: {$itemData['product_id']}");
@@ -3409,7 +4091,24 @@ public function placeOrder(int $userId, array $data): array
                 $itemDiscount = $couponDiscount * $proportion;
                 $discountedLineTotal = $lineTotal - $itemDiscount;
 
-                $taxRate   = $item->product->taxCategory?->rate ?? 0;
+                /*
+            |--------------------------------------------------------------------------
+            | COMBO-AWARE TAX RATE (mirrors calculateSummary logic exactly)
+            |--------------------------------------------------------------------------
+            | - Single product: use its own tax category rate
+            | - Combo product:  tax_category_id is NULL, so fall back to the
+            |                   HIGHEST tax rate among its combo children
+            |                   (e.g. C = [A(18%), B(10%)] => 18%)
+            |--------------------------------------------------------------------------
+            */
+                $taxRate = $item->product->taxCategory?->rate;
+
+                if ($taxRate === null && ($item->product->product_type ?? 'single') === 'combo') {
+                    $taxRate = $this->resolveComboTaxRate($item->product);
+                }
+
+                $taxRate = $taxRate ?? 0;
+
                 $taxAmount = ($discountedLineTotal * $taxRate) / 100;
 
                 $cgstRate = $sgstRate = $igstRate = 0;
@@ -3581,7 +4280,7 @@ public function placeOrder(int $userId, array $data): array
                 ]);
             }
 
-            // ============ RESERVE INVENTORY (atomic) ============
+        // ============ RESERVE INVENTORY (atomic) ============
             /** @var InventoryReservationService $reservationService */
             $reservationService = app(InventoryReservationService::class);
 
