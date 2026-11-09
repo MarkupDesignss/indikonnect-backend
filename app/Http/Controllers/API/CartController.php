@@ -50,6 +50,37 @@ class CartController extends Controller
     /**
      * Get or create cart for the authenticated user
      */
+    // protected function getCart(Request $request)
+    // {
+    //     $user = auth('sanctum')->user();
+
+    //     if (!$user) {
+    //         abort(response()->json([
+    //             'message' => 'Unauthenticated. Please login to use the cart.'
+    //         ], 401));
+    //     }
+
+    //     $relations = [
+    //         'items.product.primaryImage',
+    //         'items.product.images',
+    //         'items.product.category:id,title,slug',
+    //         'items.product.subcategory:id,category_id,name,slug',
+    //         'items.product.brand:id,category_id,title',   // <- slug hata diya
+    //         'items.product.taxCategory',
+    //         'items.variant.images',
+    //     ];
+
+    //     $cart = Cart::with($relations)
+    //         ->where('user_id', $user->id)
+    //         ->first();
+
+    //     if (!$cart) {
+    //         $cart = Cart::create(['user_id' => $user->id]);
+    //         $cart->load($relations);
+    //     }
+
+    //     return $cart;
+    // }
     protected function getCart(Request $request)
     {
         $user = auth('sanctum')->user();
@@ -65,7 +96,7 @@ class CartController extends Controller
             'items.product.images',
             'items.product.category:id,title,slug',
             'items.product.subcategory:id,category_id,name,slug',
-            'items.product.brand:id,category_id,title',   // <- slug hata diya
+            'items.product.brand:id,category_id,title',
             'items.product.taxCategory',
             'items.variant.images',
         ];
@@ -81,17 +112,37 @@ class CartController extends Controller
 
         return $cart;
     }
-
     /**
      * Get cart items with dynamic pricing
      */
+    // public function index(Request $request)
+    // {
+    //     $cart = $this->getCart($request);
+    //     $user = auth('sanctum')->user();
+
+    //     return response()->json([
+    //         'data' => $this->formatCart($cart, $user),
+    //         'user_type' => $this->getUserType(),
+    //     ]);
+    // }
     public function index(Request $request)
     {
         $cart = $this->getCart($request);
         $user = auth('sanctum')->user();
 
+        // ============================================================
+        // COMBO CHILDREN (batch across all cart items)   NEW
+        // ============================================================
+        $cartProducts = $cart->items
+            ->pluck('product')
+            ->filter()
+            ->unique('id')
+            ->values();
+
+        $comboChildren = $this->buildComboChildrenMap($cartProducts);
+
         return response()->json([
-            'data' => $this->formatCart($cart, $user),
+            'data' => $this->formatCart($cart, $user, $comboChildren),
             'user_type' => $this->getUserType(),
         ]);
     }
@@ -856,11 +907,233 @@ class CartController extends Controller
     /**
      * Format cart for response with dynamic pricing
      */
-    protected function formatCart($cart, $user = null)
+    // protected function formatCart($cart, $user = null)
+    // {
+    //     $isDistributor = $user && $user->account_type === 'distributor';
+
+    //     $items = $cart->items->map(function ($item) use ($isDistributor) {
+    //         $product = $item->product;
+    //         $variant = $item->variant;
+
+    //         $currentPrice          = 0;
+    //         $variantAttributes     = null;
+    //         $imageUrl              = null;
+    //         $mrp                   = null;
+    //         $discountType          = null;
+    //         $discountValue         = null;
+    //         $discountAmountPerUnit = 0;
+
+    //         // ---------------- variant path ----------------
+    //         if ($variant) {
+    //             $currentPrice = $isDistributor
+    //                 ? ($variant->distributor_price ?? $variant->retail_price)
+    //                 : $variant->retail_price;
+
+    //             $mrp = $isDistributor
+    //                 ? ($variant->distributor_mrp ?? $variant->retail_mrp ?? null)
+    //                 : ($variant->retail_mrp ?? null);
+
+    //             $discountType  = $isDistributor
+    //                 ? ($variant->distributor_discount_type ?? null)
+    //                 : ($variant->retail_discount_type ?? null);
+
+    //             $discountValue = $isDistributor
+    //                 ? ($variant->distributor_discount_value ?? null)
+    //                 : ($variant->retail_discount_value ?? null);
+
+    //             $variantAttributes = $variant->attributes;
+
+    //             $variantImage = $variant->images->where('is_primary', true)->first()
+    //                 ?? $variant->images->first();
+    //             $imageUrl = $variantImage ? asset('storage/' . $variantImage->image) : null;
+    //         }
+    //         // ---------------- product fallback ----------------
+    //         elseif ($product) {
+    //             $currentPrice = $isDistributor
+    //                 ? ($product->distributor_price ?? $product->retail_price)
+    //                 : $product->retail_price;
+
+    //             $mrp = $isDistributor
+    //                 ? ($product->distributor_mrp ?? $product->retail_mrp ?? null)
+    //                 : ($product->retail_mrp ?? null);
+
+    //             $discountType  = $isDistributor
+    //                 ? ($product->distributor_discount_type ?? null)
+    //                 : ($product->retail_discount_type ?? null);
+
+    //             $discountValue = $isDistributor
+    //                 ? ($product->distributor_discount_value ?? null)
+    //                 : ($product->retail_discount_value ?? null);
+
+    //             $imageUrl = $product->primaryImage
+    //                 ? asset('storage/' . $product->primaryImage->image)
+    //                 : null;
+    //         }
+
+    //         if ($mrp !== null && $mrp > $currentPrice) {
+    //             $discountAmountPerUnit = $mrp - $currentPrice;
+    //         }
+
+    //         $subtotal = $currentPrice * $item->quantity;
+
+    //         // Availability = physical stock - reserved (never negative)
+    //         $availableStock = null;
+    //         if ($product && $product->stock_quantity !== null) {
+    //             $availableStock = max(0, (int) $product->stock_quantity - (int) $product->reserved_inventory);
+    //         }
+
+    //         return [
+    //             'id' => $item->id,
+    //             'product_id' => $item->product_id,
+    //             'variant_id' => $item->variant_id,
+
+    //             'product' => $product ? [
+    //                 'id' => $product->id,
+    //                 'name' => $product->name,
+    //                 'allowed_purchsed' => $product->allowed_purchsed,
+    //                 'slug' => $product->slug,
+    //                 'service_charge' => $product->service_charge,
+    //                 'product_code' => $product->product_code,
+    //                 'hsn_code' => $product->hsn_code,
+    //                 'uom' => $product->uom,
+
+    //                 'retail_price' => $product->retail_price,
+    //                 'retail_mrp' => $product->retail_mrp,
+    //                 'retail_discount_type' => $product->retail_discount_type,
+    //                 'retail_discount_value' => $product->retail_discount_value,
+
+    //                 'distributor_price' => $product->distributor_price,
+    //                 'distributor_mrp' => $product->distributor_mrp,
+    //                 'distributor_discount_type' => $product->distributor_discount_type,
+    //                 'distributor_discount_value' => $product->distributor_discount_value,
+
+    //                 'stock_quantity' => $product->stock_quantity,
+    //                 'reserved_inventory' => $product->reserved_inventory,
+    //                 'available_stock' => $availableStock,
+    //                 'low_stock_threshold' => $product->low_stock_threshold,
+    //                 'is_in_stock' => $availableStock !== null ? $availableStock > 0 : null,
+    //                 'is_low_stock' => ($availableStock !== null && $product->low_stock_threshold !== null)
+    //                     ? ($availableStock > 0 && $availableStock <= (int) $product->low_stock_threshold)
+    //                     : false,
+
+    //                 'category' => $product->relationLoaded('category') && $product->category ? [
+    //                     'id' => $product->category->id,
+    //                     'title' => $product->category->title,
+    //                     'slug' => $product->category->slug,
+    //                 ] : null,
+
+    //                 'subcategory' => $product->relationLoaded('subcategory') && $product->subcategory ? [
+    //                     'id' => $product->subcategory->id,
+    //                     'name' => $product->subcategory->name,
+    //                     'slug' => $product->subcategory->slug,
+    //                 ] : null,
+
+    //                 'brand' => $product->relationLoaded('brand') && $product->brand ? [
+    //                     'id' => $product->brand->id,
+    //                     'title' => $product->brand->title,
+    //                     'category_id' => $product->brand->category_id,
+
+    //                 ] : null,
+
+    //                 'tax_category_id' => $product->tax_category_id,
+    //                 'tax_category' => ($product->relationLoaded('taxCategory') && $product->taxCategory) ? [
+    //                     'id' => $product->taxCategory->id,
+    //                     'name' => $product->taxCategory->name ?? null,
+    //                     'rate' => $product->taxCategory->rate ?? null,
+    //                 ] : null,
+
+    //                 'is_published' => (bool) $product->is_published,
+    //                 'sale_type' => $product->sale_type,
+    //                 'is_trending' => (bool) $product->is_trending,
+    //                 'is_best_seller' => (bool) $product->is_best_seller,
+    //                 'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+    //                 'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toIso8601String(),
+    //                 'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toIso8601String(),
+    //                 'is_deal_active_now' => (bool) (
+    //                     $product->is_deal_of_the_day
+    //                     && (!$product->deal_of_the_day_starts_at || $product->deal_of_the_day_starts_at->isPast())
+    //                     && (!$product->deal_of_the_day_ends_at || $product->deal_of_the_day_ends_at->isFuture())
+    //                 ),
+
+    //                 'shipping_charge' => $product->shipping_charge,
+    //                 'commission_value' => $product->commission_value,
+    //                 'parent_combo_id' => $product->parent_combo_id,
+    //                 'ignite_product_id' => $product->ignite_product_id,
+    //             ] : null,
+
+    //             'variant' => $variant ? [
+    //                 'id' => $variant->id,
+    //                 'sku' => $variant->sku,
+    //                 'attributes' => $variant->attributes,
+    //                 'attribute_string' => $this->getAttributeString($variant->attributes),
+    //                 'retail_price' => $variant->retail_price,
+    //                 'retail_mrp' => $variant->retail_mrp ?? null,
+    //                 'retail_discount_type' => $variant->retail_discount_type ?? null,
+    //                 'retail_discount_value' => $variant->retail_discount_value ?? null,
+    //                 'distributor_price' => $variant->distributor_price,
+    //                 'distributor_mrp' => $variant->distributor_mrp ?? null,
+    //                 'distributor_discount_type' => $variant->distributor_discount_type ?? null,
+    //                 'distributor_discount_value' => $variant->distributor_discount_value ?? null,
+    //                 'stock_quantity' => $variant->stock_quantity ?? null,
+    //             ] : null,
+
+    //             'variant_attributes' => $variantAttributes,
+    //             'quantity' => $item->quantity,
+
+    //             'current_unit_price' => $currentPrice,
+    //             'current_unit_price_formatted' => number_format($currentPrice, 2),
+
+    //             'mrp' => $mrp,
+    //             'mrp_formatted' => $mrp !== null ? number_format($mrp, 2) : null,
+    //             'discount_type' => $discountType,
+    //             'discount_value' => $discountValue,
+    //             'discount_amount_per_unit' => $discountAmountPerUnit,
+    //             'discount_amount_per_unit_formatted' => number_format($discountAmountPerUnit, 2),
+    //             'discount_total' => $discountAmountPerUnit * $item->quantity,
+    //             'discount_total_formatted' => number_format($discountAmountPerUnit * $item->quantity, 2),
+    //             'discount_percentage' => ($mrp !== null && $mrp > 0 && $discountAmountPerUnit > 0)
+    //                 ? round(($discountAmountPerUnit / $mrp) * 100, 2)
+    //                 : 0,
+
+    //             'subtotal' => $subtotal,
+    //             'subtotal_formatted' => number_format($subtotal, 2),
+
+    //             'image_url' => $imageUrl ?? null,
+    //             'current_price_type' => $isDistributor ? 'distributor' : 'retail',
+    //         ];
+    //     })->values()->toArray();
+
+    //     $total = collect($items)->sum('subtotal');
+    //     $totalItems = collect($items)->sum('quantity');
+    //     $totalMrp = collect($items)->sum(fn($i) => ($i['mrp'] ?? 0) * $i['quantity']);
+    //     $totalDiscount = collect($items)->sum(fn($i) => $i['discount_total'] ?? 0);
+
+    //     return [
+    //         'id' => $cart->id,
+    //         'items' => $items,
+    //         'total' => $total,
+    //         'total_formatted' => number_format($total, 2),
+    //         'total_mrp' => $totalMrp,
+    //         'total_mrp_formatted' => number_format($totalMrp, 2),
+    //         'total_discount' => $totalDiscount,
+    //         'total_discount_formatted' => number_format($totalDiscount, 2),
+    //         'total_items' => $totalItems,
+    //         'price_type' => $isDistributor ? 'distributor' : 'retail',
+    //         'price_calculation' => 'dynamic',
+    //     ];
+    // }
+    protected function formatCart($cart, $user = null, array $comboChildren = [])
     {
         $isDistributor = $user && $user->account_type === 'distributor';
 
-        $items = $cart->items->map(function ($item) use ($isDistributor) {
+        // If caller didn't pass the map, build it internally (no N+1, one query)
+        if (empty($comboChildren)) {
+            $comboChildren = $this->buildComboChildrenMap(
+                $cart->items->pluck('product')->filter()->unique('id')->values()
+            );
+        }
+
+        $items = $cart->items->map(function ($item) use ($isDistributor, $comboChildren) {
             $product = $item->product;
             $variant = $item->variant;
 
@@ -981,7 +1254,6 @@ class CartController extends Controller
                         'id' => $product->brand->id,
                         'title' => $product->brand->title,
                         'category_id' => $product->brand->category_id,
-
                     ] : null,
 
                     'tax_category_id' => $product->tax_category_id,
@@ -1008,6 +1280,12 @@ class CartController extends Controller
                     'commission_value' => $product->commission_value,
                     'parent_combo_id' => $product->parent_combo_id,
                     'ignite_product_id' => $product->ignite_product_id,
+
+                    //  NEW: combo details
+                    'product_type' => $this->isComboProduct($product) ? 'combo' : 'single',
+                    'combo_products' => $this->isComboProduct($product)
+                        ? ($comboChildren[$product->id] ?? [])
+                        : [],
                 ] : null,
 
                 'variant' => $variant ? [
@@ -1409,5 +1687,255 @@ class CartController extends Controller
         }
 
         return $formattedCart;
+    }
+
+    protected function buildComboChildrenMap($products): array
+    {
+        // 1) Collect all unique child IDs across every combo product on this page
+        $childIdsByParent = [];
+        $allChildIds      = [];
+
+        foreach ($products as $product) {
+            if (($product->product_type ?? 'single') !== 'combo') {
+                continue;
+            }
+
+            $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id);
+
+            // Flatten all groups -> unique IDs, preserve order
+            $ids = collect($groups)
+                ->flatten()
+                ->map(fn($v) => (int) $v)
+                ->unique()
+                ->values()
+                ->all();
+
+            if (empty($ids)) {
+                $childIdsByParent[$product->id] = [];
+                continue;
+            }
+
+            $childIdsByParent[$product->id] = $ids;
+            $allChildIds = array_merge($allChildIds, $ids);
+        }
+
+        $allChildIds = array_values(array_unique($allChildIds));
+
+        if (empty($allChildIds)) {
+            return [];
+        }
+
+        // 2) Fetch all children in one query with needed relations
+        $children = \App\Models\Product::query()
+            ->whereIn('id', $allChildIds)
+            ->whereNull('deleted_at')
+            ->with([
+                'category:id,title,slug',
+                'subcategory:id,category_id,name,slug',
+                'brand:id,title,logo,banner',
+                'taxCategory:id,name,rate',
+                'images',
+            ])
+            ->get()
+            ->keyBy('id');
+
+        // 3) Build the payload per parent, preserving child order from parent_combo_id
+        $map = [];
+
+        foreach ($childIdsByParent as $parentId => $childIds) {
+            $payload = [];
+
+            foreach ($childIds as $cid) {
+                $child = $children->get($cid);
+                if (!$child) {
+                    continue;
+                }
+
+                $images = $child->images
+                    ->sortBy(fn($img) => $img->is_primary ? 0 : 1)  // primary first
+                    ->take(2)
+                    ->map(fn($img) => [
+                        'id'         => $img->id,
+                        'image_url'  => asset('storage/' . $img->image),
+                        'is_primary' => (bool) $img->is_primary,
+                        'sort_order' => $img->sort_order,
+                    ])
+                    ->values()
+                    ->all();
+
+                $payload[] = [
+                    'id'                    => $child->id,
+                    'product_code'          => $child->product_code,
+                    'name'                  => $child->name,
+                    'slug'                  => $child->slug,
+                    'is_mandatory'          => $child->is_mandatory ?? null,
+                    'commission_value'      => $child->commission_value ?? null,
+
+                    // both prices
+                    'retail_price'          => $child->retail_price,
+                    'retail_mrp'            => $child->retail_mrp,
+                    'distributor_price'     => $child->distributor_price,
+                    'distributor_mrp'       => $child->distributor_mrp,
+
+                    // up to 2 images (primary first)
+                    'images'                => $images,
+
+                    // taxonomy / brand
+                    'category'              => $child->category ? [
+                        'id'   => $child->category->id,
+                        'name' => $child->category->title,
+                        'slug' => $child->category->slug,
+                    ] : null,
+
+                    'subcategory'           => $child->subcategory ? [
+                        'id'          => $child->subcategory->id,
+                        'category_id' => $child->subcategory->category_id,
+                        'name'        => $child->subcategory->name,
+                        'slug'        => $child->subcategory->slug,
+                    ] : null,
+
+                    'brand'                 => $child->brand ? [
+                        'id'     => $child->brand->id,
+                        'name'   => $child->brand->title,
+                        'logo'   => $child->brand->logo
+                            ? asset('storage/' . $child->brand->logo)
+                            : null,
+                        'banner' => $child->brand->banner
+                            ? asset('storage/' . $child->brand->banner)
+                            : null,
+                    ] : null,
+
+                    'tax_category'          => $child->taxCategory ? [
+                        'id'   => $child->taxCategory->id,
+                        'name' => $child->taxCategory->name,
+                        'rate' => $child->taxCategory->rate,
+                    ] : null,
+                ];
+            }
+
+            $map[$parentId] = $payload;
+        }
+
+        return $map;
+    }
+    /**
+     * Whether this product should be treated as a combo.
+     * Uses product_type as the source of truth, with a defensive
+     * fallback to a non-empty parent_combo_id (for legacy rows).
+     */
+    protected function isComboProduct($product): bool
+    {
+        if (($product->product_type ?? null) === 'combo') {
+            return true;
+        }
+
+        $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id ?? null);
+
+        return !empty(collect($groups)->flatten()->filter()->all());
+    }
+
+    /**
+     * Load and format the combo children of a single combo product.
+     * Returns the same shape as buildComboChildrenMap() so index & show match.
+     */
+    protected function formatComboChildren($product): array
+    {
+        $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id ?? null);
+
+        $childIds = collect($groups)
+            ->flatten()
+            ->map(fn($v) => (int) $v)
+            ->filter(fn($id) => $id > 0 && $id !== (int) $product->id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($childIds)) {
+            return [];
+        }
+
+        $children = \App\Models\Product::query()
+            ->whereIn('id', $childIds)
+            ->whereNull('deleted_at')
+            ->with([
+                'category:id,title,slug',
+                'subcategory:id,category_id,name,slug',
+                'brand:id,title,logo,banner',
+                'taxCategory:id,name,rate',
+                'images',
+            ])
+            ->get()
+            ->keyBy('id');
+
+        $payload = [];
+
+        foreach ($childIds as $cid) {
+            $child = $children->get($cid);
+            if (!$child) {
+                continue;
+            }
+
+            $images = $child->images
+                ->sortBy(fn($img) => $img->is_primary ? 0 : 1)
+                ->take(2)
+                ->map(fn($img) => [
+                    'id'         => $img->id,
+                    'image_url'  => asset('storage/' . ltrim($img->image, '/')),
+                    'is_primary' => (bool) $img->is_primary,
+                    'sort_order' => (int) $img->sort_order,
+                ])
+                ->values()
+                ->all();
+
+            $payload[] = [
+                'id'               => $child->id,
+                'product_code'     => $child->product_code,
+                'name'             => $child->name,
+                'slug'             => $child->slug,
+                'is_mandatory'     => $child->is_mandatory ?? null,
+                'commission_value' => $child->commission_value ?? null,
+
+                // both prices
+                'retail_price'      => $child->retail_price,
+                'retail_mrp'        => $child->retail_mrp,
+                'distributor_price' => $child->distributor_price,
+                'distributor_mrp'   => $child->distributor_mrp,
+
+                // up to 2 images (primary first)
+                'images'            => $images,
+
+                'category'          => $child->category ? [
+                    'id'   => $child->category->id,
+                    'name' => $child->category->title,
+                    'slug' => $child->category->slug,
+                ] : null,
+
+                'subcategory'       => $child->subcategory ? [
+                    'id'          => $child->subcategory->id,
+                    'category_id' => $child->subcategory->category_id,
+                    'name'        => $child->subcategory->name,
+                    'slug'        => $child->subcategory->slug,
+                ] : null,
+
+                'brand'             => $child->brand ? [
+                    'id'     => $child->brand->id,
+                    'name'   => $child->brand->title,
+                    'logo'   => $child->brand->logo
+                        ? asset('storage/' . ltrim($child->brand->logo, '/'))
+                        : null,
+                    'banner' => $child->brand->banner
+                        ? asset('storage/' . ltrim($child->brand->banner, '/'))
+                        : null,
+                ] : null,
+
+                'tax_category'      => $child->taxCategory ? [
+                    'id'   => $child->taxCategory->id,
+                    'name' => $child->taxCategory->name,
+                    'rate' => $child->taxCategory->rate,
+                ] : null,
+            ];
+        }
+
+        return $payload;
     }
 }
