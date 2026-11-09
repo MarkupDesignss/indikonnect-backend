@@ -554,6 +554,9 @@ class OrderController extends Controller
                 ->get();
 
             $formattedItems = [];
+            $comboChildren = $this->buildComboChildrenMap(
+                $orderLines->pluck('product')->filter()->unique('id')->values()
+            );
 
             // Gateway charges percentage from settings (e.g. 2.5)
             // $gatewayChargesPercent = (float) setting('gateway_charges', 2.36);
@@ -904,6 +907,10 @@ class OrderController extends Controller
                     'primary_image' => $primaryImage,
 
                     // Only show approved reviews for THIS specific order line
+                    'product_type' => ($product && $this->isComboProduct($product)) ? 'combo' : 'single',
+                    'combo_products' => ($product && $this->isComboProduct($product))
+                        ? ($comboChildren[$product->id] ?? [])
+                        : [],
                     'product_reviews' => $productReviews,
 
                     // Order Financial Info
@@ -1042,6 +1049,255 @@ class OrderController extends Controller
             ], 500);
         }
     }
+    protected function buildComboChildrenMap($products): array
+    {
+        // 1) Collect all unique child IDs across every combo product on this page
+        $childIdsByParent = [];
+        $allChildIds      = [];
+
+        foreach ($products as $product) {
+            if (($product->product_type ?? 'single') !== 'combo') {
+                continue;
+            }
+
+            $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id);
+
+            // Flatten all groups -> unique IDs, preserve order
+            $ids = collect($groups)
+                ->flatten()
+                ->map(fn($v) => (int) $v)
+                ->unique()
+                ->values()
+                ->all();
+
+            if (empty($ids)) {
+                $childIdsByParent[$product->id] = [];
+                continue;
+            }
+
+            $childIdsByParent[$product->id] = $ids;
+            $allChildIds = array_merge($allChildIds, $ids);
+        }
+
+        $allChildIds = array_values(array_unique($allChildIds));
+
+        if (empty($allChildIds)) {
+            return [];
+        }
+
+        // 2) Fetch all children in one query with needed relations
+        $children = \App\Models\Product::query()
+            ->whereIn('id', $allChildIds)
+            ->whereNull('deleted_at')
+            ->with([
+                'category:id,title,slug',
+                'subcategory:id,category_id,name,slug',
+                'brand:id,title,logo,banner',
+                'taxCategory:id,name,rate',
+                'images',
+            ])
+            ->get()
+            ->keyBy('id');
+
+        // 3) Build the payload per parent, preserving child order from parent_combo_id
+        $map = [];
+
+        foreach ($childIdsByParent as $parentId => $childIds) {
+            $payload = [];
+
+            foreach ($childIds as $cid) {
+                $child = $children->get($cid);
+                if (!$child) {
+                    continue;
+                }
+
+                $images = $child->images
+                    ->sortBy(fn($img) => $img->is_primary ? 0 : 1)  // primary first
+                    ->take(2)
+                    ->map(fn($img) => [
+                        'id'         => $img->id,
+                        'image_url'  => asset('storage/' . $img->image),
+                        'is_primary' => (bool) $img->is_primary,
+                        'sort_order' => $img->sort_order,
+                    ])
+                    ->values()
+                    ->all();
+
+                $payload[] = [
+                    'id'                    => $child->id,
+                    'product_code'          => $child->product_code,
+                    'name'                  => $child->name,
+                    'slug'                  => $child->slug,
+                    'is_mandatory'          => $child->is_mandatory ?? null,
+                    'commission_value'      => $child->commission_value ?? null,
+
+                    // both prices
+                    'retail_price'          => $child->retail_price,
+                    'retail_mrp'            => $child->retail_mrp,
+                    'distributor_price'     => $child->distributor_price,
+                    'distributor_mrp'       => $child->distributor_mrp,
+
+                    // up to 2 images (primary first)
+                    'images'                => $images,
+
+                    // taxonomy / brand
+                    'category'              => $child->category ? [
+                        'id'   => $child->category->id,
+                        'name' => $child->category->title,
+                        'slug' => $child->category->slug,
+                    ] : null,
+
+                    'subcategory'           => $child->subcategory ? [
+                        'id'          => $child->subcategory->id,
+                        'category_id' => $child->subcategory->category_id,
+                        'name'        => $child->subcategory->name,
+                        'slug'        => $child->subcategory->slug,
+                    ] : null,
+
+                    'brand'                 => $child->brand ? [
+                        'id'     => $child->brand->id,
+                        'name'   => $child->brand->title,
+                        'logo'   => $child->brand->logo
+                            ? asset('storage/' . $child->brand->logo)
+                            : null,
+                        'banner' => $child->brand->banner
+                            ? asset('storage/' . $child->brand->banner)
+                            : null,
+                    ] : null,
+
+                    'tax_category'          => $child->taxCategory ? [
+                        'id'   => $child->taxCategory->id,
+                        'name' => $child->taxCategory->name,
+                        'rate' => $child->taxCategory->rate,
+                    ] : null,
+                ];
+            }
+
+            $map[$parentId] = $payload;
+        }
+
+        return $map;
+    }
+    /**
+     * Whether this product should be treated as a combo.
+     * Uses product_type as the source of truth, with a defensive
+     * fallback to a non-empty parent_combo_id (for legacy rows).
+     */
+    protected function isComboProduct($product): bool
+    {
+        if (($product->product_type ?? null) === 'combo') {
+            return true;
+        }
+
+        $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id ?? null);
+
+        return !empty(collect($groups)->flatten()->filter()->all());
+    }
+
+    /**
+     * Load and format the combo children of a single combo product.
+     * Returns the same shape as buildComboChildrenMap() so index & show match.
+     */
+    protected function formatComboChildren($product): array
+    {
+        $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id ?? null);
+
+        $childIds = collect($groups)
+            ->flatten()
+            ->map(fn($v) => (int) $v)
+            ->filter(fn($id) => $id > 0 && $id !== (int) $product->id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($childIds)) {
+            return [];
+        }
+
+        $children = \App\Models\Product::query()
+            ->whereIn('id', $childIds)
+            ->whereNull('deleted_at')
+            ->with([
+                'category:id,title,slug',
+                'subcategory:id,category_id,name,slug',
+                'brand:id,title,logo,banner',
+                'taxCategory:id,name,rate',
+                'images',
+            ])
+            ->get()
+            ->keyBy('id');
+
+        $payload = [];
+
+        foreach ($childIds as $cid) {
+            $child = $children->get($cid);
+            if (!$child) {
+                continue;
+            }
+
+            $images = $child->images
+                ->sortBy(fn($img) => $img->is_primary ? 0 : 1)
+                ->take(2)
+                ->map(fn($img) => [
+                    'id'         => $img->id,
+                    'image_url'  => asset('storage/' . ltrim($img->image, '/')),
+                    'is_primary' => (bool) $img->is_primary,
+                    'sort_order' => (int) $img->sort_order,
+                ])
+                ->values()
+                ->all();
+
+            $payload[] = [
+                'id'               => $child->id,
+                'product_code'     => $child->product_code,
+                'name'             => $child->name,
+                'slug'             => $child->slug,
+                'is_mandatory'     => $child->is_mandatory ?? null,
+                'commission_value' => $child->commission_value ?? null,
+
+                // both prices
+                'retail_price'      => $child->retail_price,
+                'retail_mrp'        => $child->retail_mrp,
+                'distributor_price' => $child->distributor_price,
+                'distributor_mrp'   => $child->distributor_mrp,
+
+                // up to 2 images (primary first)
+                'images'            => $images,
+
+                'category'          => $child->category ? [
+                    'id'   => $child->category->id,
+                    'name' => $child->category->title,
+                    'slug' => $child->category->slug,
+                ] : null,
+
+                'subcategory'       => $child->subcategory ? [
+                    'id'          => $child->subcategory->id,
+                    'category_id' => $child->subcategory->category_id,
+                    'name'        => $child->subcategory->name,
+                    'slug'        => $child->subcategory->slug,
+                ] : null,
+
+                'brand'             => $child->brand ? [
+                    'id'     => $child->brand->id,
+                    'name'   => $child->brand->title,
+                    'logo'   => $child->brand->logo
+                        ? asset('storage/' . ltrim($child->brand->logo, '/'))
+                        : null,
+                    'banner' => $child->brand->banner
+                        ? asset('storage/' . ltrim($child->brand->banner, '/'))
+                        : null,
+                ] : null,
+
+                'tax_category'      => $child->taxCategory ? [
+                    'id'   => $child->taxCategory->id,
+                    'name' => $child->taxCategory->name,
+                    'rate' => $child->taxCategory->rate,
+                ] : null,
+            ];
+        }
+
+        return $payload;
+    }
 
     public function allOrder(Request $request)
     {
@@ -1078,6 +1334,14 @@ class OrderController extends Controller
                 })
                 ->latest('id')
                 ->get();
+
+            $allOrderProducts = $orders
+                ->flatMap(fn($order) => $order->lines->pluck('product'))
+                ->filter()
+                ->unique('id')
+                ->values();
+
+            $comboChildren = $this->buildComboChildrenMap($allOrderProducts);
 
             $formattedOrders = [];
 
@@ -1238,6 +1502,10 @@ class OrderController extends Controller
                         // Product Images
                         'images'        => $images,
                         'primary_image' => $primaryImage,
+                        'product_type' => ($product && $this->isComboProduct($product)) ? 'combo' : 'single',
+                        'combo_products' => ($product && $this->isComboProduct($product))
+                            ? ($comboChildren[$product->id] ?? [])
+                            : [],
 
                         // Order Financial Info
                         'payment_gateway'        => $order->payment_gateway ?? 'Razorpay',

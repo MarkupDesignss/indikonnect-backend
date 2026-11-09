@@ -101,6 +101,7 @@ class CheckoutController extends Controller
     //         ], 400);
     //     }
     // }
+    
     public function summary(Request $request)
     {
         try {

@@ -247,6 +247,256 @@ class CheckoutService
         return $maxRate !== null ? (float) $maxRate : 0.0;
     }
 
+    protected function buildComboChildrenMap($products): array
+    {
+        // 1) Collect all unique child IDs across every combo product on this page
+        $childIdsByParent = [];
+        $allChildIds      = [];
+
+        foreach ($products as $product) {
+            if (($product->product_type ?? 'single') !== 'combo') {
+                continue;
+            }
+
+            $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id);
+
+            // Flatten all groups -> unique IDs, preserve order
+            $ids = collect($groups)
+                ->flatten()
+                ->map(fn($v) => (int) $v)
+                ->unique()
+                ->values()
+                ->all();
+
+            if (empty($ids)) {
+                $childIdsByParent[$product->id] = [];
+                continue;
+            }
+
+            $childIdsByParent[$product->id] = $ids;
+            $allChildIds = array_merge($allChildIds, $ids);
+        }
+
+        $allChildIds = array_values(array_unique($allChildIds));
+
+        if (empty($allChildIds)) {
+            return [];
+        }
+
+        // 2) Fetch all children in one query with needed relations
+        $children = \App\Models\Product::query()
+            ->whereIn('id', $allChildIds)
+            ->whereNull('deleted_at')
+            ->with([
+                'category:id,title,slug',
+                'subcategory:id,category_id,name,slug',
+                'brand:id,title,logo,banner',
+                'taxCategory:id,name,rate',
+                'images',
+            ])
+            ->get()
+            ->keyBy('id');
+
+        // 3) Build the payload per parent, preserving child order from parent_combo_id
+        $map = [];
+
+        foreach ($childIdsByParent as $parentId => $childIds) {
+            $payload = [];
+
+            foreach ($childIds as $cid) {
+                $child = $children->get($cid);
+                if (!$child) {
+                    continue;
+                }
+
+                $images = $child->images
+                    ->sortBy(fn($img) => $img->is_primary ? 0 : 1)  // primary first
+                    ->take(2)
+                    ->map(fn($img) => [
+                        'id'         => $img->id,
+                        'image_url'  => asset('storage/' . $img->image),
+                        'is_primary' => (bool) $img->is_primary,
+                        'sort_order' => $img->sort_order,
+                    ])
+                    ->values()
+                    ->all();
+
+                $payload[] = [
+                    'id'                    => $child->id,
+                    'product_code'          => $child->product_code,
+                    'name'                  => $child->name,
+                    'slug'                  => $child->slug,
+                    'is_mandatory'          => $child->is_mandatory ?? null,
+                    'commission_value'      => $child->commission_value ?? null,
+
+                    // both prices
+                    'retail_price'          => $child->retail_price,
+                    'retail_mrp'            => $child->retail_mrp,
+                    'distributor_price'     => $child->distributor_price,
+                    'distributor_mrp'       => $child->distributor_mrp,
+
+                    // up to 2 images (primary first)
+                    'images'                => $images,
+
+                    // taxonomy / brand
+                    'category'              => $child->category ? [
+                        'id'   => $child->category->id,
+                        'name' => $child->category->title,
+                        'slug' => $child->category->slug,
+                    ] : null,
+
+                    'subcategory'           => $child->subcategory ? [
+                        'id'          => $child->subcategory->id,
+                        'category_id' => $child->subcategory->category_id,
+                        'name'        => $child->subcategory->name,
+                        'slug'        => $child->subcategory->slug,
+                    ] : null,
+
+                    'brand'                 => $child->brand ? [
+                        'id'     => $child->brand->id,
+                        'name'   => $child->brand->title,
+                        'logo'   => $child->brand->logo
+                            ? asset('storage/' . $child->brand->logo)
+                            : null,
+                        'banner' => $child->brand->banner
+                            ? asset('storage/' . $child->brand->banner)
+                            : null,
+                    ] : null,
+
+                    'tax_category'          => $child->taxCategory ? [
+                        'id'   => $child->taxCategory->id,
+                        'name' => $child->taxCategory->name,
+                        'rate' => $child->taxCategory->rate,
+                    ] : null,
+                ];
+            }
+
+            $map[$parentId] = $payload;
+        }
+
+        return $map;
+    }
+    /**
+     * Whether this product should be treated as a combo.
+     * Uses product_type as the source of truth, with a defensive
+     * fallback to a non-empty parent_combo_id (for legacy rows).
+     */
+    protected function isComboProduct($product): bool
+    {
+        if (($product->product_type ?? null) === 'combo') {
+            return true;
+        }
+
+        $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id ?? null);
+
+        return !empty(collect($groups)->flatten()->filter()->all());
+    }
+
+    /**
+     * Load and format the combo children of a single combo product.
+     * Returns the same shape as buildComboChildrenMap() so index & show match.
+     */
+    protected function formatComboChildren($product): array
+    {
+        $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id ?? null);
+
+        $childIds = collect($groups)
+            ->flatten()
+            ->map(fn($v) => (int) $v)
+            ->filter(fn($id) => $id > 0 && $id !== (int) $product->id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($childIds)) {
+            return [];
+        }
+
+        $children = \App\Models\Product::query()
+            ->whereIn('id', $childIds)
+            ->whereNull('deleted_at')
+            ->with([
+                'category:id,title,slug',
+                'subcategory:id,category_id,name,slug',
+                'brand:id,title,logo,banner',
+                'taxCategory:id,name,rate',
+                'images',
+            ])
+            ->get()
+            ->keyBy('id');
+
+        $payload = [];
+
+        foreach ($childIds as $cid) {
+            $child = $children->get($cid);
+            if (!$child) {
+                continue;
+            }
+
+            $images = $child->images
+                ->sortBy(fn($img) => $img->is_primary ? 0 : 1)
+                ->take(2)
+                ->map(fn($img) => [
+                    'id'         => $img->id,
+                    'image_url'  => asset('storage/' . ltrim($img->image, '/')),
+                    'is_primary' => (bool) $img->is_primary,
+                    'sort_order' => (int) $img->sort_order,
+                ])
+                ->values()
+                ->all();
+
+            $payload[] = [
+                'id'               => $child->id,
+                'product_code'     => $child->product_code,
+                'name'             => $child->name,
+                'slug'             => $child->slug,
+                'is_mandatory'     => $child->is_mandatory ?? null,
+                'commission_value' => $child->commission_value ?? null,
+
+                // both prices
+                'retail_price'      => $child->retail_price,
+                'retail_mrp'        => $child->retail_mrp,
+                'distributor_price' => $child->distributor_price,
+                'distributor_mrp'   => $child->distributor_mrp,
+
+                // up to 2 images (primary first)
+                'images'            => $images,
+
+                'category'          => $child->category ? [
+                    'id'   => $child->category->id,
+                    'name' => $child->category->title,
+                    'slug' => $child->category->slug,
+                ] : null,
+
+                'subcategory'       => $child->subcategory ? [
+                    'id'          => $child->subcategory->id,
+                    'category_id' => $child->subcategory->category_id,
+                    'name'        => $child->subcategory->name,
+                    'slug'        => $child->subcategory->slug,
+                ] : null,
+
+                'brand'             => $child->brand ? [
+                    'id'     => $child->brand->id,
+                    'name'   => $child->brand->title,
+                    'logo'   => $child->brand->logo
+                        ? asset('storage/' . ltrim($child->brand->logo, '/'))
+                        : null,
+                    'banner' => $child->brand->banner
+                        ? asset('storage/' . ltrim($child->brand->banner, '/'))
+                        : null,
+                ] : null,
+
+                'tax_category'      => $child->taxCategory ? [
+                    'id'   => $child->taxCategory->id,
+                    'name' => $child->taxCategory->name,
+                    'rate' => $child->taxCategory->rate,
+                ] : null,
+            ];
+        }
+
+        return $payload;
+    }
+
     public function calculateSummary(
         int $userId,
         ?int $addressId = null,
@@ -269,10 +519,10 @@ class CheckoutService
         $user = User::findOrFail($userId);
 
         /*
-    |--------------------------------------------------------------------------
-    | Cart / Buy Now
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Cart / Buy Now
+        |--------------------------------------------------------------------------
+        */
 
         $isBuyNow = $buyNowProductId !== null || $buyNowVariantId !== null;
 
@@ -362,12 +612,15 @@ class CheckoutService
 
             $cartItems = $cart->items;
         }
+        $comboChildren = $this->buildComboChildrenMap(
+            collect($cartItems)->pluck('product')->filter()->unique('id')->values()
+        );
 
         /*
-    |--------------------------------------------------------------------------
-    | Calculate Subtotal
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Calculate Subtotal
+        |--------------------------------------------------------------------------
+        */
 
         $subtotal = 0;
         $productDetails = [];
@@ -410,7 +663,7 @@ class CheckoutService
                     ? ($item->product->distributor_price ?? $item->product->retail_price)
                     : $item->product->retail_price;
 
-                // 👇 COMBO-AWARE TAX RATE (only new logic; non-combo path unchanged)
+                //  COMBO-AWARE TAX RATE (only new logic; non-combo path unchanged)
                 $taxRate = $item->product->taxCategory?->rate;
                 if ($taxRate === null && ($item->product->product_type ?? 'single') === 'combo') {
                     $taxRate = $this->resolveComboTaxRate($item->product);
@@ -466,14 +719,18 @@ class CheckoutService
                 'line_shipping_charge' => $lineShippingCharge,
                 'product_service_charge' => $productServiceCharge,
                 'line_service_charge' => $lineServiceCharge,
+                'product_type' => $item->product && $this->isComboProduct($item->product) ? 'combo' : 'single',
+                'combo_products' => $item->product && $this->isComboProduct($item->product)
+                    ? ($comboChildren[$item->product->id] ?? [])
+                    : [],
             ];
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Coupon
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Coupon
+        |--------------------------------------------------------------------------
+        */
 
         $couponDiscount = 0;
         $couponData = null;
@@ -501,18 +758,18 @@ class CheckoutService
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Subtotal After Discount
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Subtotal After Discount
+        |--------------------------------------------------------------------------
+        */
 
         $subtotalAfterDiscount = $subtotal - $couponDiscount;
 
         /*
-    |--------------------------------------------------------------------------
-    | Shipping (Based on Product's Shipping Charge)
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Shipping (Based on Product's Shipping Charge)
+        |--------------------------------------------------------------------------
+        */
 
         $shippingCost = 0;
         $shippingData = null;
@@ -545,6 +802,9 @@ class CheckoutService
                 'total_service_charge' => $product['product_service_charge'] !== null
                     ? round($product['line_service_charge'], 2)
                     : null,
+                'product_type' => $product['product_type'] ?? 'single',
+                'combo_products' => $product['combo_products'] ?? [],
+
             ];
         }
 
@@ -556,10 +816,10 @@ class CheckoutService
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Tax Variables
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Tax Variables
+        |--------------------------------------------------------------------------
+        */
 
         $productTaxTotal = 0;
         $productGstTotal = 0;
@@ -631,6 +891,8 @@ class CheckoutService
 
                 'images' => $product['images'],
                 'primary_image' => $product['primary_image'],
+                'product_type' => $product['product_type'] ?? 'single',
+                'combo_products' => $product['combo_products'] ?? [],
             ];
 
             // CGST / SGST / IGST
@@ -677,6 +939,8 @@ class CheckoutService
 
                 'images' => $product['images'],
                 'primary_image' => $product['primary_image'],
+                'product_type' => $product['product_type'] ?? 'single',
+                'combo_products' => $product['combo_products'] ?? [],
             ];
 
             // Tax Breakdown (with shipping)
@@ -719,27 +983,27 @@ class CheckoutService
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Total Tax
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Total Tax
+        |--------------------------------------------------------------------------
+        */
 
         $totalTax = $productTaxTotal;
 
         /*
-    |--------------------------------------------------------------------------
-    | Subtotal + Tax + Shipping + Service Charge
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Subtotal + Tax + Shipping + Service Charge
+        |--------------------------------------------------------------------------
+        */
 
         //  SERVICE CHARGE added to final formula
         $subtotalAfterDiscountAndTax = $subtotalAfterDiscount + $totalTax + $shippingCost + $totalServiceCharge;
 
         /*
-    |--------------------------------------------------------------------------
-    | Coins
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Coins
+        |--------------------------------------------------------------------------
+        */
 
         $coinRedemptionData = null;
         $coinsUsed          = 0;
@@ -807,18 +1071,18 @@ class CheckoutService
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Grand Total
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Grand Total
+        |--------------------------------------------------------------------------
+        */
 
         $grandTotal = round($subtotalAfterDiscountAndTax - $amountRedeemed, 2);
 
         /*
-    |--------------------------------------------------------------------------
-    | Final Response
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Final Response
+        |--------------------------------------------------------------------------
+        */
 
         return [
             'checkout_type' => $isBuyNow ? 'buy_now' : 'cart',

@@ -35,9 +35,6 @@ class WishlistController extends Controller
     //         ->orderBy('created_at', 'desc')
     //         ->get();
 
-    //     // Debug
-    //     // dd($wishlist->pluck('product.category'));
-
     //     $formattedWishlist = $wishlist->map(function ($item) {
 
     //         $product = $item->product;
@@ -59,7 +56,135 @@ class WishlistController extends Controller
     //         'total' => $formattedWishlist->count()
     //     ]);
     // }
+    protected function buildComboChildrenMap($products): array
+    {
+        // 1) Collect all unique child IDs across every combo product on this page
+        $childIdsByParent = [];
+        $allChildIds      = [];
 
+        foreach ($products as $product) {
+            if (($product->product_type ?? 'single') !== 'combo') {
+                continue;
+            }
+
+            $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id);
+
+            // Flatten all groups -> unique IDs, preserve order
+            $ids = collect($groups)
+                ->flatten()
+                ->map(fn($v) => (int) $v)
+                ->unique()
+                ->values()
+                ->all();
+
+            if (empty($ids)) {
+                $childIdsByParent[$product->id] = [];
+                continue;
+            }
+
+            $childIdsByParent[$product->id] = $ids;
+            $allChildIds = array_merge($allChildIds, $ids);
+        }
+
+        $allChildIds = array_values(array_unique($allChildIds));
+
+        if (empty($allChildIds)) {
+            return [];
+        }
+
+        // 2) Fetch all children in one query with needed relations
+        $children = \App\Models\Product::query()
+            ->whereIn('id', $allChildIds)
+            ->whereNull('deleted_at')
+            ->with([
+                'category:id,title,slug',
+                'subcategory:id,category_id,name,slug',
+                'brand:id,title,logo,banner',
+                'taxCategory:id,name,rate',
+                'images',
+            ])
+            ->get()
+            ->keyBy('id');
+
+        // 3) Build the payload per parent, preserving child order from parent_combo_id
+        $map = [];
+
+        foreach ($childIdsByParent as $parentId => $childIds) {
+            $payload = [];
+
+            foreach ($childIds as $cid) {
+                $child = $children->get($cid);
+                if (!$child) {
+                    continue;
+                }
+
+                $images = $child->images
+                    ->sortBy(fn($img) => $img->is_primary ? 0 : 1)  // primary first
+                    ->take(2)
+                    ->map(fn($img) => [
+                        'id'         => $img->id,
+                        'image_url'  => asset('storage/' . $img->image),
+                        'is_primary' => (bool) $img->is_primary,
+                        'sort_order' => $img->sort_order,
+                    ])
+                    ->values()
+                    ->all();
+
+                $payload[] = [
+                    'id'                    => $child->id,
+                    'product_code'          => $child->product_code,
+                    'name'                  => $child->name,
+                    'slug'                  => $child->slug,
+                    'is_mandatory'          => $child->is_mandatory ?? null,
+                    'commission_value'      => $child->commission_value ?? null,
+
+                    // both prices
+                    'retail_price'          => $child->retail_price,
+                    'retail_mrp'            => $child->retail_mrp,
+                    'distributor_price'     => $child->distributor_price,
+                    'distributor_mrp'       => $child->distributor_mrp,
+
+                    // up to 2 images (primary first)
+                    'images'                => $images,
+
+                    // taxonomy / brand
+                    'category'              => $child->category ? [
+                        'id'   => $child->category->id,
+                        'name' => $child->category->title,
+                        'slug' => $child->category->slug,
+                    ] : null,
+
+                    'subcategory'           => $child->subcategory ? [
+                        'id'          => $child->subcategory->id,
+                        'category_id' => $child->subcategory->category_id,
+                        'name'        => $child->subcategory->name,
+                        'slug'        => $child->subcategory->slug,
+                    ] : null,
+
+                    'brand'                 => $child->brand ? [
+                        'id'     => $child->brand->id,
+                        'name'   => $child->brand->title,
+                        'logo'   => $child->brand->logo
+                            ? asset('storage/' . $child->brand->logo)
+                            : null,
+                        'banner' => $child->brand->banner
+                            ? asset('storage/' . $child->brand->banner)
+                            : null,
+                    ] : null,
+
+                    'tax_category'          => $child->taxCategory ? [
+                        'id'   => $child->taxCategory->id,
+                        'name' => $child->taxCategory->name,
+                        'rate' => $child->taxCategory->rate,
+                    ] : null,
+                ];
+            }
+
+            $map[$parentId] = $payload;
+        }
+
+        return $map;
+    }
     public function index(Request $request)
     {
         $user = Auth::user();
@@ -77,15 +202,37 @@ class WishlistController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        $formattedWishlist = $wishlist->map(function ($item) {
+        // ============================================================
+        // COMBO CHILDREN (batch across the whole wishlist)   NEW
+        // ============================================================
+        $wishlistProducts = $wishlist
+            ->pluck('product')
+            ->filter()
+            ->unique('id')
+            ->values();
+
+        $comboChildren = $this->buildComboChildrenMap($wishlistProducts);
+
+        $formattedWishlist = $wishlist->map(function ($item) use ($comboChildren) {
 
             $product = $item->product;
 
             if ($product) {
+                $formatted = $this->formatProductWithWishlist($product, true);
+
+                // Override with batched data to avoid per-product query
+                if ($this->isComboProduct($product)) {
+                    $formatted['product_type']    = 'combo';
+                    $formatted['combo_products']  = $comboChildren[$product->id] ?? [];
+                } else {
+                    $formatted['product_type']    = 'single';
+                    $formatted['combo_products']  = [];
+                }
+
                 return [
                     'id' => $item->id,
                     'product_id' => $product->id,
-                    'product' => $this->formatProductWithWishlist($product, true),
+                    'product' => $formatted,
                     'added_at' => $item->created_at?->toISOString(),
                 ];
             }
@@ -97,6 +244,127 @@ class WishlistController extends Controller
             'data' => $formattedWishlist,
             'total' => $formattedWishlist->count()
         ]);
+    }
+
+    /**
+     * Whether this product should be treated as a combo.
+     * Uses product_type as the source of truth, with a defensive
+     * fallback to a non-empty parent_combo_id (for legacy rows).
+     */
+    protected function isComboProduct($product): bool
+    {
+        if (($product->product_type ?? null) === 'combo') {
+            return true;
+        }
+
+        $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id ?? null);
+
+        return !empty(collect($groups)->flatten()->filter()->all());
+    }
+
+    /**
+     * Load and format the combo children of a single combo product.
+     * Returns the same shape as buildComboChildrenMap() so index & show match.
+     */
+    protected function formatComboChildren($product): array
+    {
+        $groups = \App\Models\Product::normalizeComboGroups($product->parent_combo_id ?? null);
+
+        $childIds = collect($groups)
+            ->flatten()
+            ->map(fn($v) => (int) $v)
+            ->filter(fn($id) => $id > 0 && $id !== (int) $product->id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($childIds)) {
+            return [];
+        }
+
+        $children = \App\Models\Product::query()
+            ->whereIn('id', $childIds)
+            ->whereNull('deleted_at')
+            ->with([
+                'category:id,title,slug',
+                'subcategory:id,category_id,name,slug',
+                'brand:id,title,logo,banner',
+                'taxCategory:id,name,rate',
+                'images',
+            ])
+            ->get()
+            ->keyBy('id');
+
+        $payload = [];
+
+        foreach ($childIds as $cid) {
+            $child = $children->get($cid);
+            if (!$child) {
+                continue;
+            }
+
+            $images = $child->images
+                ->sortBy(fn($img) => $img->is_primary ? 0 : 1)
+                ->take(2)
+                ->map(fn($img) => [
+                    'id'         => $img->id,
+                    'image_url'  => asset('storage/' . ltrim($img->image, '/')),
+                    'is_primary' => (bool) $img->is_primary,
+                    'sort_order' => (int) $img->sort_order,
+                ])
+                ->values()
+                ->all();
+
+            $payload[] = [
+                'id'               => $child->id,
+                'product_code'     => $child->product_code,
+                'name'             => $child->name,
+                'slug'             => $child->slug,
+                'is_mandatory'     => $child->is_mandatory ?? null,
+                'commission_value' => $child->commission_value ?? null,
+
+                // both prices
+                'retail_price'      => $child->retail_price,
+                'retail_mrp'        => $child->retail_mrp,
+                'distributor_price' => $child->distributor_price,
+                'distributor_mrp'   => $child->distributor_mrp,
+
+                // up to 2 images (primary first)
+                'images'            => $images,
+
+                'category'          => $child->category ? [
+                    'id'   => $child->category->id,
+                    'name' => $child->category->title,
+                    'slug' => $child->category->slug,
+                ] : null,
+
+                'subcategory'       => $child->subcategory ? [
+                    'id'          => $child->subcategory->id,
+                    'category_id' => $child->subcategory->category_id,
+                    'name'        => $child->subcategory->name,
+                    'slug'        => $child->subcategory->slug,
+                ] : null,
+
+                'brand'             => $child->brand ? [
+                    'id'     => $child->brand->id,
+                    'name'   => $child->brand->title,
+                    'logo'   => $child->brand->logo
+                        ? asset('storage/' . ltrim($child->brand->logo, '/'))
+                        : null,
+                    'banner' => $child->brand->banner
+                        ? asset('storage/' . ltrim($child->brand->banner, '/'))
+                        : null,
+                ] : null,
+
+                'tax_category'      => $child->taxCategory ? [
+                    'id'   => $child->taxCategory->id,
+                    'name' => $child->taxCategory->name,
+                    'rate' => $child->taxCategory->rate,
+                ] : null,
+            ];
+        }
+
+        return $payload;
     }
     /**
      * Add product to wishlist
@@ -309,30 +577,119 @@ class WishlistController extends Controller
     //     $primaryImage = $product->images->where('is_primary', true)->first()
     //         ?? $product->images->first();
 
+    //     // Get approved reviews for this product
+    //     $reviews = ProductReview::with([
+    //         'user' => function ($query) {
+    //             $query->select('id', 'full_name', 'profile_picture');
+    //         },
+    //         'images'
+    //     ])
+    //         ->where('product_id', $product->id)
+    //         ->where('status', 'approved')
+    //         ->orderBy('created_at', 'desc')
+    //         ->limit(5)
+    //         ->get();
+
+    //     // Average rating
+    //     $averageRating = ProductReview::where('product_id', $product->id)
+    //         ->where('status', 'approved')
+    //         ->avg('rating');
+
+    //     // Total approved reviews
+    //     $totalReviews = ProductReview::where('product_id', $product->id)
+    //         ->where('status', 'approved')
+    //         ->count();
+
     //     return [
     //         'id' => $product->id,
     //         'product_code' => $product->product_code,
     //         'name' => $product->name,
+    //         'allowed_purchsed' => $product->allowed_purchsed,
     //         'slug' => $product->slug,
     //         'description' => $product->description,
     //         'specification' => $product->specification,
+
     //         'category_id' => $product->category_id,
+
     //         'category' => $product->category ? [
     //             'id' => $product->category->id,
     //             'name' => $product->category->title,
     //             'slug' => $product->category->slug,
     //         ] : null,
+
     //         'tax_category_id' => $product->tax_category_id,
+
     //         'retail_price' => $product->retail_price,
     //         'retail_price_formatted' => number_format($product->retail_price, 2),
+
     //         'distributor_price' => $product->distributor_price,
-    //         'distributor_price_formatted' => $product->distributor_price ? number_format($product->distributor_price, 2) : null,
+    //         'distributor_price_formatted' => $product->distributor_price
+    //             ? number_format($product->distributor_price, 2)
+    //             : null,
+
     //         'stock_quantity' => (int) $product->stock_quantity,
     //         'low_stock_threshold' => (int) $product->low_stock_threshold,
+
     //         'stock_status' => $product->stock_status,
+
     //         'is_published' => (bool) $product->is_published,
+
     //         'status' => $this->getProductStatus($product),
+
     //         'is_wishlisted' => $isWishlisted,
+
+    //         /*
+    //         |--------------------------------------------------------------------------
+    //         | Reviews Summary
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //         'reviews_summary' => [
+    //             'average_rating' => round($averageRating ?? 0, 1),
+    //             'total_reviews' => $totalReviews,
+
+    //             'recent_reviews' => $reviews->map(function ($review) {
+    //                 return [
+    //                     'id' => $review->id,
+    //                     'user_id' => $review->user_id,
+
+    //                     'user_name' => $review->user->full_name ?? 'Anonymous',
+
+    //                     'user_profile_picture' => $review->user && $review->user->profile_picture
+    //                         ? asset('storage/' . $review->user->profile_picture)
+    //                         : null,
+
+    //                     'rating' => $review->rating,
+
+    //                     'review_text' => $review->review_text,
+
+    //                     'created_at' => $review->created_at
+    //                         ? $review->created_at->format('M d, Y')
+    //                         : null,
+
+    //                     'updated_at' => $review->updated_at
+    //                         ? $review->updated_at->format('M d, Y')
+    //                         : null,
+
+
+
+    //                     'images' => $review->images->map(function ($image) {
+    //                         return [
+    //                             'id' => $image->id,
+    //                             'image_url' => $image->image_url,
+    //                             'sort_order' => $image->sort_order,
+    //                         ];
+    //                     })->values()->toArray(),
+    //                 ];
+    //             })->values()->toArray(),
+    //         ],
+
+    //         /*
+    //         |--------------------------------------------------------------------------
+    //         | Product Images
+    //         |--------------------------------------------------------------------------
+    //         */
+
     //         'images' => $product->images->map(function ($image) {
     //             return [
     //                 'id' => $image->id,
@@ -342,8 +699,15 @@ class WishlistController extends Controller
     //                 'is_primary' => (bool) $image->is_primary,
     //             ];
     //         })->values()->toArray(),
-    //         'primary_image' => $primaryImage ? $primaryImage->image : null,
-    //         'primary_image_url' => $primaryImage ? asset('storage/' . $primaryImage->image) : null,
+
+    //         'primary_image' => $primaryImage
+    //             ? $primaryImage->image
+    //             : null,
+
+    //         'primary_image_url' => $primaryImage
+    //             ? asset('storage/' . $primaryImage->image)
+    //             : null,
+
     //         'created_at' => $product->created_at?->toISOString(),
     //         'updated_at' => $product->updated_at?->toISOString(),
     //     ];
@@ -415,10 +779,10 @@ class WishlistController extends Controller
             'is_wishlisted' => $isWishlisted,
 
             /*
-            |--------------------------------------------------------------------------
-            | Reviews Summary
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | Reviews Summary
+        |--------------------------------------------------------------------------
+        */
 
             'reviews_summary' => [
                 'average_rating' => round($averageRating ?? 0, 1),
@@ -447,8 +811,6 @@ class WishlistController extends Controller
                             ? $review->updated_at->format('M d, Y')
                             : null,
 
-
-
                         'images' => $review->images->map(function ($image) {
                             return [
                                 'id' => $image->id,
@@ -461,10 +823,10 @@ class WishlistController extends Controller
             ],
 
             /*
-            |--------------------------------------------------------------------------
-            | Product Images
-            |--------------------------------------------------------------------------
-            */
+        |--------------------------------------------------------------------------
+        | Product Images
+        |--------------------------------------------------------------------------
+        */
 
             'images' => $product->images->map(function ($image) {
                 return [
@@ -483,6 +845,11 @@ class WishlistController extends Controller
             'primary_image_url' => $primaryImage
                 ? asset('storage/' . $primaryImage->image)
                 : null,
+
+            'product_type' => $this->isComboProduct($product) ? 'combo' : 'single',
+            'combo_products' => $this->isComboProduct($product)
+                ? $this->formatComboChildren($product)
+                : [],
 
             'created_at' => $product->created_at?->toISOString(),
             'updated_at' => $product->updated_at?->toISOString(),
