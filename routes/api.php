@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\TaxCategoryController;
 use App\Http\Controllers\Admin\PayoutController;
 use App\Http\Controllers\Admin\IgniteExportController;
 use App\Http\Controllers\Admin\ReconciliationController;
+use App\Http\Controllers\Api\IndiaPostWebhookController;
 use App\Http\Controllers\Admin\KycController;
 use App\Http\Controllers\Admin\AttributeController;
 use App\Http\Controllers\Admin\AuditLogController;
@@ -439,6 +440,12 @@ Route::middleware('auth:sanctum')->group(function () {
 // ============================
 // WEBHOOKS
 // ============================
+// India Post DOP Production tracking webhook (provider-to-server).
+// SECURITY: Controller stays disabled until DOP auth/IP requirements confirmed.
+Route::post('indiapost/webhook', [IndiaPostWebhookController::class, 'receive'])
+    ->middleware('throttle:60,1')
+    ->name('indiapost.webhook');
+
 Route::post('/webhook/razorpay', [RazorpayWebhookController::class, 'handle']);
 
 Route::post('/webhook/hdfc', [HdfcWebhookController::class, 'handle'])->name('hdfc.webhook.sg');
