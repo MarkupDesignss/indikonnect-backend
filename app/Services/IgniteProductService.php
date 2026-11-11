@@ -232,7 +232,8 @@ class IgniteProductService
     {
         // =========================================================
         // FIX: Only sync to Ignite if pricing/CV/coins have changed.
-        // We compare with the database directly to avoid duplicates.
+        // We compare with the database directly using NUMERIC comparison
+        // to avoid false positives from string formatting (e.g., "200" vs "200.00").
         // =========================================================
         $catalogFields = [
             'retail_price',
@@ -249,11 +250,18 @@ class IgniteProductService
             $isChanged = false;
 
             foreach ($catalogFields as $field) {
-                // Convert to string for safe comparison (handles floats/decimals)
-                $currentVal  = (string) ($product->$field ?? '0');
-                $originalVal = (string) ($originalProduct->$field ?? '0');
+                $currentVal  = $product->$field;
+                $originalVal = $originalProduct->$field;
 
-                if ($currentVal !== $originalVal) {
+                // Numeric comparison for prices/coins, strict boolean for is_published
+                if ($field === 'is_published') {
+                    $changed = (bool) $currentVal !== (bool) $originalVal;
+                } else {
+                    // Round to 4 decimals to prevent floating-point precision issues
+                    $changed = round((float) $currentVal, 4) !== round((float) $originalVal, 4);
+                }
+
+                if ($changed) {
                     $isChanged = true;
                     Log::info("[ignite] Field changed: {$field} | Old: {$originalVal} | New: {$currentVal}");
                     break; // One change is enough to trigger a sync
@@ -262,7 +270,7 @@ class IgniteProductService
 
             // If no catalog-related fields changed, skip the Ignite API call
             if (!$isChanged) {
-                Log::info('[ignite][catalog] skipped — no pricing fields changed (DB compare)', [
+                Log::info('[ignite][catalog] skipped — no pricing fields changed (numeric compare)', [
                     'product_id'   => $product->id,
                     'product_code' => $product->product_code,
                 ]);
