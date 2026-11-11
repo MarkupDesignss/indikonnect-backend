@@ -17,7 +17,7 @@ namespace App\Sdks\Partner;
  *   Binary tree                 every node has one left and one right slot. CV landing on a node
  *                               climbs to every node above it, and commission pays on the CV each
  *                               side of a node collects.
- *   CV                          the volume figure each catalog product carries. Commission is computed
+ *   CV                          the volume figure each catalog line carries. Commission is computed
  *                               on CV, not on price.
  *   Qualified                   a node holding the plan's qualify_cv (planRanks) from its owner's own
  *                               purchases. Until the -001 qualifies, the member buys at retail price.
@@ -64,9 +64,7 @@ enum ResultCode: int
     /**
      * The placement parent and side is not a legal position. This call placed nothing. `msg` names the rule:
      * - a member is placed once; moving a placed member is a correction by Ignite operations. A retried
-     *   setPlacement whose first attempt succeeded lands here: memberDetails shows the seat. A retried
-     *   placeBankedTc whose first attempt succeeded lands here too, or on TC_BANK_EMPTY when that attempt
-     *   took the last banked TC: memberDetails tc_bank_available shows the drop
+     *   setPlacement or placeBankedTc whose first attempt succeeded lands here
      * - a -002 or -003 sits under its own -001 and moves only with it
      * - sponsor and placement parent both hold a binary position; on placeBankedTc, the main account does
      * - the placement parent is the sponsor or a node in the sponsor's binary downline
@@ -83,13 +81,19 @@ enum ResultCode: int
      */
     case ORDER_DUPLICATE = 5001;
     /**
-     * A line names a product the partner's Ignite catalog did not sell at `ordered_at`. Price, CV and
-     * coins come only from that catalog, kept in the Ignite admin portal. `data.product_ids` lists the products.
+     * An order line has no catalog line to price it. Price, CV and coins come only from the partner's
+     * Ignite catalog. An order line naming `catalog_item_id` needs an enabled catalog line of the
+     * partner's catalog for that product, its window and the product's is_visible not read. An order
+     * line naming none needs exactly one catalog line of a visible product on sale at `ordered_at`:
+     * none, or several, refuses. `data.lines` holds each refused order line's reason keyed
+     * `lines.<index>` of the order lines sent, naming the catalog_item_ids on sale where several were.
+     * `data.product_ids` lists the products, `data.catalog_item_ids` every catalog line on sale where
+     * several were.
      */
     case PRODUCT_NOT_ON_CATALOG = 5002;
     /**
-     * The allocations do not add up to the order's CV. The buyer decides which of their nodes each part
-     * of the CV lands on, and every CV must land somewhere. `msg` gives both totals.
+     * The allocations do not add up to the order's CV. The buyer picks the node each part of the CV
+     * lands on, and all of it is allocated. `msg` gives both totals.
      */
     case CV_ALLOCATION_MISMATCH = 5003;
     /** An allocation names a `ba_id` that is not one of the buyer's nodes, or an `extra_tc` index with no extra TC in the order. */
@@ -114,7 +118,7 @@ enum ResultCode: int
      * must be a placed node that is the buyer or sits in the buyer's binary downline.
      */
     case EXTRA_TC_PARENT_INVALID = 5007;
-    /** No week in Ignite's sales calendar holds `ordered_at`, or the later week its CV pays out in. The calendar is Ignite's to extend. */
+    /** No week in Ignite's sales calendar holds `ordered_at`, or the later week its CV pays out in. Ignite extends the calendar. */
     case ORDER_WEEK_UNKNOWN = 5009;
     /** No order of this partner carries the partner_order_ref. */
     case ORDER_NOT_FOUND = 5010;
@@ -123,12 +127,13 @@ enum ResultCode: int
     /**
      * Another write holds the network. Nothing was written, and the same call can be sent again.
      * On cancelOrder, redeemCoin and setAllowWithdraw: the Saturday settlement, up to an hour; retry every 30 seconds.
+     * On saveCatalogLines: a call with the same partner_batch_ref is still running; retry after it finishes.
      * On a placement: another placement on the same member or slot; a retry after it finishes can succeed.
      */
     case NETWORK_BUSY = 5013;
     /**
-     * Every line's catalog CV is zero, so the order carries none. Ignite takes only orders carrying
-     * CV; keep this one on the partner's side.
+     * Every order line's catalog CV is zero, so the order carries none. Ignite accepts only orders
+     * carrying CV; this one stays on the partner's side only.
      */
     case ORDER_NO_CV = 5014;
     /**
@@ -139,7 +144,7 @@ enum ResultCode: int
     case CV_ORIGINALS_FIRST = 5015;
     /**
      * Ignite operations switched ordering off on the buyer's account. Nothing was written, and the
-     * payment stays on the partner's side. Retry only once Ignite confirms the switch is back on.
+     * payment stays on the partner's side. A retry succeeds only once Ignite confirms the switch is back on.
      */
     case ORDER_DISABLED = 5017;
 
@@ -148,6 +153,17 @@ enum ResultCode: int
      * finishes, so a week not yet settled has none. exportList names every file there is.
      */
     case EXPORT_NOT_FOUND = 6001;
+
+    /** No product of this partner holds the product_id. A call reads or writes the partner's own products only. */
+    case PRODUCT_NOT_FOUND = 7001;
+    /**
+     * The batch broke a catalog line rule, so no catalog line of it was stored. `msg` names every
+     * refused row as `lines.<index>`, and `data.lines` holds each one's reasons under that key: a field
+     * missing or out of range, a member price above the retail price, a visible_end_at not after
+     * visible_start_at, a catalog line or product not the partner's, or a partner_line_ref that
+     * differs from the catalog line's own, repeats in the batch or names another catalog line.
+     */
+    case CATALOG_LINES_REFUSED = 7002;
 
     public function message(): string
     {
@@ -179,6 +195,8 @@ enum ResultCode: int
             self::CV_ORIGINALS_FIRST => 'The -002 and -003 take CV first',
             self::ORDER_DISABLED => 'Ordering disabled on this account',
             self::EXPORT_NOT_FOUND => 'Export file not found',
+            self::PRODUCT_NOT_FOUND => 'Product not found',
+            self::CATALOG_LINES_REFUSED => 'Catalog lines refused',
         };
     }
 
