@@ -231,11 +231,8 @@ class IgniteProductService
         /**
      * Push the product's price / CV into the Ignite catalog.
      */
-    protected function syncCatalogPricing(Product $product): array
+        protected function syncCatalogPricing(Product $product): array
     {
-        // =========================================================
-        // FIX: Compare directly with the database to catch actual changes
-        // =========================================================
         $catalogFields = [
             'retail_price',
             'distributor_price',
@@ -245,41 +242,14 @@ class IgniteProductService
             'is_published',
         ];
 
-        // If it's not a newly created product, fetch the original state from DB
-        if (!$product->wasRecentlyCreated) {
-            // Use DB facade to get the raw original values (bypasses model caching)
-            $originalProduct = \Illuminate\Support\Facades\DB::table('products')->find($product->id);
-            
-            if ($originalProduct) {
-                $isChanged = false;
+        // Check if any pricing fields were actually changed
+        if (!$product->wasRecentlyCreated && !$product->wasChanged($catalogFields)) {
+            Log::info('[ignite][catalog] skipped — no pricing fields changed', [
+                'product_id'   => $product->id,
+                'product_code' => $product->product_code,
+            ]);
 
-                foreach ($catalogFields as $field) {
-                    $currentVal  = $product->$field;
-                    $originalVal = $originalProduct->$field; // DB ka original value
-
-                    if ($field === 'is_published') {
-                        $changed = (bool) $currentVal !== (bool) $originalVal;
-                    } else {
-                        // Round to 4 decimals to prevent precision issues (e.g. 20 vs 20.0000)
-                        $changed = round((float) $currentVal, 4) !== round((float) $originalVal, 4);
-                    }
-
-                    if ($changed) {
-                        $isChanged = true;
-                        Log::info("[ignite] Field changed: {$field} | Old: {$originalVal} | New: {$currentVal}");
-                        break; 
-                    }
-                }
-
-                if (!$isChanged) {
-                    Log::info('[ignite][catalog] skipped — no pricing fields changed (numeric compare)', [
-                        'product_id'   => $product->id,
-                        'product_code' => $product->product_code,
-                    ]);
-
-                    return ['status' => 'skipped:no_catalog_change'];
-                }
-            }
+            return ['status' => 'skipped:no_catalog_change'];
         }
 
         // =========================================================
