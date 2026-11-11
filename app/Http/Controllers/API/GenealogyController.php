@@ -996,34 +996,33 @@ class GenealogyController extends Controller
         });
         $rankMap = collect($planRanks)->pluck('name', 'rank_no')->toArray();
 
-        $seen = [];
+        $seen  = [];
         $build = function (string $baId, ?int $memberId, string $type) use ($baseId, $rankMap): array {
             $acc    = $this->fetchMemberDetails($baId);
             $rankNo = (int) ($acc['rank_no'] ?? 0);
             $status = strtolower($acc['membership_status'] ?? 'inactive');
-            $seq    = (int) substr($baId, strlen($baseId) + 1);  // "-004" → 4
+            $seq    = (int) substr($baId, strlen($baseId) + 1);
 
             return [
                 'account_id' => $baId,
-                'label'      => sprintf('TC-%03d', $seq),           
+                'label'      => sprintf('TC-%03d', $seq),
                 'sequence'   => $seq,
                 'member_id'  => $memberId ?? ($acc['member_id'] ?? null),
                 'rank'       => $rankMap[$rankNo] ?? 'Unranked',
                 'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
-                'type'       => $type,
+                'type'       => $type,   // ✅ "base" ya "extra_tc"
             ];
         };
 
-        // 1) Base TCs (-001, -002, -003)
-        $base = [];
+        // 1) Base TCs
+        $accounts = [];
         foreach (['-001', '-002', '-003'] as $suffix) {
             $baId = $baseId . $suffix;
-            $base[] = $build($baId, null, 'base');
+            $accounts[] = $build($baId, null, 'base');
             $seen[$baId] = true;
         }
 
-        // 2) Extra TCs — binary tree se
-        $extra = [];
+        // 2) Extra TCs from binary tree
         if ($myMemberId) {
             $treeResp = $this->ignite->binaryTree($mainBaId, 5);
             $rows     = $treeResp['data']['rows'] ?? [];
@@ -1036,11 +1035,11 @@ class GenealogyController extends Controller
                 if (!$baId || !str_starts_with($baId, $baseId . '-')) continue;
                 if (isset($seen[$baId])) continue;
 
-                $extra[] = $build($baId, $row['member_id'] ?? null, 'extra_tc');
+                $accounts[] = $build($baId, $row['member_id'] ?? null, 'extra_tc');
                 $seen[$baId] = true;
             }
 
-            // Fallback: -004 se -010 tak agar tree me nahi mile
+            // Fallback -004 to -010
             for ($i = 4; $i <= 10; $i++) {
                 $baId = sprintf('%s-%03d', $baseId, $i);
                 if (isset($seen[$baId])) continue;
@@ -1048,21 +1047,19 @@ class GenealogyController extends Controller
                 $acc = $this->fetchMemberDetails($baId);
                 if (empty($acc) || !isset($acc['member_id'])) continue;
 
-                $extra[] = $build($baId, null, 'extra_tc');
+                $accounts[] = $build($baId, null, 'extra_tc');
                 $seen[$baId] = true;
             }
         }
 
-        // Sort by sequence
-        usort($base,  fn($a, $b) => $a['sequence'] <=> $b['sequence']);
-        usort($extra, fn($a, $b) => $a['sequence'] <=> $b['sequence']);
+        // Sequence se sort
+        usort($accounts, fn($a, $b) => $a['sequence'] <=> $b['sequence']);
 
         return response()->json([
             'success'    => true,
-            'account_id' => $baseId,                          // ✅ "AIA1675197" (prefix only)
-            'total'      => count($base) + count($extra),
-            'base'       => $base,
-            'extra_tcs'  => $extra,
+            'account_id' => $baseId,
+            'total'      => count($accounts),
+            'accounts'   => $accounts,   // ✅ sirf flat list
         ]);
     }
     
