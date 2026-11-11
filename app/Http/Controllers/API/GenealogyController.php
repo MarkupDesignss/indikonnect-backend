@@ -850,6 +850,124 @@ class GenealogyController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
+    // public function myAccounts(Request $request)
+    // {
+    //     $user = Auth::user();
+
+    //     if (!$user->distributor_id) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'You are not registered on Ignite yet.',
+    //         ], 422);
+    //     }
+
+    //     $mainBaId   = $this->normalizeMainBaId($user->distributor_id);
+    //     $baseId     = preg_replace('/-(001|002|003)$/', '', $mainBaId);
+    //     $member     = $this->fetchMemberDetails($mainBaId);
+    //     $myMemberId = $member['member_id'] ?? null;
+
+    //     $planRanks = Cache::remember('ignite_plan_ranks_full', 3600, function () {
+    //         try {
+    //             $resp = $this->ignite->planRanks();
+    //             return ($resp['code'] ?? null) === ResultCode::OK->value
+    //                 ? ($resp['data']['ranks'] ?? [])
+    //                 : [];
+    //         } catch (\Throwable $e) {
+    //             return [];
+    //         }
+    //     });
+    //     $rankMap = collect($planRanks)->pluck('name', 'rank_no')->toArray();
+
+    //     $accounts = [];
+
+    //     foreach (['-001', '-002', '-003'] as $suffix) {
+    //         $baId = $baseId . $suffix;
+    //         $acc  = $this->fetchMemberDetails($baId);
+
+    //         $rankNo = (int) ($acc['rank_no'] ?? 0);
+    //         $status = strtolower($acc['membership_status'] ?? 'inactive');
+
+    //         $accounts[] = [
+    //             'account_id' => $baId,
+    //             'member_id'  => $acc['member_id'] ?? null,
+    //             'rank'       => $rankMap[$rankNo] ?? 'Unranked',
+    //             'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
+    //             'type'       => 'base',
+    //         ];
+    //     }
+
+    //     if ($myMemberId) {
+    //         $treeResp = $this->ignite->binaryTree($mainBaId, 5);
+    //         $rows     = $treeResp['data']['rows'] ?? [];
+
+    //         foreach ($rows as $row) {
+    //             if (($row['level'] ?? 0) === 0) {
+    //                 continue;
+    //             }
+
+    //             if (($row['unilevel_parent_id'] ?? null) !== $myMemberId) {
+    //                 continue;
+    //             }
+
+    //             $baId = $row['ba_id'] ?? null;
+    //             if (!$baId) {
+    //                 continue;
+    //             }
+
+    //             if (!str_starts_with($baId, $baseId . '-')) {
+    //                 continue;
+    //             }
+
+    //             if (collect($accounts)->where('account_id', $baId)->isNotEmpty()) {
+    //                 continue;
+    //             }
+
+    //             $acc    = $this->fetchMemberDetails($baId);
+    //             $rankNo = (int) ($acc['rank_no'] ?? 0);
+    //             $status = strtolower($acc['membership_status'] ?? 'inactive');
+
+    //             $accounts[] = [
+    //                 'account_id' => $baId,
+    //                 'member_id'  => $row['member_id'] ?? null,
+    //                 'rank'       => $rankMap[$rankNo] ?? 'Unranked',
+    //                 'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
+    //                 'type'       => 'extra_tc',
+    //             ];
+    //         }
+
+    //         foreach (['-004', '-005', '-006'] as $suffix) {
+    //             $baId = $baseId . $suffix;
+
+    //             if (collect($accounts)->where('account_id', $baId)->isNotEmpty()) {
+    //                 continue;
+    //             }
+
+    //             $acc = $this->fetchMemberDetails($baId);
+
+    //             if (!empty($acc) && isset($acc['member_id'])) {
+    //                 $rankNo = (int) ($acc['rank_no'] ?? 0);
+    //                 $status = strtolower($acc['membership_status'] ?? 'inactive');
+
+    //                 $accounts[] = [
+    //                     'account_id' => $baId,
+    //                     'member_id'  => $acc['member_id'],
+    //                     'rank'       => $rankMap[$rankNo] ?? 'Unranked',
+    //                     'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
+    //                     'type'       => 'extra_tc',
+    //                 ];
+    //             }
+    //         }
+    //     }
+
+    //     usort($accounts, fn($a, $b) => strcmp($a['account_id'], $b['account_id']));
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'data'    => $accounts,
+    //         'total'   => count($accounts),
+    //     ]);
+    // }
+
     public function myAccounts(Request $request)
     {
         $user = Auth::user();
@@ -861,9 +979,9 @@ class GenealogyController extends Controller
             ], 422);
         }
 
-        $mainBaId   = $this->normalizeMainBaId($user->distributor_id);
-        $baseId     = preg_replace('/-(001|002|003)$/', '', $mainBaId);
-        $member     = $this->fetchMemberDetails($mainBaId);
+        $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+        $baseId   = preg_replace('/-(001|002|003)$/', '', $mainBaId);
+        $member   = $this->fetchMemberDetails($mainBaId);
         $myMemberId = $member['member_id'] ?? null;
 
         $planRanks = Cache::remember('ignite_plan_ranks_full', 3600, function () {
@@ -878,93 +996,73 @@ class GenealogyController extends Controller
         });
         $rankMap = collect($planRanks)->pluck('name', 'rank_no')->toArray();
 
-        $accounts = [];
-
-        foreach (['-001', '-002', '-003'] as $suffix) {
-            $baId = $baseId . $suffix;
-            $acc  = $this->fetchMemberDetails($baId);
-
+        $seen = [];
+        $build = function (string $baId, ?int $memberId, string $type) use ($baseId, $rankMap): array {
+            $acc    = $this->fetchMemberDetails($baId);
             $rankNo = (int) ($acc['rank_no'] ?? 0);
             $status = strtolower($acc['membership_status'] ?? 'inactive');
+            $seq    = (int) substr($baId, strlen($baseId) + 1);  // "-004" → 4
 
-            $accounts[] = [
+            return [
                 'account_id' => $baId,
-                'member_id'  => $acc['member_id'] ?? null,
+                'label'      => sprintf('TC-%03d', $seq),           
+                'sequence'   => $seq,
+                'member_id'  => $memberId ?? ($acc['member_id'] ?? null),
                 'rank'       => $rankMap[$rankNo] ?? 'Unranked',
                 'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
-                'type'       => 'base',
+                'type'       => $type,
             ];
+        };
+
+        // 1) Base TCs (-001, -002, -003)
+        $base = [];
+        foreach (['-001', '-002', '-003'] as $suffix) {
+            $baId = $baseId . $suffix;
+            $base[] = $build($baId, null, 'base');
+            $seen[$baId] = true;
         }
 
+        // 2) Extra TCs — binary tree se
+        $extra = [];
         if ($myMemberId) {
             $treeResp = $this->ignite->binaryTree($mainBaId, 5);
             $rows     = $treeResp['data']['rows'] ?? [];
 
             foreach ($rows as $row) {
-                if (($row['level'] ?? 0) === 0) {
-                    continue;
-                }
-
-                if (($row['unilevel_parent_id'] ?? null) !== $myMemberId) {
-                    continue;
-                }
+                if (($row['level'] ?? 0) === 0) continue;
+                if (($row['unilevel_parent_id'] ?? null) !== $myMemberId) continue;
 
                 $baId = $row['ba_id'] ?? null;
-                if (!$baId) {
-                    continue;
-                }
+                if (!$baId || !str_starts_with($baId, $baseId . '-')) continue;
+                if (isset($seen[$baId])) continue;
 
-                if (!str_starts_with($baId, $baseId . '-')) {
-                    continue;
-                }
-
-                if (collect($accounts)->where('account_id', $baId)->isNotEmpty()) {
-                    continue;
-                }
-
-                $acc    = $this->fetchMemberDetails($baId);
-                $rankNo = (int) ($acc['rank_no'] ?? 0);
-                $status = strtolower($acc['membership_status'] ?? 'inactive');
-
-                $accounts[] = [
-                    'account_id' => $baId,
-                    'member_id'  => $row['member_id'] ?? null,
-                    'rank'       => $rankMap[$rankNo] ?? 'Unranked',
-                    'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
-                    'type'       => 'extra_tc',
-                ];
+                $extra[] = $build($baId, $row['member_id'] ?? null, 'extra_tc');
+                $seen[$baId] = true;
             }
 
-            foreach (['-004', '-005', '-006'] as $suffix) {
-                $baId = $baseId . $suffix;
-
-                if (collect($accounts)->where('account_id', $baId)->isNotEmpty()) {
-                    continue;
-                }
+            // Fallback: -004 se -010 tak agar tree me nahi mile
+            for ($i = 4; $i <= 10; $i++) {
+                $baId = sprintf('%s-%03d', $baseId, $i);
+                if (isset($seen[$baId])) continue;
 
                 $acc = $this->fetchMemberDetails($baId);
+                if (empty($acc) || !isset($acc['member_id'])) continue;
 
-                if (!empty($acc) && isset($acc['member_id'])) {
-                    $rankNo = (int) ($acc['rank_no'] ?? 0);
-                    $status = strtolower($acc['membership_status'] ?? 'inactive');
-
-                    $accounts[] = [
-                        'account_id' => $baId,
-                        'member_id'  => $acc['member_id'],
-                        'rank'       => $rankMap[$rankNo] ?? 'Unranked',
-                        'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
-                        'type'       => 'extra_tc',
-                    ];
-                }
+                $extra[] = $build($baId, null, 'extra_tc');
+                $seen[$baId] = true;
             }
         }
 
-        usort($accounts, fn($a, $b) => strcmp($a['account_id'], $b['account_id']));
+        // Sort by sequence
+        usort($base,  fn($a, $b) => $a['sequence'] <=> $b['sequence']);
+        usort($extra, fn($a, $b) => $a['sequence'] <=> $b['sequence']);
 
         return response()->json([
-            'success' => true,
-            'data'    => $accounts,
-            'total'   => count($accounts),
+            'success'    => true,
+            'account_id' => $baseId,                          // ✅ "AIA1675197" (prefix only)
+            'total'      => count($base) + count($extra),
+            'base'       => $base,
+            'extra_tcs'  => $extra,
         ]);
     }
     
