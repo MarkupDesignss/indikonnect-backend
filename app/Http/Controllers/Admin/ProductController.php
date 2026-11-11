@@ -4167,6 +4167,8 @@ class ProductController extends Controller
 
             $product->load(['category', 'taxCategory', 'images']);
 
+            $product->refresh();
+
             // ============================================================
             // IGNITE SYNC — product record + catalog pricing
             // Runs OUTSIDE the DB transaction.
