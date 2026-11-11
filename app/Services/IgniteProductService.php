@@ -164,8 +164,93 @@ class IgniteProductService
      *
      * @return array{status: string, request_id?: int|null, errors?: array}
      */
-    protected function syncCatalogPricing(Product $product): array
+    // protected function syncCatalogPricing(Product $product): array
+    // {
+    //     $batchRef = 'PB-' . $product->product_code . '-' . now()->format('YmdHis');
+    //     $lineRef  = 'CL-' . $product->product_code;
+
+    //     $line = [
+    //         'product_id'       => (int) $product->ignite_product_id,
+    //         'partner_line_ref' => $lineRef,
+    //         'retail_price'     => $this->fmtAmount($product->retail_price),
+    //         'member_price'     => $this->fmtAmount($product->distributor_price ?? $product->retail_price),
+    //         'cv'               => $this->fmtAmount($product->commission_value ?? 0),
+    //         'green_coin'       => $this->fmtAmount($product->green_coin ?? 0),
+    //         'blue_coin'        => $this->fmtAmount($product->blue_coin ?? 0),
+    //         'visible_start_at' => null,
+    //         'visible_end_at'   => null,
+    //         'is_enabled'       => (bool) $product->is_published,
+    //     ];
+
+    //     try {
+    //         $res = $this->ignite->saveCatalogLines([$line], $batchRef);
+    //     } catch (\Throwable $e) {
+    //         Log::error('Ignite unreachable during catalog sync', [
+    //             'product_id' => $product->id,
+    //             'error'      => $e->getMessage(),
+    //         ]);
+    //         return ['status' => 'unreachable'];
+    //     }
+
+    //     if ($res['code'] === ResultCode::OK->value) {
+    //         return [
+    //             'status'     => $res['data']['status'] ?? 'approved',
+    //             'request_id' => $res['data']['request_id'] ?? null,
+    //         ];
+    //     }
+
+    //     if ($res['code'] === ResultCode::CATALOG_LINES_REFUSED->value) {
+    //         Log::warning('Ignite catalog lines refused', [
+    //             'product_id' => $product->id,
+    //             'code'       => $res['code'],
+    //             'msg'        => $res['msg'],
+    //             'data'       => $res['data'],
+    //         ]);
+
+    //         return [
+    //             'status' => 'refused',
+    //             'errors' => $res['data']['lines'] ?? [],
+    //         ];
+    //     }
+
+    //     Log::warning('Ignite saveCatalogLines refused', [
+    //         'product_id' => $product->id,
+    //         'code'       => $res['code'],
+    //         'msg'        => $res['msg'],
+    //     ]);
+
+    //     return ['status' => 'refused'];
+    // }
+
+        protected function syncCatalogPricing(Product $product): array
     {
+        // =========================================================
+        // FIX: Sirf tab Ignite ko push karo jab pricing/CV/coins change hui ho.
+        // Isse approval queue me duplicate requests nahi aayengi.
+        // =========================================================
+        $catalogFields = [
+            'retail_price',
+            'distributor_price',
+            'commission_value',
+            'green_coin',
+            'blue_coin',
+            'is_published',
+        ];
+
+        // Agar product naya banaya gaya hai, toh push karna hai.
+        // Agar update hai, toh sirf tab push karo jab koi upar wala field change hua ho.
+        if (!$product->wasRecentlyCreated && !$product->wasChanged($catalogFields)) {
+            
+            // Log me daal do ki skip hua
+            Log::info('[ignite][catalog] skipped — no catalog fields changed', [
+                'product_id'   => $product->id,
+                'product_code' => $product->product_code,
+            ]);
+
+            return ['status' => 'skipped:no_catalog_change'];
+        }
+
+        // Agar yahan tak aaya, matlab pricing change hui hai -> Ignite ko bhejo
         $batchRef = 'PB-' . $product->product_code . '-' . now()->format('YmdHis');
         $lineRef  = 'CL-' . $product->product_code;
 
