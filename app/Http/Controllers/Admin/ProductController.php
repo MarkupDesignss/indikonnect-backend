@@ -2491,7 +2491,6 @@ class ProductController extends Controller
             'slug' => ['nullable', 'string', 'max:255', Rule::unique('products')],
             'description' => ['nullable', 'string'],
             'specification' => ['nullable', 'string'],
-            // 'ignite_product_id' => ['required'],   // ❌ removed — Ignite response se aayega
             'brand_id' => ['nullable'],
             'service_charge' => ['nullable'],
             'marketed_by' => ['nullable'],
@@ -2516,6 +2515,8 @@ class ProductController extends Controller
             'shipping_charge' => ['required', 'min:0'],
             'total_added_quantity' => ['nullable', 'min:0'],
             'commission_value' => ['required', 'integer', 'min:0'],
+            'green_coin' => ['nullable', 'numeric', 'min:0'],
+            'blue_coin'  => ['nullable', 'numeric', 'min:0'],
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'is_published' => ['nullable', 'boolean'],
             'is_trending' => ['nullable', 'boolean'],
@@ -2542,9 +2543,6 @@ class ProductController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
-
-        // ❌ Removed: validateIgniteProductIdUniqueness() — uniqueness is now
-        //    enforced on Ignite via partner_product_ref (= product_code).
 
         DB::beginTransaction();
         try {
@@ -2595,6 +2593,8 @@ class ProductController extends Controller
             $productData['marketed_by'] = $productData['marketed_by'] ?? 'IndieKonnect';
             $productData['service_charge'] = $productData['service_charge'] ?? 0;
             $productData['commission_value'] = $productData['commission_value'] ?? 0;
+            $productData['green_coin'] = $productData['green_coin'] ?? 0;
+            $productData['blue_coin']  = $productData['blue_coin'] ?? 0;
 
             unset($productData['parent_combo_id']);
             $productData['parent_combo_id'] = [];
@@ -3785,6 +3785,8 @@ class ProductController extends Controller
             'low_stock_threshold' => ['nullable', 'integer', 'min:0'],
             'shipping_charge' => ['nullable', 'min:0'],
             'commission_value' => ['nullable', 'min:0'],
+            'green_coin' => ['nullable', 'numeric', 'min:0'],
+            'blue_coin'  => ['nullable', 'numeric', 'min:0'],
 
             'manual_stock_adjustment' => ['nullable', 'integer', 'min:0'],
             'manual_stock_adjustment_operation' => ['nullable', 'in:add,subtract', 'required_with:manual_stock_adjustment'],

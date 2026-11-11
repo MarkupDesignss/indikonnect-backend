@@ -24,6 +24,8 @@ class Product extends Model
         'is_trending' => 'boolean',
         'parent_combo_id' => 'array',
         'product_type' => 'string',
+        'green_coin' => 'decimal:4',
+        'blue_coin'  => 'decimal:4',
     ];
 
     public function isCombo(): bool
