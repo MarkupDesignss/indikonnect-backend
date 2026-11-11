@@ -75,17 +75,53 @@ class IgniteHistoryController extends Controller
      * Pending (floating) CV rows — CV counts, no USD/INR conversion needed.
      * Query: after_id (default 0), limit (default 50, max 500)
      */
+    // public function floatingCvTxs(Request $request)
+    // {
+    //     $user = Auth::user();
+    //     if (!$user->distributor_id) {
+    //         return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);
+    //     }
+
+    //     $afterId = (int) ($request->input('after_id') ?? 0);
+    //     $limit   = min(max((int) $request->input('limit', 50), 1), 500);
+
+    //     $response = $this->ignite->floatingCvTxs($user->distributor_id, $afterId, $limit);
+
+    //     if (($response['code'] ?? null) !== ResultCode::OK->value) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $response['msg'] ?? 'Failed to fetch floatingCvTxs',
+    //             'code'    => $response['code'] ?? null,
+    //         ], 422);
+    //     }
+
+    //     return response()->json([
+    //         'success'  => true,
+    //         'unit'     => 'CV',
+    //         'data'     => $response['data']['rows'] ?? [],
+    //         'total'    => count($response['data']['rows'] ?? []),
+    //         'has_more' => (bool) ($response['data']['has_more'] ?? false),
+    //         'after_id' => $afterId,
+    //     ]);
+    // }
     public function floatingCvTxs(Request $request)
     {
         $user = Auth::user();
-        if (!$user->distributor_id) {
-            return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);
+
+        // ba_id explicit support (admin/self only — chahe to strict check lagao)
+        $baId = $request->input('ba_id') ?: $user->distributor_id;
+
+        if (!$baId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Not registered on Ignite',
+            ], 422);
         }
 
-        $afterId = (int) ($request->input('after_id') ?? 0);
-        $limit   = min(max((int) $request->input('limit', 50), 1), 500);
+        $afterId = (int) $request->input('after_id', 0);
+        $limit   = min(max((int) $request->input('limit', 100), 1), 500);
 
-        $response = $this->ignite->floatingCvTxs($user->distributor_id, $afterId, $limit);
+        $response = $this->ignite->floatingCvTxs($baId, $afterId, $limit);
 
         if (($response['code'] ?? null) !== ResultCode::OK->value) {
             return response()->json([
@@ -95,13 +131,20 @@ class IgniteHistoryController extends Controller
             ], 422);
         }
 
+        $rows = $response['data']['rows'] ?? [];
+
+        // Ignite ascending order (oldest first). Cursor = last row id.
+        $lastId  = !empty($rows) ? (int) end($rows)['id'] : null;
+        $hasMore = (bool) ($response['data']['has_more'] ?? false);
+
         return response()->json([
-            'success'  => true,
-            'unit'     => 'CV',
-            'data'     => $response['data']['rows'] ?? [],
-            'total'    => count($response['data']['rows'] ?? []),
-            'has_more' => (bool) ($response['data']['has_more'] ?? false),
-            'after_id' => $afterId,
+            'success'   => true,
+            'unit'      => 'CV',
+            'ba_id'     => $baId,
+            'data'      => $rows,
+            'page_size' => count($rows),
+            'has_more'  => $hasMore,
+            'after_id'  => $lastId,
         ]);
     }
 }
