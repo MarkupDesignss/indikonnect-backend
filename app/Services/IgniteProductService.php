@@ -222,11 +222,17 @@ class IgniteProductService
     //     return ['status' => 'refused'];
     // }
 
-        protected function syncCatalogPricing(Product $product): array
+        /**
+     * Push the product's price / CV into the Ignite catalog.
+     * Returns: approved | pending | unchanged | refused | unreachable | skipped:no_catalog_change
+     *
+     * @return array{status: string, request_id?: int|null, errors?: array}
+     */
+    protected function syncCatalogPricing(Product $product): array
     {
         // =========================================================
-        // FIX: Sirf tab Ignite ko push karo jab pricing/CV/coins change hui ho.
-        // Isse approval queue me duplicate requests nahi aayengi.
+        // FIX: Only sync to Ignite if pricing/CV/coins have changed.
+        // We compare with the database directly to avoid duplicates.
         // =========================================================
         $catalogFields = [
             'retail_price',
@@ -237,20 +243,38 @@ class IgniteProductService
             'is_published',
         ];
 
-        // Agar product naya banaya gaya hai, toh push karna hai.
-        // Agar update hai, toh sirf tab push karo jab koi upar wala field change hua ho.
-        if (!$product->wasRecentlyCreated && !$product->wasChanged($catalogFields)) {
-            
-            // Log me daal do ki skip hua
-            Log::info('[ignite][catalog] skipped — no catalog fields changed', [
-                'product_id'   => $product->id,
-                'product_code' => $product->product_code,
-            ]);
+        // If it's not a newly created product, fetch the original state from DB and compare
+        if (!$product->wasRecentlyCreated) {
+            $originalProduct = \App\Models\Product::find($product->id);
+            $isChanged = false;
 
-            return ['status' => 'skipped:no_catalog_change'];
+            foreach ($catalogFields as $field) {
+                // Convert to string for safe comparison (handles floats/decimals)
+                $currentVal  = (string) ($product->$field ?? '0');
+                $originalVal = (string) ($originalProduct->$field ?? '0');
+
+                if ($currentVal !== $originalVal) {
+                    $isChanged = true;
+                    Log::info("[ignite] Field changed: {$field} | Old: {$originalVal} | New: {$currentVal}");
+                    break; // One change is enough to trigger a sync
+                }
+            }
+
+            // If no catalog-related fields changed, skip the Ignite API call
+            if (!$isChanged) {
+                Log::info('[ignite][catalog] skipped — no pricing fields changed (DB compare)', [
+                    'product_id'   => $product->id,
+                    'product_code' => $product->product_code,
+                ]);
+
+                return ['status' => 'skipped:no_catalog_change'];
+            }
         }
 
-        // Agar yahan tak aaya, matlab pricing change hui hai -> Ignite ko bhejo
+        // =========================================================
+        // If we reach here, pricing/catalog fields have changed.
+        // Proceed to push to Ignite.
+        // =========================================================
         $batchRef = 'PB-' . $product->product_code . '-' . now()->format('YmdHis');
         $lineRef  = 'CL-' . $product->product_code;
 
