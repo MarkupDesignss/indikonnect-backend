@@ -834,6 +834,7 @@ class UserDashboardController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
+
     // public function getDistributorStats(Request $request)
     // {
     //     try {
@@ -869,6 +870,12 @@ class UserDashboardController extends Controller
     //             ], 404);
     //         }
 
+    //         // Clean distributor_id for response (strip "-001" style suffix)
+    //         $cleanDistributorId = null;
+    //         if (!empty($user->distributor_id)) {
+    //             $cleanDistributorId = preg_replace('/-\d+$/', '', $user->distributor_id);
+    //         }
+
     //         // Fetch local order statistics (excluding cancelled orders)
     //         $stats = DB::table('orders as o')
     //             ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
@@ -892,11 +899,11 @@ class UserDashboardController extends Controller
 
     //         if ($user->distributor_id) {
     //             try {
-    //                 // Fetch rank progress from Ignite
+    //                 // Fetch rank progress from Ignite (use ORIGINAL id)
     //                 $response = $this->ignite->rankProgress($user->distributor_id);
     //                 if ($response['code'] === ResultCode::OK->value) {
     //                     $rankProgress = $response['data'];
-                        
+
     //                     // 1. Determine Current Rank Name
     //                     $currentRankNo = $rankProgress['current']['rank_no'] ?? 0;
     //                     $ranks = $rankProgress['ranks'] ?? [];
@@ -911,11 +918,10 @@ class UserDashboardController extends Controller
 
     //                     // 3. Calculate Next Rank Details & Progress Percentage for UI
     //                     if ($currentRankNo < 8) {
-    //                         $nextRankData = $ranks[$currentRankNo] ?? null; // Array index is rank_no - 1, so current rank_no points to next rank
+    //                         $nextRankData = $ranks[$currentRankNo] ?? null;
     //                         if ($nextRankData) {
     //                             $nextRankName = $nextRankData['name'];
-                                
-    //                             // Calculate simple progress based on required steps
+
     //                             $reqSteps = $nextRankData['conditions']['steps']['required'] ?? 1;
     //                             $curSteps = $nextRankData['conditions']['steps']['current'] ?? 0;
     //                             if ($reqSteps > 0) {
@@ -931,13 +937,12 @@ class UserDashboardController extends Controller
     //                 // Silently ignore Ignite rank progress errors
     //             }
 
-    //             // Fetch Total Coins Redeemed from Ignite Ledger (pointTxs)
+    //             // Fetch Total Coins Redeemed from Ignite Ledger (use ORIGINAL id)
     //             try {
-    //                 $txResp = $this->ignite->pointTxs($user->distributor_id, 0, 500); // Fetch up to 500 recent transactions
+    //                 $txResp = $this->ignite->pointTxs($user->distributor_id, 0, 500);
     //                 $txRows = $txResp['data']['rows'] ?? [];
-                    
+
     //                 foreach ($txRows as $tx) {
-    //                     // 'cr_out' indicates coins were deducted (redeemed)
     //                     if (($tx['tx_type'] ?? null) === 'cr' && ($tx['description'] ?? '') === 'cr_out') {
     //                         $totalCoinsRedeemed += abs((float) $tx['amount']);
     //                     }
@@ -953,25 +958,25 @@ class UserDashboardController extends Controller
     //             'full_name'            => $user->full_name,
     //             'email'                => $user->email,
     //             'phone'                => $user->phone,
-    //             'distributor_id'       => $user->distributor_id,
-                
+    //             'distributor_id'       => $cleanDistributorId, // <-- CLEAN id
+
     //             // Orders Data
     //             'total_orders'         => (int) $stats->total_orders,
     //             'total_amount_mrp'     => (float) $stats->total_amount_mrp,
     //             'total_amount_mrp_currency' => 'INR',
     //             'total_savings'        => (float) $stats->total_savings,
     //             'total_savings_currency'    => 'INR',
-                
+
     //             // CV & Coins Data (Now 100% accurate from Ignite)
-    //             'total_cv'             => number_format($igniteCv, 2, '.', ''), 
+    //             'total_cv'             => number_format($igniteCv, 2, '.', ''),
     //             'total_cv_unit'        => 'CV',
     //             'total_coins_redeemed' => (int) $totalCoinsRedeemed,
-                
+
     //             // Frontend-Ready Rank Fields (No complex mapping needed)
     //             'current_rank_name'    => $currentRankName,
     //             'next_rank_name'       => $nextRankName,
     //             'rank_progress_percent'=> $rankProgressPercentage,
-                
+
     //             'account_type'         => $user->account_type,
     //             'joined_at'            => $user->created_at->toDateTimeString(),
     //             'rank_progress'        => $rankProgress, // Raw data (for detailed UI if needed)
@@ -1000,7 +1005,7 @@ class UserDashboardController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthenticated. Please login first.',
-                    'data' => []
+                    'data'    => [],
                 ], 401);
             }
 
@@ -1008,7 +1013,7 @@ class UserDashboardController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'Access denied. Only distributors can access this data.',
-                    'data' => []
+                    'data'    => [],
                 ], 403);
             }
 
@@ -1022,7 +1027,7 @@ class UserDashboardController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'Distributor not found',
-                    'data' => []
+                    'data'    => [],
                 ], 404);
             }
 
@@ -1032,7 +1037,9 @@ class UserDashboardController extends Controller
                 $cleanDistributorId = preg_replace('/-\d+$/', '', $user->distributor_id);
             }
 
-            // Fetch local order statistics (excluding cancelled orders)
+            // ---------------------------------------------------------------
+            // Local order stats (excluding cancelled orders)
+            // ---------------------------------------------------------------
             $stats = DB::table('orders as o')
                 ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
                 ->join('products as p', 'ol.product_id', '=', 'p.id')
@@ -1045,109 +1052,165 @@ class UserDashboardController extends Controller
                 ])
                 ->first();
 
-            // Initialize Ignite related variables
-            $rankProgress = null;
-            $totalCoinsRedeemed = 0;
-            $igniteCv = 0;
-            $currentRankName = 'Unranked';
-            $nextRankName = 'N/A';
+            // ---------------------------------------------------------------
+            // Ignite: rank progress, CV, coins redeemed
+            // ---------------------------------------------------------------
+            $rankProgress           = null;
+            $totalCoinsRedeemed     = 0;
+            $igniteCv               = 0;
+            $currentRankName        = 'Unranked';
+            $nextRankName           = 'N/A';
             $rankProgressPercentage = 0;
 
             if ($user->distributor_id) {
-                try {
-                    // Fetch rank progress from Ignite (use ORIGINAL id)
-                    $response = $this->ignite->rankProgress($user->distributor_id);
-                    if ($response['code'] === ResultCode::OK->value) {
-                        $rankProgress = $response['data'];
+                $baId = $user->distributor_id;
 
-                        // 1. Determine Current Rank Name
-                        $currentRankNo = $rankProgress['current']['rank_no'] ?? 0;
-                        $ranks = $rankProgress['ranks'] ?? [];
+                // ---------- 1. Rank progress ----------
+                try {
+                    $response = $this->ignite->rankProgress($baId);
+
+                    if (($response['code'] ?? null) === ResultCode::OK->value) {
+                        $rankProgress  = $response['data'] ?? [];
+                        $ranks         = $rankProgress['ranks'] ?? [];
+                        $currentRankNo = (int) ($rankProgress['current']['rank_no'] ?? 0);
+
+                        // 1a. Current rank name — match by rank_no (NOT array index)
                         foreach ($ranks as $rank) {
-                            if ($rank['rank_no'] == $currentRankNo) {
-                                $currentRankName = $rank['name'];
+                            if ((int) ($rank['rank_no'] ?? 0) === $currentRankNo) {
+                                $currentRankName = $rank['name'] ?? $currentRankName;
+                                break;
                             }
                         }
 
-                        // 2. Get Total CV from Ignite (Direct CV of the current rank)
-                        $igniteCv = (float) ($ranks[0]['conditions']['direct_cv']['current'] ?? 0);
+                        // 1b. Direct CV — first available rank's direct_cv.current
+                        foreach ($ranks as $rank) {
+                            if (isset($rank['conditions']['direct_cv']['current'])) {
+                                $igniteCv = (float) $rank['conditions']['direct_cv']['current'];
+                                break;
+                            }
+                        }
 
-                        // 3. Calculate Next Rank Details & Progress Percentage for UI
-                        if ($currentRankNo < 8) {
-                            $nextRankData = $ranks[$currentRankNo] ?? null;
-                            if ($nextRankData) {
-                                $nextRankName = $nextRankData['name'];
+                        // 1c. Next rank — first rank with rank_no > currentRankNo
+                        $sorted = $ranks;
+                        usort($sorted, fn($a, $b) => (int)($a['rank_no'] ?? 0) <=> (int)($b['rank_no'] ?? 0));
 
-                                $reqSteps = $nextRankData['conditions']['steps']['required'] ?? 1;
-                                $curSteps = $nextRankData['conditions']['steps']['current'] ?? 0;
-                                if ($reqSteps > 0) {
-                                    $rankProgressPercentage = round(($curSteps / $reqSteps) * 100);
-                                }
+                        $nextRankData = null;
+                        foreach ($sorted as $rank) {
+                            if ((int) ($rank['rank_no'] ?? 0) > $currentRankNo) {
+                                $nextRankData = $rank;
+                                break;
+                            }
+                        }
+
+                        if ($nextRankData !== null) {
+                            $nextRankName = $nextRankData['name'] ?? 'N/A';
+
+                            $reqSteps = (int) ($nextRankData['conditions']['steps']['required'] ?? 0);
+                            $curSteps = (int) ($nextRankData['conditions']['steps']['current']  ?? 0);
+
+                            if ($reqSteps > 0) {
+                                $rankProgressPercentage = (int) round(
+                                    min(100, ($curSteps / $reqSteps) * 100)
+                                );
                             }
                         } else {
                             $nextRankName = 'Max Rank Achieved';
                             $rankProgressPercentage = 100;
                         }
                     }
-                } catch (\Exception $e) {
-                    // Silently ignore Ignite rank progress errors
+                } catch (\Throwable $e) {
+                    Log::warning('Ignite rankProgress failed', [
+                        'ba_id' => $baId,
+                        'error' => $e->getMessage(),
+                    ]);
                 }
 
-                // Fetch Total Coins Redeemed from Ignite Ledger (use ORIGINAL id)
+                // ---------- 2. Coins redeemed (paginated) ----------
                 try {
-                    $txResp = $this->ignite->pointTxs($user->distributor_id, 0, 500);
-                    $txRows = $txResp['data']['rows'] ?? [];
+                    $afterId = 0;
+                    $guard   = 0; // safety against infinite loop
 
-                    foreach ($txRows as $tx) {
-                        if (($tx['tx_type'] ?? null) === 'cr' && ($tx['description'] ?? '') === 'cr_out') {
-                            $totalCoinsRedeemed += abs((float) $tx['amount']);
+                    do {
+                        $txResp = $this->ignite->pointTxs($baId, $afterId, 500);
+                        $rows   = $txResp['data']['rows'] ?? [];
+
+                        foreach ($rows as $tx) {
+                            $txType    = $tx['tx_type']    ?? null;
+                            $pointType = $tx['point_type'] ?? null;
+
+                            // Coin redemption: tx_type 'cr' on a coin balance
+                            // (yellow_bal, blue_bal, green_bal). Cash side is 'cr_in' on cash_bal.
+                            if (
+                                $txType === 'cr' &&
+                                in_array($pointType, ['yellow_bal', 'blue_bal', 'green_bal'], true)
+                            ) {
+                                $totalCoinsRedeemed += abs((float) ($tx['amount'] ?? 0));
+                            }
                         }
-                    }
-                } catch (\Exception $e) {
-                    // Silently ignore Ignite ledger errors
+
+                        if (empty($rows) || !($txResp['data']['has_more'] ?? false)) {
+                            break;
+                        }
+
+                        $afterId = (int) end($rows)['id'];
+                        $guard++;
+                    } while ($guard < 100); // max 50,000 rows to be safe
+                } catch (\Throwable $e) {
+                    Log::warning('Ignite pointTxs failed', [
+                        'ba_id' => $baId,
+                        'error' => $e->getMessage(),
+                    ]);
                 }
             }
 
-            // Build the final response array
+            // ---------------------------------------------------------------
+            // Response
+            // ---------------------------------------------------------------
             $result = [
-                'user_id'              => $user->id,
-                'full_name'            => $user->full_name,
-                'email'                => $user->email,
-                'phone'                => $user->phone,
-                'distributor_id'       => $cleanDistributorId, // <-- CLEAN id
+                'user_id'        => $user->id,
+                'full_name'      => $user->full_name,
+                'email'          => $user->email,
+                'phone'          => $user->phone,
+                'distributor_id' => $cleanDistributorId,
 
-                // Orders Data
-                'total_orders'         => (int) $stats->total_orders,
-                'total_amount_mrp'     => (float) $stats->total_amount_mrp,
+                // Orders
+                'total_orders'              => (int) $stats->total_orders,
+                'total_amount_mrp'          => (float) $stats->total_amount_mrp,
                 'total_amount_mrp_currency' => 'INR',
-                'total_savings'        => (float) $stats->total_savings,
+                'total_savings'             => (float) $stats->total_savings,
                 'total_savings_currency'    => 'INR',
 
-                // CV & Coins Data (Now 100% accurate from Ignite)
-                'total_cv'             => number_format($igniteCv, 2, '.', ''),
-                'total_cv_unit'        => 'CV',
-                'total_coins_redeemed' => (int) $totalCoinsRedeemed,
+                // CV & Coins
+                'total_cv'              => number_format($igniteCv, 2, '.', ''),
+                'total_cv_unit'         => 'CV',
+                'total_coins_redeemed'  => (int) $totalCoinsRedeemed,
 
-                // Frontend-Ready Rank Fields (No complex mapping needed)
-                'current_rank_name'    => $currentRankName,
-                'next_rank_name'       => $nextRankName,
-                'rank_progress_percent'=> $rankProgressPercentage,
+                // Rank
+                'current_rank_name'     => $currentRankName,
+                'next_rank_name'        => $nextRankName,
+                'rank_progress_percent' => $rankProgressPercentage,
 
-                'account_type'         => $user->account_type,
-                'joined_at'            => $user->created_at->toDateTimeString(),
-                'rank_progress'        => $rankProgress, // Raw data (for detailed UI if needed)
+                'account_type' => $user->account_type,
+                'joined_at'    => $user->created_at?->toDateTimeString(),
+                'rank_progress'=> $rankProgress,
             ];
 
             return response()->json([
                 'success' => true,
-                'data' => $result,
-                'message' => 'Distributor stats retrieved successfully'
+                'data'    => $result,
+                'message' => 'Distributor stats retrieved successfully',
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            Log::error('getDistributorStats failed', [
+                'user_id' => Auth::id(),
+                'error'   => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve distributor stats',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
