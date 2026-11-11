@@ -834,6 +834,163 @@ class UserDashboardController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
+    // public function getDistributorStats(Request $request)
+    // {
+    //     try {
+    //         $authUser = Auth::user();
+
+    //         if (!$authUser) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Unauthenticated. Please login first.',
+    //                 'data' => []
+    //             ], 401);
+    //         }
+
+    //         if ($authUser->account_type !== 'distributor') {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Access denied. Only distributors can access this data.',
+    //                 'data' => []
+    //             ], 403);
+    //         }
+
+    //         $userId = $authUser->id;
+
+    //         $user = User::where('account_type', 'distributor')
+    //             ->where('id', $userId)
+    //             ->first();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Distributor not found',
+    //                 'data' => []
+    //             ], 404);
+    //         }
+
+    //         // Fetch local order statistics (excluding cancelled orders)
+    //         $stats = DB::table('orders as o')
+    //             ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
+    //             ->join('products as p', 'ol.product_id', '=', 'p.id')
+    //             ->where('o.user_id', $userId)
+    //             ->where('o.status', '!=', 'cancelled')
+    //             ->select([
+    //                 DB::raw('COUNT(DISTINCT o.id) as total_orders'),
+    //                 DB::raw('COALESCE(SUM(p.distributor_mrp * ol.quantity), 0) as total_amount_mrp'),
+    //                 DB::raw('COALESCE(SUM((p.distributor_mrp - p.distributor_price) * ol.quantity), 0) as total_savings'),
+    //             ])
+    //             ->first();
+
+    //         // Initialize Ignite related variables
+    //         $rankProgress = null;
+    //         $totalCoinsRedeemed = 0;
+    //         $igniteCv = 0;
+    //         $currentRankName = 'Unranked';
+    //         $nextRankName = 'N/A';
+    //         $rankProgressPercentage = 0;
+
+    //         if ($user->distributor_id) {
+    //             try {
+    //                 // Fetch rank progress from Ignite
+    //                 $response = $this->ignite->rankProgress($user->distributor_id);
+    //                 if ($response['code'] === ResultCode::OK->value) {
+    //                     $rankProgress = $response['data'];
+                        
+    //                     // 1. Determine Current Rank Name
+    //                     $currentRankNo = $rankProgress['current']['rank_no'] ?? 0;
+    //                     $ranks = $rankProgress['ranks'] ?? [];
+    //                     foreach ($ranks as $rank) {
+    //                         if ($rank['rank_no'] == $currentRankNo) {
+    //                             $currentRankName = $rank['name'];
+    //                         }
+    //                     }
+
+    //                     // 2. Get Total CV from Ignite (Direct CV of the current rank)
+    //                     $igniteCv = (float) ($ranks[0]['conditions']['direct_cv']['current'] ?? 0);
+
+    //                     // 3. Calculate Next Rank Details & Progress Percentage for UI
+    //                     if ($currentRankNo < 8) {
+    //                         $nextRankData = $ranks[$currentRankNo] ?? null; // Array index is rank_no - 1, so current rank_no points to next rank
+    //                         if ($nextRankData) {
+    //                             $nextRankName = $nextRankData['name'];
+                                
+    //                             // Calculate simple progress based on required steps
+    //                             $reqSteps = $nextRankData['conditions']['steps']['required'] ?? 1;
+    //                             $curSteps = $nextRankData['conditions']['steps']['current'] ?? 0;
+    //                             if ($reqSteps > 0) {
+    //                                 $rankProgressPercentage = round(($curSteps / $reqSteps) * 100);
+    //                             }
+    //                         }
+    //                     } else {
+    //                         $nextRankName = 'Max Rank Achieved';
+    //                         $rankProgressPercentage = 100;
+    //                     }
+    //                 }
+    //             } catch (\Exception $e) {
+    //                 // Silently ignore Ignite rank progress errors
+    //             }
+
+    //             // Fetch Total Coins Redeemed from Ignite Ledger (pointTxs)
+    //             try {
+    //                 $txResp = $this->ignite->pointTxs($user->distributor_id, 0, 500); // Fetch up to 500 recent transactions
+    //                 $txRows = $txResp['data']['rows'] ?? [];
+                    
+    //                 foreach ($txRows as $tx) {
+    //                     // 'cr_out' indicates coins were deducted (redeemed)
+    //                     if (($tx['tx_type'] ?? null) === 'cr' && ($tx['description'] ?? '') === 'cr_out') {
+    //                         $totalCoinsRedeemed += abs((float) $tx['amount']);
+    //                     }
+    //                 }
+    //             } catch (\Exception $e) {
+    //                 // Silently ignore Ignite ledger errors
+    //             }
+    //         }
+
+    //         // Build the final response array
+    //         $result = [
+    //             'user_id'              => $user->id,
+    //             'full_name'            => $user->full_name,
+    //             'email'                => $user->email,
+    //             'phone'                => $user->phone,
+    //             'distributor_id'       => $user->distributor_id,
+                
+    //             // Orders Data
+    //             'total_orders'         => (int) $stats->total_orders,
+    //             'total_amount_mrp'     => (float) $stats->total_amount_mrp,
+    //             'total_amount_mrp_currency' => 'INR',
+    //             'total_savings'        => (float) $stats->total_savings,
+    //             'total_savings_currency'    => 'INR',
+                
+    //             // CV & Coins Data (Now 100% accurate from Ignite)
+    //             'total_cv'             => number_format($igniteCv, 2, '.', ''), 
+    //             'total_cv_unit'        => 'CV',
+    //             'total_coins_redeemed' => (int) $totalCoinsRedeemed,
+                
+    //             // Frontend-Ready Rank Fields (No complex mapping needed)
+    //             'current_rank_name'    => $currentRankName,
+    //             'next_rank_name'       => $nextRankName,
+    //             'rank_progress_percent'=> $rankProgressPercentage,
+                
+    //             'account_type'         => $user->account_type,
+    //             'joined_at'            => $user->created_at->toDateTimeString(),
+    //             'rank_progress'        => $rankProgress, // Raw data (for detailed UI if needed)
+    //         ];
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $result,
+    //             'message' => 'Distributor stats retrieved successfully'
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to retrieve distributor stats',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function getDistributorStats(Request $request)
     {
         try {
@@ -869,6 +1026,12 @@ class UserDashboardController extends Controller
                 ], 404);
             }
 
+            // Clean distributor_id for response (strip "-001" style suffix)
+            $cleanDistributorId = null;
+            if (!empty($user->distributor_id)) {
+                $cleanDistributorId = preg_replace('/-\d+$/', '', $user->distributor_id);
+            }
+
             // Fetch local order statistics (excluding cancelled orders)
             $stats = DB::table('orders as o')
                 ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
@@ -892,11 +1055,11 @@ class UserDashboardController extends Controller
 
             if ($user->distributor_id) {
                 try {
-                    // Fetch rank progress from Ignite
+                    // Fetch rank progress from Ignite (use ORIGINAL id)
                     $response = $this->ignite->rankProgress($user->distributor_id);
                     if ($response['code'] === ResultCode::OK->value) {
                         $rankProgress = $response['data'];
-                        
+
                         // 1. Determine Current Rank Name
                         $currentRankNo = $rankProgress['current']['rank_no'] ?? 0;
                         $ranks = $rankProgress['ranks'] ?? [];
@@ -911,11 +1074,10 @@ class UserDashboardController extends Controller
 
                         // 3. Calculate Next Rank Details & Progress Percentage for UI
                         if ($currentRankNo < 8) {
-                            $nextRankData = $ranks[$currentRankNo] ?? null; // Array index is rank_no - 1, so current rank_no points to next rank
+                            $nextRankData = $ranks[$currentRankNo] ?? null;
                             if ($nextRankData) {
                                 $nextRankName = $nextRankData['name'];
-                                
-                                // Calculate simple progress based on required steps
+
                                 $reqSteps = $nextRankData['conditions']['steps']['required'] ?? 1;
                                 $curSteps = $nextRankData['conditions']['steps']['current'] ?? 0;
                                 if ($reqSteps > 0) {
@@ -931,13 +1093,12 @@ class UserDashboardController extends Controller
                     // Silently ignore Ignite rank progress errors
                 }
 
-                // Fetch Total Coins Redeemed from Ignite Ledger (pointTxs)
+                // Fetch Total Coins Redeemed from Ignite Ledger (use ORIGINAL id)
                 try {
-                    $txResp = $this->ignite->pointTxs($user->distributor_id, 0, 500); // Fetch up to 500 recent transactions
+                    $txResp = $this->ignite->pointTxs($user->distributor_id, 0, 500);
                     $txRows = $txResp['data']['rows'] ?? [];
-                    
+
                     foreach ($txRows as $tx) {
-                        // 'cr_out' indicates coins were deducted (redeemed)
                         if (($tx['tx_type'] ?? null) === 'cr' && ($tx['description'] ?? '') === 'cr_out') {
                             $totalCoinsRedeemed += abs((float) $tx['amount']);
                         }
@@ -953,25 +1114,25 @@ class UserDashboardController extends Controller
                 'full_name'            => $user->full_name,
                 'email'                => $user->email,
                 'phone'                => $user->phone,
-                'distributor_id'       => $user->distributor_id,
-                
+                'distributor_id'       => $cleanDistributorId, // <-- CLEAN id
+
                 // Orders Data
                 'total_orders'         => (int) $stats->total_orders,
                 'total_amount_mrp'     => (float) $stats->total_amount_mrp,
                 'total_amount_mrp_currency' => 'INR',
                 'total_savings'        => (float) $stats->total_savings,
                 'total_savings_currency'    => 'INR',
-                
+
                 // CV & Coins Data (Now 100% accurate from Ignite)
-                'total_cv'             => number_format($igniteCv, 2, '.', ''), 
+                'total_cv'             => number_format($igniteCv, 2, '.', ''),
                 'total_cv_unit'        => 'CV',
                 'total_coins_redeemed' => (int) $totalCoinsRedeemed,
-                
+
                 // Frontend-Ready Rank Fields (No complex mapping needed)
                 'current_rank_name'    => $currentRankName,
                 'next_rank_name'       => $nextRankName,
                 'rank_progress_percent'=> $rankProgressPercentage,
-                
+
                 'account_type'         => $user->account_type,
                 'joined_at'            => $user->created_at->toDateTimeString(),
                 'rank_progress'        => $rankProgress, // Raw data (for detailed UI if needed)
