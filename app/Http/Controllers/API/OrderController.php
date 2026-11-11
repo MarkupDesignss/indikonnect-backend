@@ -1611,6 +1611,7 @@ class OrderController extends Controller
                             'name'           => $order->user->full_name,
                             'email'          => $order->user->email,
                             'phone'          => $order->user->phone ?? null,
+                            'ba_id'          => $order->user->distributor_id  ?? null,
                             'is_distributor' => $order->user->isDistributor(),
                         ],
                         'shipping_address' => $order->deliveryAddress ? [
