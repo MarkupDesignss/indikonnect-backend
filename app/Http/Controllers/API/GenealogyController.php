@@ -472,19 +472,157 @@ class GenealogyController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
+    // public function placeBankedTc(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'ba_id'               => 'required|string',
+    //         'side'                => 'required|in:1,2',
+    //         'placement_ba_id'     => 'nullable|string',  
+    //         'placement_member_id' => 'nullable|integer', 
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'errors'  => $validator->errors(),
+    //         ], 422);
+    //     }
+
+    //     $user = Auth::user();
+
+    //     if (!$user->distributor_id) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'You are not registered on Ignite yet.',
+    //         ], 422);
+    //     }
+
+    //     $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+    //     $side     = (int) $request->side;
+
+    //     $requestedBaId = $request->ba_id;
+    //     $baseId = preg_replace('/-(001|002|003)$/', '', $mainBaId);
+    //     $allowedBaIds = [$baseId . '-001', $baseId . '-002', $baseId . '-003'];
+
+    //     if (!in_array($requestedBaId, $allowedBaIds)) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'You can only place TCs from your own account.',
+    //         ], 403);
+    //     }
+
+    //     $placementParent = null;
+
+    //     if ($request->filled('placement_ba_id')) {
+    //         $placementParent = $request->placement_ba_id;
+    //     } 
+    //     elseif ($request->filled('placement_member_id')) {
+    //         $placementParent = (int) $request->placement_member_id;
+    //     } 
+    //     else {
+    //         $member  = $this->fetchMemberDetails($mainBaId);
+    //         $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
+    //         $slotId  = $member[$slotKey] ?? null;
+
+    //         if (empty($slotId)) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'That side is not available for placement.',
+    //             ], 422);
+    //         }
+    //         $placementParent = (int) $slotId;
+    //     }
+
+    //     try {
+    //         $response = $this->ignite->placeBankedTc(
+    //             baId:            $requestedBaId,
+    //             placementParent: $placementParent, 
+    //             side:            $side,
+    //         );
+    //     } catch (\Throwable $e) {
+    //         Log::error('Ignite placeBankedTc threw', [
+    //             'ba_id' => $requestedBaId,
+    //             'error' => $e->getMessage(),
+    //         ]);
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Ignite unreachable. Please try again later.',
+    //         ], 503);
+    //     }
+
+    //     $code = $response['code'] ?? null;
+
+    //     if ($code === ResultCode::TC_BANK_EMPTY->value) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'TC Bank is empty. You have no extra TCs to place.',
+    //             'code'    => ResultCode::TC_BANK_EMPTY->value,
+    //         ], 422);
+    //     }
+
+    //     if ($code === ResultCode::PLACEMENT_DEADLINE_PASSED->value) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Placement deadline has passed. Please contact Ignite operations.',
+    //             'code'    => ResultCode::PLACEMENT_DEADLINE_PASSED->value,
+    //         ], 422);
+    //     }
+
+    //     if ($code === ResultCode::PLACEMENT_REFUSED->value) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $response['msg'] ?? 'That position is not available. It might be taken or held.',
+    //             'code'    => ResultCode::PLACEMENT_REFUSED->value,
+    //         ], 422);
+    //     }
+
+    //     if ($code === ResultCode::NETWORK_BUSY->value) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Network is busy. Another placement is in progress. Please try again.',
+    //             'code'    => ResultCode::NETWORK_BUSY->value,
+    //         ], 503);
+    //     }
+
+    //     if ($code !== ResultCode::OK->value) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $response['msg'] ?? 'Failed to place banked TC.',
+    //             'code'    => $code,
+    //         ], 422);
+    //     }
+
+    //     Cache::forget("ignite_member_{$mainBaId}");
+    //     Cache::forget("ignite_member_{$requestedBaId}");
+    //     Cache::forget("ignite_binary_tree_{$mainBaId}");
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'TC placed successfully at the selected position.',
+    //         'data'    => $response['data'] ?? null,
+    //     ]);
+    // }
+
     public function placeBankedTc(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'ba_id'               => 'required|string',
             'side'                => 'required|in:1,2',
-            'placement_ba_id'     => 'nullable|string',  
-            'placement_member_id' => 'nullable|integer', 
+            'placement_ba_id'     => 'nullable|string|regex:/^[A-Z0-9]+-\d{3,}$/',
+            'placement_member_id' => 'nullable|integer',
         ]);
 
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
                 'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        // Exactly one of placement_ba_id / placement_member_id, or neither (auto far-end)
+        if ($request->filled('placement_ba_id') && $request->filled('placement_member_id')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Send placement_ba_id or placement_member_id, not both.',
             ], 422);
         }
 
@@ -497,29 +635,32 @@ class GenealogyController extends Controller
             ], 422);
         }
 
+        // Ignite placeBankedTc always acts on the MAIN account (-001)
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+        $baseId   = preg_replace('/-(001|002|003)$/', '', $mainBaId);
         $side     = (int) $request->side;
 
-        $requestedBaId = $request->ba_id;
-        $baseId = preg_replace('/-(001|002|003)$/', '', $mainBaId);
-        $allowedBaIds = [$baseId . '-001', $baseId . '-002', $baseId . '-003'];
-
-        if (!in_array($requestedBaId, $allowedBaIds)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You can only place TCs from your own account.',
-            ], 403);
-        }
-
+        // Resolve the placement parent
         $placementParent = null;
 
         if ($request->filled('placement_ba_id')) {
-            $placementParent = $request->placement_ba_id;
-        } 
+            $placementBaId = $request->placement_ba_id;
+
+            // Parent must sit inside the user's own network (own base, any TC -002..-999)
+            if (!str_starts_with($placementBaId, $baseId . '-')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You can only place TCs inside your own network.',
+                ], 403);
+            }
+
+            $placementParent = $placementBaId; // string -> placement_ba_id
+        }
         elseif ($request->filled('placement_member_id')) {
-            $placementParent = (int) $request->placement_member_id;
-        } 
+            $placementParent = (int) $request->placement_member_id; // int -> placement_member_id
+        }
         else {
+            // No parent chosen: auto far-end of the user's main account on the chosen side
             $member  = $this->fetchMemberDetails($mainBaId);
             $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
             $slotId  = $member[$slotKey] ?? null;
@@ -535,14 +676,16 @@ class GenealogyController extends Controller
 
         try {
             $response = $this->ignite->placeBankedTc(
-                baId:            $requestedBaId,
-                placementParent: $placementParent, 
+                baId:            $mainBaId,        // always AIAxxxxxxx-001
+                placementParent: $placementParent, // BA ID (string) or member_id (int)
                 side:            $side,
             );
         } catch (\Throwable $e) {
             Log::error('Ignite placeBankedTc threw', [
-                'ba_id' => $requestedBaId,
-                'error' => $e->getMessage(),
+                'ba_id'           => $mainBaId,
+                'placement'       => $placementParent,
+                'side'            => $side,
+                'error'           => $e->getMessage(),
             ]);
             return response()->json([
                 'success' => false,
@@ -576,12 +719,37 @@ class GenealogyController extends Controller
             ], 422);
         }
 
+        if ($code === ResultCode::EXTRA_TC_PARENT_INVALID->value) {
+            return response()->json([
+                'success' => false,
+                'message' => $response['msg'] ?? 'That parent is not in your binary network.',
+                'code'    => ResultCode::EXTRA_TC_PARENT_INVALID->value,
+            ], 422);
+        }
+
         if ($code === ResultCode::NETWORK_BUSY->value) {
             return response()->json([
                 'success' => false,
                 'message' => 'Network is busy. Another placement is in progress. Please try again.',
                 'code'    => ResultCode::NETWORK_BUSY->value,
             ], 503);
+        }
+
+        if ($code === ResultCode::MEMBER_NOT_FOUND->value) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Placement parent not found.',
+                'code'    => ResultCode::MEMBER_NOT_FOUND->value,
+            ], 422);
+        }
+
+        if ($code === ResultCode::VALIDATION_FAILED->value) {
+            return response()->json([
+                'success' => false,
+                'message' => $response['msg'] ?? 'Invalid placement request.',
+                'errors'  => $response['data'] ?? null,
+                'code'    => ResultCode::VALIDATION_FAILED->value,
+            ], 422);
         }
 
         if ($code !== ResultCode::OK->value) {
@@ -592,14 +760,30 @@ class GenealogyController extends Controller
             ], 422);
         }
 
+        // Clear both the main account and parent caches so dashboard refreshes
         Cache::forget("ignite_member_{$mainBaId}");
-        Cache::forget("ignite_member_{$requestedBaId}");
         Cache::forget("ignite_binary_tree_{$mainBaId}");
+        if (is_string($placementParent)) {
+            Cache::forget("ignite_member_{$placementParent}");
+        }
+
+        // Build a friendly confirmation using Ignite's reply
+        $placed = $response['data'] ?? [];
+        $placedBaId   = $placed['ba_id'] ?? null;                 // AIA1675197-005
+        $parentBaId   = $placed['binary_parent_ba_id'] ?? null;   // AIA1675197-004
+        $sideLabel    = ((int) ($placed['binary_side'] ?? $side)) === 1 ? 'Left' : 'Right';
 
         return response()->json([
             'success' => true,
-            'message' => 'TC placed successfully at the selected position.',
-            'data'    => $response['data'] ?? null,
+            'message' => $placedBaId
+                ? "TC placed successfully: {$placedBaId} under {$parentBaId} ({$sideLabel})."
+                : 'TC placed successfully at the selected position.',
+            'data' => [
+                'placed_tc' => $placedBaId,
+                'parent_tc' => $parentBaId,
+                'side'      => (int) ($placed['binary_side'] ?? $side),
+                'raw'       => $placed,
+            ],
         ]);
     }
 
@@ -907,151 +1091,151 @@ class GenealogyController extends Controller
     // }
 
     public function tcBankDashboard(Request $request)
-    {
-        $user = Auth::user();
+{
+    $user = Auth::user();
 
-        if (!$user->distributor_id) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You are not registered on Ignite yet.',
-            ], 422);
+    if (!$user->distributor_id) {
+        return response()->json([
+            'success' => false,
+            'message' => 'You are not registered on Ignite yet.',
+        ], 422);
+    }
+
+    $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+    $baseId   = preg_replace('/-(001|002|003)$/', '', $mainBaId);
+
+    // 1. Member details
+    $member          = $this->fetchMemberDetails($mainBaId);
+    $tcBankAvailable = (int) ($member['tc_bank_available'] ?? 0);
+
+    // 2. Plan ranks -> zone TC CV price
+    $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
+        try {
+            $resp = $this->ignite->planRanks();
+            return ($resp['code'] ?? null) === ResultCode::OK->value ? ($resp['data']['plan'] ?? []) : [];
+        } catch (\Throwable $e) {
+            return [];
         }
+    });
+    $zoneTcCvPrice = (float) ($planResp['base_product_cv'] ?? 600);
 
-        $mainBaId = $this->normalizeMainBaId($user->distributor_id);
-        $baseId   = preg_replace('/-(001|002|003)$/', '', $mainBaId);
+    // 3. Base accounts
+    $accounts = [];
+    foreach (['-001', '-002', '-003'] as $suffix) {
+        $baId = $baseId . $suffix;
+        $acc  = $this->fetchMemberDetails($baId);
 
-        // 1. Member details
-        $member          = $this->fetchMemberDetails($mainBaId);
-        $tcBankAvailable = (int) ($member['tc_bank_available'] ?? 0);
+        $accounts[] = [
+            'account_id' => $baId,
+            'member_id'  => $acc['member_id'] ?? null,
+            'rank_no'    => $acc['rank_no'] ?? 0,
+            'status'     => ucfirst($acc['membership_status'] ?? 'Inactive'),
+            'qualified'  => !empty($acc['qualified_at']),
+            'type'       => 'base',
+        ];
+    }
 
-        // 2. Plan ranks -> zone TC CV price
-        $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
-            try {
-                $resp = $this->ignite->planRanks();
-                return ($resp['code'] ?? null) === ResultCode::OK->value ? ($resp['data']['plan'] ?? []) : [];
-            } catch (\Throwable $e) {
-                return [];
+    // 4. Available placements -> grouped by base ID
+    $groups = [];
+    try {
+        $treeResp = $this->ignite->binaryTree($mainBaId, 5);
+        $treeRows = $treeResp['data']['rows'] ?? [];
+
+        foreach ($treeRows as $row) {
+            $nodeBaId = $row['ba_id'] ?? null;
+            if (empty($nodeBaId) || str_ends_with($nodeBaId, '-001')) {
+                continue;
             }
-        });
-        $zoneTcCvPrice = (float) ($planResp['base_product_cv'] ?? 600);
 
-        // 3. Base accounts
-        $accounts = [];
-        foreach (['-001', '-002', '-003'] as $suffix) {
-            $baId = $baseId . $suffix;
-            $acc  = $this->fetchMemberDetails($baId);
+            $isLeftFree  = empty($row['far_left_id'])  && empty($row['far_left_ba_id']);
+            $isRightFree = empty($row['far_right_id']) && empty($row['far_right_ba_id']);
 
-            $accounts[] = [
-                'account_id' => $baId,
-                'member_id'  => $acc['member_id'] ?? null,
-                'rank_no'    => $acc['rank_no'] ?? 0,
-                'status'     => ucfirst($acc['membership_status'] ?? 'Inactive'),
-                'qualified'  => !empty($acc['qualified_at']),
-                'type'       => 'base',
+            if (!$isLeftFree && !$isRightFree) {
+                continue;
+            }
+
+            // AIA1675197-004 -> base AIA1675197, suffix 004
+            if (preg_match('/^(.*)-(\d{3,})$/', $nodeBaId, $m)) {
+                $base        = $m[1];
+                $suffix      = $m[2];
+                $tcLabel     = 'TC-' . $suffix;   // TC-004
+            } else {
+                $base    = $nodeBaId;
+                $suffix  = null;
+                $tcLabel = $nodeBaId;
+            }
+
+            $groups[$base] ??= [
+                'base_id' => $base,
+                'label'   => $base,
+                'slots'   => [],
+            ];
+
+            $groups[$base]['slots'][] = [
+                'ba_id'           => $nodeBaId,
+                'member_id'       => $row['member_id'] ?? null,
+                'tc_suffix'       => $suffix,
+                'tc_label'        => $tcLabel,        // TC-004
+                'display_label'   => $tcLabel,        // dropdown me yahi dikhega
+                'left_available'  => $isLeftFree,
+                'right_available' => $isRightFree,
             ];
         }
 
-        // 4. Available placements -> grouped by base ID
+        // sort slots inside each group by suffix numerically
+        foreach ($groups as &$g) {
+            usort($g['slots'], fn ($a, $b) => ((int) $a['tc_suffix']) <=> ((int) $b['tc_suffix']));
+            $g['tc_count'] = count($g['slots']);
+        }
+        unset($g);
+
+        // sort groups by base id
+        ksort($groups);
+        $groups = array_values($groups);
+
+    } catch (\Throwable $e) {
         $groups = [];
-        try {
-            $treeResp = $this->ignite->binaryTree($mainBaId, 5);
-            $treeRows = $treeResp['data']['rows'] ?? [];
-
-            foreach ($treeRows as $row) {
-                $nodeBaId = $row['ba_id'] ?? null;
-                if (empty($nodeBaId) || str_ends_with($nodeBaId, '-001')) {
-                    continue;
-                }
-
-                $isLeftFree  = empty($row['far_left_id'])  && empty($row['far_left_ba_id']);
-                $isRightFree = empty($row['far_right_id']) && empty($row['far_right_ba_id']);
-
-                if (!$isLeftFree && !$isRightFree) {
-                    continue;
-                }
-
-                // AIA1675197-004 -> base AIA1675197, suffix 004
-                if (preg_match('/^(.*)-(\d{3,})$/', $nodeBaId, $m)) {
-                    $base        = $m[1];
-                    $suffix      = $m[2];
-                    $tcLabel     = 'TC-' . $suffix;   // TC-004
-                } else {
-                    $base    = $nodeBaId;
-                    $suffix  = null;
-                    $tcLabel = $nodeBaId;
-                }
-
-                $groups[$base] ??= [
-                    'base_id' => $base,
-                    'label'   => $base,
-                    'slots'   => [],
-                ];
-
-                $groups[$base]['slots'][] = [
-                    'ba_id'           => $nodeBaId,
-                    'member_id'       => $row['member_id'] ?? null,
-                    'tc_suffix'       => $suffix,
-                    'tc_label'        => $tcLabel,        // TC-004
-                    'display_label'   => $tcLabel,        // dropdown me yahi dikhega
-                    'left_available'  => $isLeftFree,
-                    'right_available' => $isRightFree,
-                ];
-            }
-
-            // sort slots inside each group by suffix numerically
-            foreach ($groups as &$g) {
-                usort($g['slots'], fn ($a, $b) => ((int) $a['tc_suffix']) <=> ((int) $b['tc_suffix']));
-                $g['tc_count'] = count($g['slots']);
-            }
-            unset($g);
-
-            // sort groups by base id
-            ksort($groups);
-            $groups = array_values($groups);
-
-        } catch (\Throwable $e) {
-            $groups = [];
-        }
-
-        // 5. TC bank transactions (unchanged)
-        $transactions = [];
-        try {
-            $txResp = $this->ignite->pointTxs($mainBaId, 0, 100);
-            $txRows = $txResp['data']['rows'] ?? [];
-
-            foreach ($txRows as $tx) {
-                if (($tx['point_type'] ?? '') === 'tc_bank') {
-                    $transactions[] = [
-                        'date'           => \Carbon\Carbon::parse($tx['created_at'])->format('d/m/Y'),
-                        'category'       => ucfirst($tx['tx_type'] ?? 'Other'),
-                        'description'    => $tx['description'] ?? '-',
-                        'tc_bank_change' => (int) $tx['amount'],
-                        'order_id'       => $tx['order_no'] ?? '-',
-                        'related_member' => $tx['rel_ba_id'] ?? '-',
-                    ];
-                }
-            }
-        } catch (\Throwable $e) {
-            // ignore
-        }
-
-        $qualifiedCount  = collect($accounts)->where('qualified', true)->count();
-        $qualifiedStatus = "{$qualifiedCount} / 3";
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'balances' => [
-                    'available_balance' => $tcBankAvailable,
-                    'qualified_status'  => $qualifiedStatus,
-                    'zone_tc_cv_price'  => $zoneTcCvPrice,
-                ],
-                'my_accounts'           => $accounts,
-                'available_slot_groups' => $groups,
-                'tc_transactions'       => $transactions,
-            ],
-        ]);
     }
+
+    // 5. TC bank transactions (unchanged)
+    $transactions = [];
+    try {
+        $txResp = $this->ignite->pointTxs($mainBaId, 0, 100);
+        $txRows = $txResp['data']['rows'] ?? [];
+
+        foreach ($txRows as $tx) {
+            if (($tx['point_type'] ?? '') === 'tc_bank') {
+                $transactions[] = [
+                    'date'           => \Carbon\Carbon::parse($tx['created_at'])->format('d/m/Y'),
+                    'category'       => ucfirst($tx['tx_type'] ?? 'Other'),
+                    'description'    => $tx['description'] ?? '-',
+                    'tc_bank_change' => (int) $tx['amount'],
+                    'order_id'       => $tx['order_no'] ?? '-',
+                    'related_member' => $tx['rel_ba_id'] ?? '-',
+                ];
+            }
+        }
+    } catch (\Throwable $e) {
+        // ignore
+    }
+
+    $qualifiedCount  = collect($accounts)->where('qualified', true)->count();
+    $qualifiedStatus = "{$qualifiedCount} / 3";
+
+    return response()->json([
+        'success' => true,
+        'data' => [
+            'balances' => [
+                'available_balance' => $tcBankAvailable,
+                'qualified_status'  => $qualifiedStatus,
+                'zone_tc_cv_price'  => $zoneTcCvPrice,
+            ],
+            'my_accounts'           => $accounts,
+            'available_slot_groups' => $groups,
+            'tc_transactions'       => $transactions,
+        ],
+    ]);
+}
 
     // ==================== PRIVATE HELPERS ====================
 
