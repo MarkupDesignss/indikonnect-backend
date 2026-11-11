@@ -996,7 +996,7 @@ class UserDashboardController extends Controller
     //     }
     // }
 
-    public function getDistributorStats(Request $request)
+   public function getDistributorStats(Request $request)
     {
         try {
             $authUser = Auth::user();
@@ -1038,7 +1038,7 @@ class UserDashboardController extends Controller
             }
 
             // ---------------------------------------------------------------
-            // Local order stats (excluding cancelled orders)
+            // Local order stats (NULL-safe COALESCE, cancelled excluded)
             // ---------------------------------------------------------------
             $stats = DB::table('orders as o')
                 ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
@@ -1047,8 +1047,8 @@ class UserDashboardController extends Controller
                 ->where('o.status', '!=', 'cancelled')
                 ->select([
                     DB::raw('COUNT(DISTINCT o.id) as total_orders'),
-                    DB::raw('COALESCE(SUM(p.distributor_mrp * ol.quantity), 0) as total_amount_mrp'),
-                    DB::raw('COALESCE(SUM((p.distributor_mrp - p.distributor_price) * ol.quantity), 0) as total_savings'),
+                    DB::raw('COALESCE(SUM(COALESCE(p.distributor_mrp, 0) * ol.quantity), 0) as total_amount_mrp'),
+                    DB::raw('COALESCE(SUM((COALESCE(p.distributor_mrp, 0) - COALESCE(p.distributor_price, 0)) * ol.quantity), 0) as total_savings'),
                 ])
                 ->first();
 
@@ -1061,6 +1061,7 @@ class UserDashboardController extends Controller
             $currentRankName        = 'Unranked';
             $nextRankName           = 'N/A';
             $rankProgressPercentage = 0;
+            $blockingConditions     = [];
 
             if ($user->distributor_id) {
                 $baId = $user->distributor_id;
@@ -1105,14 +1106,40 @@ class UserDashboardController extends Controller
                         if ($nextRankData !== null) {
                             $nextRankName = $nextRankData['name'] ?? 'N/A';
 
-                            $reqSteps = (int) ($nextRankData['conditions']['steps']['required'] ?? 0);
-                            $curSteps = (int) ($nextRankData['conditions']['steps']['current']  ?? 0);
+                            $metCount   = 0;
+                            $totalCount = 0;
 
-                            if ($reqSteps > 0) {
-                                $rankProgressPercentage = (int) round(
-                                    min(100, ($curSteps / $reqSteps) * 100)
-                                );
+                            $conditionLabels = [
+                                'steps'               => 'Pairing Steps',
+                                'direct_cv'           => 'Direct CV',
+                                'downlines_one_below' => 'Downlines (1 below)',
+                                'downlines_two_below' => 'Downlines (2 below)',
+                                'tenure'              => 'Tenure (months)',
+                            ];
+
+                            foreach ($conditionLabels as $key => $label) {
+                                if (!isset($nextRankData['conditions'][$key])) {
+                                    continue;
+                                }
+
+                                $totalCount++;
+                                $cond = $nextRankData['conditions'][$key];
+
+                                if (!empty($cond['met'])) {
+                                    $metCount++;
+                                } else {
+                                    $blockingConditions[] = [
+                                        'key'      => $key,
+                                        'label'    => $label,
+                                        'current'  => $cond['current']  ?? 0,
+                                        'required' => $cond['required'] ?? 0,
+                                    ];
+                                }
                             }
+
+                            $rankProgressPercentage = $totalCount > 0
+                                ? (int) round(($metCount / $totalCount) * 100)
+                                : 0;
                         } else {
                             $nextRankName = 'Max Rank Achieved';
                             $rankProgressPercentage = 100;
@@ -1189,6 +1216,7 @@ class UserDashboardController extends Controller
                 'current_rank_name'     => $currentRankName,
                 'next_rank_name'        => $nextRankName,
                 'rank_progress_percent' => $rankProgressPercentage,
+                'next_rank_blocking'    => $blockingConditions,   // ✅ NEW
 
                 'account_type' => $user->account_type,
                 'joined_at'    => $user->created_at?->toDateTimeString(),
