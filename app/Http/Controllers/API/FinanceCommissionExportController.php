@@ -19,17 +19,22 @@ class FinanceCommissionExportController extends Controller
         $this->ignite = $ignite;
     }
 
+    /**
+     * GET /api/finance/commission-export?week=42&year=2026
+     * 
+     * TIP: Use week=0 to see the full Ignite Sales Calendar for debugging
+     */
     public function download(Request $request)
     {
         $request->validate([
-            'week' => 'required|integer|min:0|max:53',
+            'week' => 'required|integer|min:0|max:53', // 0 = debug calendar
             'year' => 'required|integer|min:2020|max:2100',
         ]);
 
         $week = (int) $request->week;
         $year = (int) $request->year;
 
-        // Debug mode
+        // 🔍 DEBUG MODE: Show entire Ignite calendar
         if ($week === 0) {
             $calendar = $this->ignite->salesCalendar($year);
             return response()->json([
@@ -39,7 +44,7 @@ class FinanceCommissionExportController extends Controller
             ]);
         }
 
-        // Get exact week boundaries from Ignite Calendar (HKT)
+        // Get exact week boundaries from Ignite Calendar
         [$weekStart, $weekEnd] = $this->getWeekRange($week, $year);
 
         Log::info("Commission export started", [
@@ -67,14 +72,12 @@ class FinanceCommissionExportController extends Controller
 
                 $grossCommission = 0;
 
-                // ✅ Sirf actual commission (comm) count karo
                 foreach ($history as $tx) {
-                    if (($tx['point_type'] ?? '') === 'cash_bal' && ($tx['tx_type'] ?? '') === 'comm') {
+                    if (($tx['point_type'] ?? '') === 'cash_bal') {
                         $grossCommission += (float) $tx['amount_inr'];
                     }
                 }
 
-                // Skip if no commission
                 if ($grossCommission <= 0) {
                     continue;
                 }
@@ -84,27 +87,17 @@ class FinanceCommissionExportController extends Controller
 
                 $profile = $dist->distributorProfile;
 
-                // Decrypt bank account if needed
-                $bankAccount = '-';
-                if ($profile && !empty($profile->encrypted_bank_account)) {
-                    try {
-                        $bankAccount = \Illuminate\Support\Facades\Crypt::decryptString($profile->encrypted_bank_account);
-                    } catch (\Throwable $e) {
-                        $bankAccount = $profile->encrypted_bank_account; // fallback
-                    }
-                }
-
                 $rows[] = [
                     'ba_id'              => $dist->distributor_id,
                     'distributor_name'   => $dist->full_name,
                     'email'              => $dist->email,
                     'week'               => $week,
                     'year'               => $year,
-                    'gross_commission'   => round($grossCommission, 2),
+                    'gross_commission'   => $grossCommission,
                     'tds_amount'         => $tdsAmount,
                     'net_commission'     => $netCommission,
                     'bank_holder_name'   => $profile->bank_holder_name ?? '-',
-                    'bank_account_number'=> $bankAccount,
+                    'bank_account_number'=> $profile->encrypted_bank_account ?? '-',
                     'bank_ifsc'          => $profile->bank_ifsc ?? '-',
                 ];
             } catch (\Throwable $e) {
@@ -137,8 +130,8 @@ class FinanceCommissionExportController extends Controller
                 'year' => $year,
             ],
             'week_range' => [
-                'start' => $weekStart->format('Y-m-d H:i:s') . ' HKT',
-                'end'   => $weekEnd->format('Y-m-d H:i:s') . ' HKT',
+                'start' => $weekStart->format('Y-m-d H:i:s'),
+                'end'   => $weekEnd->format('Y-m-d H:i:s'),
             ],
             'summary' => [
                 'total_distributors' => $distributors->count(),
@@ -150,8 +143,12 @@ class FinanceCommissionExportController extends Controller
         ]);
     }
 
+    /**
+     * Get exact week boundaries from Ignite Sales Calendar API
+     */
     private function getWeekRange(int $week, int $year): array
     {
+        // Fetch calendar once per year (cache for 24 hours)
         $calendar = \Illuminate\Support\Facades\Cache::remember("ignite_calendar_{$year}", 86400, function () use ($year) {
             $resp = $this->ignite->salesCalendar($year);
             return ($resp['code'] ?? null) === ResultCode::OK->value ? $resp['data'] : null;
@@ -201,6 +198,7 @@ class FinanceCommissionExportController extends Controller
                 break;
             }
 
+            // Check if we've reached older data
             $firstRowDate = Carbon::parse($rawRows[0]['created_at'] ?? now())
                 ->setTimezone('Asia/Hong_Kong');
                 
@@ -236,17 +234,15 @@ class FinanceCommissionExportController extends Controller
 
         $amount    = (float) ($row['amount'] ?? 0);
         $pointType = $row['point_type'] ?? '';
-        $txType    = $row['tx_type'] ?? '';
         $isCash    = $pointType === 'cash_bal';
 
         $amountInr = $isCash ? round($amount * $usdRate, 2) : 0;
 
         return [
-            'id'         => $row['id'],
-            'point_type' => $pointType,
-            'tx_type'    => $txType,
-            'amount_usd' => $amount,
-            'amount_inr' => $amountInr,
+            'id'             => $row['id'],
+            'point_type'     => $pointType,
+            'amount_usd'     => $amount,
+            'amount_inr'     => $amountInr,
         ];
     }
 }
