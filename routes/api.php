@@ -71,6 +71,7 @@ use App\Http\Controllers\API\TestimonialController;
 use App\Http\Controllers\API\Webhook\HdfcWebhookController;
 use App\Http\Controllers\API\Webhook\AxisPgWebhookController;
 use App\Http\Controllers\API\HdfcPaymentController;
+use App\Http\Controllers\API\FinanceCommissionExportController;
 
 /*
 |--------------------------------------------------------------------------
@@ -137,6 +138,8 @@ Route::prefix('admin')->group(function () {
         // Ignite exports
         Route::get('/ignite/exports',          [IgniteExportController::class, 'list']);
         Route::get('/ignite/exports/download', [IgniteExportController::class, 'download']);
+            // Finance: Consolidated Commission Export (all distributors, Excel)
+        Route::get('/finance/commission-export', [FinanceCommissionExportController::class, 'download']);
 
         // Orders
         Route::get('/all-orders', [OrderController::class, 'allOrder'])
