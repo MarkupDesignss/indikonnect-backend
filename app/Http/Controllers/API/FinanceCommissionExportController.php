@@ -21,18 +21,30 @@ class FinanceCommissionExportController extends Controller
 
     /**
      * GET /api/finance/commission-export?week=42&year=2026
+     * 
+     * TIP: Use week=0 to see the full Ignite Sales Calendar for debugging
      */
     public function download(Request $request)
     {
         $request->validate([
-            'week' => 'required|integer|min:1|max:53',
+            'week' => 'required|integer|min:0|max:53', // 0 = debug calendar
             'year' => 'required|integer|min:2020|max:2100',
         ]);
 
         $week = (int) $request->week;
         $year = (int) $request->year;
 
-        // Get week boundaries (Saturday to Saturday in HKT)
+        // 🔍 DEBUG MODE: Show entire Ignite calendar
+        if ($week === 0) {
+            $calendar = $this->ignite->salesCalendar($year);
+            return response()->json([
+                'success' => true,
+                'message' => 'Debug: Full Ignite Sales Calendar for ' . $year,
+                'calendar' => $calendar['data'] ?? [],
+            ]);
+        }
+
+        // Get exact week boundaries from Ignite Calendar
         [$weekStart, $weekEnd] = $this->getWeekRange($week, $year);
 
         Log::info("Commission export started", [
@@ -132,23 +144,34 @@ class FinanceCommissionExportController extends Controller
     }
 
     /**
-     * Get the start and end datetime of a sales week (Saturday to next Saturday, HKT).
-     * Ignite week = Saturday (HKT) to Friday (HKT).
+     * Get exact week boundaries from Ignite Sales Calendar API
      */
     private function getWeekRange(int $week, int $year): array
     {
-        // Use Ignite's sales calendar logic: Week 1 starts on first Saturday of the year
-        // But simpler: use ISO week and adjust to Saturday
-        $refDate = Carbon::now()->setISODate($year, $week, 6); // 6 = Saturday
-        $refDate->setTimezone('Asia/Hong_Kong')->startOfDay();
+        // Fetch calendar once per year (cache for 24 hours)
+        $calendar = \Illuminate\Support\Facades\Cache::remember("ignite_calendar_{$year}", 86400, function () use ($year) {
+            $resp = $this->ignite->salesCalendar($year);
+            return ($resp['code'] ?? null) === ResultCode::OK->value ? $resp['data'] : null;
+        });
+
+        if (!$calendar) {
+            throw new \Exception("Could not fetch Ignite Sales Calendar for year {$year}");
+        }
+
+        $months = $calendar['months'] ?? [];
         
-        // Week start = that Saturday
-        $weekStart = $refDate->copy();
+        foreach ($months as $month) {
+            foreach ($month['weeks'] ?? [] as $w) {
+                if ((int) $w['week_no'] === $week) {
+                    return [
+                        Carbon::parse($w['start_at'], 'Asia/Hong_Kong'),
+                        Carbon::parse($w['end_at'], 'Asia/Hong_Kong'),
+                    ];
+                }
+            }
+        }
         
-        // Week end = next Saturday (start of next week)
-        $weekEnd = $refDate->copy()->addDays(7);
-        
-        return [$weekStart, $weekEnd];
+        throw new \Exception("Week {$week} not found in Ignite Calendar for year {$year}");
     }
 
     private function fetchHistoryForWeek(string $baId, Carbon $weekStart, Carbon $weekEnd): array
@@ -158,10 +181,6 @@ class FinanceCommissionExportController extends Controller
         $guard = 0;
         $collected = [];
         $reachedOlderData = false;
-
-        // Safety: ensure weekEnd is in HKT
-        $weekStart = $weekStart->copy()->setTimezone('Asia/Hong_Kong');
-        $weekEnd   = $weekEnd->copy()->setTimezone('Asia/Hong_Kong');
 
         do {
             $resp = $this->ignite->pointTxs($baId, $afterId, $limit);
@@ -179,12 +198,11 @@ class FinanceCommissionExportController extends Controller
                 break;
             }
 
-            // Check if we've gone past the target week (already fetched newer data)
+            // Check if we've reached older data
             $firstRowDate = Carbon::parse($rawRows[0]['created_at'] ?? now())
                 ->setTimezone('Asia/Hong_Kong');
                 
             if ($firstRowDate->lt($weekStart)) {
-                // We've gone past the target week — no more relevant data
                 $reachedOlderData = true;
                 break;
             }
@@ -195,10 +213,8 @@ class FinanceCommissionExportController extends Controller
                     continue;
                 }
 
-                // Ignite time is HKT
                 $dt = Carbon::parse($created)->setTimezone('Asia/Hong_Kong');
 
-                // Check if date is within the target week
                 if ($dt->gte($weekStart) && $dt->lt($weekEnd)) {
                     $collected[] = $this->normalizeRow($row);
                 }
