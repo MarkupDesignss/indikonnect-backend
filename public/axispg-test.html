@@ -66,57 +66,34 @@
             color: #166534;
             font-size: 14px;
         }
-        .toggle {
-            margin: 20px 0 10px;
-            display: flex;
-            gap: 10px;
-        }
-        .toggle button {
-            width: auto;
-            padding: 8px 16px;
-            font-size: 13px;
-            background: #e5e7eb;
-            color: #374151;
-        }
-        .toggle button.active {
-            background: #2563eb;
-            color: white;
-        }
-        .hidden { display: none; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h1>🚀 Axis PG Test</h1>
+        <h1>Axis PG Test</h1>
         <div class="info">
-            <strong>Kaise test karein:</strong><br>
-            1. Neeche apna <code>axispg_checkout</code> JSON paste karein<br>
-            2. "Redirect to Axis PG" button dabayein<br>
-            3. Browser Axis PG sandbox page par redirect hoga<br>
-            4. Test card se payment karein
+            <strong>Instructions:</strong><br>
+            1. Paste the <code>axispg_checkout</code> JSON below.<br>
+            2. Click "Redirect to Axis PG".<br>
+            3. You will be redirected to the payment page.
         </div>
 
-        <label for="checkoutJson">Paste <code>axispg_checkout</code> JSON from placeOrder response:</label>
+        <label for="checkoutJson">Paste <code>axispg_checkout</code> JSON:</label>
         <textarea id="checkoutJson" placeholder='{
-  "clientId": "MERa840524842",
-  "payload": {
-    "merchantId": "MERa840524842",
-    "merchantTxnId": "ORD6AF554B76B741",
-    "merchantTxnAmount": 8560,
-    "currency": "INR",
-    "signature": "..."
-  }
+  "clientId": "YOUR_CLIENT_ID",
+  "encData": "YOUR_ENC_DATA"
 }'></textarea>
 
         <button id="submitBtn" onclick="handleSubmit()">
-            🔒 Redirect to Axis PG
+            Redirect to Axis PG
         </button>
 
         <div id="output"></div>
 
-        <div class="toggle" style="margin-top: 30px;">
-            <button onclick="fillSample()" id="sampleBtn">Fill Sample Payload</button>
-            <button onclick="clearAll()">Clear</button>
+        <div style="margin-top: 15px; text-align: right;">
+            <button onclick="clearAll()" style="width: auto; background: #6b7280; padding: 8px 16px; font-size: 14px;">
+                Clear Text
+            </button>
         </div>
     </div>
 
@@ -129,8 +106,9 @@
             production: 'https://axispg.freecharge.in/payment/v1/checkout'
         };
 
-        // Sandbox test hai toh sandbox use karo
-        const ACTIVE_ENDPOINT = ENDPOINTS.sandbox;
+        // Set to 'production' when going live
+        const ENV = 'sandbox';
+        const ACTIVE_ENDPOINT = ENDPOINTS[ENV];
 
         // ========================================
         // Main Submit Handler
@@ -144,7 +122,7 @@
             output.innerHTML = '';
 
             if (!raw) {
-                showError('❌ Pehle axispg_checkout JSON paste karein.');
+                showError('Please paste the JSON payload first.');
                 return;
             }
 
@@ -152,34 +130,31 @@
             try {
                 checkout = JSON.parse(raw);
             } catch (e) {
-                showError('❌ Invalid JSON: ' + e.message);
+                showError('Invalid JSON: ' + e.message);
                 return;
             }
 
             if (!checkout.clientId) {
-                showError('❌ clientId missing in JSON.');
+                showError('clientId is missing in JSON.');
                 return;
             }
 
-            // Optional: agar payload/encData dono missing hain
             if (!checkout.payload && !checkout.encData) {
-                showError('❌ Neither `payload` nor `encData` found in JSON.');
+                showError('Neither `payload` nor `encData` found in JSON.');
                 return;
             }
 
             btn.disabled = true;
-            btn.textContent = '⏳ Redirecting to Axis PG...';
+            btn.textContent = 'Redirecting to Axis PG...';
 
-            // Log fields being sent (debug ke liye)
             const fieldsToSend = buildFieldsArray(checkout);
             console.log('[AxisPG] Sending fields:', fieldsToSend);
 
             showSuccess(
-                '✅ Form submit ho raha hai... ' + fieldsToSend.length +
-                ' fields → ' + ACTIVE_ENDPOINT
+                'Submitting form with ' + fieldsToSend.length +
+                ' fields to ' + ACTIVE_ENDPOINT
             );
 
-            // Hidden form submit
             submitAxisPgForm(checkout);
         }
 
@@ -192,15 +167,11 @@
             form.action = ACTIVE_ENDPOINT;
             form.style.display = 'none';
 
-            // clientId (always)
             appendHidden(form, 'clientId', checkout.clientId);
 
-            // encData flow
             if (checkout.encData) {
                 appendHidden(form, 'encData', checkout.encData);
-            }
-            // payload (plaintext) flow
-            else if (checkout.payload) {
+            } else if (checkout.payload) {
                 Object.entries(checkout.payload).forEach(([key, value]) => {
                     if (value !== null && value !== undefined) {
                         appendHidden(form, key, value);
@@ -241,7 +212,7 @@
             document.getElementById('output').innerHTML =
                 '<div class="error">' + msg + '</div>';
             document.getElementById('submitBtn').disabled = false;
-            document.getElementById('submitBtn').textContent = '🔒 Redirect to Axis PG';
+            document.getElementById('submitBtn').textContent = 'Redirect to Axis PG';
         }
 
         function showSuccess(msg) {
@@ -249,36 +220,12 @@
                 '<div class="success">' + msg + '</div>';
         }
 
-        function fillSample() {
-            // Aapka real response yahan hardcode karein taaki testing fast ho
-            const sample = {
-                "clientId": "MERa840524842",
-                "payload": {
-                    "merchantId": "MERa840524842",
-                    "callbackUrl": "https://www.markupdesigns.net/indikonnect/api/webhook/axispg",
-                    "merchantTxnId": "ORD6AF554B76B741",
-                    "merchantTxnAmount": 8560,
-                    "currency": "INR",
-                    "timestamp": 1794462903000,
-                    "customerId": "77",
-                    "customerName": "Kush",
-                    "customerEmailId": "kushankrajput16@gmail.com",
-                    "customerMobileNo": "+919368012352",
-                    "merchantOrderId": "28",
-                    "signature": "154614bb84eff7e550fc4bab5b1172074efda91c544aca0329411a174e9bb167"
-                }
-            };
-            document.getElementById('checkoutJson').value =
-                JSON.stringify(sample, null, 2);
-        }
-
         function clearAll() {
             document.getElementById('checkoutJson').value = '';
             document.getElementById('output').innerHTML = '';
+            document.getElementById('submitBtn').disabled = false;
+            document.getElementById('submitBtn').textContent = 'Redirect to Axis PG';
         }
-
-        // Auto-fill on load (optional - hata sakte hain)
-        // fillSample();
     </script>
 </body>
 </html>
