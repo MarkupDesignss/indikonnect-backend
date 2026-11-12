@@ -139,7 +139,8 @@ Route::prefix('admin')->group(function () {
         Route::get('/ignite/exports/download', [IgniteExportController::class, 'download']);
 
         // Orders
-        Route::get('/all-orders', [OrderController::class, 'allOrder']);
+        Route::get('/all-orders', [OrderController::class, 'allOrder'])
+            ->middleware(\App\Http\Middleware\AppendIndiaPostOrderTracking::class);
         Route::get('/get-order-details/{id}', [OrderController::class, 'getOrderDetails']);
 
         // Commission Reconciliation Report
