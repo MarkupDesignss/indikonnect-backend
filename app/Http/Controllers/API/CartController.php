@@ -1122,11 +1122,10 @@ class CartController extends Controller
     //         'price_calculation' => 'dynamic',
     //     ];
     // }
-    protected function formatCart($cart, $user = null, array $comboChildren = [])
+    protected function formatCart($cart, $user = null, array $comboChildren = [], $address = null)
     {
         $isDistributor = $user && $user->account_type === 'distributor';
 
-        // If caller didn't pass the map, build it internally (no N+1, one query)
         if (empty($comboChildren)) {
             $comboChildren = $this->buildComboChildrenMap(
                 $cart->items->pluck('product')->filter()->unique('id')->values()
@@ -1198,11 +1197,120 @@ class CartController extends Controller
 
             $subtotal = $currentPrice * $item->quantity;
 
-            // Availability = physical stock - reserved (never negative)
             $availableStock = null;
             if ($product && $product->stock_quantity !== null) {
                 $availableStock = max(0, (int) $product->stock_quantity - (int) $product->reserved_inventory);
             }
+
+            // ============================================================
+            // GST & PRICING BREAKDOWN
+            // NOTE: Admin prices are GST-INCLUSIVE.
+            //       We derive EXCL. GST via price / (1 + rate/100).
+            // ============================================================
+
+            $taxRate = 0;
+            if ($product) {
+                $taxRate = (float) ($product->taxCategory?->rate ?? 0);
+                if ($taxRate === 0 && ($product->product_type ?? 'single') === 'combo') {
+                    $taxRate = (float) $this->resolveComboTaxRate($product);
+                }
+            }
+
+            $taxCategoryName = $product?->taxCategory?->name ?? 'No Tax'; // record only
+            $qty             = (int) $item->quantity;
+            $gstFactor       = 1 + ($taxRate / 100);   // divisor for tax-inclusive prices
+
+            // ---------- helper closure: incl → excl ----------
+            $splitInclusive = function (float $inclusiveAmount) use ($gstFactor): array {
+                if ($gstFactor <= 0) {
+                    return ['excl' => $inclusiveAmount, 'gst' => 0.0];
+                }
+                $excl = round($inclusiveAmount / $gstFactor, 2);
+                $gst  = round($inclusiveAmount - $excl, 2);
+                return ['excl' => $excl, 'gst' => $gst];
+            };
+
+            // ---------- SHIPPING (per unit is GST-inclusive) ----------
+            $shippingPerUnitIncl = (float) ($product?->shipping_charge ?? 0);
+            $shippingTotalIncl   = round($shippingPerUnitIncl * $qty, 2);
+
+            $shipSplitPerUnit = $splitInclusive($shippingPerUnitIncl);
+            $shipSplitTotal   = $splitInclusive($shippingTotalIncl);
+
+            $shippingPerUnitExcl = $shipSplitPerUnit['excl'];
+            $shippingGstPerUnit  = $shipSplitPerUnit['gst'];
+            $shippingExclTotal   = $shipSplitTotal['excl'];
+            $shippingGstTotal    = $shipSplitTotal['gst'];
+
+            // ---------- DISTRIBUTOR pricing (GST-inclusive) ----------
+            $distPriceIncl        = (float) ($product->distributor_price ?? 0);
+            $distMrpIncl          = (float) ($product->distributor_mrp ?? 0);
+            $distDiscountType     = $product->distributor_discount_type ?? null;
+            $distDiscountValue    = (float) ($product->distributor_discount_value ?? 0);
+
+            $distDiscountAmountPerUnit = 0.0;
+            if ($distDiscountType === 'percentage' && $distMrpIncl > 0) {
+                $distDiscountAmountPerUnit = round(($distMrpIncl * $distDiscountValue) / 100, 2);
+            } elseif ($distDiscountType === 'fixed') {
+                $distDiscountAmountPerUnit = $distDiscountValue;
+            } elseif ($distMrpIncl > 0 && $distMrpIncl > $distPriceIncl) {
+                $distDiscountAmountPerUnit = $distMrpIncl - $distPriceIncl;
+            }
+
+            $distDiscountAmountTotal = round($distDiscountAmountPerUnit * $qty, 2);
+            $distDiscountPercent     = ($distMrpIncl > 0 && $distDiscountAmountPerUnit > 0)
+                ? round(($distDiscountAmountPerUnit / $distMrpIncl) * 100, 2)
+                : 0;
+
+            $distPerUnitSplit = $splitInclusive($distPriceIncl);
+            $distLineSplit    = $splitInclusive(round($distPriceIncl * $qty, 2));
+
+            $distPriceExclPerUnit = $distPerUnitSplit['excl'];
+            $distGstPerUnit       = $distPerUnitSplit['gst'];
+            $distPriceInclPerUnit = $distPriceIncl;
+
+            $distLineExclGst   = $distLineSplit['excl'];
+            $distGstAmountLine = $distLineSplit['gst'];
+            $distLineInclGst   = round($distPriceIncl * $qty, 2);
+
+            // ---------- RETAIL pricing (GST-inclusive) ----------
+            $retailPriceIncl        = (float) ($product->retail_price ?? 0);
+            $retailMrpIncl          = (float) ($product->retail_mrp ?? 0);
+            $retailDiscountType     = $product->retail_discount_type ?? null;
+            $retailDiscountValue    = (float) ($product->retail_discount_value ?? 0);
+
+            $retailDiscountAmountPerUnit = 0.0;
+            if ($retailDiscountType === 'percentage' && $retailMrpIncl > 0) {
+                $retailDiscountAmountPerUnit = round(($retailMrpIncl * $retailDiscountValue) / 100, 2);
+            } elseif ($retailDiscountType === 'fixed') {
+                $retailDiscountAmountPerUnit = $retailDiscountValue;
+            } elseif ($retailMrpIncl > 0 && $retailMrpIncl > $retailPriceIncl) {
+                $retailDiscountAmountPerUnit = $retailMrpIncl - $retailPriceIncl;
+            }
+
+            $retailDiscountAmountTotal = round($retailDiscountAmountPerUnit * $qty, 2);
+            $retailDiscountPercent     = ($retailMrpIncl > 0 && $retailDiscountAmountPerUnit > 0)
+                ? round(($retailDiscountAmountPerUnit / $retailMrpIncl) * 100, 2)
+                : 0;
+
+            $retailPerUnitSplit = $splitInclusive($retailPriceIncl);
+            $retailLineSplit    = $splitInclusive(round($retailPriceIncl * $qty, 2));
+
+            $retailPriceExclPerUnit = $retailPerUnitSplit['excl'];
+            $retailGstPerUnit       = $retailPerUnitSplit['gst'];
+            $retailPriceInclPerUnit = $retailPriceIncl;
+
+            $retailLineExclGst   = $retailLineSplit['excl'];
+            $retailGstAmountLine = $retailLineSplit['gst'];
+            $retailLineInclGst   = round($retailPriceIncl * $qty, 2);
+
+            // ---------- TAXABLE AMOUNT (excl. GST) ----------
+            $activeLineExclGst   = $isDistributor ? $distLineExclGst : $retailLineExclGst;
+            $activeGstAmountLine = $isDistributor ? $distGstAmountLine : $retailGstAmountLine;
+            $activeLineInclGst   = $isDistributor ? $distLineInclGst : $retailLineInclGst;
+
+            $taxableAmountLine = round($activeLineExclGst + $shippingExclTotal, 2);
+            $gstAmountLine     = round($activeGstAmountLine + $shippingGstTotal, 2);
 
             return [
                 'id' => $item->id,
@@ -1281,7 +1389,6 @@ class CartController extends Controller
                     'parent_combo_id' => $product->parent_combo_id,
                     'ignite_product_id' => $product->ignite_product_id,
 
-                    //  NEW: combo details
                     'product_type' => $this->isComboProduct($product) ? 'combo' : 'single',
                     'combo_products' => $this->isComboProduct($product)
                         ? ($comboChildren[$product->id] ?? [])
@@ -1307,6 +1414,64 @@ class CartController extends Controller
                 'variant_attributes' => $variantAttributes,
                 'quantity' => $item->quantity,
 
+                // ============================================================
+                // GST METADATA (record-only)
+                // ============================================================
+                'tax_category'     => $taxCategoryName,
+                'gst_rate_percent' => $taxRate,
+
+                // ---------- SHIPPING (incl. → excl. breakdown) ----------
+                'shipping_charge_per_unit_incl_gst' => round($shippingPerUnitIncl, 2),
+                'shipping_charge_per_unit_excl_gst' => $shippingPerUnitExcl,
+                'shipping_gst_per_unit'             => $shippingGstPerUnit,
+                'shipping_charge_total_incl_gst'    => $shippingTotalIncl,
+                'shipping_charge_total_excl_gst'    => $shippingExclTotal,
+                'shipping_gst_total'                => $shippingGstTotal,
+
+                // ---------- DISTRIBUTOR (incl. → excl. breakdown) ----------
+                'distributor_price_incl_gst'             => round($distPriceIncl, 2),
+                'distributor_price_excl_gst_per_unit'    => $distPriceExclPerUnit,
+                'distributor_gst_amount_per_unit'        => $distGstPerUnit,
+                'distributor_line_incl_gst'              => $distLineInclGst,
+                'distributor_line_excl_gst'              => $distLineExclGst,
+                'distributor_gst_amount_line'            => $distGstAmountLine,
+
+                'distributor_mrp'                        => round($distMrpIncl, 2),
+                'distributor_discount_type'              => $distDiscountType,
+                'distributor_discount_value'             => $distDiscountValue,
+                'distributor_discount_percent'           => $distDiscountPercent,
+                'distributor_discount_amount_per_unit'   => $distDiscountAmountPerUnit,
+                'distributor_discount_amount_total'      => $distDiscountAmountTotal,
+
+                // ---------- RETAIL (incl. → excl. breakdown) ----------
+                'retail_price_incl_gst'                  => round($retailPriceIncl, 2),
+                'retail_price_excl_gst_per_unit'         => $retailPriceExclPerUnit,
+                'retail_gst_amount_per_unit'             => $retailGstPerUnit,
+                'retail_line_incl_gst'                   => $retailLineInclGst,
+                'retail_line_excl_gst'                   => $retailLineExclGst,
+                'retail_gst_amount_line'                 => $retailGstAmountLine,
+
+                'retail_mrp'                             => round($retailMrpIncl, 2),
+                'retail_discount_type'                   => $retailDiscountType,
+                'retail_discount_value'                  => $retailDiscountValue,
+                'retail_discount_percent'                => $retailDiscountPercent,
+                'retail_discount_amount_per_unit'        => $retailDiscountAmountPerUnit,
+                'retail_discount_amount_total'           => $retailDiscountAmountTotal,
+
+                // ---------- TAXABLE + GST (line) ----------
+                'taxable_amount_line' => $taxableAmountLine,
+                'gst_amount_line'     => $gstAmountLine,
+
+                // ---------- ACTIVE PRICING (based on user type) ----------
+                'active_price_type'                => $isDistributor ? 'distributor' : 'retail',
+                'active_price_incl_gst_per_unit'   => $isDistributor ? $distPriceIncl : $retailPriceIncl,
+                'active_price_excl_gst_per_unit'   => $isDistributor ? $distPriceExclPerUnit : $retailPriceExclPerUnit,
+                'active_gst_amount_per_unit'       => $isDistributor ? $distGstPerUnit : $retailGstPerUnit,
+                'active_line_incl_gst'             => $activeLineInclGst,
+                'active_line_excl_gst'             => $activeLineExclGst,
+                'active_gst_amount_line'           => $activeGstAmountLine,
+
+                // ---------- EXISTING FIELDS (kept) ----------
                 'current_unit_price' => $currentPrice,
                 'current_unit_price_formatted' => number_format($currentPrice, 2),
 
@@ -1330,10 +1495,129 @@ class CartController extends Controller
             ];
         })->values()->toArray();
 
-        $total = collect($items)->sum('subtotal');
-        $totalItems = collect($items)->sum('quantity');
-        $totalMrp = collect($items)->sum(fn($i) => ($i['mrp'] ?? 0) * $i['quantity']);
+        $total         = collect($items)->sum('subtotal');
+        $totalItems    = collect($items)->sum('quantity');
+        $totalMrp      = collect($items)->sum(fn($i) => ($i['mrp'] ?? 0) * $i['quantity']);
         $totalDiscount = collect($items)->sum(fn($i) => $i['discount_total'] ?? 0);
+
+        // ============================================================
+        // CART-LEVEL AGGREGATES
+        // ============================================================
+        $cartTotals = [
+            'active_line_incl_gst'   => collect($items)->sum('active_line_incl_gst'),
+            'active_line_excl_gst'   => collect($items)->sum('active_line_excl_gst'),
+            'active_gst_amount'      => collect($items)->sum('active_gst_amount_line'),
+
+            'shipping_incl_gst'      => collect($items)->sum('shipping_charge_total_incl_gst'),
+            'shipping_excl_gst'      => collect($items)->sum('shipping_charge_total_excl_gst'),
+            'shipping_gst'           => collect($items)->sum('shipping_gst_total'),
+
+            'taxable_amount'         => collect($items)->sum('taxable_amount_line'),
+            'gst_amount'             => collect($items)->sum('gst_amount_line'),
+
+            'retail_line_incl_gst'   => collect($items)->sum('retail_line_incl_gst'),
+            'retail_line_excl_gst'   => collect($items)->sum('retail_line_excl_gst'),
+            'retail_gst_amount'      => collect($items)->sum('retail_gst_amount_line'),
+
+            'dist_line_incl_gst'     => collect($items)->sum('distributor_line_incl_gst'),
+            'dist_line_excl_gst'     => collect($items)->sum('distributor_line_excl_gst'),
+            'dist_gst_amount'        => collect($items)->sum('distributor_gst_amount_line'),
+        ];
+
+        $grandTotalInclShipping = round(
+            $cartTotals['active_line_incl_gst'] + $cartTotals['shipping_incl_gst'],
+            2
+        );
+
+        // ============================================================
+        // CATEGORY-WISE GST BREAKDOWN
+        // Groups items by (tax_category, rate) and aggregates
+        // taxable + GST + CGST/SGST/IGST splits.
+        // ============================================================
+        $deliveryState = $address?->state ?? null;
+        $supplierState = strtolower(config('app.supplier_state', 'Punjab'));
+
+        $isIntraState = $deliveryState
+            && strtolower($deliveryState) === $supplierState;
+
+        $gstBreakdownMap = [];
+
+        foreach ($items as $row) {
+            $catName = $row['tax_category'] ?? 'No Tax';
+            $rate    = (float) ($row['gst_rate_percent'] ?? 0);
+
+            $lineExcl = (float) ($row['active_line_excl_gst'] ?? 0);
+            $lineGst  = (float) ($row['active_gst_amount_line'] ?? 0);
+            $shipExcl = (float) ($row['shipping_charge_total_excl_gst'] ?? 0);
+            $shipGst  = (float) ($row['shipping_gst_total'] ?? 0);
+
+            $taxable = $lineExcl + $shipExcl;
+            $gst     = $lineGst + $shipGst;
+
+            if ($isIntraState) {
+                $cgst = round($gst / 2, 2);
+                $sgst = round($gst / 2, 2);
+                $igst = 0.0;
+            } else {
+                $cgst = 0.0;
+                $sgst = 0.0;
+                $igst = $gst;
+            }
+
+            $key = $catName . '|' . $rate;
+
+            if (!isset($gstBreakdownMap[$key])) {
+                $gstBreakdownMap[$key] = [
+                    'tax_category'   => $catName,
+                    'rate'           => $rate,
+                    'rate_percent'   => $rate . '%',
+                    'taxable_amount' => 0.0,
+                    'gst_amount'     => 0.0,
+                    'cgst'           => 0.0,
+                    'sgst'           => 0.0,
+                    'igst'           => 0.0,
+                ];
+            }
+
+            $gstBreakdownMap[$key]['taxable_amount'] += $taxable;
+            $gstBreakdownMap[$key]['gst_amount']     += $gst;
+            $gstBreakdownMap[$key]['cgst']           += $cgst;
+            $gstBreakdownMap[$key]['sgst']           += $sgst;
+            $gstBreakdownMap[$key]['igst']           += $igst;
+        }
+
+        $gstBreakdown = collect($gstBreakdownMap)
+            ->map(function ($row) {
+                return [
+                    'tax_category'   => $row['tax_category'],
+                    'rate'           => $row['rate'],
+                    'rate_percent'   => $row['rate_percent'],
+                    'taxable_amount' => round($row['taxable_amount'], 2),
+                    'gst_amount'     => round($row['gst_amount'], 2),
+                    'cgst'           => round($row['cgst'], 2),
+                    'sgst'           => round($row['sgst'], 2),
+                    'igst'           => round($row['igst'], 2),
+                ];
+            })
+            ->sortBy('rate')
+            ->values()
+            ->all();
+
+        // ✅ NEW: effective weighted rate (single number)
+        $effectiveRate = $cartTotals['taxable_amount'] > 0
+            ? round(($cartTotals['gst_amount'] / $cartTotals['taxable_amount']) * 100, 2)
+            : 0;
+
+        // ✅ NEW: category-wise rate detail (consistent with gst_breakdown)
+        $taxRateOnLineDetail = collect($gstBreakdown)->map(function ($row) {
+            return [
+                'tax_category'   => $row['tax_category'],
+                'rate'           => $row['rate'],
+                'rate_percent'   => $row['rate_percent'],
+                'taxable_amount' => $row['taxable_amount'],
+                'gst_amount'     => $row['gst_amount'],
+            ];
+        })->values()->all();
 
         return [
             'id' => $cart->id,
@@ -1346,39 +1630,98 @@ class CartController extends Controller
             'total_discount_formatted' => number_format($totalDiscount, 2),
             'total_items' => $totalItems,
             'price_type' => $isDistributor ? 'distributor' : 'retail',
-            'price_calculation' => 'dynamic',
+            'price_calculation' => 'dynamic_inclusive',
+
+            // NEW: tax & pricing aggregates
+            'tax_and_pricing' => [
+                'pricing_mode'          => 'gst_inclusive',
+                'gst_rate_source'       => 'product.taxCategory.rate',
+                'tax_category_recorded' => true,
+                'active_price_type'     => $isDistributor ? 'distributor' : 'retail',
+
+                // Product totals (excl. shipping)
+                'active_line_incl_gst' => round($cartTotals['active_line_incl_gst'], 2),
+                'active_line_excl_gst' => round($cartTotals['active_line_excl_gst'], 2),
+                'active_gst_amount'    => round($cartTotals['active_gst_amount'], 2),
+
+                // Shipping
+                'shipping_incl_gst' => round($cartTotals['shipping_incl_gst'], 2),
+                'shipping_excl_gst' => round($cartTotals['shipping_excl_gst'], 2),
+                'shipping_gst'      => round($cartTotals['shipping_gst'], 2),
+
+                // Taxable + GST (product + shipping)
+                'taxable_amount'    => round($cartTotals['taxable_amount'], 2),
+                'gst_amount'        => round($cartTotals['gst_amount'], 2),
+
+                // ✅ NEW: effective weighted rate (single number)
+                'tax_rate_on_line'        => $effectiveRate,
+
+                // ✅ NEW: category-wise rate detail
+                'tax_rate_on_line_detail' => $taxRateOnLineDetail,
+
+                // Category-wise GST breakdown
+                'gst_breakdown'     => $gstBreakdown,
+
+                // Grand total
+                'grand_total'       => $grandTotalInclShipping,
+
+                // Both views
+                'retail' => [
+                    'line_incl_gst' => round($cartTotals['retail_line_incl_gst'], 2),
+                    'line_excl_gst' => round($cartTotals['retail_line_excl_gst'], 2),
+                    'gst_amount'    => round($cartTotals['retail_gst_amount'], 2),
+                ],
+                'distributor' => [
+                    'line_incl_gst' => round($cartTotals['dist_line_incl_gst'], 2),
+                    'line_excl_gst' => round($cartTotals['dist_line_excl_gst'], 2),
+                    'gst_amount'    => round($cartTotals['dist_gst_amount'], 2),
+                ],
+            ],
         ];
     }
 
     /**
      * Get cart summary with dynamic pricing
      */
+    // protected function getCartSummary($cart, $user = null)
+    // {
+    //     $isDistributor = $user && $user->account_type === 'distributor';
+
+    //     $total = 0;
+    //     $totalItems = 0;
+
+    //     foreach ($cart->items as $item) {
+    //         $price = 0;
+    //         if ($item->variant) {
+    //             $price = $isDistributor
+    //                 ? ($item->variant->distributor_price ?? $item->variant->retail_price)
+    //                 : $item->variant->retail_price;
+    //         } elseif ($item->product) {
+    //             $price = $isDistributor
+    //                 ? ($item->product->distributor_price ?? $item->product->retail_price)
+    //                 : $item->product->retail_price;
+    //         }
+    //         $total += $price * $item->quantity;
+    //         $totalItems += $item->quantity;
+    //     }
+
+    //     return [
+    //         'total_items' => $totalItems,
+    //         'total' => $total,
+    //         'total_formatted' => number_format($total, 2),
+    //     ];
+    // }
+
     protected function getCartSummary($cart, $user = null)
     {
-        $isDistributor = $user && $user->account_type === 'distributor';
-
-        $total = 0;
-        $totalItems = 0;
-
-        foreach ($cart->items as $item) {
-            $price = 0;
-            if ($item->variant) {
-                $price = $isDistributor
-                    ? ($item->variant->distributor_price ?? $item->variant->retail_price)
-                    : $item->variant->retail_price;
-            } elseif ($item->product) {
-                $price = $isDistributor
-                    ? ($item->product->distributor_price ?? $item->product->retail_price)
-                    : $item->product->retail_price;
-            }
-            $total += $price * $item->quantity;
-            $totalItems += $item->quantity;
-        }
+        $formatted = $this->formatCart($cart, $user);
 
         return [
-            'total_items' => $totalItems,
-            'total' => $total,
-            'total_formatted' => number_format($total, 2),
+            'total_items'     => $formatted['total_items'] ?? 0,
+            'total'           => $formatted['total'] ?? 0,
+            'total_formatted' => $formatted['total_formatted'] ?? '0.00',
+            'price_type'      => $formatted['price_type'] ?? 'retail',
+            'tax_and_pricing' => $formatted['tax_and_pricing'] ?? [],
         ];
     }
 
