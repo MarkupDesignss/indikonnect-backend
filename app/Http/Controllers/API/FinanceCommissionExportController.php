@@ -101,7 +101,7 @@ class FinanceCommissionExportController extends Controller
         return response()->json([
             'success'  => true,
             'message'  => empty($rows)
-                ? 'Is week/year ke liye koi commission data nahi mila.'
+                ? 'No commission data available for the specified week and year.'
                 : 'Commission data fetched successfully.',
             'currency' => [
                 'base'          => 'USD',
