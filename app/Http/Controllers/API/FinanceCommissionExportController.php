@@ -8,9 +8,6 @@ use App\Sdks\Partner\IgniteClient;
 use App\Sdks\Partner\ResultCode;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 
 class FinanceCommissionExportController extends Controller
 {
@@ -23,7 +20,7 @@ class FinanceCommissionExportController extends Controller
 
     /**
      * GET /api/finance/commission-export?week=42&year=2026
-     * Saare distributors ka commission data ek Excel mein download.
+     * Saare distributors ka commission data JSON mein.
      */
     public function download(Request $request)
     {
@@ -35,7 +32,6 @@ class FinanceCommissionExportController extends Controller
         $week = (int) $request->week;
         $year = (int) $request->year;
 
-        // Sirf Ignite-registered distributors
         $distributors = User::query()
             ->where('account_type', 'distributor')
             ->whereNotNull('distributor_id')
@@ -45,6 +41,7 @@ class FinanceCommissionExportController extends Controller
             ->get();
 
         $rows = [];
+        $failed = [];
 
         foreach ($distributors as $dist) {
             try {
@@ -70,6 +67,10 @@ class FinanceCommissionExportController extends Controller
                     ];
                 }
             } catch (\Throwable $e) {
+                $failed[] = [
+                    'distributor_id' => $dist->distributor_id,
+                    'error'          => $e->getMessage(),
+                ];
                 Log::warning('Commission export failed', [
                     'distributor_id' => $dist->distributor_id,
                     'error'          => $e->getMessage(),
@@ -77,22 +78,31 @@ class FinanceCommissionExportController extends Controller
             }
         }
 
-        if (empty($rows)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Is week/year ke liye koi commission data nahi mila.',
-            ], 404);
-        }
+        $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+            ->where('key', 'usd_to_inr')->value('value') ?: 0;
 
-        // Temporary file banao aur download response bhejo
-        $fileName = "Consolidated_Commission_W{$week}-{$year}.xlsx";
-        $tempPath = tempnam(sys_get_temp_dir(), 'comm_') . '.xlsx';
-
-        $this->writeXlsx($rows, $tempPath, $week, $year);
-
-        return response()->download($tempPath, $fileName, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ])->deleteFileAfterSend(true);
+        return response()->json([
+            'success'  => true,
+            'message'  => empty($rows)
+                ? 'Is week/year ke liye koi commission data nahi mila.'
+                : 'Commission data fetched successfully.',
+            'currency' => [
+                'base'          => 'USD',
+                'display'       => 'INR',
+                'exchange_rate' => $usdRate,
+            ],
+            'filters' => [
+                'week' => $week,
+                'year' => $year,
+            ],
+            'summary' => [
+                'total_distributors' => $distributors->count(),
+                'total_rows'         => count($rows),
+                'failed_count'       => count($failed),
+            ],
+            'data'   => $rows,
+            'failed' => $failed,
+        ]);
     }
 
     private function fetchHistoryForWeek(string $baId, int $week, int $year): array
@@ -188,53 +198,5 @@ class FinanceCommissionExportController extends Controller
             'related_orderid'=> $row['order_no'] ?: 'N/A',
             'related_member' => $row['rel_ba_id'] ?? $row['rel_member_id'] ?? 'N/A',
         ];
-    }
-
-    private function writeXlsx(array $rows, string $file, int $week, int $year): void
-    {
-        $spreadsheet = new Spreadsheet();
-        $sheet = $spreadsheet->getActiveSheet();
-        $sheet->setTitle("W{$week}-{$year}");
-
-        $headers = [
-            'BA ID', 'Distributor Name', 'Email', 'Week', 'Year',
-            'Tx ID', 'Date', 'Category', 'Point Type', 'Description',
-            'Amount (USD)', 'Amount (INR)', 'Amount (Display)',
-            'Related Order', 'Related Member',
-        ];
-        $sheet->fromArray($headers, null, 'A1');
-
-        $rowNum = 2;
-        foreach ($rows as $r) {
-            $sheet->setCellValue("A{$rowNum}", $r['distributor_id']);
-            $sheet->setCellValue("B{$rowNum}", $r['distributor_name']);
-            $sheet->setCellValue("C{$rowNum}", $r['email']);
-            $sheet->setCellValue("D{$rowNum}", $r['week']);
-            $sheet->setCellValue("E{$rowNum}", $r['year']);
-            $sheet->setCellValue("F{$rowNum}", $r['tx_id']);
-            $sheet->setCellValue("G{$rowNum}", $r['date']);
-            $sheet->setCellValue("H{$rowNum}", $r['category']);
-            $sheet->setCellValue("I{$rowNum}", $r['point_type']);
-            $sheet->setCellValue("J{$rowNum}", $r['description']);
-            $sheet->setCellValue("K{$rowNum}", $r['amount_usd']);
-            $sheet->setCellValue("L{$rowNum}", $r['amount_inr']);
-            $sheet->setCellValue("M{$rowNum}", $r['amount_display']);
-            $sheet->setCellValue("N{$rowNum}", $r['related_order']);
-            $sheet->setCellValue("O{$rowNum}", $r['related_member']);
-            $rowNum++;
-        }
-
-        $lastRow = $rowNum - 1;
-        $sheet->getStyle("K2:K{$lastRow}")->getNumberFormat()
-            ->setFormatCode(NumberFormat::FORMAT_NUMBER_00);
-        $sheet->getStyle("L2:L{$lastRow}")->getNumberFormat()
-            ->setFormatCode(NumberFormat::FORMAT_NUMBER_00);
-        $sheet->getStyle('A1:O1')->getFont()->setBold(true);
-
-        foreach (range('A', 'O') as $col) {
-            $sheet->getColumnDimension($col)->setAutoSize(true);
-        }
-
-        (new Xlsx($spreadsheet))->save($file);
     }
 }
