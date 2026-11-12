@@ -79,7 +79,7 @@ class FinanceCommissionExportController extends Controller
                     'tds_amount'         => $tdsAmount,
                     'net_commission'     => $netCommission,
                     'bank_holder_name'   => $profile->bank_holder_name ?? '-',
-                    'bank_account_number'=> $profile->encrypted_bank_account ?? '-', // Ensure it's decrypted
+                    'bank_account_number'=> $profile->encrypted_bank_account ?? '-',
                     'bank_ifsc'          => $profile->bank_ifsc ?? '-',
                 ];
 
@@ -114,7 +114,7 @@ class FinanceCommissionExportController extends Controller
             ],
             'summary' => [
                 'total_distributors' => $distributors->count(),
-                'total_eligible'     => count($rows), // Jinka commission > 0 hai
+                'total_eligible'     => count($rows),
                 'failed_count'       => count($failed),
             ],
             'data'   => $rows,
@@ -144,9 +144,11 @@ class FinanceCommissionExportController extends Controller
             foreach ($rawRows as $row) {
                 $created = $row['created_at'] ?? null;
                 if ($created) {
-                    // Convert Ignite time to local
-                    $dt = \Carbon\Carbon::parse($created)->setTimezone('Asia/Kolkata');
-                    if ((int) $dt->weekOfYear !== $week || (int) $dt->year !== $year) {
+                    // Ignite time (HKT) as-is rakho, convert mat karo
+                    $dt = \Carbon\Carbon::parse($created);
+
+                    // Ignite sales week (Saturday-Sunday) ke liye match karo
+                    if ((int) $dt->isoWeek() !== $week || (int) $dt->isoWeekYear() !== $year) {
                         continue;
                     }
                 }
