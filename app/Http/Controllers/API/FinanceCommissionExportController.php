@@ -20,7 +20,6 @@ class FinanceCommissionExportController extends Controller
 
     /**
      * GET /api/finance/commission-export?week=42&year=2026
-     * Saare distributors ka commission data JSON mein.
      */
     public function download(Request $request)
     {
@@ -32,7 +31,9 @@ class FinanceCommissionExportController extends Controller
         $week = (int) $request->week;
         $year = (int) $request->year;
 
+        // Fetch users with their distributor profiles for Bank Details
         $distributors = User::query()
+            ->with(['distributorProfile'])
             ->where('account_type', 'distributor')
             ->whereNotNull('distributor_id')
             ->where('distributor_id', '!=', '')
@@ -45,27 +46,43 @@ class FinanceCommissionExportController extends Controller
 
         foreach ($distributors as $dist) {
             try {
+                // Fetch all transactions for the week
                 $history = $this->fetchHistoryForWeek($dist->distributor_id, $week, $year);
 
+                $grossCommission = 0;
+
+                // Calculate total cash commission only
                 foreach ($history as $tx) {
-                    $rows[] = [
-                        'distributor_id'   => $dist->distributor_id,
-                        'distributor_name' => $dist->full_name,
-                        'email'            => $dist->email,
-                        'week'             => $week,
-                        'year'             => $year,
-                        'tx_id'            => $tx['id'],
-                        'date'             => $tx['date_created'],
-                        'category'         => $tx['category'],
-                        'point_type'       => $tx['point_type'],
-                        'description'      => $tx['description'],
-                        'amount_usd'       => $tx['amount_usd'],
-                        'amount_inr'       => $tx['amount_inr'],
-                        'amount_display'   => $tx['amount'],
-                        'related_order'    => $tx['related_orderid'],
-                        'related_member'   => $tx['related_member'],
-                    ];
+                    if (($tx['point_type'] ?? '') === 'cash_bal') {
+                        $grossCommission += (float) $tx['amount_inr'];
+                    }
                 }
+
+                // Agar koi commission nahi mila, to skip karo
+                if ($grossCommission <= 0) {
+                    continue;
+                }
+
+                $tdsAmount = round($grossCommission * 0.02, 2);
+                $netCommission = round($grossCommission - $tdsAmount, 2);
+
+                $profile = $dist->distributorProfile;
+
+                // Ek distributor ki ek hi row banegi
+                $rows[] = [
+                    'ba_id'              => $dist->distributor_id,
+                    'distributor_name'   => $dist->full_name,
+                    'email'              => $dist->email,
+                    'week'               => $week,
+                    'year'               => $year,
+                    'gross_commission'   => $grossCommission,
+                    'tds_amount'         => $tdsAmount,
+                    'net_commission'     => $netCommission,
+                    'bank_holder_name'   => $profile->bank_holder_name ?? '-',
+                    'bank_account_number'=> $profile->encrypted_bank_account ?? '-', // Ensure it's decrypted
+                    'bank_ifsc'          => $profile->bank_ifsc ?? '-',
+                ];
+
             } catch (\Throwable $e) {
                 $failed[] = [
                     'distributor_id' => $dist->distributor_id,
@@ -97,7 +114,7 @@ class FinanceCommissionExportController extends Controller
             ],
             'summary' => [
                 'total_distributors' => $distributors->count(),
-                'total_rows'         => count($rows),
+                'total_eligible'     => count($rows), // Jinka commission > 0 hai
                 'failed_count'       => count($failed),
             ],
             'data'   => $rows,
@@ -127,7 +144,8 @@ class FinanceCommissionExportController extends Controller
             foreach ($rawRows as $row) {
                 $created = $row['created_at'] ?? null;
                 if ($created) {
-                    $dt = \Carbon\Carbon::parse($created);
+                    // Convert Ignite time to local
+                    $dt = \Carbon\Carbon::parse($created)->setTimezone('Asia/Kolkata');
                     if ((int) $dt->weekOfYear !== $week || (int) $dt->year !== $year) {
                         continue;
                     }
@@ -147,56 +165,17 @@ class FinanceCommissionExportController extends Controller
         $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
             ->where('key', 'usd_to_inr')->value('value') ?: 0;
 
-        $category = match ($row['tx_type']) {
-            'comm'  => 'Commission',
-            'cr'    => 'RedeemCoin',
-            'wd'    => 'Withdrawal',
-            'adj'   => 'Adjustment',
-            'pv'    => 'CV',
-            default => ucfirst($row['tx_type'] ?? 'Other'),
-        };
-
         $amount    = (float) ($row['amount'] ?? 0);
         $pointType = $row['point_type'] ?? '';
         $isCash    = $pointType === 'cash_bal';
-        $isCoin    = in_array($pointType, ['green_bal', 'yellow_bal', 'blue_bal'], true);
-        $isCv      = in_array($pointType, ['pv1_bal', 'pv2_bal'], true);
 
-        $amountInr = $isCash ? round($amount * $usdRate, 2) : null;
-
-        $sign = $amount < 0 ? '-' : ($amount > 0 ? '+' : '');
-
-        if ($isCash) {
-            $display = $sign . '₹' . number_format(abs($amount * $usdRate), 2);
-        } elseif ($isCoin) {
-            $unit = match ($pointType) {
-                'green_bal'  => 'GC',
-                'yellow_bal' => 'YC',
-                'blue_bal'   => 'BC',
-                default      => '',
-            };
-            $display = $sign . number_format(abs($amount), 2) . ' ' . $unit;
-        } elseif ($isCv) {
-            $display = $sign . number_format(abs($amount), 2) . ' CV';
-        } else {
-            $display = $sign . number_format(abs($amount), 2);
-        }
-
-        $dateCreated = $row['created_at']
-            ? \Carbon\Carbon::parse($row['created_at'])->format('d/m/Y')
-            : '-';
+        $amountInr = $isCash ? round($amount * $usdRate, 2) : 0;
 
         return [
             'id'             => $row['id'],
-            'category'       => $category,
             'point_type'     => $pointType,
-            'date_created'   => $dateCreated,
-            'description'    => $row['description'] ?? '-',
             'amount_usd'     => $amount,
             'amount_inr'     => $amountInr,
-            'amount'         => $display,
-            'related_orderid'=> $row['order_no'] ?: 'N/A',
-            'related_member' => $row['rel_ba_id'] ?? $row['rel_member_id'] ?? 'N/A',
         ];
     }
 }
