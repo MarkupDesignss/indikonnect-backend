@@ -1114,41 +1114,86 @@ class AuthController extends Controller
     /**
      * Get step data for a specific step
      */
-    // public function getStepData(Request $request)
+    // public function getStepData($step, $identifier, Request $request)
     // {
     //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'step' => 'required|integer|min:1|max:7',
-    //             'phone' => 'nullable|min:10|max:15',
-    //             'email' => 'nullable|email',
-    //         ]);
-
-    //         if ($validator->fails()) {
+    //         // Validate step
+    //         if (!is_numeric($step) || $step < 1 || $step > 7) {
     //             return response()->json([
     //                 'status' => false,
-    //                 'errors' => $validator->errors()
+    //                 'message' => 'Step must be between 1 and 7.'
     //             ], 422);
     //         }
 
-    //         // Find user
+    //         $step = (int) $step;
+
+    //         // Find user by phone or email
     //         $user = null;
-    //         if ($request->phone) {
-    //             $user = User::where('phone', $request->phone)->first();
-    //         } elseif ($request->email) {
-    //             $user = User::where('email', $request->email)->first();
+
+    //         // Check if identifier is email or phone
+    //         if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
+    //             $user = User::where('email', $identifier)->first();
+    //         } else {
+    //             // Treat as phone
+    //             $user = User::where('phone', $identifier)->first();
     //         }
 
     //         if (!$user) {
     //             return response()->json([
     //                 'status' => false,
-    //                 'message' => 'User not found.'
-    //             ], 422);
+    //                 'message' => 'Existing email not found, Proceed with registration.'
+    //             ], 200);
     //         }
 
-    //         $distributorProfile = BusinessProfile::where('user_id', $user->id)->first();
+    //         $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
 
+    //         // ============ NEW LOGIC ============
+    //         // Check if all 7 steps are completed
+    //         $allStepsCompleted = $user->registration_step >= 7;
+    //         $isActive = $distributorProfile && $distributorProfile->status === 'active';
+    //         $isPending = $distributorProfile && $distributorProfile->status === 'pending';
+
+    //         // Case 1: All steps completed and profile is ACTIVE
+    //         if ($allStepsCompleted && $isActive) {
+    //             return response()->json([
+    //                 'status' => true,
+    //                 'message' => 'Registration complete. Proceed to login.',
+    //                 'redirect' => 'login',
+    //                 'step' => $step,
+    //                 'step_data' => $this->getUserStepData($user, $distributorProfile, $step),
+    //                 'completed_steps' => $this->getCompletedSteps($user, $distributorProfile),
+    //                 'registration_status' => 'active',
+    //                 'is_complete' => true
+    //             ]);
+    //         }
+
+    //         // Case 2: All steps completed but profile is PENDING (waiting for admin approval)
+    //         if ($allStepsCompleted && $isPending) {
+    //             return response()->json([
+    //                 'status' => true,
+    //                 'message' => 'Distributor registration submitted successfully. Please wait for admin approval.',
+    //                 'registration_status' => 'pending',
+    //                 'is_complete' => true,
+    //                 'step' => $step,
+    //                 'step_data' => $this->getUserStepData($user, $distributorProfile, $step),
+    //                 'completed_steps' => $this->getCompletedSteps($user, $distributorProfile),
+    //             ]);
+    //         }
+
+    //         // Case 3: All steps completed but profile status is something else (rejected, inactive, etc.)
+    //         // if ($allStepsCompleted && !$isActive && !$isPending) {
+    //         //     $statusMessage = $distributorProfile ? $distributorProfile->status : 'unknown';
+    //         //     return response()->json([
+    //         //         'status' => false,
+    //         //         'message' => "Your distributor registration is {$statusMessage}. Please contact support.",
+    //         //         'registration_status' => $statusMessage,
+    //         //         'is_complete' => true
+    //         //     ], 422);
+    //         // }
+
+    //         // Case 4: Normal flow - steps not completed yet
     //         // Check if requested step is allowed
-    //         if ($request->step > $user->registration_step + 1) {
+    //         if ($step > $user->registration_step + 1) {
     //             return response()->json([
     //                 'status' => false,
     //                 'message' => 'Please complete previous steps first.',
@@ -1158,9 +1203,11 @@ class AuthController extends Controller
 
     //         return response()->json([
     //             'status' => true,
-    //             'step' => $request->step,
-    //             'step_data' => $this->getUserStepData($user, $distributorProfile, $request->step),
-    //             'completed_steps' => $this->getCompletedSteps($user, $distributorProfile)
+    //             'step' => $step,
+    //             'step_data' => $this->getUserStepData($user, $distributorProfile, $step),
+    //             'completed_steps' => $this->getCompletedSteps($user, $distributorProfile),
+    //             'registration_status' => $distributorProfile ? $distributorProfile->status : 'not_started',
+    //             'is_complete' => false
     //         ]);
     //     } catch (\Exception $e) {
     //         Log::error('Get step data error: ' . $e->getMessage());
@@ -1170,6 +1217,7 @@ class AuthController extends Controller
     //         ], 500);
     //     }
     // }
+    
     public function getStepData($step, $identifier, Request $request)
     {
         try {
@@ -1183,14 +1231,15 @@ class AuthController extends Controller
 
             $step = (int) $step;
 
-            // Find user by phone or email
-            $user = null;
+            // Get Terms & Conditions
+            $termsConditions = DB::table('settings')
+                ->where('key', 'terms_conditions')
+                ->value('value');
 
-            // Check if identifier is email or phone
+            // Find user by email or phone
             if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
                 $user = User::where('email', $identifier)->first();
             } else {
-                // Treat as phone
                 $user = User::where('phone', $identifier)->first();
             }
 
@@ -1201,78 +1250,104 @@ class AuthController extends Controller
                 ], 200);
             }
 
-            $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
+            $distributorProfile = DistributorProfile::where('user_id', $user->id)
+                ->first();
 
-            // ============ NEW LOGIC ============
-            // Check if all 7 steps are completed
-            $allStepsCompleted = $user->registration_step >= 7;
-            $isActive = $distributorProfile && $distributorProfile->status === 'active';
-            $isPending = $distributorProfile && $distributorProfile->status === 'pending';
+            // Registration status
+            $currentStep = (int) ($user->registration_step ?? 0);
+            $registrationStatus = $distributorProfile
+                ? strtolower($distributorProfile->status)
+                : 'not_started';
 
-            // Case 1: All steps completed and profile is ACTIVE
-            if ($allStepsCompleted && $isActive) {
+            $allStepsCompleted = $currentStep >= 7;
+
+            // Get common step data
+            $stepData = $this->getUserStepData(
+                $user,
+                $distributorProfile,
+                $step
+            );
+
+            $completedSteps = $this->getCompletedSteps(
+                $user,
+                $distributorProfile
+            );
+
+            // Case 1: Registration completed and ACTIVE
+            if ($allStepsCompleted && $registrationStatus === 'active') {
                 return response()->json([
                     'status' => true,
                     'message' => 'Registration complete. Proceed to login.',
                     'redirect' => 'login',
                     'step' => $step,
-                    'step_data' => $this->getUserStepData($user, $distributorProfile, $step),
-                    'completed_steps' => $this->getCompletedSteps($user, $distributorProfile),
+                    'step_data' => $stepData,
+                    'completed_steps' => $completedSteps,
                     'registration_status' => 'active',
-                    'is_complete' => true
+                    'is_complete' => true,
+                    'terms_conditions' => $termsConditions,
                 ]);
             }
 
-            // Case 2: All steps completed but profile is PENDING (waiting for admin approval)
-            if ($allStepsCompleted && $isPending) {
+            // Case 2: Registration completed but PENDING approval
+            if ($allStepsCompleted && $registrationStatus === 'pending') {
                 return response()->json([
                     'status' => true,
                     'message' => 'Distributor registration submitted successfully. Please wait for admin approval.',
                     'registration_status' => 'pending',
                     'is_complete' => true,
                     'step' => $step,
-                    'step_data' => $this->getUserStepData($user, $distributorProfile, $step),
-                    'completed_steps' => $this->getCompletedSteps($user, $distributorProfile),
+                    'step_data' => $stepData,
+                    'completed_steps' => $completedSteps,
+                    'terms_conditions' => $termsConditions,
                 ]);
             }
 
-            // Case 3: All steps completed but profile status is something else (rejected, inactive, etc.)
-            // if ($allStepsCompleted && !$isActive && !$isPending) {
-            //     $statusMessage = $distributorProfile ? $distributorProfile->status : 'unknown';
-            //     return response()->json([
-            //         'status' => false,
-            //         'message' => "Your distributor registration is {$statusMessage}. Please contact support.",
-            //         'registration_status' => $statusMessage,
-            //         'is_complete' => true
-            //     ], 422);
-            // }
-
-            // Case 4: Normal flow - steps not completed yet
-            // Check if requested step is allowed
-            if ($step > $user->registration_step + 1) {
+            // Case 3: Registration completed but REJECTED / INACTIVE
+            if ($allStepsCompleted && !in_array($registrationStatus, ['active', 'pending'])) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Please complete previous steps first.',
-                    'current_step' => $user->registration_step
+                    'message' => "Your distributor registration is {$registrationStatus}. Please contact support.",
+                    'registration_status' => $registrationStatus,
+                    'is_complete' => true,
+                    'step' => $step,
+                    'step_data' => $stepData,
+                    'completed_steps' => $completedSteps,
                 ], 422);
             }
 
+            // Case 4: Prevent skipping previous steps
+            if ($step > ($currentStep + 1)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please complete previous steps first.',
+                    'current_step' => $currentStep,
+                ], 422);
+            }
+
+            // Normal registration flow
             return response()->json([
                 'status' => true,
                 'step' => $step,
-                'step_data' => $this->getUserStepData($user, $distributorProfile, $step),
-                'completed_steps' => $this->getCompletedSteps($user, $distributorProfile),
-                'registration_status' => $distributorProfile ? $distributorProfile->status : 'not_started',
-                'is_complete' => false
+                'step_data' => $stepData,
+                'completed_steps' => $completedSteps,
+                'registration_status' => $registrationStatus,
+                'is_complete' => false,
+                'terms_conditions' => $termsConditions,
             ]);
+
         } catch (\Exception $e) {
-            Log::error('Get step data error: ' . $e->getMessage());
+            Log::error('Get step data error: ' . $e->getMessage(), [
+                'step' => $step,
+                'identifier' => $identifier,
+            ]);
+
             return response()->json([
                 'status' => false,
-                'message' => $e->getMessage()
+                'message' => 'Something went wrong while fetching registration step data.'
             ], 500);
         }
     }
+
 
     /**
      * Send OTP for Phone or Email (Before Step 1)
