@@ -156,7 +156,7 @@ class ProductController extends Controller
         }
 
 
-        
+
         return null;
     }
     /**
@@ -859,6 +859,8 @@ class ProductController extends Controller
                 'is_mandatory' => $product->is_mandatory ?? null,
                 'ignite_product_id' => $product->ignite_product_id ?? null,
                 'is_best_seller' => $product->is_best_seller ?? null,
+                'green_coin' => $product->green_coin ?? 0,
+                'blue_coin' => $product->blue_coin ?? 0,
                 'product_code' => $product->product_code,
                 'allowed_purchsed' => $product->allowed_purchsed,
                 'service_charge' => $product->service_charge,
@@ -1202,6 +1204,8 @@ class ProductController extends Controller
                 'product_code' => $product->product_code,
                 'is_mandatory' => $product->is_mandatory,
                 'ignite_product_id' => $product->ignite_product_id,
+                'green_coin' => $product->green_coin ?? 0,
+                'blue_coin' => $product->blue_coin ?? 0,
                 'service_charge' => $product->service_charge,
                 'is_best_seller' => $product->is_best_seller,
                 'commission_value' => $product->commission_value,
@@ -1606,6 +1610,8 @@ class ProductController extends Controller
             'service_charge' => $product->service_charge,
             'allowed_purchsed' => $product->allowed_purchsed,
             'name' => $product->name,
+            'green_coin' => $product->green_coin ?? 0,
+            'blue_coin' => $product->blue_coin ?? 0,
             'slug' => $product->slug,
             'commission_value' => $product->commission_value,
             'description' => $product->description,
@@ -3235,7 +3241,7 @@ class ProductController extends Controller
     /**
      * Update a product with variants
      */
-    
+
     // public function update(Request $request, $id)
     // {
     //     $product = Product::where('id', $id)->first();
@@ -6012,6 +6018,8 @@ class ProductController extends Controller
                 'product_code' => $product->product_code,
                 'service_charge' => $product->service_charge,
                 'name' => $product->name,
+                'green_coin' => $product->green_coin ?? 0,
+                'blue_coin' => $product->blue_coin ?? 0,
                 'is_mandatory' => $product->is_mandatory,
                 'slug' => $product->slug,
                 'description' => $product->description,
