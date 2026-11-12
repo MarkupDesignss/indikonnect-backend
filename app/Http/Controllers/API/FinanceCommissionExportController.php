@@ -8,6 +8,7 @@ use App\Sdks\Partner\IgniteClient;
 use App\Sdks\Partner\ResultCode;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class FinanceCommissionExportController extends Controller
 {
@@ -31,7 +32,16 @@ class FinanceCommissionExportController extends Controller
         $week = (int) $request->week;
         $year = (int) $request->year;
 
-        // Fetch users with their distributor profiles for Bank Details
+        // Get week boundaries (Saturday to Saturday in HKT)
+        [$weekStart, $weekEnd] = $this->getWeekRange($week, $year);
+
+        Log::info("Commission export started", [
+            'week' => $week,
+            'year' => $year,
+            'week_start' => $weekStart->toDateTimeString(),
+            'week_end' => $weekEnd->toDateTimeString(),
+        ]);
+
         $distributors = User::query()
             ->with(['distributorProfile'])
             ->where('account_type', 'distributor')
@@ -46,19 +56,16 @@ class FinanceCommissionExportController extends Controller
 
         foreach ($distributors as $dist) {
             try {
-                // Fetch all transactions for the week
-                $history = $this->fetchHistoryForWeek($dist->distributor_id, $week, $year);
+                $history = $this->fetchHistoryForWeek($dist->distributor_id, $weekStart, $weekEnd);
 
                 $grossCommission = 0;
 
-                // Calculate total cash commission only
                 foreach ($history as $tx) {
                     if (($tx['point_type'] ?? '') === 'cash_bal') {
                         $grossCommission += (float) $tx['amount_inr'];
                     }
                 }
 
-                // Agar koi commission nahi mila, to skip karo
                 if ($grossCommission <= 0) {
                     continue;
                 }
@@ -68,7 +75,6 @@ class FinanceCommissionExportController extends Controller
 
                 $profile = $dist->distributorProfile;
 
-                // Ek distributor ki ek hi row banegi
                 $rows[] = [
                     'ba_id'              => $dist->distributor_id,
                     'distributor_name'   => $dist->full_name,
@@ -82,7 +88,6 @@ class FinanceCommissionExportController extends Controller
                     'bank_account_number'=> $profile->encrypted_bank_account ?? '-',
                     'bank_ifsc'          => $profile->bank_ifsc ?? '-',
                 ];
-
             } catch (\Throwable $e) {
                 $failed[] = [
                     'distributor_id' => $dist->distributor_id,
@@ -112,6 +117,10 @@ class FinanceCommissionExportController extends Controller
                 'week' => $week,
                 'year' => $year,
             ],
+            'week_range' => [
+                'start' => $weekStart->format('Y-m-d H:i:s'),
+                'end'   => $weekEnd->format('Y-m-d H:i:s'),
+            ],
             'summary' => [
                 'total_distributors' => $distributors->count(),
                 'total_eligible'     => count($rows),
@@ -122,17 +131,46 @@ class FinanceCommissionExportController extends Controller
         ]);
     }
 
-    private function fetchHistoryForWeek(string $baId, int $week, int $year): array
+    /**
+     * Get the start and end datetime of a sales week (Saturday to next Saturday, HKT).
+     * Ignite week = Saturday (HKT) to Friday (HKT).
+     */
+    private function getWeekRange(int $week, int $year): array
+    {
+        // Use Ignite's sales calendar logic: Week 1 starts on first Saturday of the year
+        // But simpler: use ISO week and adjust to Saturday
+        $refDate = Carbon::now()->setISODate($year, $week, 6); // 6 = Saturday
+        $refDate->setTimezone('Asia/Hong_Kong')->startOfDay();
+        
+        // Week start = that Saturday
+        $weekStart = $refDate->copy();
+        
+        // Week end = next Saturday (start of next week)
+        $weekEnd = $refDate->copy()->addDays(7);
+        
+        return [$weekStart, $weekEnd];
+    }
+
+    private function fetchHistoryForWeek(string $baId, Carbon $weekStart, Carbon $weekEnd): array
     {
         $afterId = 0;
         $limit = 500;
         $guard = 0;
         $collected = [];
+        $reachedOlderData = false;
+
+        // Safety: ensure weekEnd is in HKT
+        $weekStart = $weekStart->copy()->setTimezone('Asia/Hong_Kong');
+        $weekEnd   = $weekEnd->copy()->setTimezone('Asia/Hong_Kong');
 
         do {
             $resp = $this->ignite->pointTxs($baId, $afterId, $limit);
 
             if (($resp['code'] ?? null) !== ResultCode::OK->value) {
+                Log::warning("Ignite pointTxs failed for $baId", [
+                    'code' => $resp['code'] ?? null,
+                    'msg'  => $resp['msg'] ?? null,
+                ]);
                 break;
             }
 
@@ -141,23 +179,34 @@ class FinanceCommissionExportController extends Controller
                 break;
             }
 
+            // Check if we've gone past the target week (already fetched newer data)
+            $firstRowDate = Carbon::parse($rawRows[0]['created_at'] ?? now())
+                ->setTimezone('Asia/Hong_Kong');
+                
+            if ($firstRowDate->lt($weekStart)) {
+                // We've gone past the target week — no more relevant data
+                $reachedOlderData = true;
+                break;
+            }
+
             foreach ($rawRows as $row) {
                 $created = $row['created_at'] ?? null;
-                if ($created) {
-                    // Ignite time (HKT) as-is rakho, convert mat karo
-                    $dt = \Carbon\Carbon::parse($created);
-
-                    // Ignite sales week (Saturday-Sunday) ke liye match karo
-                    if ((int) $dt->isoWeek() !== $week || (int) $dt->isoWeekYear() !== $year) {
-                        continue;
-                    }
+                if (!$created) {
+                    continue;
                 }
-                $collected[] = $this->normalizeRow($row);
+
+                // Ignite time is HKT
+                $dt = Carbon::parse($created)->setTimezone('Asia/Hong_Kong');
+
+                // Check if date is within the target week
+                if ($dt->gte($weekStart) && $dt->lt($weekEnd)) {
+                    $collected[] = $this->normalizeRow($row);
+                }
             }
 
             $afterId = (int) end($rawRows)['id'];
             $guard++;
-        } while (($resp['data']['has_more'] ?? false) && $guard < 100);
+        } while (($resp['data']['has_more'] ?? false) && $guard < 100 && !$reachedOlderData);
 
         return $collected;
     }
