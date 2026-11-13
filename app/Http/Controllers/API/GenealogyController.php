@@ -1324,7 +1324,7 @@ class GenealogyController extends Controller
         $accounts = [];
 
         $baseNameMap = $this->resolveBaseOwnerNames([$baseId], $mainBaId);
-        $baseFullName = $baseNameMap[$baseId] ?? null;
+        $baseFullName = $baseNameMap[$baseId] ?? 'Unknown Member';
 
         $baseAccount = $this->fetchMemberDetails($baseId . '-001');
         $baseTcs     = [];
@@ -1411,7 +1411,7 @@ class GenealogyController extends Controller
 
             // ✅ NEW: Enrich each group + its slots with the owner's name
             foreach ($groups as $baseKey => &$group) {
-                $ownerName = $baseNameMap[$baseKey] ?? null;
+                $ownerName = $baseNameMap[$baseKey] ?? 'Unknown Member';
 
                 $group['full_name']     = $ownerName;
                 $group['display_label'] = $ownerName
