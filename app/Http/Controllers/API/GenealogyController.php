@@ -334,7 +334,7 @@ class GenealogyController extends Controller
             // Try Local DB Name -> Ignite Pending Name -> Fallback
             $name = $localUser?->full_name 
                  ?? ($igniteNames[$baId] ?? null) 
-                 ?? 'Ignite Member';
+                 ?? 'Unknown Member';
 
             return [
                 'member_id'       => $row['member_id'] ?? null,
@@ -1129,6 +1129,7 @@ class GenealogyController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
+
     // public function tcBankDashboard(Request $request)
     // {
     //     $user = Auth::user();
@@ -1143,12 +1144,11 @@ class GenealogyController extends Controller
     //     $mainBaId = $this->normalizeMainBaId($user->distributor_id);
     //     $baseId   = preg_replace('/-(001|002|003)$/', '', $mainBaId);
 
-    //     // 1. Fetch Member Details (for balances and TC)
-    //     $member = $this->fetchMemberDetails($mainBaId);
-        
+    //     // 1. Member details
+    //     $member          = $this->fetchMemberDetails($mainBaId);
     //     $tcBankAvailable = (int) ($member['tc_bank_available'] ?? 0);
 
-    //     // 2. Fetch Plan Ranks for Zone TC CV Price (600 CV)
+    //     // 2. Plan ranks -> zone TC CV price
     //     $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
     //         try {
     //             $resp = $this->ignite->planRanks();
@@ -1157,76 +1157,123 @@ class GenealogyController extends Controller
     //             return [];
     //         }
     //     });
-        
     //     $zoneTcCvPrice = (float) ($planResp['base_product_cv'] ?? 600);
 
-    //     // 3. Fetch My Accounts (Base + Extra TCs)
+    //     // 3. Base account + its TCs (-001, -002, -003)
     //     $accounts = [];
+
+    //     $baseAccount = $this->fetchMemberDetails($baseId . '-001');
+    //     $baseTcs     = [];
+
     //     foreach (['-001', '-002', '-003'] as $suffix) {
-    //         $baId = $baseId . $suffix;
-    //         $acc  = $this->fetchMemberDetails($baId);
-            
-    //         $accounts[] = [
-    //             'account_id' => $baId,
-    //             'member_id'  => $acc['member_id'] ?? null,
-    //             'rank_no'    => $acc['rank_no'] ?? 0,
-    //             'status'     => ucfirst($acc['membership_status'] ?? 'Inactive'),
-    //             'qualified'  => !empty($acc['qualified_at']),
-    //             'type'       => 'base',
+    //         $tcBaId = $baseId . $suffix;
+    //         $tcAcc  = $this->fetchMemberDetails($tcBaId);
+
+    //         $baseTcs[] = [
+    //             'tc_label'  => 'TC-' . ltrim($suffix, '-'),
+    //             'ba_id'     => $tcBaId,
+    //             'member_id' => $tcAcc['member_id'] ?? null,
+    //             'rank_no'   => $tcAcc['rank_no'] ?? 0,
+    //             'status'    => ucfirst($tcAcc['membership_status'] ?? 'Inactive'),
+    //             'qualified' => !empty($tcAcc['qualified_at']),
     //         ];
     //     }
 
-    //     // 4. Fetch Available Placements for TC Allocation Dropdown
+    //     $accounts[] = [
+    //         'account_id' => $baseId,
+    //         'rank_no'    => $baseAccount['rank_no'] ?? 0,
+    //         'status'     => ucfirst($baseAccount['membership_status'] ?? 'Inactive'),
+    //         'qualified'  => !empty($baseAccount['qualified_at']),
+    //         'type'       => 'base',
+    //         'tc_count'   => count($baseTcs),
+    //         'tcs'        => $baseTcs,
+    //     ];
+
+    //     // 4. Available placements -> grouped by base ID
+    //     $groups = [];
     //     try {
     //         $treeResp = $this->ignite->binaryTree($mainBaId, 5);
     //         $treeRows = $treeResp['data']['rows'] ?? [];
-    //         $availableSlots = [];
-            
+
     //         foreach ($treeRows as $row) {
     //             $nodeBaId = $row['ba_id'] ?? null;
-    //             if (empty($nodeBaId) || str_ends_with($nodeBaId, '-001')) continue;
+    //             if (empty($nodeBaId) || str_ends_with($nodeBaId, '-001')) {
+    //                 continue;
+    //             }
 
-    //             $isLeftFree = empty($row['far_left_id']) && empty($row['far_left_ba_id']);
+    //             $isLeftFree  = empty($row['far_left_id'])  && empty($row['far_left_ba_id']);
     //             $isRightFree = empty($row['far_right_id']) && empty($row['far_right_ba_id']);
 
-    //             if ($isLeftFree || $isRightFree) {
-    //                 $availableSlots[] = [
-    //                     'ba_id' => $nodeBaId,
-    //                     'member_id' => $row['member_id'] ?? null,
-    //                     'display_label' => $nodeBaId,
-    //                     'left_available' => $isLeftFree,
-    //                     'right_available' => $isRightFree,
-    //                 ];
+    //             if (!$isLeftFree && !$isRightFree) {
+    //                 continue;
     //             }
+
+    //             // AIA1675197-004 -> base AIA1675197, suffix 004
+    //             if (preg_match('/^(.*)-(\d{3,})$/', $nodeBaId, $m)) {
+    //                 $base        = $m[1];
+    //                 $suffix      = $m[2];
+    //                 $tcLabel     = 'TC-' . $suffix;   // TC-004
+    //             } else {
+    //                 $base    = $nodeBaId;
+    //                 $suffix  = null;
+    //                 $tcLabel = $nodeBaId;
+    //             }
+
+    //             $groups[$base] ??= [
+    //                 'base_id' => $base,
+    //                 'label'   => $base,
+    //                 'slots'   => [],
+    //             ];
+
+    //             $groups[$base]['slots'][] = [
+    //                 'ba_id'           => $nodeBaId,
+    //                 'member_id'       => $row['member_id'] ?? null,
+    //                 'tc_suffix'       => $suffix,
+    //                 'tc_label'        => $tcLabel,        // TC-004
+    //                 'display_label'   => $tcLabel,        // dropdown me yahi dikhega
+    //                 'left_available'  => $isLeftFree,
+    //                 'right_available' => $isRightFree,
+    //             ];
     //         }
+
+    //         // sort slots inside each group by suffix numerically
+    //         foreach ($groups as &$g) {
+    //             usort($g['slots'], fn ($a, $b) => ((int) $a['tc_suffix']) <=> ((int) $b['tc_suffix']));
+    //             $g['tc_count'] = count($g['slots']);
+    //         }
+    //         unset($g);
+
+    //         // sort groups by base id
+    //         ksort($groups);
+    //         $groups = array_values($groups);
+
     //     } catch (\Throwable $e) {
-    //         $availableSlots = [];
+    //         $groups = [];
     //     }
 
-    //     // 5. Fetch TC Bank Transaction History
+    //     // 5. TC bank transactions (unchanged)
     //     $transactions = [];
     //     try {
     //         $txResp = $this->ignite->pointTxs($mainBaId, 0, 100);
     //         $txRows = $txResp['data']['rows'] ?? [];
-            
+
     //         foreach ($txRows as $tx) {
     //             if (($tx['point_type'] ?? '') === 'tc_bank') {
     //                 $transactions[] = [
-    //                     'date'          => \Carbon\Carbon::parse($tx['created_at'])->format('d/m/Y'),
-    //                     'category'      => ucfirst($tx['tx_type'] ?? 'Other'),
-    //                     'description'   => $tx['description'] ?? '-',
-    //                     'tc_bank_change'=> (int) $tx['amount'],
-    //                     'order_id'      => $tx['order_no'] ?? '-',
-    //                     'related_member'=> $tx['rel_ba_id'] ?? '-',
+    //                     'date'           => \Carbon\Carbon::parse($tx['created_at'])->format('d/m/Y'),
+    //                     'category'       => ucfirst($tx['tx_type'] ?? 'Other'),
+    //                     'description'    => $tx['description'] ?? '-',
+    //                     'tc_bank_change' => (int) $tx['amount'],
+    //                     'order_id'       => $tx['order_no'] ?? '-',
+    //                     'related_member' => $tx['rel_ba_id'] ?? '-',
     //                 ];
     //             }
     //         }
     //     } catch (\Throwable $e) {
-    //         // Ignore
+    //         // ignore
     //     }
 
-    //     // Qualified status (How many accounts are qualified out of 3)
-    //     $qualifiedCount = collect($accounts)->where('qualified', true)->count();
+    //     $qualifiedCount  = collect($accounts[0]['tcs'] ?? [])->where('qualified', true)->count();
     //     $qualifiedStatus = "{$qualifiedCount} / 3";
 
     //     return response()->json([
@@ -1237,10 +1284,10 @@ class GenealogyController extends Controller
     //                 'qualified_status'  => $qualifiedStatus,
     //                 'zone_tc_cv_price'  => $zoneTcCvPrice,
     //             ],
-    //             'my_accounts'         => $accounts,
-    //             'available_slots'     => $availableSlots,
-    //             'tc_transactions'     => $transactions,
-    //         ]
+    //             'my_accounts'           => $accounts,
+    //             'available_slot_groups' => $groups,
+    //             'tc_transactions'       => $transactions,
+    //         ],
     //     ]);
     // }
 
@@ -1276,6 +1323,9 @@ class GenealogyController extends Controller
         // 3. Base account + its TCs (-001, -002, -003)
         $accounts = [];
 
+        // ✅ NEW: Resolve base account's user name (used for base + all its TCs)
+        $baseFullName = $this->resolveBaseOwnerName($baseId, $mainBaId);
+
         $baseAccount = $this->fetchMemberDetails($baseId . '-001');
         $baseTcs     = [];
 
@@ -1290,11 +1340,16 @@ class GenealogyController extends Controller
                 'rank_no'   => $tcAcc['rank_no'] ?? 0,
                 'status'    => ucfirst($tcAcc['membership_status'] ?? 'Inactive'),
                 'qualified' => !empty($tcAcc['qualified_at']),
+                'full_name' => $baseFullName,     // ✅ NEW: same name for all TCs of this base
             ];
         }
 
         $accounts[] = [
             'account_id' => $baseId,
+            'full_name'  => $baseFullName,        // ✅ NEW: base owner's name
+            'display_label' => $baseFullName
+                ? "{$baseId} — {$baseFullName}"
+                : $baseId,
             'rank_no'    => $baseAccount['rank_no'] ?? 0,
             'status'     => ucfirst($baseAccount['membership_status'] ?? 'Inactive'),
             'qualified'  => !empty($baseAccount['qualified_at']),
@@ -1770,6 +1825,53 @@ class GenealogyController extends Controller
         unset($row);
 
         return $rows;
+    }
+
+    /**
+     * Resolve the display name of a base BA ID's owner.
+     *
+     * Looks up by base ID in local `users` table, then falls back to
+     * Ignite pendingPlacements. Returns null if no name is available.
+     *
+     * @param  string  $baseId    e.g. "AIA1675197" (no suffix)
+     * @param  string  $mainBaId  root BA ID for pendingPlacements lookup
+     * @return string|null
+     */
+    private function resolveBaseOwnerName(string $baseId, string $mainBaId): ?string
+    {
+        // 1) Local DB — try both "-001" form and bare base
+        $localUser = User::whereIn('distributor_id', [$baseId, $baseId . '-001'])
+            ->whereNotNull('full_name')
+            ->first();
+
+        if ($localUser && !empty($localUser->full_name)) {
+            return $localUser->full_name;
+        }
+
+        // 2) Ignite pendingPlacements
+        try {
+            $pendingResp = $this->ignite->pendingPlacements($mainBaId);
+            if (($pendingResp['code'] ?? null) === ResultCode::OK->value) {
+                foreach (($pendingResp['data']['rows'] ?? []) as $pRow) {
+                    $pBaId = $pRow['ba_id'] ?? null;
+                    $pName = $pRow['fullname'] ?? null;
+                    if (!$pBaId || !$pName) {
+                        continue;
+                    }
+                    $pBase = preg_replace('/-\d{3,}$/', '', $pBaId);
+                    if ($pBase === $baseId) {
+                        return $pName;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('pendingPlacements failed in resolveBaseOwnerName', [
+                'base_id' => $baseId,
+                'error'   => $e->getMessage(),
+            ]);
+        }
+
+        return null;
     }
 
 }
