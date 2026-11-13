@@ -42,9 +42,9 @@ class CreditNoteController extends Controller
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
                     $q->where('credit_note_number', 'LIKE', "%{$search}%")
-                      ->orWhere('original_invoice_number', 'LIKE', "%{$search}%")
-                      ->orWhere('buyer_name', 'LIKE', "%{$search}%")
-                      ->orWhere('buyer_email', 'LIKE', "%{$search}%");
+                        ->orWhere('original_invoice_number', 'LIKE', "%{$search}%")
+                        ->orWhere('buyer_name', 'LIKE', "%{$search}%")
+                        ->orWhere('buyer_email', 'LIKE', "%{$search}%");
                 });
             }
 

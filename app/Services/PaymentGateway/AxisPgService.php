@@ -59,7 +59,7 @@ class AxisPgService
             'customerId'        => (string) $order->user_id,
             'customerName'      => $order->user->full_name ?? 'Unknown',
             'customerEmailId'   => $order->user->email ?? '',
-            'customerMobileNo'  => $order->user->phone ?? '',
+            'customerMobileNo' => preg_replace('/^\+\d{1,2}/', '', $order->user->phone ?? ''),
             'merchantOrderId'   => (string) $order->id,
         ];
 
