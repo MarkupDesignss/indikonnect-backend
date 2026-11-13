@@ -70,6 +70,7 @@ class AddressController extends Controller
                 'address_line_1' => 'required|string|max:255',
                 'address_line_2' => 'nullable|string|max:255',
                 'city' => 'required|string|max:255',
+                'post_office' => 'nullable|string|max:255',
                 'type' => 'nullable|in:Home,Office,Other',
                 'state' => 'required|string|max:255',
                 'postcode' => 'required|string|max:20',
@@ -93,6 +94,7 @@ class AddressController extends Controller
                     'billing_address_line_1' => 'required|string|max:255',
                     'billing_address_line_2' => 'nullable|string|max:255',
                     'billing_city' => 'required|string|max:255',
+                    'billing_post_office' => 'nullable|string|max:255',
                     'billing_state' => 'required|string|max:255',
                     'billing_postcode' => 'required|string|max:20',
                     'billing_country' => 'nullable|string|max:255',
@@ -130,6 +132,7 @@ class AddressController extends Controller
                 'address_line_1' => $request->address_line_1,
                 'address_line_2' => $request->address_line_2,
                 'city' => $request->city,
+                'post_office' => $request->post_office,
                 'type' => $request->type,
                 'state' => $request->state,
                 'postcode' => $request->postcode,
@@ -159,6 +162,7 @@ class AddressController extends Controller
                 $addressData['billing_address_line_1'] = $request->billing_address_line_1 ?? $request->address_line_1;
                 $addressData['billing_address_line_2'] = $request->billing_address_line_2;
                 $addressData['billing_city'] = $request->billing_city ?? $request->city;
+                $addressData['billing_post_office'] = $request->billing_post_office ?? $request->post_office;
                 $addressData['billing_state'] = $request->billing_state ?? $request->state;
                 $addressData['billing_postcode'] = $request->billing_postcode ?? $request->postcode;
                 $addressData['billing_country'] = $request->billing_country ?? $request->country ?? 'India';
@@ -211,6 +215,7 @@ class AddressController extends Controller
                 'address_line_1' => 'sometimes|required|string|max:255',
                 'address_line_2' => 'nullable|string|max:255',
                 'city' => 'sometimes|required|string|max:255',
+                'post_office' => 'nullable|string|max:255',
                 'type' => 'nullable|in:Home,Office,Other',
                 'state' => 'sometimes|required|string|max:255',
                 'postcode' => 'sometimes|required|string|max:20',
@@ -234,6 +239,7 @@ class AddressController extends Controller
                     'billing_address_line_1' => 'required|string|max:255',
                     'billing_address_line_2' => 'nullable|string|max:255',
                     'billing_city' => 'required|string|max:255',
+                    'billing_post_office' => 'nullable|string|max:255',
                     'billing_state' => 'required|string|max:255',
                     'billing_postcode' => 'required|string|max:20',
                     'billing_country' => 'nullable|string|max:255',
@@ -263,6 +269,7 @@ class AddressController extends Controller
                 'address_line_1',
                 'address_line_2',
                 'city',
+                'post_office',
                 'state',
                 'type',
                 'postcode',
@@ -285,6 +292,7 @@ class AddressController extends Controller
                 $updateData['billing_address_line_1'] = $request->billing_address_line_1;
                 $updateData['billing_address_line_2'] = $request->billing_address_line_2;
                 $updateData['billing_city'] = $request->billing_city;
+                $updateData['billing_post_office'] = $request->billing_post_office;
                 $updateData['billing_state'] = $request->billing_state;
                 $updateData['billing_postcode'] = $request->billing_postcode;
                 $updateData['billing_country'] = $request->billing_country ?? 'India';
@@ -295,6 +303,7 @@ class AddressController extends Controller
                 $updateData['address_line_1'] = $updateData['billing_address_line_1'] ?? $address->billing_address_line_1;
                 $updateData['address_line_2'] = $updateData['billing_address_line_2'] ?? $address->billing_address_line_2;
                 $updateData['city'] = $updateData['billing_city'] ?? $address->billing_city;
+                $updateData['post_office'] = $updateData['billing_post_office'] ?? $address->billing_post_office;
                 $updateData['status'] = $updateData['status'] ?? $address->status;
                 $updateData['state'] = $updateData['billing_state'] ?? $address->billing_state;
                 $updateData['postcode'] = $updateData['billing_postcode'] ?? $address->billing_postcode;
@@ -380,64 +389,6 @@ class AddressController extends Controller
     /**
      * Remove the specified address.
      */
-    // public function destroy($id)
-    // {
-    //     try {
-    //         $user = Auth::user();
-
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Unauthorized'
-    //             ], 401);
-    //         }
-
-    //         $address = Address::where('user_id', $user->id)
-    //             ->where('id', $id)
-    //             ->first();
-
-    //         if (!$address) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Address not found'
-    //             ], 404);
-    //         }
-
-    //         // Check if this is the only address
-    //         $addressCount = Address::where('user_id', $user->id)->count();
-
-    //         if ($addressCount <= 1) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Cannot delete the only address. Please add another address first.'
-    //             ], 422);
-    //         }
-
-    //         // If deleting the default address, set another as default
-    //         if ($address->is_default) {
-    //             $newDefault = Address::where('user_id', $user->id)
-    //                 ->where('id', '!=', $id)
-    //                 ->first();
-
-    //             if ($newDefault) {
-    //                 $newDefault->update(['is_default' => true]);
-    //             }
-    //         }
-
-    //         $address->delete();
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'message' => 'Address deleted successfully'
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
-
     public function destroy($id)
     {
         try {
