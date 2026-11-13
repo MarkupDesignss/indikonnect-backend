@@ -199,6 +199,8 @@ class CancellationApprovalController extends Controller
      * Approve cancellation request - Uses your existing cancelOrder function
      */
 
+
+
     // public function approve(Request $request, int $orderLineId): JsonResponse
     // {
     //     try {
@@ -207,12 +209,30 @@ class CancellationApprovalController extends Controller
     //             'refund_amount' => 'nullable|numeric|min:0',
     //         ]);
 
+    //         // Allow re-approval of already-cancelled lines (re-dispatch Ignite sync)
     //         $orderLine = OrderLine::where('id', $orderLineId)
-    //             ->where('delivery_status', 'cancel_pending')
+    //             ->whereIn('delivery_status', ['cancel_pending', 'cancelled'])
     //             ->with(['order', 'product', 'variant'])
     //             ->firstOrFail();
 
-    //         $order  = $orderLine->order;
+    //         $order = $orderLine->order;
+
+    //         // ── Already cancelled locally? Just re-queue Ignite sync ─────
+    //         if ($orderLine->delivery_status === 'cancelled') {
+    //             if (
+    //                 ! empty($orderLine->ignite_order_no)
+    //                 && $orderLine->ignite_sync_status !== 'cancelled'
+    //             ) {
+
+    //                 DB::afterCommit(fn() => CancelOrderOnIgniteJob::dispatch($orderLineId));
+    //             }
+
+    //             return response()->json([
+    //                 'success' => true,
+    //                 'message' => 'Order line already cancelled locally; Ignite sync re-queued.',
+    //             ]);
+    //         }
+
     //         $reason = $orderLine->cancellation_reason;
 
     //         // Determine refund amount (null = refund full refundable balance)
@@ -232,7 +252,7 @@ class CancellationApprovalController extends Controller
     //             }
     //         }
 
-    //         // CALL cancelOrder WITH NEW PARAMS
+    //         // CALL cancelOrder
     //         $result = $this->checkoutService->cancelOrder(
     //             $order->user_id,
     //             $order->order_reference,
@@ -242,6 +262,22 @@ class CancellationApprovalController extends Controller
     //             $request->admin_notes,
     //             auth()->id(),
     //         );
+
+    //         // IGNITE CANCEL SYNC — dispatch only after local DB commit
+    //         // NOTE: no intermediate 'pending_cancel' state — line stays 'posted'
+    //         // until the job succeeds and writes 'cancelled'. Safer for retries.
+    //         DB::afterCommit(function () use ($orderLineId) {
+    //             $line = OrderLine::find($orderLineId);
+
+    //             if (
+    //                 $line
+    //                 && ! empty($line->ignite_order_no)
+    //                 && $line->ignite_sync_status !== 'cancelled'
+    //             ) {
+
+    //                 CancelOrderOnIgniteJob::dispatch($orderLineId);
+    //             }
+    //         });
 
     //         // Mark admin notification as read
     //         AdminNotification::where('reference_type', 'order_line')
@@ -314,8 +350,7 @@ class CancellationApprovalController extends Controller
     //         ], 400);
     //     }
     // }
-
-    public function approve(Request $request, int $orderLineId): JsonResponse
+    public function approve(Request $request, string $orderReference): JsonResponse
     {
         try {
             $request->validate([
@@ -323,38 +358,44 @@ class CancellationApprovalController extends Controller
                 'refund_amount' => 'nullable|numeric|min:0',
             ]);
 
-            // Allow re-approval of already-cancelled lines (re-dispatch Ignite sync)
-            $orderLine = OrderLine::where('id', $orderLineId)
-                ->whereIn('delivery_status', ['cancel_pending', 'cancelled'])
-                ->with(['order', 'product', 'variant'])
+            // Resolve order by reference
+            $order = Order::where('order_reference', $orderReference)
+                ->with(['user', 'lines.product'])
                 ->firstOrFail();
 
-            $order = $orderLine->order;
+            // ---- Collect ALL cancel_pending lines ----
+            $pendingLines = $order->lines()
+                ->where('delivery_status', 'cancel_pending')
+                ->lockForUpdate()
+                ->get();
 
-            // ── Already cancelled locally? Just re-queue Ignite sync ─────
-            if ($orderLine->delivery_status === 'cancelled') {
-                if (
-                    ! empty($orderLine->ignite_order_no)
-                    && $orderLine->ignite_sync_status !== 'cancelled'
-                ) {
+            // ---- Already cancelled? Just re-queue Ignite sync ----
+            if ($pendingLines->isEmpty()) {
+                $alreadyCancelled = $order->lines()
+                    ->where('delivery_status', 'cancelled')
+                    ->whereNotNull('ignite_order_no')
+                    ->where('ignite_sync_status', '!=', 'cancelled')
+                    ->pluck('id');
 
-                    DB::afterCommit(fn() => CancelOrderOnIgniteJob::dispatch($orderLineId));
+                if ($alreadyCancelled->isNotEmpty()) {
+                    DB::afterCommit(function () use ($alreadyCancelled) {
+                        foreach ($alreadyCancelled as $lineId) {
+                            CancelOrderOnIgniteJob::dispatch($lineId);
+                        }
+                    });
                 }
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Order line already cancelled locally; Ignite sync re-queued.',
+                    'message' => 'No pending cancellations found for this order.',
                 ]);
             }
 
-            $reason = $orderLine->cancellation_reason;
-
-            // Determine refund amount (null = refund full refundable balance)
+            // ---- Refund amount (order-level) ----
             $refundAmount = $request->filled('refund_amount')
                 ? (float) $request->refund_amount
                 : null;
 
-            // Validate refund amount against refundable balance
             if ($refundAmount !== null) {
                 $refundable = $this->getRefundableAmount($order);
 
@@ -366,82 +407,78 @@ class CancellationApprovalController extends Controller
                 }
             }
 
-            // CALL cancelOrder
+            $reason = $pendingLines->first()->cancellation_reason
+                ?? 'Admin approved cancellation';
+
+            // ---- Service: full order cancellation ----
             $result = $this->checkoutService->cancelOrder(
                 $order->user_id,
                 $order->order_reference,
-                $orderLineId,
+                null,                                  // full order
                 $reason,
                 $refundAmount,
                 $request->admin_notes,
                 auth()->id(),
             );
 
-            // IGNITE CANCEL SYNC — dispatch only after local DB commit
-            // NOTE: no intermediate 'pending_cancel' state — line stays 'posted'
-            // until the job succeeds and writes 'cancelled'. Safer for retries.
-            DB::afterCommit(function () use ($orderLineId) {
-                $line = OrderLine::find($orderLineId);
+            // ---- Ignite sync per cancelled line (after commit) ----
+            DB::afterCommit(function () use ($order) {
+                $cancelledLineIds = $order->lines()
+                    ->where('delivery_status', 'cancelled')
+                    ->whereNotNull('ignite_order_no')
+                    ->where('ignite_sync_status', '!=', 'cancelled')
+                    ->pluck('id');
 
-                if (
-                    $line
-                    && ! empty($line->ignite_order_no)
-                    && $line->ignite_sync_status !== 'cancelled'
-                ) {
-
-                    CancelOrderOnIgniteJob::dispatch($orderLineId);
+                foreach ($cancelledLineIds as $lineId) {
+                    CancelOrderOnIgniteJob::dispatch($lineId);
                 }
             });
 
-            // Mark admin notification as read
-            AdminNotification::where('reference_type', 'order_line')
-                ->where('reference_id', $orderLineId)
+            // ---- Mark admin notification(s) as read ----
+            AdminNotification::where('reference_type', 'order')
+                ->where('reference_id', $order->id)
                 ->where('type', 'order_cancellation_request')
                 ->update(['read' => true]);
 
-            // Send notification to user (approved)
+            // ---- User notification ----
             $this->sendUserNotification(
                 $order->user_id,
                 'Cancellation Approved',
-                "Your cancellation request for order #{$order->order_reference} has been approved and processed.",
+                "Your cancellation request for order #{$order->order_reference} has been approved. "
+                    . "All pending items have been cancelled.",
                 'order_cancellation_approved',
                 [
                     'order_reference'  => $order->order_reference,
-                    'order_line_id'    => $orderLineId,
+                    'cancelled_lines'  => $pendingLines->pluck('id')->values(),
                     'admin_notes'      => $request->admin_notes,
                     'refund_amount'    => $refundAmount,
                     'refund_processed' => ($refundAmount ?? 0) > 0 || $order->amount_paid > 0,
                 ]
             );
 
-            // Log approval
-            Log::info('Cancellation request approved', [
-                'order_line_id'   => $orderLineId,
+            Log::info('Order-level cancellation approved', [
                 'order_reference' => $order->order_reference,
+                'cancelled_lines' => $pendingLines->pluck('id')->values(),
                 'admin_id'        => Auth::guard('admin')->id(),
                 'refund_amount'   => $refundAmount,
                 'result'          => $result,
             ]);
 
-            /* =============================================
-            | SEND CANCELLATION APPROVED SMS (TWILIO)
-            ============================================= */
+            // ---- SMS (non-blocking) ----
             $phone = $order->user?->phone;
-
             if ($phone) {
                 $refundText = ($refundAmount ?? 0) > 0
                     ? " A refund of " . number_format($refundAmount, 2) . " has been initiated."
                     : " No refund applicable.";
 
-                $message = "Hi {$order->user->name}! Your cancellation request for order "
+                $sms = "Hi {$order->user->name}! Your cancellation request for order "
                     . "{$order->order_reference} has been approved.{$refundText}";
 
                 try {
-                    app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+                    app(\App\Services\TwilioSmsService::class)->send($phone, $sms);
                 } catch (\Throwable $e) {
                     Log::error('Cancellation approved SMS failed', [
                         'order_reference' => $order->order_reference,
-                        'order_line_id'   => $orderLineId,
                         'error'           => $e->getMessage(),
                     ]);
                 }
@@ -450,12 +487,12 @@ class CancellationApprovalController extends Controller
             return response()->json([
                 'success' => true,
                 'data'    => $result,
-                'message' => 'Cancellation request approved and processed successfully',
+                'message' => 'Cancellation request approved for the entire order.',
             ]);
         } catch (\Exception $e) {
             Log::error('Cancellation approval failed: ' . $e->getMessage(), [
-                'order_line_id' => $orderLineId,
-                'admin_id'      => Auth::guard('admin')->id(),
+                'order_reference' => $orderReference,
+                'admin_id'        => Auth::guard('admin')->id(),
             ]);
 
             return response()->json([
@@ -480,88 +517,201 @@ class CancellationApprovalController extends Controller
     /**
      * NEW: Reject cancellation request
      */
-    public function reject(Request $request, int $orderLineId): JsonResponse
+    // public function reject(Request $request, int $orderLineId): JsonResponse
+    // {
+    //     try {
+    //         $request->validate([
+    //             'rejection_reason' => 'required|string|max:500',
+    //         ]);
+
+    //         DB::transaction(function () use ($request, $orderLineId) {
+    //             $orderLine = OrderLine::where('id', $orderLineId)
+    //                 ->where('delivery_status', 'cancel_pending')
+    //                 ->with(['order', 'order.user'])
+    //                 ->firstOrFail();
+
+    //             $order = $orderLine->order;
+
+    //             // Update order line status to rejected
+    //             $orderLine->update([
+    //                 'delivery_status' => 'cancel_rejected',
+    //                 'cancellation_rejection_reason' => $request->rejection_reason,
+    //                 'cancellation_rejected_at' => now(),
+    //             ]);
+
+    //             // Mark admin notification as read
+    //             AdminNotification::where('reference_type', 'order_line')
+    //                 ->where('reference_id', $orderLineId)
+    //                 ->where('type', 'order_cancellation_request')
+    //                 ->update(['read' => true]);
+
+    //             // Send notification to user (rejected)
+    //             $this->sendUserNotification(
+    //                 $order->user_id,
+    //                 'Cancellation Rejected',
+    //                 "Your cancellation request for order #{$order->order_reference} has been rejected.",
+    //                 'order_cancellation_rejected',
+    //                 [
+    //                     'order_reference' => $order->order_reference,
+    //                     'order_line_id' => $orderLineId,
+    //                     'rejection_reason' => $request->rejection_reason,
+    //                 ]
+    //             );
+
+    //             // Log rejection
+    //             Log::info('Cancellation request rejected', [
+    //                 'order_line_id' => $orderLineId,
+    //                 'order_reference' => $order->order_reference,
+    //                 'admin_id' => Auth::guard('admin')->id(),
+    //                 'rejection_reason' => $request->rejection_reason,
+    //                 'original_reason' => $orderLine->cancellation_reason
+    //             ]);
+
+    //             /* =============================================
+    //                 | SEND CANCELLATION REJECTED SMS (TWILIO)
+    //                 ============================================= */
+    //             $phone = $order->user?->phone;
+
+    //             if ($phone) {
+    //                 $message = "Hi {$order->user->name}! Your cancellation request for order "
+    //                     . "{$order->order_reference} has been rejected. "
+    //                     . "Reason: {$request->rejection_reason}";
+
+    //                 try {
+    //                     app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+    //                 } catch (\Throwable $e) {
+    //                     Log::error('Cancellation rejected SMS failed', [
+    //                         'order_reference' => $order->order_reference,
+    //                         'order_line_id'   => $orderLineId,
+    //                         'error'           => $e->getMessage(),
+    //                     ]);
+    //                 }
+    //             }
+    //         });
+
+
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Cancellation request rejected successfully',
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Cancellation rejection failed: ' . $e->getMessage(), [
+    //             'order_line_id' => $orderLineId,
+    //             'admin_id' => Auth::guard('admin')->id()
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
+    public function reject(Request $request, string $orderReference): JsonResponse
     {
         try {
             $request->validate([
                 'rejection_reason' => 'required|string|max:500',
             ]);
 
-            DB::transaction(function () use ($request, $orderLineId) {
-                $orderLine = OrderLine::where('id', $orderLineId)
-                    ->where('delivery_status', 'cancel_pending')
-                    ->with(['order', 'order.user'])
+            $response = DB::transaction(function () use ($request, $orderReference) {
+                // Resolve order
+                $order = Order::where('order_reference', $orderReference)
+                    ->with(['user', 'lines.product'])
+                    ->lockForUpdate()
                     ->firstOrFail();
 
-                $order = $orderLine->order;
+                // All pending-cancel lines
+                $pendingLines = $order->lines()
+                    ->where('delivery_status', 'cancel_pending')
+                    ->lockForUpdate()
+                    ->get();
 
-                // Update order line status to rejected
-                $orderLine->update([
-                    'delivery_status' => 'cancel_rejected',
-                    'cancellation_rejection_reason' => $request->rejection_reason,
-                    'cancellation_rejected_at' => now(),
-                ]);
+                if ($pendingLines->isEmpty()) {
+                    throw new \Exception('No pending cancellation found for this order.');
+                }
 
-                // Mark admin notification as read
-                AdminNotification::where('reference_type', 'order_line')
-                    ->where('reference_id', $orderLineId)
+                $now = now();
+                $rejectedLineIds = [];
+
+                foreach ($pendingLines as $line) {
+                    // Restore original status → confirmed (or previous)
+                    $line->update([
+                        'delivery_status'               => 'confirmed',
+                        'cancellation_rejection_reason' => $request->rejection_reason,
+                        'cancellation_rejected_at'      => $now,
+                        // Reset request-time fields
+                        'cancellation_requested_at'     => null,
+                        'cancellation_reason'           => null,
+                    ]);
+
+                    $rejectedLineIds[] = $line->id;
+                }
+
+                // Sync order status (no more cancel_pending)
+                if (method_exists($order, 'updateOrderStatus')) {
+                    $order->updateOrderStatus();
+                }
+
+                // Mark admin notification(s) as read
+                AdminNotification::where('reference_type', 'order')
+                    ->where('reference_id', $order->id)
                     ->where('type', 'order_cancellation_request')
                     ->update(['read' => true]);
 
-                // Send notification to user (rejected)
+                // User notification
                 $this->sendUserNotification(
                     $order->user_id,
                     'Cancellation Rejected',
                     "Your cancellation request for order #{$order->order_reference} has been rejected.",
                     'order_cancellation_rejected',
                     [
-                        'order_reference' => $order->order_reference,
-                        'order_line_id' => $orderLineId,
+                        'order_reference'  => $order->order_reference,
+                        'rejected_lines'   => $rejectedLineIds,
                         'rejection_reason' => $request->rejection_reason,
                     ]
                 );
 
-                // Log rejection
-                Log::info('Cancellation request rejected', [
-                    'order_line_id' => $orderLineId,
-                    'order_reference' => $order->order_reference,
-                    'admin_id' => Auth::guard('admin')->id(),
+                Log::info('Order-level cancellation rejected', [
+                    'order_reference'  => $order->order_reference,
+                    'rejected_lines'   => $rejectedLineIds,
+                    'admin_id'         => Auth::guard('admin')->id(),
                     'rejection_reason' => $request->rejection_reason,
-                    'original_reason' => $orderLine->cancellation_reason
+                    'line_reasons'     => $pendingLines->pluck('cancellation_reason', 'id')->toArray(),
                 ]);
 
-                /* =============================================
-                    | SEND CANCELLATION REJECTED SMS (TWILIO)
-                    ============================================= */
+                // SMS (non-blocking)
                 $phone = $order->user?->phone;
-
                 if ($phone) {
-                    $message = "Hi {$order->user->name}! Your cancellation request for order "
+                    $sms = "Hi {$order->user->name}! Your cancellation request for order "
                         . "{$order->order_reference} has been rejected. "
                         . "Reason: {$request->rejection_reason}";
 
                     try {
-                        app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+                        app(\App\Services\TwilioSmsService::class)->send($phone, $sms);
                     } catch (\Throwable $e) {
                         Log::error('Cancellation rejected SMS failed', [
                             'order_reference' => $order->order_reference,
-                            'order_line_id'   => $orderLineId,
                             'error'           => $e->getMessage(),
                         ]);
                     }
                 }
+
+                return [
+                    'rejected_lines' => $rejectedLineIds,
+                    'order_status'   => $order->fresh()->status,
+                ];
             });
-
-
 
             return response()->json([
                 'success' => true,
-                'message' => 'Cancellation request rejected successfully',
+                'data'    => $response,
+                'message' => 'Cancellation request rejected for the entire order.',
             ]);
         } catch (\Exception $e) {
             Log::error('Cancellation rejection failed: ' . $e->getMessage(), [
-                'order_line_id' => $orderLineId,
-                'admin_id' => Auth::guard('admin')->id()
+                'order_reference' => $orderReference,
+                'admin_id'        => Auth::guard('admin')->id(),
             ]);
 
             return response()->json([

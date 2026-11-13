@@ -205,9 +205,13 @@ class OrderReturn extends Model
         return $this->status === 'approved';
     }
 
+    // public function canComplete(): bool
+    // {
+    //     return $this->status === 'received';
+    // }
     public function canComplete(): bool
     {
-        return $this->status === 'received';
+        return $this->order && $this->order->status === 'return_received';
     }
 
     /*

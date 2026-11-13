@@ -125,14 +125,43 @@ class CartController extends Controller
     //         'user_type' => $this->getUserType(),
     //     ]);
     // }
+    // public function index(Request $request)
+    // {
+    //     $cart = $this->getCart($request);
+    //     $user = auth('sanctum')->user();
+
+    //     // ============================================================
+    //     // COMBO CHILDREN (batch across all cart items)   NEW
+    //     // ============================================================
+    //     $cartProducts = $cart->items
+    //         ->pluck('product')
+    //         ->filter()
+    //         ->unique('id')
+    //         ->values();
+
+    //     $comboChildren = $this->buildComboChildrenMap($cartProducts);
+
+    //     return response()->json([
+    //         'data' => $this->formatCart($cart, $user, $comboChildren),
+    //         'user_type' => $this->getUserType(),
+    //     ]);
+    // }
     public function index(Request $request)
     {
         $cart = $this->getCart($request);
         $user = auth('sanctum')->user();
 
-        // ============================================================
-        // COMBO CHILDREN (batch across all cart items)   NEW
-        // ============================================================
+        // ✅ ADD: mandatory products sync karo (add/remove)
+        $this->ensureMandatoryProductsInCart($cart);
+
+        // Reload items (kyunki ensure ne add/remove kiya ho sakta hai)
+        $cart->load([
+            'items.product.taxCategory',
+            'items.product.images',
+            'items.product.primaryImage',
+            'items.variant.images',
+        ]);
+
         $cartProducts = $cart->items
             ->pluck('product')
             ->filter()
@@ -142,7 +171,7 @@ class CartController extends Controller
         $comboChildren = $this->buildComboChildrenMap($cartProducts);
 
         return response()->json([
-            'data' => $this->formatCart($cart, $user, $comboChildren),
+            'data'      => $this->formatCart($cart, $user, $comboChildren),
             'user_type' => $this->getUserType(),
         ]);
     }
@@ -163,48 +192,95 @@ class CartController extends Controller
      * Ensure all mandatory products exist in the given cart.
      * Skips duplicates and inactive products.
      */
-    protected function ensureMandatoryProductsInCart(Cart $cart): void
+
+    /**
+     * Has this user already purchased the mandatory product(s)?
+     * "Purchased" = paid/confirmed order, non-cancelled line.
+     */
+    protected function hasUserPurchasedMandatoryProduct(int $userId, array $mandatoryProductIds): bool
     {
-        // Already seeded? Don't add again.
-        if ($cart->mandatory_products_seeded) {
-            return;
+        $ids = array_filter(array_map('intval', (array) $mandatoryProductIds));
+
+        if (empty($ids)) {
+            return false;
         }
 
+        return \App\Models\OrderLine::query()
+            ->whereIn('product_id', $ids)
+            ->whereHas('order', function ($q) use ($userId) {
+                $q->where('user_id', $userId)
+                    ->where(function ($inner) {
+                        $inner->where('amount_paid', '>', 0)
+                            ->orWhereIn('status', [
+                                'confirmed',
+                                'processing',
+                                'dispatched',
+                                'shipped',
+                                'delivered',
+                            ]);
+                    });
+            })
+            ->whereNotIn('delivery_status', [
+                'cancelled',
+                'cancel_pending',
+                'cancel_rejected',
+                'returned',
+                'refunded',
+            ])
+            ->exists();
+    }
+    protected function ensureMandatoryProductsInCart(Cart $cart): void
+    {
         $user = auth('sanctum')->user();
 
         if (!$user) {
             return;
         }
 
-        // Only for users who haven't placed an order
-        $hasOrdered = Order::where('user_id', $user->id)->exists();
+        $mandatoryProducts = Product::where('is_mandatory', true)->get();
 
-        if ($hasOrdered) {
-            $cart->mandatory_products_seeded = true;
-            $cart->save();
+        if ($mandatoryProducts->isEmpty()) {
             return;
         }
 
-        $mandatoryProducts = Product::where('is_mandatory', true)->get();
+        $alreadyPurchased = $this->hasUserPurchasedMandatoryProduct(
+            (int) $user->id,
+            $mandatoryProducts->pluck('id')->toArray()
+        );
 
-        foreach ($mandatoryProducts as $product) {
+        if ($alreadyPurchased) {
+            // User already purchased → mandatory dobara force nahi
+            // Also remove from cart if somehow present
+            CartItem::where('cart_id', $cart->id)
+                ->whereIn('product_id', $mandatoryProducts->pluck('id')->toArray())
+                ->whereNull('variant_id')
+                ->delete();
 
-            CartItem::firstOrCreate(
-                [
-                    'cart_id' => $cart->id,
-                    'product_id' => $product->id,
-                    'variant_id' => null,
-                ],
-                [
-                    'quantity' => 1,
-                    'unit_price' => 0,
-                    'shipping_charge' => $product->shipping_charge ?? 0,
-                ]
-            );
+            return;
         }
 
-        $cart->mandatory_products_seeded = true;
-        $cart->save();
+        // ✅ Check cart_items for existing mandatory product
+        $existingMandatoryIds = CartItem::where('cart_id', $cart->id)
+            ->whereIn('product_id', $mandatoryProducts->pluck('id')->toArray())
+            ->whereNull('variant_id')
+            ->pluck('product_id')
+            ->toArray();
+
+        foreach ($mandatoryProducts as $product) {
+            // Skip if already in cart
+            if (in_array($product->id, $existingMandatoryIds, true)) {
+                continue;
+            }
+
+            CartItem::create([
+                'cart_id'         => $cart->id,
+                'product_id'      => $product->id,
+                'variant_id'      => null,
+                'quantity'        => 1,
+                'unit_price'      => 0,
+                'shipping_charge' => $product->shipping_charge ?? 0,
+            ]);
+        }
     }
 
     // public function add(Request $request)
@@ -461,32 +537,36 @@ class CartController extends Controller
             }
 
             // ---------- Auto add mandatory products (first-time users) ----------
+            // if ($user) {
+            //     $hasOrdered = Order::where('user_id', $user->id)->exists();
+
+            //     if (!$hasOrdered) {
+            //         $mandatoryProducts = Product::where('is_mandatory', true)->get();
+
+            //         foreach ($mandatoryProducts as $mandatoryProduct) {
+            //             $exists = CartItem::where('cart_id', $cart->id)
+            //                 ->where('product_id', $mandatoryProduct->id)
+            //                 ->whereNull('variant_id')
+            //                 ->exists();
+
+            //             if ($exists) {
+            //                 continue;
+            //             }
+
+            //             CartItem::create([
+            //                 'cart_id'         => $cart->id,
+            //                 'product_id'      => $mandatoryProduct->id,
+            //                 'variant_id'      => null,
+            //                 'quantity'        => 1,
+            //                 'unit_price'      => 0,
+            //                 'shipping_charge' => $mandatoryProduct->shipping_charge ?? 0,
+            //             ]);
+            //         }
+            //     }
+            // }
+            // ---------- Auto add mandatory products (first-time users) ----------
             if ($user) {
-                $hasOrdered = Order::where('user_id', $user->id)->exists();
-
-                if (!$hasOrdered) {
-                    $mandatoryProducts = Product::where('is_mandatory', true)->get();
-
-                    foreach ($mandatoryProducts as $mandatoryProduct) {
-                        $exists = CartItem::where('cart_id', $cart->id)
-                            ->where('product_id', $mandatoryProduct->id)
-                            ->whereNull('variant_id')
-                            ->exists();
-
-                        if ($exists) {
-                            continue;
-                        }
-
-                        CartItem::create([
-                            'cart_id'         => $cart->id,
-                            'product_id'      => $mandatoryProduct->id,
-                            'variant_id'      => null,
-                            'quantity'        => 1,
-                            'unit_price'      => 0,
-                            'shipping_charge' => $mandatoryProduct->shipping_charge ?? 0,
-                        ]);
-                    }
-                }
+                $this->ensureMandatoryProductsInCart($cart);
             }
 
             // ---------- Remove from wishlist ----------
@@ -772,46 +852,89 @@ class CartController extends Controller
             }
 
             // Check whether user has placed any order
-            $hasOrdered = $user
-                ? Order::where('user_id', $user->id)->exists()
-                : true;
+            // $hasOrdered = $user
+            //     ? Order::where('user_id', $user->id)->exists()
+            //     : true;
 
+            // // Check whether requested item is mandatory
+            // $isMandatoryItem = $cartItem->product
+            //     && (bool) $cartItem->product->is_mandatory;
+
+            // // Apply restriction only for first-time users
+            // if (!$hasOrdered && $isMandatoryItem) {
+
+            //     // Get all other non-mandatory products from cart
+            //     $otherProducts = CartItem::with('product')
+            //         ->where('cart_id', $cart->id)
+            //         ->where('id', '!=', $cartItem->id)
+            //         ->whereHas('product', function ($query) {
+            //             $query->where(function ($q) {
+            //                 $q->where('is_mandatory', false)
+            //                     ->orWhereNull('is_mandatory');
+            //             });
+            //         })
+            //         ->get();
+
+            //     // Block mandatory product removal if other products exist
+            //     if ($otherProducts->isNotEmpty()) {
+
+            //         $productNames = $otherProducts
+            //             ->map(function ($item) {
+            //                 return $item->product->name ?? 'Unknown Product';
+            //             })
+            //             ->unique()
+            //             ->values()
+            //             ->implode(', ');
+
+            //         DB::rollBack();
+
+            //         return response()->json([
+            //             'success' => false,
+            //             'message' => "Please remove {$productNames} first. Mandatory products can only be removed after removing these products.",
+            //         ], 422);
+            //     }
+            // }
             // Check whether requested item is mandatory
             $isMandatoryItem = $cartItem->product
                 && (bool) $cartItem->product->is_mandatory;
 
-            // Apply restriction only for first-time users
-            if (!$hasOrdered && $isMandatoryItem) {
+            // Restriction only if user has NOT purchased mandatory yet
+            if ($user && $isMandatoryItem) {
+                $mandatoryProducts = Product::where('is_mandatory', true)->get();
 
-                // Get all other non-mandatory products from cart
-                $otherProducts = CartItem::with('product')
-                    ->where('cart_id', $cart->id)
-                    ->where('id', '!=', $cartItem->id)
-                    ->whereHas('product', function ($query) {
-                        $query->where(function ($q) {
-                            $q->where('is_mandatory', false)
-                                ->orWhereNull('is_mandatory');
-                        });
-                    })
-                    ->get();
+                $alreadyPurchased = $this->hasUserPurchasedMandatoryProduct(
+                    (int) $user->id,
+                    $mandatoryProducts->pluck('id')->toArray()
+                );
 
-                // Block mandatory product removal if other products exist
-                if ($otherProducts->isNotEmpty()) {
-
-                    $productNames = $otherProducts
-                        ->map(function ($item) {
-                            return $item->product->name ?? 'Unknown Product';
+                // Block mandatory removal only if user hasn't purchased it AND
+                // other non-mandatory products exist in cart
+                if (!$alreadyPurchased) {
+                    $otherProducts = CartItem::with('product')
+                        ->where('cart_id', $cart->id)
+                        ->where('id', '!=', $cartItem->id)
+                        ->whereHas('product', function ($query) {
+                            $query->where(function ($q) {
+                                $q->where('is_mandatory', false)
+                                    ->orWhereNull('is_mandatory');
+                            });
                         })
-                        ->unique()
-                        ->values()
-                        ->implode(', ');
+                        ->get();
 
-                    DB::rollBack();
+                    if ($otherProducts->isNotEmpty()) {
+                        $productNames = $otherProducts
+                            ->map(fn($item) => $item->product->name ?? 'Unknown Product')
+                            ->unique()
+                            ->values()
+                            ->implode(', ');
 
-                    return response()->json([
-                        'success' => false,
-                        'message' => "Please remove {$productNames} first. Mandatory products can only be removed after removing these products.",
-                    ], 422);
+                        DB::rollBack();
+
+                        return response()->json([
+                            'success' => false,
+                            'message' => "Please remove {$productNames} first. Mandatory products can only be removed after removing these products.",
+                        ], 422);
+                    }
                 }
             }
 
@@ -1122,8 +1245,41 @@ class CartController extends Controller
     //         'price_calculation' => 'dynamic',
     //     ];
     // }
-    protected function formatCart($cart, $user = null, array $comboChildren = [], $address = null)
+
+    protected function resolveComboTaxRate(Product $product): ?float
     {
+        if (($product->product_type ?? 'single') !== 'combo') {
+            return null; // not a combo, caller keeps existing logic
+        }
+
+        // Reuse the model helper that already normalizes parent_combo_id
+        $childIds = collect(\App\Models\Product::normalizeComboGroups($product->parent_combo_id))
+            ->flatten()
+            ->map(fn($v) => (int) $v)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($childIds)) {
+            return 0.0;
+        }
+
+        $maxRate = Product::query()
+            ->whereIn('id', $childIds)
+            ->whereNull('deleted_at')
+            ->with('taxCategory')
+            ->get()
+            ->map(fn($p) => (float) ($p->taxCategory->rate ?? 0))
+            ->max();
+
+        return $maxRate !== null ? (float) $maxRate : 0.0;
+    }
+    protected function formatCart(
+        Cart $cart,
+        ?User $user = null,
+        array $comboChildren = [],
+        $address = null
+    ): array {
         $isDistributor = $user && $user->account_type === 'distributor';
 
         if (empty($comboChildren)) {

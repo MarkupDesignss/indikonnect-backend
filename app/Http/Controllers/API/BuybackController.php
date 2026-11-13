@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
 use App\Traits\AuditLogTrait;
+use Throwable;
+use Exception;
 
 class BuybackController extends Controller
 {
@@ -154,241 +156,14 @@ class BuybackController extends Controller
     // {
     //     $user = Auth::user();
 
-    //     if ($user->account_type !== 'distributor' || $user->distributor_status !== 'active') {
+    //     $buybackActivate = Setting::where('key', 'buyback_activate')->value('value');
+
+    //     if (!$buybackActivate || in_array(strtolower((string) $buybackActivate), ['0', 'false', 'off', 'no', ''])) {
     //         return response()->json([
     //             'success' => false,
-    //             'message' => 'Only active distributors can request buy-back.'
+    //             'message' => 'Buy-back is currently disabled.'
     //         ], 403);
     //     }
-
-    //     $validator = Validator::make($request->all(), [
-    //         'items' => 'required|array|min:1',
-    //         'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
-    //         'items.*.quantity' => 'required|integer|min:1',
-    //         'items.*.reason' => 'nullable|string|max:500',
-    //         'return_reason' => 'nullable|string|max:1000',
-    //         'declares_marketable' => 'required|boolean',
-    //         'declares_unsold' => 'nullable|boolean',
-    //         'declares_unused' => 'nullable|boolean',
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'errors' => $validator->errors(),
-    //         ], 422);
-    //     }
-
-    //     $data = $validator->validated();
-    //     $buybackWindow = (int) setting('buyback_window_days', 30);
-    //     $deductionPercent = (float) setting('buyback_deduction_percent', 0);
-
-    //     $returnItems = [];
-    //     $totalRefund = 0;
-    //     $totalDeduction = 0;
-    //     $totalCvReversed = 0;
-    //     $totalTax = 0;
-    //     $processedLineIds = [];
-    //     $orderId = null;
-
-    //     DB::beginTransaction();
-
-    //     try {
-    //         foreach ($data['items'] as $itemData) {
-    //             $orderLine = OrderLine::with(['order', 'product'])->find($itemData['order_line_id']);
-
-    //             if (!$orderLine) {
-    //                 throw new \Exception("Order line not found: {$itemData['order_line_id']}");
-    //             }
-
-    //             $productName = $orderLine->product ? $orderLine->product->name : 'Unknown Product (ID: ' . $orderLine->product_id . ')';
-
-    //             $this->validateOrderLineForBuyback($orderLine, $user, $productName, $buybackWindow, $itemData['quantity']);
-
-    //             if (!$orderId) {
-    //                 $orderId = $orderLine->order_id;
-    //             } elseif ($orderId !== $orderLine->order_id) {
-    //                 throw new \Exception("All items must be from the same order.");
-    //             }
-
-    //             $purchasedQty = (int) $orderLine->quantity;
-    //             $returnedQty = (int) ($orderLine->returned_quantity ?? 0);
-    //             $availableQty = $purchasedQty - $returnedQty;
-
-    //             if ($availableQty <= 0) {
-    //                 throw new \Exception("No available quantity for '{$productName}'. Purchased: {$purchasedQty}, Already returned: {$returnedQty}");
-    //             }
-
-    //             if ($itemData['quantity'] > $availableQty) {
-    //                 throw new \Exception("Only {$availableQty} units of '{$productName}' are available. You requested {$itemData['quantity']}.");
-    //             }
-
-    //             // Calculate refund with GST
-    //             $perUnitLineTotal = (float) $orderLine->line_total / $purchasedQty;
-    //             $perUnitSubtotal = (float) $orderLine->unit_price;
-    //             $perUnitTax = $perUnitLineTotal - $perUnitSubtotal;
-
-    //             $itemTotal = $perUnitLineTotal * $itemData['quantity'];
-    //             $itemSubtotal = $perUnitSubtotal * $itemData['quantity'];
-    //             $itemTax = $perUnitTax * $itemData['quantity'];
-
-    //             $deductionAmount = round($itemTotal * ($deductionPercent / 100), 2);
-    //             $refundAmount = round($itemTotal - $deductionAmount, 2);
-
-    //             $perUnitCv = (float) ($orderLine->commissionable_volume ?? 0) / $purchasedQty;
-    //             $cvReversed = round($perUnitCv * $itemData['quantity'], 2);
-
-    //             $returnItems[] = [
-    //                 'order_line_id' => $orderLine->id,
-    //                 'product_id' => $orderLine->product_id,
-    //                 'product_name' => $productName,
-    //                 'quantity' => (int) $itemData['quantity'],
-    //                 'unit_price' => (float) $orderLine->unit_price,
-    //                 'gst_rate' => (float) $orderLine->gst_rate,
-    //                 'subtotal' => round($itemSubtotal, 2),
-    //                 'tax' => round($itemTax, 2),
-    //                 'line_total' => round($itemTotal, 2),
-    //                 'reason' => $itemData['reason'] ?? 'Buy-back request',
-    //                 'image_paths' => [],
-    //                 'return_status' => 'pending',
-    //                 'commissionable_volume_reversed' => $cvReversed,
-    //             ];
-
-    //             $totalRefund += $refundAmount;
-    //             $totalDeduction += $deductionAmount;
-    //             $totalCvReversed += $cvReversed;
-    //             $totalTax += $itemTax;
-    //             $processedLineIds[] = $orderLine->id;
-
-    //             // Update order line status
-    //             $orderLine->update([
-    //                 'returned_quantity' => $returnedQty + $itemData['quantity'],
-    //                 'return_status' => 'pending',
-    //                 'buyback_requested_at' => now(),
-    //                 'delivery_status' => 'buyback_pending',
-    //             ]);
-    //         }
-
-    //         // Round totals
-    //         $totalRefund = round($totalRefund, 2);
-    //         $totalDeduction = round($totalDeduction, 2);
-    //         $totalCvReversed = round($totalCvReversed, 2);
-    //         $totalTax = round($totalTax, 2);
-
-    //         // Proportional shipping refund
-    //         $order = Order::find($orderId);
-    //         $refundShipping = 0;
-    //         if ($order && $order->shipping_charge > 0 && $order->subtotal > 0) {
-    //             $refundSubtotal = $totalRefund;
-    //             $returnedProportion = min($refundSubtotal / $order->subtotal, 1);
-    //             $refundShipping = round($order->shipping_charge * $returnedProportion, 2);
-    //         }
-
-    //         // Create return record with type 'buyback'
-    //         $return = OrderReturn::create([
-    //             'order_id' => $orderId,
-    //             'user_id' => $user->id,
-    //             'type' => 'buyback',
-    //             'items' => $returnItems,
-    //             'status' => 'pending',
-    //             'reason' => $data['return_reason'] ?? 'Buy-back request',
-    //             'refund_subtotal' => $totalRefund,
-    //             'refund_tax' => $totalTax,
-    //             'refund_shipping' => $refundShipping,
-    //             'total_refund_amount' => $totalRefund,
-    //             'total_cv_reversed' => $totalCvReversed,
-    //             'extra_data' => [
-    //                 'declares_marketable' => (bool) $data['declares_marketable'],
-    //                 'declares_unsold' => (bool) $data['declares_unsold'],
-    //                 'declares_unused' => (bool) $data['declares_unused'],
-    //                 'declared_at' => now()->toDateTimeString(),
-    //                 'deduction_percent' => $deductionPercent,
-    //                 'deduction_amount' => $totalDeduction,
-    //                 'buyback_window_days' => $buybackWindow,
-    //                 'days_since_purchase' => $order->created_at->diffInDays(now()) ?? 0,
-    //             ],
-    //         ]);
-
-    //         // Log buyback initiation
-    //         $this->logAudit(
-    //             'buyback_initiate',
-    //             'compliance',
-    //             null,
-    //             [
-    //                 'buyback_id' => $return->id,
-    //                 'distributor_id' => $user->id,
-    //                 'distributor_name' => $user->full_name,
-    //                 'distributor_email' => $user->email,
-    //                 'order_id' => $orderId,
-    //                 'order_reference' => $order->order_reference ?? null,
-    //                 'products' => $returnItems,
-    //                 'total_amount' => $totalRefund + $refundShipping,
-    //                 'total_deduction' => $totalDeduction,
-    //                 'deduction_percent' => $deductionPercent,
-    //                 'total_cv_reversed' => $totalCvReversed,
-    //                 'status' => 'pending',
-    //                 'declarations' => [
-    //                     'marketable' => (bool) $data['declares_marketable'],
-    //                     'unsold' => (bool) $data['declares_unsold'],
-    //                     'unused' => (bool) $data['declares_unused'],
-    //                 ],
-    //                 'items' => $returnItems,
-    //                 'initiated_by' => $user->id,
-    //                 'initiated_at' => now()->toDateTimeString(),
-    //             ],
-    //             $user->id
-    //         );
-
-    //         // Update order return status
-    //         $this->updateOrderReturnStatus($order);
-
-    //         DB::commit();
-
-    //         // Admin notification
-    //         $this->createBuybackNotification($return);
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'message' => 'Buy-back request submitted successfully. Admin will review and notify you.',
-    //             'data' => [
-    //                 'return_id' => $return->id,
-    //                 'status' => 'pending',
-    //                 'order_reference' => $order->order_reference ?? null,
-    //                 'refund_details' => [
-    //                     'subtotal' => $totalRefund,
-    //                     'tax' => $totalTax,
-    //                     'shipping' => $refundShipping,
-    //                     'total' => $totalRefund + $refundShipping,
-    //                     'deduction_amount' => $totalDeduction,
-    //                     'deduction_percent' => $deductionPercent,
-    //                     'cv_reversed' => $totalCvReversed,
-    //                 ],
-    //                 'declarations' => [
-    //                     'marketable' => (bool) $data['declares_marketable'],
-    //                     'unsold' => (bool) $data['declares_unsold'],
-    //                     'unused' => (bool) $data['declares_unused'],
-    //                 ],
-    //                 'items' => $returnItems,
-    //                 'created_at' => $return->created_at->toDateTimeString(),
-    //             ],
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         DB::rollBack();
-    //         Log::error('Buy-back request failed', [
-    //             'user_id' => $user->id,
-    //             'error' => $e->getMessage(),
-    //             'trace' => $e->getTraceAsString(),
-    //         ]);
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 422);
-    //     }
-    // }
-
-    // public function initiate(Request $request)
-    // {
-    //     $user = Auth::user();
 
     //     if ($user->account_type !== 'distributor' || $user->distributor_status !== 'active') {
     //         return response()->json([
@@ -407,6 +182,16 @@ class BuybackController extends Controller
     //         'declares_marketable' => 'required|boolean',
     //         'declares_unsold' => 'nullable|boolean',
     //         'declares_unused' => 'nullable|boolean',
+    //         'tracking_id' =>
+    //         'required_if:return_method,courier',
+    //         'nullable',
+    //         'string',
+    //         'max:100',
+    //         'courier' =>
+    //         'required_if:return_method,courier',
+    //         'nullable',
+    //         'string',
+    //         'max:100',
     //     ]);
 
     //     if ($validator->fails()) {
@@ -531,6 +316,8 @@ class BuybackController extends Controller
     //             'type' => 'buyback',
     //             'items' => $returnItems,
     //             'return_method' => $data['return_method'],
+    //             'tracking_id'         => $data['tracking_id'] ?? null,   // ← NEW
+    //             'courier'             => $data['courier'] ?? null,       // ← NEW
     //             'status' => 'pending',
     //             'reason' => $data['return_reason'] ?? 'Buy-back request',
     //             'refund_subtotal' => $totalRefund,
@@ -626,266 +413,218 @@ class BuybackController extends Controller
     //         ], 422);
     //     }
     // }
-    public function initiate(Request $request)
-    {
-        $user = Auth::user();
+    public function initiateBuyback(
+        int $userId,
+        string $orderReference,
+        string $returnMethod,
+        ?string $trackingId,
+        ?string $courier,
+        ?string $returnReason,
+        bool $declaresMarketable,
+        bool $declaresUnsold,
+        bool $declaresUnused
+    ): array {
+        $buybackWindowDays = (int) setting('buyback_window_days', 30);
+        $deductionPercent  = (float) setting('buyback_deduction_percent', 0);
 
-        $buybackActivate = Setting::where('key', 'buyback_activate')->value('value');
+        return DB::transaction(function () use (
+            $userId,
+            $orderReference,
+            $returnMethod,
+            $trackingId,
+            $courier,
+            $returnReason,
+            $declaresMarketable,
+            $declaresUnsold,
+            $declaresUnused,
+            $buybackWindowDays,
+            $deductionPercent
+        ) {
+            // Lock order
+            $order = Order::where('order_reference', $orderReference)
+                ->where('user_id', $userId)
+                ->lockForUpdate()
+                ->first();
 
-        if (!$buybackActivate || in_array(strtolower((string) $buybackActivate), ['0', 'false', 'off', 'no', ''])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Buy-back is currently disabled.'
-            ], 403);
-        }
+            if (!$order) {
+                throw new Exception('Order not found or does not belong to this user.');
+            }
 
-        if ($user->account_type !== 'distributor' || $user->distributor_status !== 'active') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Only active distributors can request buy-back.'
-            ], 403);
-        }
+            $order->load('lines.product');
 
-        $validator = Validator::make($request->all(), [
-            'items' => 'required|array|min:1',
-            'return_method' => 'required|in:doorstep,courier',
-            'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
-            'items.*.quantity' => 'required|integer|min:1',
-            'items.*.reason' => 'nullable|string|max:500',
-            'return_reason' => 'nullable|string|max:1000',
-            'declares_marketable' => 'required|boolean',
-            'declares_unsold' => 'nullable|boolean',
-            'declares_unused' => 'nullable|boolean',
-            'tracking_id' =>
-            'required_if:return_method,courier',
-            'nullable',
-            'string',
-            'max:100',
-            'courier' =>
-            'required_if:return_method,courier',
-            'nullable',
-            'string',
-            'max:100',
-        ]);
+            $returnItems         = [];
+            $totalRefund         = 0.0;
+            $totalDeduction      = 0.0;
+            $totalCvReversed     = 0.0;
+            $totalTax            = 0.0;
+            $totalShippingRefund = 0.0;
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+            foreach ($order->lines as $orderLine) {
+                $productName = $orderLine->product->name ?? "Line #{$orderLine->id}";
 
-        $data = $validator->validated();
-        $buybackWindow = (int) setting('buyback_window_days', 30);
-        $deductionPercent = (float) setting('buyback_deduction_percent', 0);
-
-        $returnItems = [];
-        $totalRefund = 0;
-        $totalDeduction = 0;
-        $totalCvReversed = 0;
-        $totalTax = 0;
-        $totalShippingRefund = 0;
-        $processedLineIds = [];
-        $orderId = null;
-
-        DB::beginTransaction();
-
-        try {
-            foreach ($data['items'] as $itemData) {
-                $orderLine = OrderLine::with(['order', 'product'])->find($itemData['order_line_id']);
-
-                if (!$orderLine) {
-                    throw new \Exception("Order line not found: {$itemData['order_line_id']}");
-                }
-
-                $productName = $orderLine->product ? $orderLine->product->name : 'Unknown Product (ID: ' . $orderLine->product_id . ')';
-
-                $this->validateOrderLineForBuyback($orderLine, $user, $productName, $buybackWindow, $itemData['quantity']);
-
-                if (!$orderId) {
-                    $orderId = $orderLine->order_id;
-                } elseif ($orderId !== $orderLine->order_id) {
-                    throw new \Exception("All items must be from the same order.");
-                }
+                $this->validateOrderLineForBuyback(
+                    $orderLine,
+                    $userId,
+                    $productName,
+                    $buybackWindowDays,
+                    (int) $orderLine->quantity
+                );
 
                 $purchasedQty = (int) $orderLine->quantity;
-                $returnedQty = (int) ($orderLine->returned_quantity ?? 0);
+                $returnedQty  = (int) ($orderLine->returned_quantity ?? 0);
                 $availableQty = $purchasedQty - $returnedQty;
 
                 if ($availableQty <= 0) {
-                    throw new \Exception("No available quantity for '{$productName}'. Purchased: {$purchasedQty}, Already returned: {$returnedQty}");
+                    throw new Exception(
+                        "No available quantity for '{$productName}'. "
+                            . "Purchased: {$purchasedQty}, Already returned: {$returnedQty}"
+                    );
                 }
 
-                if ($itemData['quantity'] > $availableQty) {
-                    throw new \Exception("Only {$availableQty} units of '{$productName}' are available. You requested {$itemData['quantity']}.");
-                }
+                $quantity = $availableQty;
 
-                // Calculate refund with GST
-                $perUnitLineTotal = (float) $orderLine->line_total / $purchasedQty;
-                $perUnitSubtotal = (float) $orderLine->unit_price;
-                $perUnitTax = $perUnitLineTotal - $perUnitSubtotal;
+                $perUnitLineTotal = (float) $orderLine->line_total / max($purchasedQty, 1);
+                $perUnitSubtotal  = (float) $orderLine->unit_price;
+                $perUnitTax       = $perUnitLineTotal - $perUnitSubtotal;
 
-                $itemTotal = $perUnitLineTotal * $itemData['quantity'];
-                $itemSubtotal = $perUnitSubtotal * $itemData['quantity'];
-                $itemTax = $perUnitTax * $itemData['quantity'];
+                $itemTotal    = $perUnitLineTotal * $quantity;
+                $itemSubtotal = $perUnitSubtotal * $quantity;
+                $itemTax      = $perUnitTax * $quantity;
 
                 $deductionAmount = round($itemTotal * ($deductionPercent / 100), 2);
-                $refundAmount = round($itemTotal - $deductionAmount, 2);
+                $refundAmount    = round($itemTotal - $deductionAmount, 2);
 
-                $perUnitCv = (float) ($orderLine->commissionable_volume ?? 0) / $purchasedQty;
-                $cvReversed = round($perUnitCv * $itemData['quantity'], 2);
+                $perUnitCv  = (float) ($orderLine->commissionable_volume ?? 0) / max($purchasedQty, 1);
+                $cvReversed = round($perUnitCv * $quantity, 2);
 
-                // Per-unit shipping charge × returned quantity
-                $itemShippingRefund = round((float) ($orderLine->shipping_charge ?? 0) * $itemData['quantity'], 2);
+                $itemShippingRefund = round(
+                    (float) ($orderLine->shipping_charge ?? 0) * $quantity,
+                    2
+                );
 
                 $returnItems[] = [
-                    'order_line_id' => $orderLine->id,
-                    'product_id' => $orderLine->product_id,
-                    'product_name' => $productName,
-                    'quantity' => (int) $itemData['quantity'],
-                    'unit_price' => (float) $orderLine->unit_price,
-                    'gst_rate' => (float) $orderLine->gst_rate,
-                    'subtotal' => round($itemSubtotal, 2),
-                    'tax' => round($itemTax, 2),
-                    'line_total' => round($itemTotal, 2),
-                    'shipping_refund' => $itemShippingRefund,
-                    'reason' => $itemData['reason'] ?? 'Buy-back request',
-                    'image_paths' => [],
-                    'return_status' => 'pending',
+                    'order_line_id'                  => $orderLine->id,
+                    'product_id'                     => $orderLine->product_id,
+                    'product_name'                   => $productName,
+                    'quantity'                       => $quantity,
+                    'unit_price'                     => (float) $orderLine->unit_price,
+                    'gst_rate'                       => (float) $orderLine->gst_rate,
+                    'subtotal'                       => round($itemSubtotal, 2),
+                    'tax'                            => round($itemTax, 2),
+                    'line_total'                     => round($itemTotal, 2),
+                    'shipping_refund'                => $itemShippingRefund,
+                    'reason'                         => $returnReason ?? 'Buy-back request',
+                    'image_paths'                    => [],
+                    'return_status'                  => 'pending',
                     'commissionable_volume_reversed' => $cvReversed,
+                    'deduction_amount'               => $deductionAmount,
+                    'refund_amount'                  => $refundAmount,
                 ];
 
-                $totalRefund += $refundAmount;
-                $totalDeduction += $deductionAmount;
-                $totalCvReversed += $cvReversed;
-                $totalTax += $itemTax;
+                $totalRefund         += $refundAmount;
+                $totalDeduction      += $deductionAmount;
+                $totalCvReversed     += $cvReversed;
+                $totalTax            += $itemTax;
                 $totalShippingRefund += $itemShippingRefund;
-                $processedLineIds[] = $orderLine->id;
 
-                // Update order line status
                 $orderLine->update([
-                    'returned_quantity' => $returnedQty + $itemData['quantity'],
-                    'return_status' => 'pending',
+                    'returned_quantity'    => $returnedQty + $quantity,
+                    'return_status'        => 'pending',
                     'buyback_requested_at' => now(),
-                    'delivery_status' => 'buyback_pending',
+                    'delivery_status'      => 'buyback_pending',
                 ]);
             }
 
-            // Round totals
-            $totalRefund = round($totalRefund, 2);
-            $totalDeduction = round($totalDeduction, 2);
-            $totalCvReversed = round($totalCvReversed, 2);
-            $totalTax = round($totalTax, 2);
+            if (empty($returnItems)) {
+                throw new Exception('No eligible items found in this order for buy-back.');
+            }
+
+            $totalRefund         = round($totalRefund, 2);
+            $totalDeduction      = round($totalDeduction, 2);
+            $totalCvReversed     = round($totalCvReversed, 2);
+            $totalTax            = round($totalTax, 2);
             $totalShippingRefund = round($totalShippingRefund, 2);
 
-            // Shipping refund is now sum of per-line shipping refunds
-            $order = Order::find($orderId);
-            $refundShipping = $totalShippingRefund;
-
-            // Create return record with type 'buyback'
             $return = OrderReturn::create([
-                'order_id' => $orderId,
-                'order_line_id' => $orderLine->id,
-                'user_id' => $user->id,
-                'type' => 'buyback',
-                'items' => $returnItems,
-                'return_method' => $data['return_method'],
-                'tracking_id'         => $data['tracking_id'] ?? null,   // ← NEW
-                'courier'             => $data['courier'] ?? null,       // ← NEW
-                'status' => 'pending',
-                'reason' => $data['return_reason'] ?? 'Buy-back request',
-                'refund_subtotal' => $totalRefund,
-                'refund_tax' => $totalTax,
-                'refund_shipping' => $refundShipping,
-                'total_refund_amount' => $totalRefund + $refundShipping,
-                'total_cv_reversed' => $totalCvReversed,
-                'extra_data' => [
-                    'declares_marketable' => (bool) $data['declares_marketable'],
-                    'declares_unsold' => (bool) $data['declares_unsold'],
-                    'declares_unused' => (bool) $data['declares_unused'],
-                    'declared_at' => now()->toDateTimeString(),
-                    'deduction_percent' => $deductionPercent,
-                    'deduction_amount' => $totalDeduction,
-                    'buyback_window_days' => $buybackWindow,
+                'order_id'            => $order->id,
+                'order_line_id'       => $returnItems[0]['order_line_id'],
+                'user_id'             => $userId,
+                'type'                => 'buyback',
+                'items'               => $returnItems,
+                'return_method'       => $returnMethod,
+                'tracking_id'         => $trackingId,
+                'courier'             => $courier,
+                'status'              => 'pending',
+                'reason'              => $returnReason ?? 'Buy-back request',
+                'refund_subtotal'     => $totalRefund,
+                'refund_tax'          => $totalTax,
+                'refund_shipping'     => $totalShippingRefund,
+                'total_refund_amount' => round($totalRefund + $totalShippingRefund, 2),
+                'total_cv_reversed'   => $totalCvReversed,
+                'extra_data'          => [
+                    'declares_marketable' => $declaresMarketable,
+                    'declares_unsold'     => $declaresUnsold,
+                    'declares_unused'     => $declaresUnused,
+                    'declared_at'         => now()->toDateTimeString(),
+                    'deduction_percent'   => $deductionPercent,
+                    'deduction_amount'    => $totalDeduction,
+                    'buyback_window_days' => $buybackWindowDays,
                     'days_since_purchase' => $order->created_at->diffInDays(now()) ?? 0,
                 ],
             ]);
 
-            // Log buyback initiation
-            $this->logAudit(
-                'buyback_initiate',
-                'compliance',
-                null,
-                [
-                    'buyback_id' => $return->id,
-                    'distributor_id' => $user->id,
-                    'distributor_name' => $user->full_name,
-                    'distributor_email' => $user->email,
-                    'order_id' => $orderId,
-                    'order_reference' => $order->order_reference ?? null,
-                    'products' => $returnItems,
-                    'total_amount' => $totalRefund + $refundShipping,
-                    'total_deduction' => $totalDeduction,
-                    'deduction_percent' => $deductionPercent,
-                    'total_cv_reversed' => $totalCvReversed,
-                    'status' => 'pending',
-                    'declarations' => [
-                        'marketable' => (bool) $data['declares_marketable'],
-                        'unsold' => (bool) $data['declares_unsold'],
-                        'unused' => (bool) $data['declares_unused'],
-                    ],
-                    'items' => $returnItems,
-                    'initiated_by' => $user->id,
-                    'initiated_at' => now()->toDateTimeString(),
+            $this->logAudit('buyback_initiate', 'compliance', null, [
+                'buyback_id'        => $return->id,
+                'distributor_id'    => $userId,
+                'order_id'          => $order->id,
+                'order_reference'   => $order->order_reference,
+                'products'          => $returnItems,
+                'total_amount'      => $totalRefund + $totalShippingRefund,
+                'total_deduction'   => $totalDeduction,
+                'deduction_percent' => $deductionPercent,
+                'total_cv_reversed' => $totalCvReversed,
+                'status'            => 'pending',
+                'declarations'      => [
+                    'marketable' => $declaresMarketable,
+                    'unsold'     => $declaresUnsold,
+                    'unused'     => $declaresUnused,
                 ],
-                $user->id
-            );
+                'initiated_by'      => $userId,
+                'initiated_at'      => now()->toDateTimeString(),
+            ], $userId);
 
-            // Update order return status
             $this->updateOrderReturnStatus($order);
+            $order->updateOrderStatus();
 
-            DB::commit();
-
-            // Admin notification
             $this->createBuybackNotification($return);
 
-            return response()->json([
+            return [
                 'success' => true,
-                'message' => 'Buy-back request submitted successfully. Admin will review and notify you.',
-                'data' => [
-                    'return_id' => $return->id,
-                    'status' => 'pending',
-                    'order_reference' => $order->order_reference ?? null,
-                    'refund_details' => [
-                        'subtotal' => $totalRefund,
-                        'tax' => $totalTax,
-                        'shipping' => $refundShipping,
-                        'total' => $totalRefund + $refundShipping,
-                        'deduction_amount' => $totalDeduction,
+                'message' => 'Buy-back request submitted for the entire order. Admin will review and notify you.',
+                'data'    => [
+                    'return_id'       => $return->id,
+                    'status'          => 'pending',
+                    'order_reference' => $order->order_reference,
+                    'order_status'    => $order->fresh()->status,
+                    'refund_details'  => [
+                        'subtotal'          => $totalRefund,
+                        'tax'               => $totalTax,
+                        'shipping'          => $totalShippingRefund,
+                        'total'             => round($totalRefund + $totalShippingRefund, 2),
+                        'deduction_amount'  => $totalDeduction,
                         'deduction_percent' => $deductionPercent,
-                        'cv_reversed' => $totalCvReversed,
+                        'cv_reversed'       => $totalCvReversed,
                     ],
                     'declarations' => [
-                        'marketable' => (bool) $data['declares_marketable'],
-                        'unsold' => (bool) $data['declares_unsold'],
-                        'unused' => (bool) $data['declares_unused'],
+                        'marketable' => $declaresMarketable,
+                        'unsold'     => $declaresUnsold,
+                        'unused'     => $declaresUnused,
                     ],
-                    'items' => $returnItems,
+                    'items'      => $returnItems,
                     'created_at' => $return->created_at->toDateTimeString(),
                 ],
-            ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Buy-back request failed', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ], 422);
-        }
+            ];
+        });
     }
 
 

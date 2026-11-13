@@ -1217,7 +1217,7 @@ class AuthController extends Controller
     //         ], 500);
     //     }
     // }
-    
+
     public function getStepData($step, $identifier, Request $request)
     {
         try {
@@ -1232,6 +1232,10 @@ class AuthController extends Controller
             $step = (int) $step;
 
             // Get Terms & Conditions
+            $termsConditions = DB::table('settings')
+                ->where('key', 'terms_conditions')
+                ->value('value');
+
             $termsConditions = DB::table('settings')
                 ->where('key', 'terms_conditions')
                 ->value('value');
@@ -1332,6 +1336,7 @@ class AuthController extends Controller
                 'completed_steps' => $completedSteps,
                 'registration_status' => $registrationStatus,
                 'is_complete' => false,
+                'terms_conditions' => $termsConditions,,
                 'terms_conditions' => $termsConditions,
             ]);
 
@@ -1360,6 +1365,7 @@ class AuthController extends Controller
     public function sendVerificationOtp(Request $request)
     {
         try {
+
             $validator = Validator::make($request->all(), [
                 'type' => 'required|in:phone,email',
                 'phone' => 'required_if:type,phone|min:10|max:15',
@@ -4755,139 +4761,139 @@ class AuthController extends Controller
     // }
 
     public function profile()
-{
-    try {
+    {
+        try {
 
-        $user = Auth::user();
+            $user = Auth::user();
 
-        if (!$user) {
+            if (!$user) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Unauthorized',
+                ], 401);
+            }
+
+            // Load user relationships
+            $user->load([
+                'roles',
+                'latestCorrectionRequest'
+            ]);
+
+            // Format DOB
+            if ($user->date_of_birth) {
+                $user->date_of_birth = Carbon::parse($user->date_of_birth)
+                    ->format('Y-m-d');
+            }
+
+            $hasPurchasedMandatoryProduct = DB::table('order_lines')
+                ->join('orders', 'orders.id', '=', 'order_lines.order_id')
+                ->where('orders.user_id', $user->id)
+                ->where('order_lines.product_id', 32)
+                ->whereIn('orders.status', [
+                    'confirmed',
+                    'dispatched',
+                    'partial_dispatched',
+                    'shipped',
+                    'partial_shipped',
+                    'partial_delivered',
+                    'delivered',
+                ])
+                ->whereNull('orders.deleted_at')
+                ->exists();
+
+            // Check whether product ID 32 exists in user's current cart
+            $hasMandatoryProductInCart = \App\Models\Cart::where('user_id', $user->id)
+                ->whereHas('items', function ($query) {
+                    $query->where('product_id', 32);
+                })
+                ->exists();
+
+            // can_buy = 1 if purchased OR added to current cart
+            $canBuy = (
+                $hasPurchasedMandatoryProduct ||
+                $hasMandatoryProductInCart
+            ) ? 1 : 0;
+
+
+            // Get rejection duration from settings
+            $rejectionDays = $this->getCorrectionRejectionDays();
+
+            $nextAllowedAt = null;
+            $canResubmit = true;
+
+            $latestCorrection = $user->latestCorrectionRequest;
+
+            if (
+                $latestCorrection &&
+                $latestCorrection->status === 'rejected' &&
+                $latestCorrection->rejected_at
+            ) {
+
+                $nextAllowedAt = Carbon::parse($latestCorrection->rejected_at)
+                    ->addDays($rejectionDays);
+
+                $canResubmit = now()->greaterThanOrEqualTo($nextAllowedAt);
+            }
+
+            // Load distributor profile if distributor
+            if ($user->account_type === 'distributor') {
+                $user->load('distributorProfile');
+
+                // Strip suffix like "-001" from distributor_id
+                if (!empty($user->distributor_id)) {
+                    $user->distributor_id = preg_replace('/-\d+$/', '', $user->distributor_id);
+                }
+            }
+
+            // Profile picture full URL
+            if (!empty($user->profile_picture)) {
+                $user->profile_picture = asset(
+                    'storage/profile_pictures/' . basename($user->profile_picture)
+                );
+            }
+
+            // Extra distributor link
+            $extra = [];
+
+            if ($user->account_type === 'distributor') {
+                $extra['distributor_link'] =
+                    'https://www.markupdesigns.net/indikonnect/distributor/'
+                    . $user->distributor_id;
+            }
+            $buybackActivateRaw = DB::table('settings')
+                ->where('key', 'buyback_activate')
+                ->value('value');
+            $buybackActivate = filter_var($buybackActivateRaw, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            $buybackActivate = $buybackActivate ?? false;
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Profile fetched successfully',
+                'user' => $user,
+                'extra' => $extra,
+                'can_buy' => $canBuy,
+                // Correction rejection information
+                'buyback_activate' => $buybackActivate,
+                'correction_rejection_days' => $rejectionDays,
+                'next_allowed_at' => $nextAllowedAt
+                    ? $nextAllowedAt->format('Y-m-d H:i:s')
+                    : null,
+                'can_resubmit_correction' => $canResubmit,
+
+            ], 200);
+        } catch (\Exception $e) {
+
+            Log::error('Profile API failed.', [
+                'user_id' => Auth::id(),
+                'error'   => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'status'  => false,
-                'message' => 'Unauthorized',
-            ], 401);
+                'message' => $e->getMessage(),
+            ], 500);
         }
-
-        // Load user relationships
-        $user->load([
-            'roles',
-            'latestCorrectionRequest'
-        ]);
-
-        // Format DOB
-        if ($user->date_of_birth) {
-            $user->date_of_birth = Carbon::parse($user->date_of_birth)
-                ->format('Y-m-d');
-        }
-
-        $hasPurchasedMandatoryProduct = DB::table('order_lines')
-            ->join('orders', 'orders.id', '=', 'order_lines.order_id')
-            ->where('orders.user_id', $user->id)
-            ->where('order_lines.product_id', 32)
-            ->whereIn('orders.status', [
-                'confirmed',
-                'dispatched',
-                'partial_dispatched',
-                'shipped',
-                'partial_shipped',
-                'partial_delivered',
-                'delivered',
-            ])
-            ->whereNull('orders.deleted_at')
-            ->exists();
-
-        // Check whether product ID 32 exists in user's current cart
-        $hasMandatoryProductInCart = \App\Models\Cart::where('user_id', $user->id)
-            ->whereHas('items', function ($query) {
-                $query->where('product_id', 32);
-            })
-            ->exists();
-
-        // can_buy = 1 if purchased OR added to current cart
-        $canBuy = (
-            $hasPurchasedMandatoryProduct ||
-            $hasMandatoryProductInCart
-        ) ? 1 : 0;
-
-
-        // Get rejection duration from settings
-        $rejectionDays = $this->getCorrectionRejectionDays();
-
-        $nextAllowedAt = null;
-        $canResubmit = true;
-
-        $latestCorrection = $user->latestCorrectionRequest;
-
-        if (
-            $latestCorrection &&
-            $latestCorrection->status === 'rejected' &&
-            $latestCorrection->rejected_at
-        ) {
-
-            $nextAllowedAt = Carbon::parse($latestCorrection->rejected_at)
-                ->addDays($rejectionDays);
-
-            $canResubmit = now()->greaterThanOrEqualTo($nextAllowedAt);
-        }
-
-        // Load distributor profile if distributor
-        if ($user->account_type === 'distributor') {
-            $user->load('distributorProfile');
-
-            // Strip suffix like "-001" from distributor_id
-            if (!empty($user->distributor_id)) {
-                $user->distributor_id = preg_replace('/-\d+$/', '', $user->distributor_id);
-            }
-        }
-
-        // Profile picture full URL
-        if (!empty($user->profile_picture)) {
-            $user->profile_picture = asset(
-                'storage/profile_pictures/' . basename($user->profile_picture)
-            );
-        }
-
-        // Extra distributor link
-        $extra = [];
-
-        if ($user->account_type === 'distributor') {
-            $extra['distributor_link'] =
-                'https://www.markupdesigns.net/indikonnect/distributor/'
-                . $user->distributor_id;
-        }
-        $buybackActivateRaw = DB::table('settings')
-            ->where('key', 'buyback_activate')
-            ->value('value');
-        $buybackActivate = filter_var($buybackActivateRaw, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-        $buybackActivate = $buybackActivate ?? false;
-
-        return response()->json([
-            'status' => true,
-            'message' => 'Profile fetched successfully',
-            'user' => $user,
-            'extra' => $extra,
-            'can_buy' => $canBuy,
-            // Correction rejection information
-            'buyback_activate' => $buybackActivate,
-            'correction_rejection_days' => $rejectionDays,
-            'next_allowed_at' => $nextAllowedAt
-                ? $nextAllowedAt->format('Y-m-d H:i:s')
-                : null,
-            'can_resubmit_correction' => $canResubmit,
-
-        ], 200);
-    } catch (\Exception $e) {
-
-        Log::error('Profile API failed.', [
-            'user_id' => Auth::id(),
-            'error'   => $e->getMessage(),
-        ]);
-
-        return response()->json([
-            'status'  => false,
-            'message' => $e->getMessage(),
-        ], 500);
     }
-}
 
 
     /**
