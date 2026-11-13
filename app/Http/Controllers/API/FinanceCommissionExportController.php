@@ -145,6 +145,7 @@ class FinanceCommissionExportController extends Controller
 
     /**
      * Get exact week boundaries from Ignite Sales Calendar API
+     * Returns [weekStart (IST), weekEnd (IST, inclusive)] ready for date comparison.
      */
     private function getWeekRange(int $week, int $year): array
     {
@@ -159,34 +160,43 @@ class FinanceCommissionExportController extends Controller
         }
 
         $months = $calendar['months'] ?? [];
-        
+
         foreach ($months as $month) {
-            foreach ($month['weeks'] ?? [] as $w) {
-                if ((int) $w['week_no'] === $week) {
-                    return [
-                        Carbon::parse($w['start_at'], 'Asia/Hong_Kong'),
-                        Carbon::parse($w['end_at'], 'Asia/Hong_Kong'),
-                    ];
+            foreach (($month['weeks'] ?? []) as $w) {
+                if ((int) ($w['week_no'] ?? 0) === $week) {
+                    // Ignite returns UTC+8. Convert to IST (Asia/Kolkata).
+                    $startIst = Carbon::parse($w['start_at'], 'Asia/Hong_Kong')
+                        ->setTimezone('Asia/Kolkata');
+
+                    // end_at is exclusive → subtract 1 second for inclusive end
+                    $endIst = Carbon::parse($w['end_at'], 'Asia/Hong_Kong')
+                        ->setTimezone('Asia/Kolkata')
+                        ->subSecond();
+
+                    return [$startIst, $endIst];
                 }
             }
         }
-        
+
         throw new \Exception("Week {$week} not found in Ignite Calendar for year {$year}");
     }
 
+   /**
+     * Fetch all pointTxs for a member that fall within the given week (IST boundaries).
+     * Handles pagination via after_id. Compares created_at in IST.
+     */
     private function fetchHistoryForWeek(string $baId, Carbon $weekStart, Carbon $weekEnd): array
     {
-        $afterId = 0;
-        $limit = 500;
-        $guard = 0;
+        $afterId  = 0;
+        $limit    = 500;
+        $guard    = 0;
         $collected = [];
-        $reachedOlderData = false;
 
         do {
             $resp = $this->ignite->pointTxs($baId, $afterId, $limit);
 
             if (($resp['code'] ?? null) !== ResultCode::OK->value) {
-                Log::warning("Ignite pointTxs failed for $baId", [
+                Log::warning("Ignite pointTxs failed for {$baId}", [
                     'code' => $resp['code'] ?? null,
                     'msg'  => $resp['msg'] ?? null,
                 ]);
@@ -198,31 +208,24 @@ class FinanceCommissionExportController extends Controller
                 break;
             }
 
-            // Check if we've reached older data
-            $firstRowDate = Carbon::parse($rawRows[0]['created_at'] ?? now())
-                ->setTimezone('Asia/Hong_Kong');
-                
-            if ($firstRowDate->lt($weekStart)) {
-                $reachedOlderData = true;
-                break;
-            }
-
             foreach ($rawRows as $row) {
                 $created = $row['created_at'] ?? null;
                 if (!$created) {
                     continue;
                 }
 
-                $dt = Carbon::parse($created)->setTimezone('Asia/Hong_Kong');
+                // Ignite returns created_at in UTC+8 with milliseconds → convert to IST
+                $dt = Carbon::parse($created, 'Asia/Hong_Kong')
+                    ->setTimezone('Asia/Kolkata');
 
-                if ($dt->gte($weekStart) && $dt->lt($weekEnd)) {
+                if ($dt->gte($weekStart) && $dt->lte($weekEnd)) {
                     $collected[] = $this->normalizeRow($row);
                 }
             }
 
             $afterId = (int) end($rawRows)['id'];
             $guard++;
-        } while (($resp['data']['has_more'] ?? false) && $guard < 100 && !$reachedOlderData);
+        } while (($resp['data']['has_more'] ?? false) && $guard < 200);
 
         return $collected;
     }
@@ -238,11 +241,19 @@ class FinanceCommissionExportController extends Controller
 
         $amountInr = $isCash ? round($amount * $usdRate, 2) : 0;
 
+        // IST display for debugging
+        $createdIst = $row['created_at']
+            ? Carbon::parse($row['created_at'], 'Asia/Hong_Kong')
+                ->setTimezone('Asia/Kolkata')
+                ->toDateTimeString()
+            : null;
+
         return [
-            'id'             => $row['id'],
-            'point_type'     => $pointType,
-            'amount_usd'     => $amount,
-            'amount_inr'     => $amountInr,
+            'id'          => $row['id'],
+            'point_type'  => $pointType,
+            'amount_usd'  => $amount,
+            'amount_inr'  => $amountInr,
+            'created_ist' => $createdIst,
         ];
     }
 }
