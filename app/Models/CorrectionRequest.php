@@ -9,18 +9,19 @@ class CorrectionRequest extends Model
     protected $fillable = [
         'user_id',
         'email',
+        'new_email',
         'reason',
-        'full_name',
-        'date_of_birth',
+        'type',
         'status',
         'token',
-        'phone',
-        'type',
         'token_expires_at',
-        'rejected_reason',
-        'rejected_at',
         'token_used_at',
+        'rejected_at',
+        'rejected_reason',
+        'full_name',
+        'date_of_birth',
     ];
+
 
     protected $casts = [
         'date_of_birth'    => 'date',
@@ -61,5 +62,16 @@ class CorrectionRequest extends Model
             && $this->token_expires_at
             && now()->lessThan($this->token_expires_at)
             && is_null($this->token_used_at);
+    }
+
+
+    public function needsEmailUpdate(): bool
+    {
+        return $this->type === 'email_request';
+    }
+
+    public function needsPhoneUpdate(): bool
+    {
+        return $this->type === 'phone_request';
     }
 }

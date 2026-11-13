@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AuthController;
+use App\Http\Controllers\Admin\EmailCorrectionController;
 use App\Http\Controllers\API\CorrectionLinkController;
 use App\Http\Controllers\API\PhoneChangeController;
 use Illuminate\Support\Facades\Route;
@@ -51,3 +52,10 @@ Route::get('/test-axispg-signature', function () {
 Route::get('/phone-update/{token}', [PhoneChangeController::class, 'showForm'])->name('phone.form');
 Route::post('/phone-update/{token}', [PhoneChangeController::class, 'sendOtp'])->name('phone.send-otp');
 Route::post('/phone-update/{token}/verify', [PhoneChangeController::class, 'verifyOtp'])->name('phone.verify-otp');
+
+
+Route::get('/email-update/{token}',  [EmailCorrectionController::class, 'show'])
+    ->name('email.correction.form');
+
+Route::post('/email-update/{token}', [EmailCorrectionController::class, 'update'])
+    ->name('email.correction.update');
