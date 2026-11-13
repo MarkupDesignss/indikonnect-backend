@@ -1323,7 +1323,8 @@ class GenealogyController extends Controller
         // 3. Base account + its TCs (-001, -002, -003)
         $accounts = [];
 
-        $baseFullName = $this->resolveBaseOwnerNames($baseId, $mainBaId);
+        $baseNameMap = $this->resolveBaseOwnerNames([$baseId], $mainBaId);
+        $baseFullName = $baseNameMap[$baseId] ?? null;
 
         $baseAccount = $this->fetchMemberDetails($baseId . '-001');
         $baseTcs     = [];
