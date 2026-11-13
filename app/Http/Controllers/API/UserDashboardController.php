@@ -1394,40 +1394,42 @@ class UserDashboardController extends Controller
                     }
 
                     // Build sales_calendar_history (previous 8 weeks + current, newest first)
-                    $startIdx = 0;
-                    if ($currentWeek) {
-                        foreach ($allWeeks as $i => $w) {
-                            if (($w['week_no'] ?? null) === ($currentWeek['week_no'] ?? null)
-                                && ($w['start']   ?? null) === ($currentWeek['start']   ?? null)
-                            ) {
-                                $startIdx = $i;
-                                break;
-                            }
-                        }
-                    }
+               // Build sales_calendar_history (current + previous 8 weeks, newest first)
+if (!empty($allWeeks)) {
+    $currentWeekStart = $currentWeek['start'] ?? null;
 
-                    $historySlice = array_slice(
-                        $allWeeks,
-                        max(0, $startIdx - 8),
-                        $startIdx + 1
-                    );
-                    $historySlice = array_reverse($historySlice);
+    // Filter: only weeks whose start <= current week's start (past + current)
+    $filteredWeeks = array_filter($allWeeks, function ($w) use ($currentWeekStart) {
+        if (!$currentWeekStart) {
+            return true;
+        }
+        return strcmp($w['start'] ?? '', $currentWeekStart) <= 0;
+    });
 
-                    foreach ($historySlice as $w) {
-                        $yearForWeek = (int) ($calendar['year'] ?? now()->year);
-                        $weekNo      = (int) ($w['week_no'] ?? 0);
+    // Sort by start descending (newest first)
+    usort($filteredWeeks, function ($a, $b) {
+        return strcmp($b['start'] ?? '', $a['start'] ?? '');
+    });
 
-                        $salesCalendarHistory[] = [
-                            'year'        => $yearForWeek,
-                            'week_no'     => $weekNo,
-                            'week_label'  => sprintf('%d-W%02d', $yearForWeek, $weekNo),
-                            'start'       => $w['start']       ?? null,
-                            'end'         => $w['end']         ?? null,
-                            'payout_date' => $w['payout_date'] ?? null,
-                            'is_current'  => (bool) ($w['is_current'] ?? false),
-                            'is_settled'  => (bool) ($w['is_settled'] ?? false),
-                        ];
-                    }
+    // Take top 9 (current + 8 previous)
+    $historySlice = array_slice($filteredWeeks, 0, 9);
+
+    foreach ($historySlice as $w) {
+        $yearForWeek = (int) ($calendar['year'] ?? now()->year);
+        $weekNo      = (int) ($w['week_no'] ?? 0);
+
+        $salesCalendarHistory[] = [
+            'year'        => $yearForWeek,
+            'week_no'     => $weekNo,
+            'week_label'  => sprintf('%d-W%02d', $yearForWeek, $weekNo),
+            'start'       => $w['start']       ?? null,
+            'end'         => $w['end']         ?? null,
+            'payout_date' => $w['payout_date'] ?? null,
+            'is_current'  => (bool) ($w['is_current'] ?? false),
+            'is_settled'  => (bool) ($w['is_settled'] ?? false),
+        ];
+    }
+}
                 }
             } catch (\Throwable $e) {
                 Log::warning('sales_period / sales_calendar_history build failed', [
