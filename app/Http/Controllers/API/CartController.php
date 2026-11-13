@@ -1274,8 +1274,12 @@ class CartController extends Controller
 
         return $maxRate !== null ? (float) $maxRate : 0.0;
     }
-    protected function formatCart($cart, $user = null, array $comboChildren = [], $address = null)
-    {
+    protected function formatCart(
+        Cart $cart,
+        ?User $user = null,
+        array $comboChildren = [],
+        $address = null
+    ): array {
         $isDistributor = $user && $user->account_type === 'distributor';
 
         if (empty($comboChildren)) {

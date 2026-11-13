@@ -13,7 +13,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
-class PostOrderToIgniteOrderWiseJob implements ShouldQueue
+class PostOrderToIgniteJob_order_wise implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -145,11 +145,18 @@ class PostOrderToIgniteOrderWiseJob implements ShouldQueue
                     continue;
                 }
 
+                // ── Safety check: catalog_item_id must exist ──
+                if (empty($igniteItem['catalog_item_id'])) {
+                    $lineErrors[] = "Line {$line->id}: product {$product->ignite_product_id} has no catalog_item_id";
+                    continue;
+                }
+
                 $lineCv = round((float) $igniteItem['cv'] * $line->quantity, 2);
 
                 $lines[]        = [
-                    'product_id' => (int) $product->ignite_product_id,
-                    'qty'        => (int) $line->quantity,
+                    'product_id'      => (int) $product->ignite_product_id,
+                    'qty'             => (int) $line->quantity,
+                    'catalog_item_id' => (int) $igniteItem['catalog_item_id'], // <-- ADDED HERE
                 ];
                 $totalCv       += $lineCv;
                 $eligibleLines[] = ['line' => $line, 'cv' => $lineCv];

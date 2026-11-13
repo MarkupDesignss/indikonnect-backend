@@ -71,6 +71,8 @@ use App\Http\Controllers\API\TestimonialController;
 use App\Http\Controllers\API\Webhook\HdfcWebhookController;
 use App\Http\Controllers\API\Webhook\AxisPgWebhookController;
 use App\Http\Controllers\API\HdfcPaymentController;
+use App\Http\Controllers\API\FinanceCommissionExportController;
+use App\Http\Controllers\API\SalesReportExportController;
 
 /*
 |--------------------------------------------------------------------------
@@ -137,9 +139,13 @@ Route::prefix('admin')->group(function () {
         // Ignite exports
         Route::get('/ignite/exports',          [IgniteExportController::class, 'list']);
         Route::get('/ignite/exports/download', [IgniteExportController::class, 'download']);
+            // Finance: Consolidated Commission Export (all distributors, Excel)
+        Route::get('/finance/commission-export', [FinanceCommissionExportController::class, 'download']);
+        Route::get('/finance/sales-report', [SalesReportExportController::class, 'download']);
 
         // Orders
-        Route::get('/all-orders', [OrderController::class, 'allOrder']);
+        Route::get('/all-orders', [OrderController::class, 'allOrder'])
+            ->middleware(\App\Http\Middleware\AppendIndiaPostOrderTracking::class);
         Route::get('/get-order-details/{id}', [OrderController::class, 'getOrderDetails']);
 
         // Commission Reconciliation Report
