@@ -1236,10 +1236,6 @@ class AuthController extends Controller
                 ->where('key', 'terms_conditions')
                 ->value('value');
 
-            $termsConditions = DB::table('settings')
-                ->where('key', 'terms_conditions')
-                ->value('value');
-
             // Find user by email or phone
             if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
                 $user = User::where('email', $identifier)->first();
@@ -1336,10 +1332,8 @@ class AuthController extends Controller
                 'completed_steps' => $completedSteps,
                 'registration_status' => $registrationStatus,
                 'is_complete' => false,
-                'terms_conditions' => $termsConditions,,
                 'terms_conditions' => $termsConditions,
             ]);
-
         } catch (\Exception $e) {
             Log::error('Get step data error: ' . $e->getMessage(), [
                 'step' => $step,
@@ -5175,7 +5169,7 @@ class AuthController extends Controller
                     'max:15',
                 ],
                 'country' => 'nullable|string|max:255',
-                'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png',
+                'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png,webp',
                 'account_type' => 'nullable|in:customer,distributor',
             ];
 
