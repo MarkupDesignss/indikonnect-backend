@@ -147,9 +147,42 @@ class FinanceCommissionExportController extends Controller
      * Get exact week boundaries from Ignite Sales Calendar API
      * Returns [weekStart (IST), weekEnd (IST, inclusive)] ready for date comparison.
      */
+    // private function getWeekRange(int $week, int $year): array
+    // {
+    //     // Fetch calendar once per year (cache for 24 hours)
+    //     $calendar = \Illuminate\Support\Facades\Cache::remember("ignite_calendar_{$year}", 86400, function () use ($year) {
+    //         $resp = $this->ignite->salesCalendar($year);
+    //         return ($resp['code'] ?? null) === ResultCode::OK->value ? $resp['data'] : null;
+    //     });
+
+    //     if (!$calendar) {
+    //         throw new \Exception("Could not fetch Ignite Sales Calendar for year {$year}");
+    //     }
+
+    //     $months = $calendar['months'] ?? [];
+
+    //     foreach ($months as $month) {
+    //         foreach (($month['weeks'] ?? []) as $w) {
+    //             if ((int) ($w['week_no'] ?? 0) === $week) {
+    //                 // Ignite returns UTC+8. Convert to IST (Asia/Kolkata).
+    //                 $startIst = Carbon::parse($w['start_at'], 'Asia/Hong_Kong')
+    //                     ->setTimezone('Asia/Kolkata');
+
+    //                 // end_at is exclusive → subtract 1 second for inclusive end
+    //                 $endIst = Carbon::parse($w['end_at'], 'Asia/Hong_Kong')
+    //                     ->setTimezone('Asia/Kolkata')
+    //                     ->subSecond();
+
+    //                 return [$startIst, $endIst];
+    //             }
+    //         }
+    //     }
+
+    //     throw new \Exception("Week {$week} not found in Ignite Calendar for year {$year}");
+    // }
+
     private function getWeekRange(int $week, int $year): array
     {
-        // Fetch calendar once per year (cache for 24 hours)
         $calendar = \Illuminate\Support\Facades\Cache::remember("ignite_calendar_{$year}", 86400, function () use ($year) {
             $resp = $this->ignite->salesCalendar($year);
             return ($resp['code'] ?? null) === ResultCode::OK->value ? $resp['data'] : null;
@@ -159,17 +192,17 @@ class FinanceCommissionExportController extends Controller
             throw new \Exception("Could not fetch Ignite Sales Calendar for year {$year}");
         }
 
-        $months = $calendar['months'] ?? [];
-
-        foreach ($months as $month) {
+        foreach (($calendar['months'] ?? []) as $month) {
             foreach (($month['weeks'] ?? []) as $w) {
                 if ((int) ($w['week_no'] ?? 0) === $week) {
-                    // Ignite returns UTC+8. Convert to IST (Asia/Kolkata).
-                    $startIst = Carbon::parse($w['start_at'], 'Asia/Hong_Kong')
+
+                    // Same formula as dashboard: start_date + 00:00 UTC+8 → IST
+                    $startIst = Carbon::parse(($w['start_date'] ?? '') . ' 00:00:00', 'Asia/Hong_Kong')
                         ->setTimezone('Asia/Kolkata');
 
-                    // end_at is exclusive → subtract 1 second for inclusive end
-                    $endIst = Carbon::parse($w['end_at'], 'Asia/Hong_Kong')
+                    // end_date + 1 day − 1 sec → IST (inclusive end)
+                    $endIst = Carbon::parse(($w['end_date'] ?? '') . ' 00:00:00', 'Asia/Hong_Kong')
+                        ->addDay()
                         ->setTimezone('Asia/Kolkata')
                         ->subSecond();
 
