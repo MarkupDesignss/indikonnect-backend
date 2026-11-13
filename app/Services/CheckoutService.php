@@ -1281,7 +1281,8 @@ class CheckoutService
                     : $item->variant->retail_price;
 
                 // CALCULATION — tax rate (taxCategory->rate)
-                $taxRate = $item->product->taxCategory?->rate ?? 0;
+                $taxRate =  0;
+                // $taxRate = $item->product->taxCategory?->rate ?? 0;
 
                 // RECORD ONLY — tax category name (calculation mein use nahi hoga)
                 $taxCategoryName = $item->product->taxCategory?->name ?? 'No Tax';
@@ -1313,7 +1314,8 @@ class CheckoutService
                 if ($taxRate === null && ($item->product->product_type ?? 'single') === 'combo') {
                     $taxRate = $this->resolveComboTaxRate($item->product);
                 }
-                $taxRate = $taxRate ?? 0;
+                $taxRate = 0;
+                // $taxRate = $taxRate ?? 0;
 
                 // RECORD ONLY — tax category name (calculation mein use nahi hoga)
                 $taxCategoryName = $item->product->taxCategory?->name ?? 'No Tax';
@@ -3155,7 +3157,8 @@ class CheckoutService
                 if ($taxRate === null && ($item->product->product_type ?? 'single') === 'combo') {
                     $taxRate = $this->resolveComboTaxRate($item->product);
                 }
-                $taxRate = $taxRate ?? 0;
+                $taxRate =  0;
+                // $taxRate = $taxRate ?? 0;
 
                 // RECORD ONLY — tax category name
                 $taxCategoryName = $item->product->taxCategory?->name ?? 'Default';
