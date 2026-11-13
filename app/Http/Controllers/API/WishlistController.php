@@ -139,9 +139,9 @@ class WishlistController extends Controller
                     'commission_value'      => $child->commission_value ?? null,
 
                     // both prices
-                    'retail_price'          => $child->retail_price,
+                    'retail_price'          => $child->retail_price + $child->shipping_charge,
                     'retail_mrp'            => $child->retail_mrp,
-                    'distributor_price'     => $child->distributor_price,
+                    'distributor_price'     => $child->distributor_price + $child->shipping_charge,
                     'distributor_mrp'       => $child->distributor_mrp,
 
                     // up to 2 images (primary first)
@@ -759,12 +759,22 @@ class WishlistController extends Controller
 
             'tax_category_id' => $product->tax_category_id,
 
-            'retail_price' => $product->retail_price,
-            'retail_price_formatted' => number_format($product->retail_price, 2),
+            // 'retail_price' => $product->retail_price ,
+            'retail_price' => (float) $product->retail_price + (float) ($product->shipping_charge ?? 0),
+            'retail_price_formatted' => number_format(
+                (float) $product->retail_price + (float) ($product->shipping_charge ?? 0),
+                2
+            ),
 
-            'distributor_price' => $product->distributor_price,
-            'distributor_price_formatted' => $product->distributor_price
-                ? number_format($product->distributor_price, 2)
+            // Distributor Pricing
+            'distributor_price' => $product->distributor_price !== null
+                ? (float) $product->distributor_price + (float) ($product->shipping_charge ?? 0)
+                : null,
+            'distributor_price_formatted' => $product->distributor_price !== null
+                ? number_format(
+                    (float) $product->distributor_price + (float) ($product->shipping_charge ?? 0),
+                    2
+                )
                 : null,
 
             'stock_quantity' => (int) $product->stock_quantity,

@@ -7,6 +7,7 @@ use App\Models\Admin;
 use App\Models\Contact;
 use App\Models\DistributorProfile;
 use App\Models\Order;
+use App\Models\WarehouseStock;
 use App\Models\OrderLine;
 use App\Models\Product;
 use App\Models\User;
@@ -163,16 +164,14 @@ class AdminController extends Controller
         // ---------- ORDER LINE based counters ----------
 
         // Lines not yet dispatched (pending in warehouse)
-        $pendingDispatchLines = OrderLine::whereNull('dispatched_at')
-            ->whereNotIn('delivery_status', ['cancelled', 'delivered'])
+        $pendingDispatchLines = OrderLine::where('delivery_status', 'confirmed')
             ->count();
 
         // Lines currently in 'processing' delivery status
         $processingLines = OrderLine::where('delivery_status', 'processing')->count();
 
         // Lines ready to ship (confirmed / not yet dispatched)
-        $readyToShipLines = OrderLine::where('delivery_status', 'confirmed')
-            ->whereNull('dispatched_at')
+        $readyToShipLines = OrderLine::where('delivery_status', 'dispatched')
             ->count();
 
         // Lines already dispatched but not delivered
@@ -182,7 +181,7 @@ class AdminController extends Controller
             ->count();
 
         // Lines delivered
-        $deliveredLines = OrderLine::whereNotNull('delivered_at')->count();
+        $deliveredLines = OrderLine::where('delivery_status', 'delivered')->count();
 
         // Recent order lines needing warehouse attention
         $recentLines = OrderLine::whereNotIn('delivery_status', ['cancelled', 'delivered', 'returned'])
@@ -235,7 +234,7 @@ class AdminController extends Controller
                 'recent_lines' => $recentLines,
             ],
             'products' => [
-                'total_products' => Product::count(),
+                'total_products' => WarehouseStock::count(),
                 'needs_restock' => $productsNeedingRestock,
             ],
         ];
@@ -684,8 +683,10 @@ class AdminController extends Controller
             'summary' => [
                 'low_stock_count' => $lowStockProducts,
                 'out_of_stock_count' => $outOfStockProducts,
-                'in_stock_count' => Product::whereColumn('stock_quantity', '>', 'low_stock_threshold')->count(),
-                'total_products' => Product::count(),
+                'in_stock_count' => WarehouseStock::where('quantity', '>', 5)
+                    ->distinct('product_id')
+                    ->count('product_id'),
+                'total_products' => WarehouseStock::count(),
             ],
             'low_stock_products' => $lowStockList->map(function ($product) {
                 return [

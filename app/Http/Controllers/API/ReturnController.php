@@ -76,6 +76,7 @@ class ReturnController extends Controller
      * Initiate a return request
      * POST /api/returns/initiate
      */
+
     // public function initiate(Request $request): JsonResponse
     // {
     //     try {
@@ -86,60 +87,85 @@ class ReturnController extends Controller
     //                 'exists:orders,order_reference',
     //             ],
     //             'return_method' => 'required|in:doorstep,courier',
-    //             'tracking_id'   => [
+    //             'tracking_id' => [
     //                 'required_if:return_method,courier',
     //                 'nullable',
     //                 'string',
     //                 'max:100',
     //             ],
+
     //             'courier' => [
     //                 'required_if:return_method,courier',
     //                 'nullable',
     //                 'string',
     //                 'max:100',
     //             ],
+
+    //             'items' => [
+    //                 'required',
+    //                 'array',
+    //                 'min:1',
+    //             ],
+
+    //             'items.*.order_line_id' => [
+    //                 'required',
+    //                 'integer',
+    //                 'exists:order_lines,id',
+    //             ],
+
+    //             'items.*.quantity' => [
+    //                 'required',
+    //                 'integer',
+    //                 'min:1',
+    //             ],
+
+    //             'items.*.reason' => [
+    //                 'nullable',
+    //                 'string',
+    //                 'max:500',
+    //             ],
+
+    //             /*
+    //          * Item-specific images
+    //          */
+    //             'items.*.images' => [
+    //                 'nullable',
+    //                 'array',
+    //                 'max:5',
+    //             ],
+
+    //             'items.*.images.*' => [
+    //                 'image',
+    //                 'max:5120',
+    //             ],
+
+    //             /*
+    //          * General return information
+    //          */
     //             'return_reason' => [
     //                 'nullable',
     //                 'string',
     //                 'max:1000',
     //             ],
+
+    //             /*
+    //          * General return images
+    //          */
     //             'return_images' => [
     //                 'nullable',
     //                 'array',
     //                 'max:10',
     //             ],
+
     //             'return_images.*' => [
     //                 'image',
     //                 'max:5120',
     //             ],
     //         ]);
 
-    //         // Resolve order belonging to auth user
-    //         $order = Order::where('order_reference', $validated['order_reference'])
-    //             ->where('user_id', auth()->id())
-    //             ->with('lines.product')
-    //             ->first();
+    //         //  Verify every order line allows cancellation/return
+    //         $lineIds = collect($validated['items'])->pluck('order_line_id')->unique()->values();
 
-    //         if (!$order) {
-    //             return response()->json([
-    //                 'success' => false,
-    //                 'message' => 'Order not found or does not belong to this user.',
-    //             ], 404);
-    //         }
-
-    //         // Only DELIVERED lines qualify for return
-    //         $deliveredLines = $order->lines->where('delivery_status', 'delivered');
-
-    //         if ($deliveredLines->isEmpty()) {
-    //             return response()->json([
-    //                 'success' => false,
-    //                 'message' => 'No items in this order have been delivered yet.',
-    //             ], 403);
-    //         }
-
-    //         $lineIds = $deliveredLines->pluck('id');
-
-    //         // Blocked-line check (is_cancel_return_allowed = false / null)
     //         $blockedLines = OrderLine::whereIn('id', $lineIds)
     //             ->where(function ($q) {
     //                 $q->where('is_cancel_return_allowed', false)
@@ -159,15 +185,43 @@ class ReturnController extends Controller
     //             ], 403);
     //         }
 
-    //         $returnReason = $validated['return_reason'] ?? null;
+    //         $mandatoryProductId = Product::where('is_mandatory', 1)->value('id');
 
-    //         // Store uploaded images and convert to file paths
+    //         if ($mandatoryProductId) {
+    //             $lineProductMap = OrderLine::whereIn('id', $lineIds)
+    //                 ->pluck('product_id', 'id');
+
+    //             $mandatoryLineIds = $lineProductMap
+    //                 ->filter(fn($productId) => (int) $productId === (int) $mandatoryProductId)
+    //                 ->keys();
+
+    //             if ($mandatoryLineIds->isNotEmpty()) {
+    //                 $mandatoryProductName = Product::where('id', $mandatoryProductId)->value('name')
+    //                     ?? 'the mandatory product';
+
+    //                 return response()->json([
+    //                     'success'            => false,
+    //                     'message'            => "The item \"{$mandatoryProductName}\" is a mandatory product and cannot be returned.",
+    //                     'blocked_line_ids'   => $mandatoryLineIds->values(),
+    //                     'mandatory_product_id' => (int) $mandatoryProductId,
+    //                 ], 403);
+    //             }
+    //         }
+    //         $returnReason = $request->input('items.0.reason');
+
+
+    //         /*
+    //      * Store uploaded images and convert them
+    //      * into file paths.
+    //      */
     //         $processedData = $this->processReturnImages($validated);
     //         $processedData['return_method'] = $validated['return_method'];
     //         $processedData['tracking_id']   = $validated['tracking_id'] ?? null;
     //         $processedData['courier']       = $validated['courier'] ?? null;
-    //         $processedData['return_reason'] = $returnReason;
 
+    //         /*
+    //      * Send only processed data to service.
+    //      */
     //         $result = $this->returnService->initiateReturn(
     //             auth()->id(),
     //             $processedData,
@@ -179,7 +233,7 @@ class ReturnController extends Controller
     //         return response()->json([
     //             'success' => false,
     //             'message' => 'Invalid parameters provided.',
-    //             'errors'  => $e->errors(),
+    //             'errors' => $e->errors(),
     //         ], 422);
     //     } catch (Exception $e) {
     //         return response()->json([
@@ -192,151 +246,57 @@ class ReturnController extends Controller
     {
         try {
             $validated = $request->validate([
-                'order_reference' => [
-                    'required',
-                    'string',
-                    'exists:orders,order_reference',
-                ],
-                'return_method' => 'required|in:doorstep,courier',
-                'tracking_id' => [
-                    'required_if:return_method,courier',
-                    'nullable',
-                    'string',
-                    'max:100',
-                ],
+                'order_reference' => 'required|string|exists:orders,order_reference',
+                'return_method'   => 'required|in:doorstep,courier',
+                'tracking_id'     => 'required_if:return_method,courier|nullable|string|max:100',
+                'courier'         => 'required_if:return_method,courier|nullable|string|max:100',
+                'return_reason'   => 'nullable|string|max:1000',
 
-                'courier' => [
-                    'required_if:return_method,courier',
-                    'nullable',
-                    'string',
-                    'max:100',
-                ],
-
-                'items' => [
-                    'required',
-                    'array',
-                    'min:1',
-                ],
-
-                'items.*.order_line_id' => [
-                    'required',
-                    'integer',
-                    'exists:order_lines,id',
-                ],
-
-                'items.*.quantity' => [
-                    'required',
-                    'integer',
-                    'min:1',
-                ],
-
-                'items.*.reason' => [
-                    'nullable',
-                    'string',
-                    'max:500',
-                ],
-
-                /*
-             * Item-specific images
-             */
-                'items.*.images' => [
-                    'nullable',
-                    'array',
-                    'max:5',
-                ],
-
-                'items.*.images.*' => [
-                    'image',
-                    'max:5120',
-                ],
-
-                /*
-             * General return information
-             */
-                'return_reason' => [
-                    'nullable',
-                    'string',
-                    'max:1000',
-                ],
-
-                /*
-             * General return images
-             */
-                'return_images' => [
-                    'nullable',
-                    'array',
-                    'max:10',
-                ],
-
-                'return_images.*' => [
-                    'image',
-                    'max:5120',
-                ],
+                // Order-level general images only
+                'return_images'   => 'nullable|array|max:10',
+                'return_images.*' => 'image|max:5120',
             ]);
 
-            //  Verify every order line allows cancellation/return
-            $lineIds = collect($validated['items'])->pluck('order_line_id')->unique()->values();
+            // Load order + lines
+            $order = Order::where('order_reference', $validated['order_reference'])
+                ->where('user_id', auth()->id())
+                ->with('lines.product')
+                ->firstOrFail();
 
-            $blockedLines = OrderLine::whereIn('id', $lineIds)
-                ->where(function ($q) {
-                    $q->where('is_cancel_return_allowed', false)
-                        ->orWhereNull('is_cancel_return_allowed');
-                })
-                ->get(['id', 'product_id']);
-
-            if ($blockedLines->isNotEmpty()) {
-                $productNames = $blockedLines->map(function ($line) {
-                    return $line->product->name ?? "Line #{$line->id}";
-                })->implode(', ');
-
-                return response()->json([
-                    'success' => false,
-                    'message' => "Return is not allowed for the following item(s): {$productNames}",
-                    'blocked_line_ids' => $blockedLines->pluck('id')->values(),
-                ], 403);
-            }
-
+            // Mandatory product check (any line)
             $mandatoryProductId = Product::where('is_mandatory', 1)->value('id');
-
             if ($mandatoryProductId) {
-                $lineProductMap = OrderLine::whereIn('id', $lineIds)
-                    ->pluck('product_id', 'id');
-
-                $mandatoryLineIds = $lineProductMap
-                    ->filter(fn($productId) => (int) $productId === (int) $mandatoryProductId)
-                    ->keys();
-
-                if ($mandatoryLineIds->isNotEmpty()) {
-                    $mandatoryProductName = Product::where('id', $mandatoryProductId)->value('name')
-                        ?? 'the mandatory product';
-
+                $mandatoryLine = $order->lines->firstWhere('product_id', $mandatoryProductId);
+                if ($mandatoryLine) {
+                    $name = $mandatoryLine->product->name ?? 'the mandatory product';
                     return response()->json([
-                        'success'            => false,
-                        'message'            => "The item \"{$mandatoryProductName}\" is a mandatory product and cannot be returned.",
-                        'blocked_line_ids'   => $mandatoryLineIds->values(),
-                        'mandatory_product_id' => (int) $mandatoryProductId,
+                        'success' => false,
+                        'message' => "The item \"{$name}\" is a mandatory product and cannot be returned.",
                     ], 403);
                 }
             }
-            $returnReason = $request->input('items.0.reason');
 
+            // Non-returnable check (any line)
+            $nonReturnable = $order->lines->filter(fn($l) => !$l->is_returnable);
+            if ($nonReturnable->isNotEmpty()) {
+                $names = $nonReturnable->map(fn($l) => $l->product->name ?? "Line #{$l->id}")->implode(', ');
+                return response()->json([
+                    'success' => false,
+                    'message' => "Return is not allowed for: {$names}",
+                ], 403);
+            }
 
-            /*
-         * Store uploaded images and convert them
-         * into file paths.
-         */
-            $processedData = $this->processReturnImages($validated);
-            $processedData['return_method'] = $validated['return_method'];
-            $processedData['tracking_id']   = $validated['tracking_id'] ?? null;
-            $processedData['courier']       = $validated['courier'] ?? null;
+            // Store general images
+            $generalPaths = $this->processReturnImages($validated)['general_image_paths'] ?? [];
 
-            /*
-         * Send only processed data to service.
-         */
             $result = $this->returnService->initiateReturn(
                 auth()->id(),
-                $processedData,
-                $returnReason
+                $validated['order_reference'],
+                $validated['return_method'],
+                $validated['tracking_id'] ?? null,
+                $validated['courier'] ?? null,
+                $validated['return_reason'] ?? null,
+                $generalPaths
             );
 
             return response()->json($result);
@@ -344,7 +304,7 @@ class ReturnController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid parameters provided.',
-                'errors' => $e->errors(),
+                'errors'  => $e->errors(),
             ], 422);
         } catch (Exception $e) {
             return response()->json([
@@ -556,6 +516,64 @@ class ReturnController extends Controller
      * POST /api/admin/returns/{id}/approve
      */
 
+    // public function adminApprove(Request $request, int $returnId): JsonResponse
+    // {
+    //     try {
+    //         $validated = $request->validate([
+    //             'admin_notes' => 'nullable|string|max:500',
+    //         ]);
+
+    //         // Get return before approval for audit
+    //         $return = OrderReturn::with('order')->find($returnId);
+    //         $oldStatus = $return?->status;
+    //         $oldRefundStatus = $return?->refund_status;
+
+    //         $result = $this->returnService->approveReturn(
+    //             $returnId,
+    //             auth()->id(),
+    //             $validated['admin_notes'] ?? null
+    //         );
+
+    //         // Log return approval
+    //         $this->logAudit(
+    //             'return_approve',
+    //             'returns',
+    //             [
+    //                 'return_id' => $returnId,
+    //                 'status' => $oldStatus,
+    //                 'refund_status' => $oldRefundStatus,
+    //                 'order_id' => $return?->order_id,
+    //                 'order_reference' => $return?->order?->order_reference,
+    //                 'amount' => $return?->total_refund_amount,
+    //                 'items' => $return?->items,
+    //             ],
+    //             [
+    //                 'return_id' => $returnId,
+    //                 'status' => 'approved',
+    //                 'refund_status' => 'approved',
+    //                 'approved_by' => auth()->id(),
+    //                 'approved_at' => now()->toDateTimeString(),
+    //                 'admin_notes' => $validated['admin_notes'] ?? null,
+    //                 'order_id' => $return?->order_id,
+    //                 'order_reference' => $return?->order?->order_reference,
+    //                 'return_amount' => $return?->total_refund_amount,
+    //             ]
+    //         );
+
+    //         return response()->json($result);
+    //     } catch (ValidationException $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Invalid parameters provided',
+    //             'errors' => $e->errors(),
+    //         ], 422);
+    //     } catch (Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
     public function adminApprove(Request $request, int $returnId): JsonResponse
     {
         try {
@@ -574,7 +592,12 @@ class ReturnController extends Controller
                 $validated['admin_notes'] ?? null
             );
 
-            // Log return approval
+            if ($return && $return->order) {
+                $return->order->update([
+                    'status'        => 'return_approved',
+                ]);
+            }
+
             $this->logAudit(
                 'return_approve',
                 'returns',
@@ -619,6 +642,61 @@ class ReturnController extends Controller
      * POST /api/admin/returns/{id}/reject
      */
 
+    // public function adminReject(Request $request, int $returnId): JsonResponse
+    // {
+    //     try {
+    //         $validated = $request->validate([
+    //             'rejection_reason' => 'required|string|max:500',
+    //         ]);
+
+    //         // Get return before rejection for audit
+    //         $return = OrderReturn::with('order')->find($returnId);
+    //         $oldStatus = $return?->status;
+
+    //         $result = $this->returnService->rejectReturn(
+    //             $returnId,
+    //             auth()->id(),
+    //             $validated['rejection_reason']
+    //         );
+
+    //         // Log return rejection
+    //         $this->logAudit(
+    //             'return_reject',
+    //             'returns',
+    //             [
+    //                 'return_id' => $returnId,
+    //                 'status' => $oldStatus,
+    //                 'order_id' => $return?->order_id,
+    //                 'order_reference' => $return?->order?->order_reference,
+    //                 'amount' => $return?->total_refund_amount,
+    //                 'items' => $return?->items,
+    //             ],
+    //             [
+    //                 'return_id' => $returnId,
+    //                 'status' => 'rejected',
+    //                 'rejected_by' => auth()->id(),
+    //                 'rejected_at' => now()->toDateTimeString(),
+    //                 'rejection_reason' => $validated['rejection_reason'],
+    //                 'order_id' => $return?->order_id,
+    //                 'order_reference' => $return?->order?->order_reference,
+    //                 'return_amount' => $return?->total_refund_amount,
+    //             ]
+    //         );
+
+    //         return response()->json($result);
+    //     } catch (ValidationException $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Invalid parameters provided',
+    //             'errors' => $e->errors(),
+    //         ], 422);
+    //     } catch (Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
     public function adminReject(Request $request, int $returnId): JsonResponse
     {
         try {
@@ -636,7 +714,13 @@ class ReturnController extends Controller
                 $validated['rejection_reason']
             );
 
-            // Log return rejection
+            // ✅ ORDER STATUS — pura order return_rejected
+            if ($return && $return->order) {
+                $return->order->update([
+                    'status'        => 'return_rejected',
+                ]);
+            }
+
             $this->logAudit(
                 'return_reject',
                 'returns',
@@ -680,6 +764,33 @@ class ReturnController extends Controller
      * POST /api/admin/returns/{id}/received
      */
 
+    // public function adminMarkReceived(Request $request, int $returnId): JsonResponse
+    // {
+    //     try {
+    //         $request->validate([
+    //             'admin_notes' => 'nullable|string|max:500',
+    //         ]);
+
+    //         // Refund amount & resolution are NOT handled here anymore.
+    //         // This endpoint only confirms physical receipt of the returned item(s).
+    //         // Admin will be prompted for "Resolution" (refund / replacement)
+    //         // when they hit the "Complete" endpoint.
+
+    //         $result = $this->returnService->markReturnReceived($returnId);
+
+    //         return response()->json($result, 200);
+    //     } catch (\Throwable $e) {
+    //         Log::error('Admin mark return received failed', [
+    //             'return_id' => $returnId,
+    //             'error'     => $e->getMessage(),
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
     public function adminMarkReceived(Request $request, int $returnId): JsonResponse
     {
         try {
@@ -687,12 +798,14 @@ class ReturnController extends Controller
                 'admin_notes' => 'nullable|string|max:500',
             ]);
 
-            // Refund amount & resolution are NOT handled here anymore.
-            // This endpoint only confirms physical receipt of the returned item(s).
-            // Admin will be prompted for "Resolution" (refund / replacement)
-            // when they hit the "Complete" endpoint.
-
             $result = $this->returnService->markReturnReceived($returnId);
+
+            $return = OrderReturn::with('order')->find($returnId);
+            if ($return && $return->order) {
+                $return->order->update([
+                    'status'        => 'return_received',
+                ]);
+            }
 
             return response()->json($result, 200);
         } catch (\Throwable $e) {
@@ -712,6 +825,57 @@ class ReturnController extends Controller
      * Admin: Complete return
      * POST /api/admin/returns/{id}/complete
      */
+    // public function adminComplete(Request $request, int $returnId): JsonResponse
+    // {
+    //     try {
+    //         $validated = $request->validate([
+    //             'resolution'    => 'required|in:refund,replacement',
+    //             'refund_amount' => 'nullable|numeric|min:0',
+    //             'admin_notes'   => 'nullable|string|max:500',
+    //         ]);
+
+    //         $refundAmount = $request->filled('refund_amount')
+    //             ? (float) $request->refund_amount
+    //             : null;
+
+    //         // Pre-validate refund amount ONLY when resolution = refund
+    //         if ($validated['resolution'] === 'refund' && $refundAmount !== null) {
+    //             $returnOrder = OrderReturn::with('order')->findOrFail($returnId);
+    //             $order = $returnOrder->order;
+
+    //             if ($order) {
+    //                 $refundable = $this->returnService->getRefundableAmount($order);
+
+    //                 if ($refundAmount > $refundable) {
+    //                     return response()->json([
+    //                         'success' => false,
+    //                         'message' => "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}).",
+    //                     ], 422);
+    //                 }
+    //             }
+    //         }
+
+    //         $result = $this->returnService->completeReturn(
+    //             $returnId,
+    //             $validated['resolution'],
+    //             $refundAmount,
+    //             $validated['admin_notes'] ?? null,
+    //             auth()->id(),
+    //         );
+
+    //         return response()->json($result, 200);
+    //     } catch (\Throwable $e) {
+    //         Log::error('Admin complete return failed', [
+    //             'return_id' => $returnId,
+    //             'error'     => $e->getMessage(),
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage(),
+    //         ], 400);
+    //     }
+    // }
     public function adminComplete(Request $request, int $returnId): JsonResponse
     {
         try {
@@ -749,6 +913,22 @@ class ReturnController extends Controller
                 $validated['admin_notes'] ?? null,
                 auth()->id(),
             );
+
+            $return = OrderReturn::with('order')->find($returnId);
+            if ($return && $return->order) {
+                if ($validated['resolution'] === 'refund') {
+                    $return->order->update([
+                        'status'        => 'refunded',
+                        'return_status' => 'returned',
+                    ]);
+                } else {
+                    // replacement
+                    $return->order->update([
+                        'status'        => 'replaced',
+                        'return_status' => 'returned',
+                    ]);
+                }
+            }
 
             return response()->json($result, 200);
         } catch (\Throwable $e) {

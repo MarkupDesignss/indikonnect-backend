@@ -412,8 +412,11 @@ Route::middleware('auth:sanctum')->group(function () {
         '/orders/{orderId}/indiapost/tracking',
         [\App\Http\Controllers\Api\IndiaPostOrderTrackingController::class, 'show']
     )->middleware('throttle:10,1');
-    Route::post('/orders/{orderReference}/cancel/{id}', [OrderController::class, 'requestCancellation']);
-    Route::post('/orders/{orderReference}/withdrawCancel/{id}', [OrderController::class, 'withdrawCancel']);
+    // Route::post('/orders/{orderReference}/cancel/{id}', [OrderController::class, 'requestCancellation']);
+    // Route::post('/orders/{orderReference}/withdrawCancel/{id}', [OrderController::class, 'withdrawCancel']);
+    // Full-order cancellation (no line id needed)
+    Route::post('/orders/{orderReference}/cancel', [OrderController::class, 'requestCancellation']);
+    Route::post('/orders/{orderReference}/withdrawCancel', [OrderController::class, 'withdrawCancel']);
 });
 
 Route::get('/orders/statuses', [OrderController::class, 'statuses']);

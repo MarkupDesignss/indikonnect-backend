@@ -910,7 +910,7 @@ class ProductController extends Controller
 
                 // Retail pricing
                 'retail_mrp' => $product->retail_mrp,
-                'retail_price' => $product->retail_price,
+                'retail_price' => $product->retail_price + $product->shipping_charge,
                 'retail_discount_percentage' => $product->retail_mrp > 0
                     ? round(
                         (($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100,
@@ -920,7 +920,7 @@ class ProductController extends Controller
 
                 // Distributor pricing
                 'distributor_mrp' => $product->distributor_mrp,
-                'distributor_price' => $product->distributor_price,
+                'distributor_price' => $product->distributor_price + $product->shipping_charge,
 
                 // Effective pricing
                 'effective_price' => $effectivePrice,
@@ -1258,7 +1258,8 @@ class ProductController extends Controller
             */
 
                 'retail_mrp' => $selectedVariant->retail_mrp,
-                'retail_price' => $selectedVariant->retail_price,
+                // 'retail_price' => $selectedVariant->retail_price,
+                'retail_price' => $selectedVariant->retail_price + $product->shipping_charge,
                 'retail_discount_type' => $selectedVariant->retail_discount_type,
                 'retail_discount_value' => $selectedVariant->retail_discount_value,
 
@@ -1282,7 +1283,10 @@ class ProductController extends Controller
             */
 
                 'distributor_mrp' => $selectedVariant->distributor_mrp,
-                'distributor_price' => $selectedVariant->distributor_price,
+                // 'distributor_price' => $selectedVariant->distributor_price,
+                'distributor_price' => $selectedVariant->distributor_price !== null
+                    ? $selectedVariant->distributor_price + $product->shipping_charge
+                    : null,
                 'distributor_discount_type' => $selectedVariant->distributor_discount_type,
                 'distributor_discount_value' => $selectedVariant->distributor_discount_value,
 
@@ -5848,7 +5852,7 @@ class ProductController extends Controller
 
                     'original_price' => $originalPrice,
                     'current_price' => $currentPrice,
-                    'discounted_price' => $discountedPrice,
+                    'discounted_price' => $discountedPrice + $product->shipping_charge,
                     'discount_percentage' => $discountValue > 0 && $discountType === 'percentage'
                         ? $discountValue
                         : ($discountValue > 0 && $originalPrice > 0
@@ -6049,13 +6053,13 @@ class ProductController extends Controller
 
                 // Product level pricing
                 'retail_mrp' => $product->retail_mrp,
-                'retail_price' => $product->retail_price,
+                'retail_price' => $product->retail_price + $product->shipping_charge,
                 'retail_discount_percentage' => $product->retail_mrp > 0
                     ? round((($product->retail_mrp - $product->retail_price) / $product->retail_mrp) * 100, 2)
                     : 0,
 
                 'distributor_mrp' => $product->distributor_mrp,
-                'distributor_price' => $product->distributor_price,
+                'distributor_price' => $product->distributor_price + $product->shipping_charge,
 
                 'stock_quantity' => (int) $product->stock_quantity,
                 'low_stock_threshold' => (int) $product->low_stock_threshold,

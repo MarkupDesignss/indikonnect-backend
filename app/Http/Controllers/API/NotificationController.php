@@ -16,9 +16,7 @@ class NotificationController extends Controller
     {
         $adminId = auth()->id();
 
-        $notifications = AdminNotification::where('admin_id', $adminId)
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $notifications = AdminNotification::orderBy('created_at', 'desc')->get();
 
         return response()->json([
             'success' => true,
@@ -57,8 +55,7 @@ class NotificationController extends Controller
     {
         $adminId = auth()->id();
 
-        $notification = AdminNotification::where('admin_id', $adminId)
-            ->where('id', $id)
+        $notification = AdminNotification::where('id', $id)
             ->first();
 
         if (!$notification) {
@@ -90,8 +87,7 @@ class NotificationController extends Controller
     {
         $adminId = auth()->id();
 
-        $updated = AdminNotification::where('admin_id', $adminId)
-            ->where('read', false)
+        $updated = AdminNotification::where('read', false)
             ->update(['read' => true]);
 
         return response()->json([
@@ -108,8 +104,7 @@ class NotificationController extends Controller
     {
         $adminId = auth()->id();
 
-        $notification = AdminNotification::where('admin_id', $adminId)
-            ->where('id', $id)
+        $notification = AdminNotification::where('id', $id)
             ->first();
 
         if (!$notification) {
