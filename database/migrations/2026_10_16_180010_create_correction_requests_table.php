@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('correction_requests', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('user_id');   // ⭐ isi se user match hoga
+            $table->unsignedBigInteger('user_id');   // isi se user match hoga
             $table->string('full_name');
             $table->date('date_of_birth');
             $table->enum('status', ['pending', 'approved', 'completed', 'rejected'])->default('pending');

@@ -4,14 +4,12 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Mail\PhoneUpdateLinkMail;
+use App\Mail\EmailUpdateLinkMail;
 use App\Models\CorrectionRequest;
-use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Str;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class CorrectionRequestController extends Controller
 {
@@ -22,34 +20,38 @@ class CorrectionRequestController extends Controller
             ->where('key', 'correction_rejection_duation')
             ->value('value');
     }
-    // USER: Submit a correction request
+
+    // USER: Submit correction request (phone / name_dob / email)
     public function store(Request $request)
     {
         try {
-
             $data = $request->validate([
-                'reason' => 'required|string|max:1000',
+                'type'      => 'required|in:phone_request,name_dob_request,email_request',
+                'reason'    => 'required|string|max:1000',
+                'new_email' => 'nullable|email|max:255|unique:users,email',
             ]);
 
-            $userId = $request->user()->id;
+            $user   = $request->user();
+            $userId = $user->id;
 
-            // Prevent duplicate pending requests
+            // Prevent duplicate pending request of same type
             $exists = CorrectionRequest::where('user_id', $userId)
                 ->where('status', 'pending')
+                ->where('type', $data['type'])
                 ->exists();
 
             if ($exists) {
                 return response()->json([
                     'status'  => false,
-                    'message' => 'You already have a pending correction request.',
+                    'message' => 'You already have a pending correction request of this type.',
                 ], 422);
             }
 
-            // Get rejection duration from settings
+            // Rejection cooldown
             $rejectionDays = $this->getCorrectionRejectionDays();
 
-            // Check recently rejected request
             $recentlyRejected = CorrectionRequest::where('user_id', $userId)
+                ->where('type', $data['type'])
                 ->where('status', 'rejected')
                 ->whereNotNull('rejected_at')
                 ->where('rejected_at', '>', now()->subDays($rejectionDays))
@@ -57,26 +59,26 @@ class CorrectionRequestController extends Controller
                 ->first();
 
             if ($recentlyRejected) {
-
                 $nextAllowedAt = Carbon::parse($recentlyRejected->rejected_at)
                     ->addDays($rejectionDays);
 
                 return response()->json([
-                    'status'  => false,
-                    'message' => 'Your previous request was rejected. You can submit a new request after '
+                    'status'         => false,
+                    'message'        => 'Your previous request was rejected. You can submit a new request after '
                         . $nextAllowedAt->format('d M Y, h:i A') . '.',
-                    'retry_after' => $nextAllowedAt->toDateTimeString(),
+                    'retry_after'    => $nextAllowedAt->toDateTimeString(),
                     'rejection_days' => $rejectionDays,
                 ], 422);
             }
 
-            // Create correction request
+            // Create request
             $cr = CorrectionRequest::create([
-                'user_id' => $userId,
-                'email'   => $request->user()->email,
-                'reason'  => $data['reason'],
-                'type'    => 'phone_request',
-                'status'  => 'pending',
+                'user_id'   => $userId,
+                'email'     => $user->email ?? null,
+                'new_email' => null,
+                'reason'    => $data['reason'],
+                'type'      => $data['type'],
+                'status'    => 'pending',
             ]);
 
             return response()->json([
@@ -85,8 +87,7 @@ class CorrectionRequestController extends Controller
                 'data'    => $cr,
             ], 201);
         } catch (\Throwable $e) {
-
-            Log::error('Phone correction request failed.', [
+            Log::error('Correction request failed.', [
                 'user_id' => $request->user()?->id,
                 'error'   => $e->getMessage(),
                 'file'    => $e->getFile(),
@@ -100,7 +101,7 @@ class CorrectionRequestController extends Controller
         }
     }
 
-    // ADMIN: List correction requests
+    // ADMIN: List
     public function index(Request $request)
     {
         $requests = CorrectionRequest::with('user:id,full_name,email,phone')
@@ -111,7 +112,7 @@ class CorrectionRequestController extends Controller
         return response()->json($requests);
     }
 
-    // ADMIN: Generate correction link and send email
+    // ADMIN: Send link
     public function sendLink($id)
     {
         $cr = CorrectionRequest::with('user:id,full_name,email,phone')
@@ -123,16 +124,25 @@ class CorrectionRequestController extends Controller
             ], 422);
         }
 
-        $token = Str::random(64);
+        $token = \Illuminate\Support\Str::random(64);
 
         $cr->update([
             'status'           => 'approved',
             'token'            => $token,
-            'token_expires_at' => now()->addMinutes(1000),
+            'token_expires_at' => now()->addMinutes(10),
             'token_used_at'    => null,
         ]);
 
-        Mail::to($cr->email)->send(new PhoneUpdateLinkMail($cr, $token));
+        $cr->refresh();
+
+        if ($cr->type === 'phone_request') {
+            \Illuminate\Support\Facades\Mail::to($cr->email)->send(new PhoneUpdateLinkMail($cr, $token));
+        } elseif ($cr->type === 'email_request') {
+            \Illuminate\Support\Facades\Mail::to($cr->email)->send(new EmailUpdateLinkMail($cr, $token));
+        } else {
+            \Illuminate\Support\Facades\Mail::to($cr->email)
+                ->send(new \App\Mail\CorrectionLinkMail($cr));
+        }
 
         return response()->json([
             'message' => 'The correction link has been sent to your email address.',
