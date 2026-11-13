@@ -1448,6 +1448,16 @@ class OrderController extends Controller
             $categoryId = $request->get('category_id');
             $brandId    = $request->get('brand_id');
 
+            // Optional exact Order Reference filter; previous calls remain unchanged.
+            $orderReference = $request->query('order_reference');
+            if ($orderReference !== null && (!is_string($orderReference) || mb_strlen(trim($orderReference)) > 100)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid order reference.',
+                ], 422);
+            }
+            $orderReference = is_string($orderReference) ? trim($orderReference) : '';
+
             $orders = Order::with([
                 'user',
                 'billingAddress',
@@ -1463,6 +1473,8 @@ class OrderController extends Controller
                 'lines.shippingDetails',
             ])
                 ->where('status', '!=', 'pending')
+                // Match the real orders.order_reference, not the numeric order ID.
+                ->when($orderReference !== '', fn ($q) => $q->where('order_reference', $orderReference))
                 // ── Filter orders that have at least one matching line ──
                 ->when($categoryId || $brandId, function ($q) use ($categoryId, $brandId) {
                     $q->whereHas('lines.product', function ($p) use ($categoryId, $brandId) {
