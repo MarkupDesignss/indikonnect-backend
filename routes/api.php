@@ -414,10 +414,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders/confirmed/{order_reference}', [OrderController::class, 'getConfirmedOrder']);
     Route::get('/my-orders', [OrderController::class, 'getOrder']);
     // India Post live tracking - authenticated customer, rate limited.
+    // New customer-safe route: Order Reference is resolved to an owned order ID
+    // by the tracking controller. Node.js continues to receive numeric order_id.
+    Route::get(
+        '/orders/by-reference/{orderReference}/indiapost/tracking',
+        [\App\Http\Controllers\Api\IndiaPostOrderTrackingController::class, 'showByReference']
+    )->middleware('throttle:10,1');
+
+    // Existing numeric Order ID route preserved for older clients.
     Route::get(
         '/orders/{orderId}/indiapost/tracking',
         [\App\Http\Controllers\Api\IndiaPostOrderTrackingController::class, 'show']
-    )->middleware('throttle:10,1');
+    )->whereNumber('orderId')->middleware('throttle:10,1');
     // Route::post('/orders/{orderReference}/cancel/{id}', [OrderController::class, 'requestCancellation']);
     // Route::post('/orders/{orderReference}/withdrawCancel/{id}', [OrderController::class, 'withdrawCancel']);
     // Full-order cancellation (no line id needed)
