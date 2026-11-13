@@ -1669,7 +1669,8 @@ class GenealogyController extends Controller
      * Enrich binary-tree rows with each member's full_name.
      *
      * Lookup order:
-     *   1. Local `users` table by distributor_id (= BA ID)
+     *   1. Local `users` table by base BA ID (e.g. AIA1675197)
+     *      → matches -001, -002, -003, -004 ... same user
      *   2. Ignite pendingPlacements (referrals not yet in local DB)
      *   3. Fallback: "Ignite Member"
      *
@@ -1691,16 +1692,44 @@ class GenealogyController extends Controller
             ->values()
             ->all();
 
-        // 1) Local users lookup (single query)
-        $localNames = empty($baIds)
-            ? []
-            : User::whereIn('distributor_id', $baIds)
-                ->pluck('full_name', 'distributor_id')
-                ->all();
+        // Extract base IDs (strip -001, -002, ...)
+        $baseIds = collect($baIds)
+            ->map(function ($baId) {
+                return preg_replace('/-\d{3,}$/', '', $baId);
+            })
+            ->unique()
+            ->values()
+            ->all();
+
+        // 1) Local users lookup by base ID (both full BA and base might be stored)
+        //    Try full BA IDs first, then base IDs as fallback
+        $localUsers = User::where(function ($q) use ($baIds, $baseIds) {
+                $q->whereIn('distributor_id', $baIds)
+                ->orWhereIn('distributor_id', $baseIds);
+            })
+            ->get(['distributor_id', 'full_name'])
+            ->keyBy('distributor_id')
+            ->all();
+
+        // Map base ID → full_name (whichever form matched)
+        $baseNameMap = [];
+        foreach ($localUsers as $storedBaId => $userRow) {
+            $base = preg_replace('/-\d{3,}$/', '', $storedBaId);
+            if (!empty($userRow->full_name)) {
+                $baseNameMap[$base] = $userRow->full_name;
+            }
+        }
 
         // 2) Ignite pendingPlacements lookup (for names not in local DB)
-        $igniteNames = [];
-        $missingBaIds = array_diff($baIds, array_keys($localNames));
+        $igniteBaseNames = [];
+        $missingBaIds    = [];
+
+        foreach ($baIds as $baId) {
+            $base = preg_replace('/-\d{3,}$/', '', $baId);
+            if (!isset($baseNameMap[$base])) {
+                $missingBaIds[] = $baId;
+            }
+        }
 
         if (!empty($missingBaIds)) {
             try {
@@ -1710,12 +1739,12 @@ class GenealogyController extends Controller
                         $pBaId = $pRow['ba_id'] ?? null;
                         $pName = $pRow['fullname'] ?? null;
                         if ($pBaId && $pName) {
-                            $igniteNames[$pBaId] = $pName;
+                            $pBase = preg_replace('/-\d{3,}$/', '', $pBaId);
+                            $igniteBaseNames[$pBase] = $pName;
                         }
                     }
                 }
             } catch (\Throwable $e) {
-                // Ignore — fallback name will be used
                 Log::warning('pendingPlacements failed in tree enrichment', [
                     'main_ba_id' => $mainBaId,
                     'error'      => $e->getMessage(),
@@ -1723,18 +1752,20 @@ class GenealogyController extends Controller
             }
         }
 
-        // 3) Attach full_name to each row
+        // 3) Attach full_name to each row — match by BASE ID
         foreach ($rows as &$row) {
             $baId = $row['ba_id'] ?? null;
 
             if (!$baId) {
-                $row['full_name'] = null;   // Outsider node (no BA ID visible)
+                $row['full_name'] = null;
                 continue;
             }
 
-            $row['full_name'] = $localNames[$baId]
-                ?? $igniteNames[$baId]
-                ?? 'Ignite Member';
+            $base = preg_replace('/-\d{3,}$/', '', $baId);
+
+            $row['full_name'] = $baseNameMap[$base]
+                ?? $igniteBaseNames[$base]
+                ?? 'Unknown Member';
         }
         unset($row);
 
