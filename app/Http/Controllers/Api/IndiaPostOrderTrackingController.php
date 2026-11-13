@@ -11,35 +11,83 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Customer-safe order-scoped proxy for the protected Node.js India Post adapter.
- * CRITICAL: Only barcodes already bound to an order owned by the current user
- * are sent to the provider; there is no arbitrary public tracking-by-barcode route.
+ * Customer-safe, order-scoped proxy for the protected Node.js India Post adapter.
+ *
+ * Supports both existing order ID URLs and new order reference URLs.
+ * The Node adapter continues to receive the verified internal order ID.
+ * Never accepts a public, arbitrary barcode for tracking.
  */
 class IndiaPostOrderTrackingController extends Controller
 {
+    /**
+     * EXISTING URL: GET /api/orders/{orderId}/indiapost/tracking
+     * Kept unchanged for backward compatibility.
+     */
     public function show(Request $request, string $orderId): JsonResponse
     {
         $user = $request->user();
         if (!$user) {
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 401);
         }
+
         if (!ctype_digit($orderId) || (int) $orderId < 1) {
             return response()->json(['success' => false, 'message' => 'Invalid order.'], 422);
         }
 
-        // Verify ownership before making ANY internal Node.js call.
+        // Ownership is checked before contacting the internal Node adapter.
         $order = Order::query()
             ->where('user_id', $user->id)
             ->whereKey((int) $orderId)
             ->first();
+
         if (!$order) {
             return response()->json(['success' => false, 'message' => 'Order not found.'], 404);
         }
 
+        return $this->trackingForVerifiedOrder($order);
+    }
+
+    /**
+     * NEW URL: GET /api/orders/by-reference/{orderReference}/indiapost/tracking
+     * Finds an order by the real orders.order_reference field, with ownership.
+     */
+    public function showByReference(Request $request, string $orderReference): JsonResponse
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 401);
+        }
+
+        $orderReference = trim($orderReference);
+        if ($orderReference === '' || mb_strlen($orderReference) > 100) {
+            return response()->json(['success' => false, 'message' => 'Invalid order reference.'], 422);
+        }
+
+        // Never resolve by reference without checking customer ownership.
+        $order = Order::query()
+            ->where('user_id', $user->id)
+            ->where('order_reference', $orderReference)
+            ->first();
+
+        if (!$order) {
+            return response()->json(['success' => false, 'message' => 'Order not found.'], 404);
+        }
+
+        return $this->trackingForVerifiedOrder($order);
+    }
+
+    /**
+     * Called only after an order has been resolved and ownership verified.
+     */
+    private function trackingForVerifiedOrder(Order $order): JsonResponse
+    {
         $base = rtrim((string) config('services.indiapost_node.url', ''), '/');
         $key = (string) config('services.indiapost_node.api_key', '');
         if (!(bool) config('services.indiapost_node.enabled', false) || !$base || !$key) {
-            return response()->json(['success' => false, 'message' => 'Courier tracking is temporarily unavailable.'], 503);
+            return response()->json([
+                'success' => false,
+                'message' => 'Courier tracking is temporarily unavailable.',
+            ], 503);
         }
 
         try {
@@ -48,25 +96,31 @@ class IndiaPostOrderTrackingController extends Controller
                 ->connectTimeout(4)
                 ->timeout(18);
 
+            // IMPORTANT: Node.js existing shipment & AWB APIs are keyed by
+            // internal order ID. Do NOT replace this with order_reference.
             $response = $client->get($base . '/api/indiapost/orders/' . $order->id . '/shipments');
             $data = $response->json();
             if (!$response->successful() || !is_array($data) || ($data['success'] ?? false) !== true) {
-                return response()->json(['success' => false, 'message' => 'Unable to retrieve shipment details.'], 502);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unable to retrieve shipment details.',
+                ], 502);
             }
 
-            // Only shipments bound to this authenticated customer's order.
+            // Only rows actually bound to this verified order are permitted.
             $rows = array_values(array_filter(
                 is_array($data['shipments'] ?? null) ? $data['shipments'] : [],
                 fn ($s) => is_array($s)
                     && (int) ($s['order_id'] ?? 0) === (int) $order->id
-                    && preg_match('/^[A-Z]{2}[0-9]{9}IN$/D', strtoupper((string) ($s['barcode_no'] ?? '')))
+                    && preg_match('/^[A-Z]{2}[0-9]{9}IN$/D', strtoupper((string) ($s['barcode_no'] ?? ''))) === 1
                     && !in_array(strtolower((string) ($s['booking_status'] ?? '')), ['rejected', 'unknown', 'submitting'], true)
             ));
 
-            // Bound how much provider data one customer request can fetch.
+            // Cap live tracking calls per customer request.
             $rows = array_slice($rows, 0, 20);
             $barcodes = array_values(array_unique(array_map(
-                fn ($s) => strtoupper((string) $s['barcode_no']), $rows
+                fn ($s) => strtoupper((string) $s['barcode_no']),
+                $rows
             )));
 
             $providerByBarcode = [];
@@ -74,15 +128,15 @@ class IndiaPostOrderTrackingController extends Controller
             $allocatedAwb = null;
             $allocatedAt = null;
 
-            // A newly allocated barcode is in indiapost_awb_allocations, NOT yet
-            // in indiapost_shipments. Query the protected Node adapter ONLY after
-            // Laravel has verified this customer owns the requested order.
-            // Read-only; never book or request tracking from India Post here.
+            // An AWB can exist in allocations before a shipment exists.
+            // This call only reads the allocation; it does NOT book an article.
             if (count($barcodes) === 0) {
                 try {
                     $allocationResponse = $client->get($base . '/api/indiapost/orders/' . $order->id . '/awb');
                     $allocationData = $allocationResponse->json();
-                    if ($allocationResponse->successful() && is_array($allocationData)
+
+                    if ($allocationResponse->successful()
+                        && is_array($allocationData)
                         && ($allocationData['success'] ?? false) === true
                         && (int) ($allocationData['orderId'] ?? 0) === (int) $order->id
                     ) {
@@ -106,23 +160,24 @@ class IndiaPostOrderTrackingController extends Controller
                 }
             }
 
-            if (count($barcodes)) {
+            if (count($barcodes) > 0) {
                 try {
-                    $tracking = Http::acceptJson()
-                        ->withHeaders(['x-internal-api-key' => $key])
-                        ->connectTimeout(4)
-                        ->timeout(18)
-                        ->post($base . '/api/indiapost/tracking/bulk', ['bulk' => $barcodes]);
+                    $tracking = $client->post($base . '/api/indiapost/tracking/bulk', [
+                        'bulk' => $barcodes,
+                    ]);
                     $payload = $tracking->json();
 
-                    if ($tracking->successful() && is_array($payload)
+                    if ($tracking->successful()
+                        && is_array($payload)
                         && ($payload['success'] ?? false) === true
                         && is_array($payload['providerResponse']['data'] ?? null)
                     ) {
                         foreach ($payload['providerResponse']['data'] as $record) {
-                            if (!is_array($record)) continue;
+                            if (!is_array($record)) {
+                                continue;
+                            }
                             $number = strtoupper((string) ($record['booking_details']['article_number'] ?? ''));
-                            if ($number && in_array($number, $barcodes, true)) {
+                            if ($number !== '' && in_array($number, $barcodes, true)) {
                                 $providerByBarcode[$number] = $record;
                             }
                         }
@@ -143,8 +198,11 @@ class IndiaPostOrderTrackingController extends Controller
                 $barcode = strtoupper((string) $item['barcode_no']);
                 $record = $providerByBarcode[$barcode] ?? [];
                 $events = [];
+
                 foreach (is_array($record['tracking_details'] ?? null) ? $record['tracking_details'] : [] as $event) {
-                    if (!is_array($event)) continue;
+                    if (!is_array($event)) {
+                        continue;
+                    }
                     $events[] = [
                         'date' => $this->safeText($event['date'] ?? null, 60),
                         'event' => $this->safeText($event['event'] ?? '', 120) ?: 'Shipment update',
@@ -153,14 +211,21 @@ class IndiaPostOrderTrackingController extends Controller
                         'rts' => (bool) ($event['rts'] ?? false),
                     ];
                 }
+
                 usort($events, function (array $a, array $b): int {
                     return (strtotime($b['date'] ?? '') ?: 0) <=> (strtotime($a['date'] ?? '') ?: 0);
                 });
+
+                $latestProviderEvent = $events[0] ?? null;
                 $shipments[] = [
                     'barcode' => $barcode,
+                    // Booking status is NOT the same as courier delivery status.
                     'status' => $this->safeText($item['booking_status'] ?? '', 50) ?: 'pending',
-                    'latest_event' => $this->safeText($item['latest_event'] ?? null, 160),
-                    'latest_event_at' => $this->safeText($item['latest_event_at'] ?? null, 60),
+                    'latest_event' => $latestProviderEvent['event']
+                        ?? $this->safeText($item['latest_event'] ?? null, 160),
+                    'latest_event_at' => $latestProviderEvent['date']
+                        ?? $this->safeText($item['latest_event_at'] ?? null, 60),
+                    'tracking_source' => $latestProviderEvent ? 'provider' : 'stored_tracking',
                     'events' => $events,
                 ];
             }
@@ -169,6 +234,7 @@ class IndiaPostOrderTrackingController extends Controller
                 'success' => true,
                 'data' => [
                     'order_id' => (int) $order->id,
+                    'order_reference' => (string) $order->order_reference,
                     'allocated_awb' => $allocatedAwb,
                     'allocated_at' => $allocatedAt,
                     'shipments' => $shipments,
@@ -180,13 +246,18 @@ class IndiaPostOrderTrackingController extends Controller
                 'order_id' => $order->id,
                 'exception_type' => get_class($e),
             ]);
-            return response()->json(['success' => false, 'message' => 'Courier tracking is temporarily unavailable.'], 502);
+            return response()->json([
+                'success' => false,
+                'message' => 'Courier tracking is temporarily unavailable.',
+            ], 502);
         }
     }
 
     private function safeText($value, int $max): ?string
     {
-        if (!is_scalar($value)) return null;
+        if (!is_scalar($value)) {
+            return null;
+        }
         $text = trim((string) $value);
         return $text === '' ? null : mb_substr($text, 0, $max);
     }
