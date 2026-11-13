@@ -99,6 +99,8 @@ class FinanceCommissionExportController extends Controller
                     'bank_holder_name'   => $profile->bank_holder_name ?? '-',
                     'bank_account_number'=> $profile->encrypted_bank_account ?? '-',
                     'bank_ifsc'          => $profile->bank_ifsc ?? '-',
+                    'gst_in'             => $this->maskGst($profile->gst_in ?? null),
+                    'pan_number'         => $profile->encrypted_pan ?? '-',
                 ];
             } catch (\Throwable $e) {
                 $failed[] = [
@@ -141,6 +143,29 @@ class FinanceCommissionExportController extends Controller
             'data'   => $rows,
             'failed' => $failed,
         ]);
+    }
+
+    /**
+     * Mask GST number: show first 2 and last 3 characters, hide the rest.
+     * Example: 27AABCU9603R1ZM → 27**********1ZM
+     */
+    private function maskGst(?string $gst): string
+    {
+        if (empty($gst)) {
+            return '-';
+        }
+
+        $gst = strtoupper(trim($gst));
+        $len = strlen($gst);
+
+        // GST is 15 chars. If invalid length, just mask fully except first 2.
+        if ($len <= 5) {
+            return str_repeat('*', $len);
+        }
+
+        return substr($gst, 0, 2)
+            . str_repeat('*', $len - 5)
+            . substr($gst, -3);
     }
 
     /**
