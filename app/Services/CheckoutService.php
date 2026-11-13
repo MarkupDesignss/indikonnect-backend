@@ -3997,20 +3997,35 @@ class CheckoutService
                 $cgstRate = $sgstRate = $igstRate = 0;
                 $cgstAmount = $sgstAmount = $igstAmount = 0;
 
-                $isPunjab     = $deliveryState && $deliveryState === 'punjab';
-                $isInterState = $deliveryState && $deliveryState !== $supplierState;
+                // Supplier state comes from .env → SUPPLIER_STATE (default 'Punjab')
+                $supplierStateNorm = strtolower(trim((string) $supplierState));
+                $deliveryStateNorm = $deliveryState ? strtolower(trim((string) $deliveryState)) : null;
 
-                if ($deliveryState) {
-                    if ($isPunjab || !$isInterState) {
+                // Intra-state = same as supplier state (CGST + SGST)
+                // Inter-state = different (IGST)
+                $isIntraState = $deliveryStateNorm !== null
+                    && $deliveryStateNorm === $supplierStateNorm;
+
+                if ($deliveryStateNorm !== null) {
+                    if ($isIntraState) {
+                        // Same state → CGST + SGST split
                         $cgstRate   = $sgstRate = $taxRate / 2;
                         $cgstAmount = $sgstAmount = $taxAmount / 2;
+                        $igstRate   = 0;
+                        $igstAmount = 0;
                     } else {
+                        // Different state → IGST full
                         $igstRate   = $taxRate;
                         $igstAmount = $taxAmount;
+                        $cgstRate   = $sgstRate = 0;
+                        $cgstAmount = $sgstAmount = 0;
                     }
                 } else {
+                    // No address → default to IGST
                     $igstRate   = $taxRate;
                     $igstAmount = $taxAmount;
+                    $cgstRate   = $sgstRate = 0;
+                    $cgstAmount = $sgstAmount = 0;
                 }
 
                 $productShippingCharge = $item->product->shipping_charge ?? 0;

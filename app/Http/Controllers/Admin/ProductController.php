@@ -1285,7 +1285,7 @@ class ProductController extends Controller
                 'distributor_mrp' => $selectedVariant->distributor_mrp,
                 // 'distributor_price' => $selectedVariant->distributor_price,
                 'distributor_price' => $selectedVariant->distributor_price !== null
-                    ? $selectedVariant->distributor_price + $product->shipping_charge
+                    ? $product->distributor_price + $product->shipping_charge
                     : null,
                 'distributor_discount_type' => $selectedVariant->distributor_discount_type,
                 'distributor_discount_value' => $selectedVariant->distributor_discount_value,

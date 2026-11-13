@@ -2188,188 +2188,12 @@ class OrderController extends Controller
      * Dispatch order items or entire order
      */
 
-    // public function dispatch(Request $request)
-    // {
-    //     $validator = Validator::make($request->all(), [
-    //         'order_reference'         => 'required|string|exists:orders,order_reference',
-    //         'items'                   => 'nullable|array|min:1',
-    //         'items.*.order_line_id'   => 'required|integer|exists:order_lines,id',
-    //         'courier_tracking_number' => 'nullable|string|max:100',
-    //         'courier_company'         => 'nullable|string|max:100',
-    //         'delivery_notes'          => 'nullable|string|max:500',
-    //         'courier_delivery_date'   => 'nullable|date',
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json(['error' => $validator->errors()->first()], 422);
-    //     }
-
-    //     try {
-    //         DB::beginTransaction();
-
-    //         $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
-
-    //         // Determine which items to dispatch
-    //         $itemsToDispatch = $this->getItemsToProcess($order, $request->items ?? []);
-
-    //         if (empty($itemsToDispatch)) {
-    //             throw new Exception('No valid items found to dispatch. Items must be confirmed.');
-    //         }
-
-    //         $processedItems  = [];
-    //         $dispatchedLines = [];   // Collect lines for invoice generation
-
-    //         foreach ($itemsToDispatch as $orderLine) {
-    //             $this->validateDispatchable($orderLine);
-
-    //             $orderLine->update([
-    //                 'delivery_status' => 'dispatched',
-    //                 'dispatched_at'   => now(),
-    //             ]);
-
-    //             $processedItems[] = [
-    //                 'order_line_id' => $orderLine->id,
-    //                 'product_name'  => $orderLine->product->name ?? 'Unknown',
-    //                 'status'        => 'dispatched',
-    //             ];
-
-    //             $dispatchedLines[] = $orderLine;
-
-    //             $this->createShippingDetail($order, $orderLine, $request, 'dispatched');
-    //         }
-
-    //         $order->updateOrderStatus();
-
-    //         // InvoiceService will generate an invoice for each line.
-    //         // We filter out lines that already have an invoice.
-    //         $linesNeedingInvoice = collect($dispatchedLines)->filter(function ($line) {
-    //             return !Invoice::where('order_line_id', $line->id)->exists();
-    //         })->values();
-
-    //         if ($linesNeedingInvoice->isNotEmpty()) {
-    //             $this->invoiceService->generateInvoice($order, $linesNeedingInvoice);
-    //         }
-
-    //         // ============================================================
-    //         // E-WAY BILL PART A GENERATION (per invoice, no vehicle number)
-    //         // Non-blocking: failure here will NOT roll back invoice generation.
-    //         // ============================================================
-    //         $ewayBillErrors = [];   // collect per-line errors for response
-
-    //         try {
-    //             $ewayBillService = app(\App\Services\EwayBillService::class);
-    //             $transporterId   = config('services.india_post.transporter_id'); // TRANSIN
-
-    //             // Validate transporter ID once — before looping
-    //             if (empty($transporterId) || strlen($transporterId) !== 15) {
-    //                 throw new Exception(
-    //                     'Transporter ID (TRANSIN) not configured or invalid. Expected 15 chars.'
-    //                 );
-    //             }
-
-    //             foreach ($linesNeedingInvoice as $line) {
-    //                 $invoice = Invoice::where('order_line_id', $line->id)->first();
-
-    //                 if (!$invoice) {
-    //                     Log::warning('Invoice missing for E-Way Bill', [
-    //                         'order_line_id' => $line->id,
-    //                         'order_ref'     => $order->order_reference,
-    //                     ]);
-    //                     $ewayBillErrors[] = "Invoice missing for order line {$line->id}";
-    //                     continue;
-    //                 }
-
-    //                 // Idempotency: skip if EWB already generated for this invoice
-    //                 if (!empty($invoice->eway_bill_no)) {
-    //                     continue;
-    //                 }
-
-    //                 // Optional threshold — uncomment if you only want EWB >= ₹50,000
-    //                 // if ((float) $invoice->total_value < 50000) {
-    //                 //     Log::info('E-Way Bill skipped (below ₹50,000)', [
-    //                 //         'invoice' => $invoice->invoice_number,
-    //                 //         'value'   => $invoice->total_value,
-    //                 //     ]);
-    //                 //     continue;
-    //                 // }
-
-    //                 try {
-    //                     $result = $ewayBillService->generatePartA($invoice, $transporterId);
-
-    //                     if (empty($result['eway_bill_no'])) {
-    //                         Log::error('E-Way Bill returned empty EBN', [
-    //                             'invoice' => $invoice->invoice_number,
-    //                             'alert'   => $result['alert'] ?? null,
-    //                         ]);
-    //                         $ewayBillErrors[] = "No EBN for invoice {$invoice->invoice_number}";
-    //                         continue;
-    //                     }
-
-    //                     if (!empty($result['alert'])) {
-    //                         Log::warning('E-Way Bill alert', [
-    //                             'invoice' => $invoice->invoice_number,
-    //                             'alert'   => $result['alert'],
-    //                         ]);
-    //                     }
-
-    //                     $invoice->update([
-    //                         'eway_bill_no'     => $result['eway_bill_no'],
-    //                         'eway_bill_date'   => $result['eway_bill_date'],
-    //                         'eway_valid_upto'  => $result['valid_upto'],
-    //                         'eway_bill_status' => 'part_a_generated',
-    //                     ]);
-
-    //                     Log::info('E-Way Bill Part A generated', [
-    //                         'invoice_number' => $invoice->invoice_number,
-    //                         'eway_bill_no'   => $result['eway_bill_no'],
-    //                     ]);
-    //                 } catch (Exception $lineEx) {
-    //                     // Per-line failure should NOT stop other lines
-    //                     Log::error('E-Way Bill failed for single invoice', [
-    //                         'invoice'         => $invoice->invoice_number ?? null,
-    //                         'order_line_id'   => $line->id,
-    //                         'order_reference' => $order->order_reference,
-    //                         'error'           => $lineEx->getMessage(),
-    //                     ]);
-    //                     $ewayBillErrors[] = "Invoice {$invoice->invoice_number}: {$lineEx->getMessage()}";
-    //                     continue;
-    //                 }
-    //             }
-    //         } catch (Exception $e) {
-    //             // Config/global failure (transporter ID missing, service init failed, etc.)
-    //             Log::error('E-Way Bill Part A generation failed during dispatch', [
-    //                 'order_reference' => $order->order_reference,
-    //                 'error'           => $e->getMessage(),
-    //             ]);
-    //             $ewayBillErrors[] = $e->getMessage();
-    //         }
-
-    //         DB::commit();
-
-    //         $this->sendOrderDispatchedNotification($order, $processedItems, $request);
-
-    //         $message = count($processedItems) === $order->lines->count()
-    //             ? 'Entire order dispatched successfully'
-    //             : count($processedItems) . ' item(s) dispatched successfully';
-
-    //         return response()->json([
-    //             'success'         => true,
-    //             'message'         => $message,
-    //             'order_reference' => $order->order_reference,
-    //             'order_status'    => $order->fresh()->status,
-    //             'processed_items' => $processedItems,
-    //             // Surface EWB issues to admin/caller without failing dispatch
-    //             'eway_bill_errors' => $ewayBillErrors ?: null,
-    //         ]);
-    //     } catch (Exception $e) {
-    //         DB::rollBack();
-    //         return response()->json(['error' => $e->getMessage()], 400);
-    //     }
-    // }
     public function dispatch(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'order_reference'         => 'required|string|exists:orders,order_reference',
+            'items'                   => 'nullable|array|min:1',
+            'items.*.order_line_id'   => 'required|integer|exists:order_lines,id',
             'courier_tracking_number' => 'nullable|string|max:100',
             'courier_company'         => 'nullable|string|max:100',
             'delivery_notes'          => 'nullable|string|max:500',
@@ -2383,21 +2207,17 @@ class OrderController extends Controller
         try {
             DB::beginTransaction();
 
-            $order = Order::with('lines.product')
-                ->where('order_reference', $request->order_reference)
-                ->firstOrFail();
+            $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
 
-            // Full order: saari lines jo abhi dispatchable hain
-            $itemsToDispatch = $order->lines->filter(function ($line) {
-                return in_array($line->delivery_status, ['pending', 'confirmed', 'processing'], true);
-            })->values();
+            // Determine which items to dispatch
+            $itemsToDispatch = $this->getItemsToProcess($order, $request->items ?? []);
 
-            if ($itemsToDispatch->isEmpty()) {
-                throw new Exception('No dispatchable items found. All items may already be dispatched/shipped/delivered.');
+            if (empty($itemsToDispatch)) {
+                throw new Exception('No valid items found to dispatch. Items must be confirmed.');
             }
 
             $processedItems  = [];
-            $dispatchedLines = [];
+            $dispatchedLines = [];   // Collect lines for invoice generation
 
             foreach ($itemsToDispatch as $orderLine) {
                 $this->validateDispatchable($orderLine);
@@ -2420,7 +2240,8 @@ class OrderController extends Controller
 
             $order->updateOrderStatus();
 
-            // Invoice generation (idempotent)
+            // InvoiceService will generate an invoice for each line.
+            // We filter out lines that already have an invoice.
             $linesNeedingInvoice = collect($dispatchedLines)->filter(function ($line) {
                 return !Invoice::where('order_line_id', $line->id)->exists();
             })->values();
@@ -2429,15 +2250,21 @@ class OrderController extends Controller
                 $this->invoiceService->generateInvoice($order, $linesNeedingInvoice);
             }
 
-            // E-Way Bill Part A (non-blocking)
-            $ewayBillErrors = [];
+            // ============================================================
+            // E-WAY BILL PART A GENERATION (per invoice, no vehicle number)
+            // Non-blocking: failure here will NOT roll back invoice generation.
+            // ============================================================
+            $ewayBillErrors = [];   // collect per-line errors for response
 
             try {
                 $ewayBillService = app(\App\Services\EwayBillService::class);
-                $transporterId   = config('services.india_post.transporter_id');
+                $transporterId   = config('services.india_post.transporter_id'); // TRANSIN
 
+                // Validate transporter ID once — before looping
                 if (empty($transporterId) || strlen($transporterId) !== 15) {
-                    throw new Exception('Transporter ID (TRANSIN) not configured or invalid. Expected 15 chars.');
+                    throw new Exception(
+                        'Transporter ID (TRANSIN) not configured or invalid. Expected 15 chars.'
+                    );
                 }
 
                 foreach ($linesNeedingInvoice as $line) {
@@ -2452,9 +2279,19 @@ class OrderController extends Controller
                         continue;
                     }
 
+                    // Idempotency: skip if EWB already generated for this invoice
                     if (!empty($invoice->eway_bill_no)) {
                         continue;
                     }
+
+                    // Optional threshold — uncomment if you only want EWB >= ₹50,000
+                    // if ((float) $invoice->total_value < 50000) {
+                    //     Log::info('E-Way Bill skipped (below ₹50,000)', [
+                    //         'invoice' => $invoice->invoice_number,
+                    //         'value'   => $invoice->total_value,
+                    //     ]);
+                    //     continue;
+                    // }
 
                     try {
                         $result = $ewayBillService->generatePartA($invoice, $transporterId);
@@ -2466,6 +2303,13 @@ class OrderController extends Controller
                             ]);
                             $ewayBillErrors[] = "No EBN for invoice {$invoice->invoice_number}";
                             continue;
+                        }
+
+                        if (!empty($result['alert'])) {
+                            Log::warning('E-Way Bill alert', [
+                                'invoice' => $invoice->invoice_number,
+                                'alert'   => $result['alert'],
+                            ]);
                         }
 
                         $invoice->update([
@@ -2480,6 +2324,7 @@ class OrderController extends Controller
                             'eway_bill_no'   => $result['eway_bill_no'],
                         ]);
                     } catch (Exception $lineEx) {
+                        // Per-line failure should NOT stop other lines
                         Log::error('E-Way Bill failed for single invoice', [
                             'invoice'         => $invoice->invoice_number ?? null,
                             'order_line_id'   => $line->id,
@@ -2487,9 +2332,11 @@ class OrderController extends Controller
                             'error'           => $lineEx->getMessage(),
                         ]);
                         $ewayBillErrors[] = "Invoice {$invoice->invoice_number}: {$lineEx->getMessage()}";
+                        continue;
                     }
                 }
             } catch (Exception $e) {
+                // Config/global failure (transporter ID missing, service init failed, etc.)
                 Log::error('E-Way Bill Part A generation failed during dispatch', [
                     'order_reference' => $order->order_reference,
                     'error'           => $e->getMessage(),
@@ -2501,17 +2348,17 @@ class OrderController extends Controller
 
             $this->sendOrderDispatchedNotification($order, $processedItems, $request);
 
-            $totalLines = $order->lines->count();
-            $message = count($processedItems) === $totalLines
+            $message = count($processedItems) === $order->lines->count()
                 ? 'Entire order dispatched successfully'
-                : count($processedItems) . " of {$totalLines} item(s) dispatched successfully";
+                : count($processedItems) . ' item(s) dispatched successfully';
 
             return response()->json([
-                'success'          => true,
-                'message'          => $message,
-                'order_reference'  => $order->order_reference,
-                'order_status'     => $order->fresh()->status,
-                'processed_items'  => $processedItems,
+                'success'         => true,
+                'message'         => $message,
+                'order_reference' => $order->order_reference,
+                'order_status'    => $order->fresh()->status,
+                'processed_items' => $processedItems,
+                // Surface EWB issues to admin/caller without failing dispatch
                 'eway_bill_errors' => $ewayBillErrors ?: null,
             ]);
         } catch (Exception $e) {
@@ -2519,6 +2366,159 @@ class OrderController extends Controller
             return response()->json(['error' => $e->getMessage()], 400);
         }
     }
+    // public function dispatch(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'order_reference'         => 'required|string|exists:orders,order_reference',
+    //         'courier_tracking_number' => 'nullable|string|max:100',
+    //         'courier_company'         => 'nullable|string|max:100',
+    //         'delivery_notes'          => 'nullable|string|max:500',
+    //         'courier_delivery_date'   => 'nullable|date',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['error' => $validator->errors()->first()], 422);
+    //     }
+
+    //     try {
+    //         DB::beginTransaction();
+
+    //         $order = Order::with('lines.product')
+    //             ->where('order_reference', $request->order_reference)
+    //             ->firstOrFail();
+
+    //         // Full order: saari lines jo abhi dispatchable hain
+    //         $itemsToDispatch = $order->lines->filter(function ($line) {
+    //             return in_array($line->delivery_status, ['pending', 'confirmed', 'processing'], true);
+    //         })->values();
+
+    //         if ($itemsToDispatch->isEmpty()) {
+    //             throw new Exception('No dispatchable items found. All items may already be dispatched/shipped/delivered.');
+    //         }
+
+    //         $processedItems  = [];
+    //         $dispatchedLines = [];
+
+    //         foreach ($itemsToDispatch as $orderLine) {
+    //             $this->validateDispatchable($orderLine);
+
+    //             $orderLine->update([
+    //                 'delivery_status' => 'dispatched',
+    //                 'dispatched_at'   => now(),
+    //             ]);
+
+    //             $processedItems[] = [
+    //                 'order_line_id' => $orderLine->id,
+    //                 'product_name'  => $orderLine->product->name ?? 'Unknown',
+    //                 'status'        => 'dispatched',
+    //             ];
+
+    //             $dispatchedLines[] = $orderLine;
+
+    //             $this->createShippingDetail($order, $orderLine, $request, 'dispatched');
+    //         }
+
+    //         $order->updateOrderStatus();
+
+    //         // Invoice generation (idempotent)
+    //         $linesNeedingInvoice = collect($dispatchedLines)->filter(function ($line) {
+    //             return !Invoice::where('order_line_id', $line->id)->exists();
+    //         })->values();
+
+    //         if ($linesNeedingInvoice->isNotEmpty()) {
+    //             $this->invoiceService->generateInvoice($order, $linesNeedingInvoice);
+    //         }
+
+    //         // E-Way Bill Part A (non-blocking)
+    //         $ewayBillErrors = [];
+
+    //         try {
+    //             $ewayBillService = app(\App\Services\EwayBillService::class);
+    //             $transporterId   = config('services.india_post.transporter_id');
+
+    //             if (empty($transporterId) || strlen($transporterId) !== 15) {
+    //                 throw new Exception('Transporter ID (TRANSIN) not configured or invalid. Expected 15 chars.');
+    //             }
+
+    //             foreach ($linesNeedingInvoice as $line) {
+    //                 $invoice = Invoice::where('order_line_id', $line->id)->first();
+
+    //                 if (!$invoice) {
+    //                     Log::warning('Invoice missing for E-Way Bill', [
+    //                         'order_line_id' => $line->id,
+    //                         'order_ref'     => $order->order_reference,
+    //                     ]);
+    //                     $ewayBillErrors[] = "Invoice missing for order line {$line->id}";
+    //                     continue;
+    //                 }
+
+    //                 if (!empty($invoice->eway_bill_no)) {
+    //                     continue;
+    //                 }
+
+    //                 try {
+    //                     $result = $ewayBillService->generatePartA($invoice, $transporterId);
+
+    //                     if (empty($result['eway_bill_no'])) {
+    //                         Log::error('E-Way Bill returned empty EBN', [
+    //                             'invoice' => $invoice->invoice_number,
+    //                             'alert'   => $result['alert'] ?? null,
+    //                         ]);
+    //                         $ewayBillErrors[] = "No EBN for invoice {$invoice->invoice_number}";
+    //                         continue;
+    //                     }
+
+    //                     $invoice->update([
+    //                         'eway_bill_no'     => $result['eway_bill_no'],
+    //                         'eway_bill_date'   => $result['eway_bill_date'],
+    //                         'eway_valid_upto'  => $result['valid_upto'],
+    //                         'eway_bill_status' => 'part_a_generated',
+    //                     ]);
+
+    //                     Log::info('E-Way Bill Part A generated', [
+    //                         'invoice_number' => $invoice->invoice_number,
+    //                         'eway_bill_no'   => $result['eway_bill_no'],
+    //                     ]);
+    //                 } catch (Exception $lineEx) {
+    //                     Log::error('E-Way Bill failed for single invoice', [
+    //                         'invoice'         => $invoice->invoice_number ?? null,
+    //                         'order_line_id'   => $line->id,
+    //                         'order_reference' => $order->order_reference,
+    //                         'error'           => $lineEx->getMessage(),
+    //                     ]);
+    //                     $ewayBillErrors[] = "Invoice {$invoice->invoice_number}: {$lineEx->getMessage()}";
+    //                 }
+    //             }
+    //         } catch (Exception $e) {
+    //             Log::error('E-Way Bill Part A generation failed during dispatch', [
+    //                 'order_reference' => $order->order_reference,
+    //                 'error'           => $e->getMessage(),
+    //             ]);
+    //             $ewayBillErrors[] = $e->getMessage();
+    //         }
+
+    //         DB::commit();
+
+    //         $this->sendOrderDispatchedNotification($order, $processedItems, $request);
+
+    //         $totalLines = $order->lines->count();
+    //         $message = count($processedItems) === $totalLines
+    //             ? 'Entire order dispatched successfully'
+    //             : count($processedItems) . " of {$totalLines} item(s) dispatched successfully";
+
+    //         return response()->json([
+    //             'success'          => true,
+    //             'message'          => $message,
+    //             'order_reference'  => $order->order_reference,
+    //             'order_status'     => $order->fresh()->status,
+    //             'processed_items'  => $processedItems,
+    //             'eway_bill_errors' => $ewayBillErrors ?: null,
+    //         ]);
+    //     } catch (Exception $e) {
+    //         DB::rollBack();
+    //         return response()->json(['error' => $e->getMessage()], 400);
+    //     }
+    // }
 
     protected function insertNotification($user, string $type, array $data): void
     {
@@ -2731,105 +2731,16 @@ class OrderController extends Controller
     /**
      * Ship order items or entire order
      */
-    // public function ship(Request $request)
-    // {
-    //     $validator = Validator::make($request->all(), [
-    //         'order_reference' => 'required|string|exists:orders,order_reference',
-    //         'items' => 'nullable|array|min:1',
-    //         'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
-    //         'courier_tracking_number' => 'nullable|string|max:100',
-    //         'courier_company' => 'nullable|string|max:100',
-    //         'delivery_notes' => 'nullable|string|max:500',
-    //         'courier_delivery_date' => 'nullable|date',
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json(['error' => $validator->errors()->first()], 422);
-    //     }
-
-    //     try {
-    //         DB::beginTransaction();
-
-    //         $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
-
-    //         // Determine which items to ship
-    //         $itemsToShip = $this->getItemsToProcess($order, $request->items ?? []);
-
-    //         if (empty($itemsToShip)) {
-    //             throw new Exception('No valid items found to ship. Items must be dispatched.');
-    //         }
-
-    //         $processedItems = [];
-
-    //         foreach ($itemsToShip as $orderLine) {
-    //             $this->validateShippable($orderLine);
-
-    //             $orderLine->update([
-    //                 'delivery_status' => 'shipped',
-    //                 'shipped_at' => now(),
-    //             ]);
-
-    //             $processedItems[] = [
-    //                 'order_line_id' => $orderLine->id,
-    //                 'product_name' => $orderLine->product->name ?? 'Unknown',
-    //                 'status' => 'shipped'
-    //             ];
-
-    //             $this->updateShippingDetail($order, $orderLine, $request, 'shipped');
-    //         }
-
-    //         $order->updateOrderStatus();
-
-    //         DB::commit();
-    //         $this->sendOrderShippedNotification($order, $processedItems, $request);
-    //         $message = count($processedItems) === $order->lines->count()
-    //             ? 'Entire order shipped successfully'
-    //             : count($processedItems) . ' item(s) shipped successfully';
-
-    //         /* =============================================
-    //         | SEND SHIPPED SMS (TWILIO)
-    //         ============================================= */
-    //         $phone = $order->user?->phone;
-
-    //         if ($phone) {
-    //             $itemCount = count($processedItems);
-    //             $isFullOrder = $itemCount === $order->lines->count();
-
-    //             $message = "Hi {$order->user->name}! "
-    //                 . ($isFullOrder ? "Your order {$order->order_reference} has been shipped." : "{$itemCount} item(s) from your order {$order->order_reference} have been shipped.")
-    //                 . ($request->courier_company ? " Courier: {$request->courier_company}." : '')
-    //                 . ($request->courier_tracking_number ? " Tracking: {$request->courier_tracking_number}." : '');
-
-    //             try {
-    //                 app(\App\Services\TwilioSmsService::class)->send($phone, $message);
-    //             } catch (\Throwable $e) {
-    //                 Log::error('Order shipped SMS failed', [
-    //                     'order_reference' => $order->order_reference,
-    //                     'error'           => $e->getMessage(),
-    //                 ]);
-    //             }
-    //         }
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'message' => $message,
-    //             'order_reference' => $order->order_reference,
-    //             'order_status' => $order->fresh()->status,
-    //             'processed_items' => $processedItems,
-    //         ]);
-    //     } catch (Exception $e) {
-    //         DB::rollBack();
-    //         return response()->json(['error' => $e->getMessage()], 400);
-    //     }
-    // }
     public function ship(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'order_reference'         => 'required|string|exists:orders,order_reference',
+            'order_reference' => 'required|string|exists:orders,order_reference',
+            'items' => 'nullable|array|min:1',
+            'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
             'courier_tracking_number' => 'nullable|string|max:100',
-            'courier_company'         => 'nullable|string|max:100',
-            'delivery_notes'          => 'nullable|string|max:500',
-            'courier_delivery_date'   => 'nullable|date',
+            'courier_company' => 'nullable|string|max:100',
+            'delivery_notes' => 'nullable|string|max:500',
+            'courier_delivery_date' => 'nullable|date',
         ]);
 
         if ($validator->fails()) {
@@ -2839,17 +2750,13 @@ class OrderController extends Controller
         try {
             DB::beginTransaction();
 
-            $order = Order::with('lines.product')
-                ->where('order_reference', $request->order_reference)
-                ->firstOrFail();
+            $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
 
-            // Full order: sirf wahi lines jo dispatched hain
-            $itemsToShip = $order->lines->filter(function ($line) {
-                return $line->delivery_status === 'dispatched';
-            })->values();
+            // Determine which items to ship
+            $itemsToShip = $this->getItemsToProcess($order, $request->items ?? []);
 
-            if ($itemsToShip->isEmpty()) {
-                throw new Exception('No shippable items found. Items must be dispatched first.');
+            if (empty($itemsToShip)) {
+                throw new Exception('No valid items found to ship. Items must be dispatched.');
             }
 
             $processedItems = [];
@@ -2859,13 +2766,13 @@ class OrderController extends Controller
 
                 $orderLine->update([
                     'delivery_status' => 'shipped',
-                    'shipped_at'      => now(),
+                    'shipped_at' => now(),
                 ]);
 
                 $processedItems[] = [
                     'order_line_id' => $orderLine->id,
-                    'product_name'  => $orderLine->product->name ?? 'Unknown',
-                    'status'        => 'shipped',
+                    'product_name' => $orderLine->product->name ?? 'Unknown',
+                    'status' => 'shipped'
                 ];
 
                 $this->updateShippingDetail($order, $orderLine, $request, 'shipped');
@@ -2874,28 +2781,27 @@ class OrderController extends Controller
             $order->updateOrderStatus();
 
             DB::commit();
-
             $this->sendOrderShippedNotification($order, $processedItems, $request);
-
-            $totalLines = $order->lines->count();
-            $isFullOrder = count($processedItems) === $totalLines;
-
-            $message = $isFullOrder
+            $message = count($processedItems) === $order->lines->count()
                 ? 'Entire order shipped successfully'
-                : count($processedItems) . " of {$totalLines} item(s) shipped successfully";
+                : count($processedItems) . ' item(s) shipped successfully';
 
-            // SMS
+            /* =============================================
+            | SEND SHIPPED SMS (TWILIO)
+            ============================================= */
             $phone = $order->user?->phone;
+
             if ($phone) {
-                $smsBody = "Hi {$order->user->name}! "
-                    . ($isFullOrder
-                        ? "Your order {$order->order_reference} has been shipped."
-                        : count($processedItems) . " item(s) from your order {$order->order_reference} have been shipped.")
+                $itemCount = count($processedItems);
+                $isFullOrder = $itemCount === $order->lines->count();
+
+                $message = "Hi {$order->user->name}! "
+                    . ($isFullOrder ? "Your order {$order->order_reference} has been shipped." : "{$itemCount} item(s) from your order {$order->order_reference} have been shipped.")
                     . ($request->courier_company ? " Courier: {$request->courier_company}." : '')
                     . ($request->courier_tracking_number ? " Tracking: {$request->courier_tracking_number}." : '');
 
                 try {
-                    app(\App\Services\TwilioSmsService::class)->send($phone, $smsBody);
+                    app(\App\Services\TwilioSmsService::class)->send($phone, $message);
                 } catch (\Throwable $e) {
                     Log::error('Order shipped SMS failed', [
                         'order_reference' => $order->order_reference,
@@ -2905,10 +2811,10 @@ class OrderController extends Controller
             }
 
             return response()->json([
-                'success'         => true,
-                'message'         => $message,
+                'success' => true,
+                'message' => $message,
                 'order_reference' => $order->order_reference,
-                'order_status'    => $order->fresh()->status,
+                'order_status' => $order->fresh()->status,
                 'processed_items' => $processedItems,
             ]);
         } catch (Exception $e) {
@@ -2916,18 +2822,14 @@ class OrderController extends Controller
             return response()->json(['error' => $e->getMessage()], 400);
         }
     }
-
-    /**
-     * Deliver order items or entire order
-     */
-
-    // public function deliver(Request $request)
+    // public function ship(Request $request)
     // {
     //     $validator = Validator::make($request->all(), [
-    //         'order_reference' => 'required|string|exists:orders,order_reference',
-    //         'items' => 'nullable|array|min:1',
-    //         'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
-    //         'delivery_notes' => 'nullable|string|max:500',
+    //         'order_reference'         => 'required|string|exists:orders,order_reference',
+    //         'courier_tracking_number' => 'nullable|string|max:100',
+    //         'courier_company'         => 'nullable|string|max:100',
+    //         'delivery_notes'          => 'nullable|string|max:500',
+    //         'courier_delivery_date'   => 'nullable|date',
     //     ]);
 
     //     if ($validator->fails()) {
@@ -2937,72 +2839,65 @@ class OrderController extends Controller
     //     try {
     //         DB::beginTransaction();
 
-    //         $order = Order::where('order_reference', $request->order_reference)
-    //             ->with('lines.product', 'lines.variant')
+    //         $order = Order::with('lines.product')
+    //             ->where('order_reference', $request->order_reference)
     //             ->firstOrFail();
 
-    //         // Determine which items to deliver
-    //         $itemsToDeliver = $this->getItemsToProcess($order, $request->items ?? []);
+    //         // Full order: sirf wahi lines jo dispatched hain
+    //         $itemsToShip = $order->lines->filter(function ($line) {
+    //             return $line->delivery_status === 'dispatched';
+    //         })->values();
 
-    //         if (empty($itemsToDeliver)) {
-    //             throw new Exception('No valid items found to deliver. Items must be shipped or dispatched.');
+    //         if ($itemsToShip->isEmpty()) {
+    //             throw new Exception('No shippable items found. Items must be dispatched first.');
     //         }
 
     //         $processedItems = [];
 
-    //         foreach ($itemsToDeliver as $orderLine) {
-    //             $this->validateDeliverable($orderLine);
-
-    //             // $this->decreaseStock($orderLine);
+    //         foreach ($itemsToShip as $orderLine) {
+    //             $this->validateShippable($orderLine);
 
     //             $orderLine->update([
-    //                 'delivery_status' => 'delivered',
-    //                 'delivered_at' => now(),
+    //                 'delivery_status' => 'shipped',
+    //                 'shipped_at'      => now(),
     //             ]);
 
     //             $processedItems[] = [
     //                 'order_line_id' => $orderLine->id,
-    //                 'product_name' => $orderLine->product->name ?? 'Unknown',
-    //                 'status' => 'delivered'
+    //                 'product_name'  => $orderLine->product->name ?? 'Unknown',
+    //                 'status'        => 'shipped',
     //             ];
 
-    //             $this->updateShippingDetail(
-    //                 $order,
-    //                 $orderLine,
-    //                 $request,
-    //                 'delivered'
-    //             );
+    //             $this->updateShippingDetail($order, $orderLine, $request, 'shipped');
     //         }
 
-    //         // Update main order status
     //         $order->updateOrderStatus();
 
-    //         // Refresh order
-    //         $order = $order->fresh(['lines']);
-
     //         DB::commit();
-    //         $this->sendOrderDeliveredNotification($order, $processedItems, $request);
-    //         $message = count($processedItems) === $order->lines->count()
-    //             ? 'Entire order delivered successfully'
-    //             : count($processedItems) . ' item(s) delivered successfully';
 
-    //         /* =============================================
-    //         | SEND DELIVERED SMS (TWILIO)
-    //         ============================================= */
+    //         $this->sendOrderShippedNotification($order, $processedItems, $request);
+
+    //         $totalLines = $order->lines->count();
+    //         $isFullOrder = count($processedItems) === $totalLines;
+
+    //         $message = $isFullOrder
+    //             ? 'Entire order shipped successfully'
+    //             : count($processedItems) . " of {$totalLines} item(s) shipped successfully";
+
+    //         // SMS
     //         $phone = $order->user?->phone;
-
     //         if ($phone) {
-    //             $itemCount = count($processedItems);
-    //             $isFullOrder = $itemCount === $order->lines->count();
-
-    //             $message = "Hi {$order->user->name}! "
-    //                 . ($isFullOrder ? "Your order {$order->order_reference} has been delivered." : "{$itemCount} item(s) from your order {$order->order_reference} have been delivered.")
-    //                 . " We hope you love it! Thank you for shopping with us.";
+    //             $smsBody = "Hi {$order->user->name}! "
+    //                 . ($isFullOrder
+    //                     ? "Your order {$order->order_reference} has been shipped."
+    //                     : count($processedItems) . " item(s) from your order {$order->order_reference} have been shipped.")
+    //                 . ($request->courier_company ? " Courier: {$request->courier_company}." : '')
+    //                 . ($request->courier_tracking_number ? " Tracking: {$request->courier_tracking_number}." : '');
 
     //             try {
-    //                 app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+    //                 app(\App\Services\TwilioSmsService::class)->send($phone, $smsBody);
     //             } catch (\Throwable $e) {
-    //                 Log::error('Order delivered SMS failed', [
+    //                 Log::error('Order shipped SMS failed', [
     //                     'order_reference' => $order->order_reference,
     //                     'error'           => $e->getMessage(),
     //                 ]);
@@ -3010,26 +2905,31 @@ class OrderController extends Controller
     //         }
 
     //         return response()->json([
-    //             'success' => true,
-    //             'message' => $message,
+    //             'success'         => true,
+    //             'message'         => $message,
     //             'order_reference' => $order->order_reference,
-    //             'order_status' => $order->status,
+    //             'order_status'    => $order->fresh()->status,
     //             'processed_items' => $processedItems,
     //         ]);
     //     } catch (Exception $e) {
-
     //         DB::rollBack();
-
-    //         return response()->json([
-    //             'error' => $e->getMessage()
-    //         ], 400);
+    //         return response()->json(['error' => $e->getMessage()], 400);
     //     }
     // }
+
+    /**
+     * Deliver order items or entire order
+     */
+
+
+
     public function deliver(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'order_reference' => 'required|string|exists:orders,order_reference',
-            'delivery_notes'  => 'nullable|string|max:500',
+            'items' => 'nullable|array|min:1',
+            'items.*.order_line_id' => 'required|integer|exists:order_lines,id',
+            'delivery_notes' => 'nullable|string|max:500',
         ]);
 
         if ($validator->fails()) {
@@ -3039,17 +2939,15 @@ class OrderController extends Controller
         try {
             DB::beginTransaction();
 
-            $order = Order::with('lines.product', 'lines.variant')
-                ->where('order_reference', $request->order_reference)
+            $order = Order::where('order_reference', $request->order_reference)
+                ->with('lines.product', 'lines.variant')
                 ->firstOrFail();
 
-            // Full order: sirf wahi lines jo shipped ya dispatched hain
-            $itemsToDeliver = $order->lines->filter(function ($line) {
-                return in_array($line->delivery_status, ['shipped', 'dispatched'], true);
-            })->values();
+            // Determine which items to deliver
+            $itemsToDeliver = $this->getItemsToProcess($order, $request->items ?? []);
 
-            if ($itemsToDeliver->isEmpty()) {
-                throw new Exception('No deliverable items found. Items must be shipped or dispatched first.');
+            if (empty($itemsToDeliver)) {
+                throw new Exception('No valid items found to deliver. Items must be shipped or dispatched.');
             }
 
             $processedItems = [];
@@ -3057,45 +2955,54 @@ class OrderController extends Controller
             foreach ($itemsToDeliver as $orderLine) {
                 $this->validateDeliverable($orderLine);
 
+                // $this->decreaseStock($orderLine);
+
                 $orderLine->update([
                     'delivery_status' => 'delivered',
-                    'delivered_at'    => now(),
+                    'delivered_at' => now(),
                 ]);
 
                 $processedItems[] = [
                     'order_line_id' => $orderLine->id,
-                    'product_name'  => $orderLine->product->name ?? 'Unknown',
-                    'status'        => 'delivered',
+                    'product_name' => $orderLine->product->name ?? 'Unknown',
+                    'status' => 'delivered'
                 ];
 
-                $this->updateShippingDetail($order, $orderLine, $request, 'delivered');
+                $this->updateShippingDetail(
+                    $order,
+                    $orderLine,
+                    $request,
+                    'delivered'
+                );
             }
 
+            // Update main order status
             $order->updateOrderStatus();
+
+            // Refresh order
             $order = $order->fresh(['lines']);
 
             DB::commit();
-
             $this->sendOrderDeliveredNotification($order, $processedItems, $request);
-
-            $totalLines  = $order->lines->count();
-            $isFullOrder = count($processedItems) === $totalLines;
-
-            $message = $isFullOrder
+            $message = count($processedItems) === $order->lines->count()
                 ? 'Entire order delivered successfully'
-                : count($processedItems) . " of {$totalLines} item(s) delivered successfully";
+                : count($processedItems) . ' item(s) delivered successfully';
 
-            // SMS
+            /* =============================================
+            | SEND DELIVERED SMS (TWILIO)
+            ============================================= */
             $phone = $order->user?->phone;
+
             if ($phone) {
-                $smsBody = "Hi {$order->user->name}! "
-                    . ($isFullOrder
-                        ? "Your order {$order->order_reference} has been delivered."
-                        : count($processedItems) . " item(s) from your order {$order->order_reference} have been delivered.")
+                $itemCount = count($processedItems);
+                $isFullOrder = $itemCount === $order->lines->count();
+
+                $message = "Hi {$order->user->name}! "
+                    . ($isFullOrder ? "Your order {$order->order_reference} has been delivered." : "{$itemCount} item(s) from your order {$order->order_reference} have been delivered.")
                     . " We hope you love it! Thank you for shopping with us.";
 
                 try {
-                    app(\App\Services\TwilioSmsService::class)->send($phone, $smsBody);
+                    app(\App\Services\TwilioSmsService::class)->send($phone, $message);
                 } catch (\Throwable $e) {
                     Log::error('Order delivered SMS failed', [
                         'order_reference' => $order->order_reference,
@@ -3105,17 +3012,112 @@ class OrderController extends Controller
             }
 
             return response()->json([
-                'success'         => true,
-                'message'         => $message,
+                'success' => true,
+                'message' => $message,
                 'order_reference' => $order->order_reference,
-                'order_status'    => $order->status,
+                'order_status' => $order->status,
                 'processed_items' => $processedItems,
             ]);
         } catch (Exception $e) {
+
             DB::rollBack();
-            return response()->json(['error' => $e->getMessage()], 400);
+
+            return response()->json([
+                'error' => $e->getMessage()
+            ], 400);
         }
     }
+    // public function deliver(Request $request)
+    // {
+    //     $validator = Validator::make($request->all(), [
+    //         'order_reference' => 'required|string|exists:orders,order_reference',
+    //         'delivery_notes'  => 'nullable|string|max:500',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json(['error' => $validator->errors()->first()], 422);
+    //     }
+
+    //     try {
+    //         DB::beginTransaction();
+
+    //         $order = Order::with('lines.product', 'lines.variant')
+    //             ->where('order_reference', $request->order_reference)
+    //             ->firstOrFail();
+
+    //         // Full order: sirf wahi lines jo shipped ya dispatched hain
+    //         $itemsToDeliver = $order->lines->filter(function ($line) {
+    //             return in_array($line->delivery_status, ['shipped', 'dispatched'], true);
+    //         })->values();
+
+    //         if ($itemsToDeliver->isEmpty()) {
+    //             throw new Exception('No deliverable items found. Items must be shipped or dispatched first.');
+    //         }
+
+    //         $processedItems = [];
+
+    //         foreach ($itemsToDeliver as $orderLine) {
+    //             $this->validateDeliverable($orderLine);
+
+    //             $orderLine->update([
+    //                 'delivery_status' => 'delivered',
+    //                 'delivered_at'    => now(),
+    //             ]);
+
+    //             $processedItems[] = [
+    //                 'order_line_id' => $orderLine->id,
+    //                 'product_name'  => $orderLine->product->name ?? 'Unknown',
+    //                 'status'        => 'delivered',
+    //             ];
+
+    //             $this->updateShippingDetail($order, $orderLine, $request, 'delivered');
+    //         }
+
+    //         $order->updateOrderStatus();
+    //         $order = $order->fresh(['lines']);
+
+    //         DB::commit();
+
+    //         $this->sendOrderDeliveredNotification($order, $processedItems, $request);
+
+    //         $totalLines  = $order->lines->count();
+    //         $isFullOrder = count($processedItems) === $totalLines;
+
+    //         $message = $isFullOrder
+    //             ? 'Entire order delivered successfully'
+    //             : count($processedItems) . " of {$totalLines} item(s) delivered successfully";
+
+    //         // SMS
+    //         $phone = $order->user?->phone;
+    //         if ($phone) {
+    //             $smsBody = "Hi {$order->user->name}! "
+    //                 . ($isFullOrder
+    //                     ? "Your order {$order->order_reference} has been delivered."
+    //                     : count($processedItems) . " item(s) from your order {$order->order_reference} have been delivered.")
+    //                 . " We hope you love it! Thank you for shopping with us.";
+
+    //             try {
+    //                 app(\App\Services\TwilioSmsService::class)->send($phone, $smsBody);
+    //             } catch (\Throwable $e) {
+    //                 Log::error('Order delivered SMS failed', [
+    //                     'order_reference' => $order->order_reference,
+    //                     'error'           => $e->getMessage(),
+    //                 ]);
+    //             }
+    //         }
+
+    //         return response()->json([
+    //             'success'         => true,
+    //             'message'         => $message,
+    //             'order_reference' => $order->order_reference,
+    //             'order_status'    => $order->status,
+    //             'processed_items' => $processedItems,
+    //         ]);
+    //     } catch (Exception $e) {
+    //         DB::rollBack();
+    //         return response()->json(['error' => $e->getMessage()], 400);
+    //     }
+    // }
 
     protected function decreaseStock($orderLine)
     {
