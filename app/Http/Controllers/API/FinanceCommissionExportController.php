@@ -39,7 +39,7 @@ class FinanceCommissionExportController extends Controller
             $calendar = $this->ignite->salesCalendar($year);
             return response()->json([
                 'success' => true,
-                'message' => 'Debug: Full Ignite Sales Calendar for ' . $year,
+                'message' => 'Full Ignite Sales Calendar for ' . $year,
                 'calendar' => $calendar['data'] ?? [],
             ]);
         }
