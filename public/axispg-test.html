@@ -79,7 +79,7 @@
         </div>
 
         <label for="checkoutJson">Paste <code>axispg_checkout</code> JSON:</label>
-        <textarea id="checkoutJson" ></textarea>
+        <textarea id="checkoutJson"></textarea>
 
         <button id="submitBtn" onclick="handleSubmit()">
             Redirect to Axis PG
@@ -103,7 +103,6 @@
             production: 'https://axispg.freecharge.in/payment/v1/checkout'
         };
 
-        // Set to 'production' when going live
         const ENV = 'sandbox';
         const ACTIVE_ENDPOINT = ENDPOINTS[ENV];
 
@@ -131,20 +130,20 @@
                 return;
             }
 
-            if (!checkout.clientId) {
-                showError('clientId is missing in JSON.');
+            if (typeof checkout !== 'object' || checkout === null || Array.isArray(checkout)) {
+                showError('JSON must be an object with fields.');
                 return;
             }
 
-            if (!checkout.payload && !checkout.encData) {
-                showError('Neither `payload` nor `encData` found in JSON.');
+            const fieldsToSend = buildFieldsArray(checkout);
+            if (fieldsToSend.length === 0) {
+                showError('No fields found to send.');
                 return;
             }
 
             btn.disabled = true;
             btn.textContent = 'Redirecting to Axis PG...';
 
-            const fieldsToSend = buildFieldsArray(checkout);
             console.log('[AxisPG] Sending fields:', fieldsToSend);
 
             showSuccess(
@@ -152,29 +151,21 @@
                 ' fields to ' + ACTIVE_ENDPOINT
             );
 
-            submitAxisPgForm(checkout);
+            submitAxisPgForm(fieldsToSend);
         }
 
         // ========================================
         // Hidden Form Builder
         // ========================================
-        function submitAxisPgForm(checkout) {
+        function submitAxisPgForm(fieldsToSend) {
             const form = document.createElement('form');
             form.method = 'POST';
             form.action = ACTIVE_ENDPOINT;
             form.style.display = 'none';
 
-            appendHidden(form, 'clientId', checkout.clientId);
-
-            if (checkout.encData) {
-                appendHidden(form, 'encData', checkout.encData);
-            } else if (checkout.payload) {
-                Object.entries(checkout.payload).forEach(([key, value]) => {
-                    if (value !== null && value !== undefined) {
-                        appendHidden(form, key, value);
-                    }
-                });
-            }
+            fieldsToSend.forEach(({ name, value }) => {
+                appendHidden(form, name, value);
+            });
 
             document.body.appendChild(form);
             form.submit();
@@ -188,17 +179,37 @@
             form.appendChild(input);
         }
 
+        // ========================================
+        // Build Fields Array
+        // Supports 3 formats:
+        //  1) { encData: "..." }
+        //  2) { payload: { ...fields } }
+        //  3) Plain object fields (merchantId, amount, etc.)
+        // ========================================
         function buildFieldsArray(checkout) {
-            const arr = [{ name: 'clientId', value: checkout.clientId }];
+            // Format 1: encData
             if (checkout.encData) {
-                arr.push({ name: 'encData', value: checkout.encData });
-            } else if (checkout.payload) {
+                return [{ name: 'encData', value: checkout.encData }];
+            }
+
+            // Format 2: payload wrapper
+            if (checkout.payload && typeof checkout.payload === 'object') {
+                const arr = [];
                 Object.entries(checkout.payload).forEach(([key, value]) => {
                     if (value !== null && value !== undefined) {
                         arr.push({ name: key, value });
                     }
                 });
+                return arr;
             }
+
+            // Format 3: plain fields (your JSON)
+            const arr = [];
+            Object.entries(checkout).forEach(([key, value]) => {
+                if (value !== null && value !== undefined) {
+                    arr.push({ name: key, value });
+                }
+            });
             return arr;
         }
 
