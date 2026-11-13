@@ -1082,419 +1082,513 @@ class UserDashboardController extends Controller
 //         }
 //     }
       
-      public function getDistributorStats(Request $request)
-    {
-        try {
-            $authUser = Auth::user();
+    public function getDistributorStats(Request $request)
+{
+    try {
+        $authUser = Auth::user();
 
-            if (!$authUser) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated. Please login first.',
-                    'data'    => [],
-                ], 401);
-            }
+        if (!$authUser) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated. Please login first.',
+                'data'    => [],
+            ], 401);
+        }
 
-            if ($authUser->account_type !== 'distributor') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Access denied. Only distributors can access this data.',
-                    'data'    => [],
-                ], 403);
-            }
+        if ($authUser->account_type !== 'distributor') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Access denied. Only distributors can access this data.',
+                'data'    => [],
+            ], 403);
+        }
 
-            $userId = $authUser->id;
+        $userId = $authUser->id;
 
-            $user = User::where('account_type', 'distributor')
-                ->where('id', $userId)
-                ->first();
+        $user = User::where('account_type', 'distributor')
+            ->where('id', $userId)
+            ->first();
 
-            if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Distributor not found',
-                    'data'    => [],
-                ], 404);
-            }
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Distributor not found',
+                'data'    => [],
+            ], 404);
+        }
 
-            // Clean distributor_id for response (strip "-001" style suffix)
-            $cleanDistributorId = null;
-            if (!empty($user->distributor_id)) {
-                $cleanDistributorId = preg_replace('/-\d+$/', '', $user->distributor_id);
-            }
+        // Clean distributor_id for response (strip "-001" style suffix)
+        $cleanDistributorId = null;
+        if (!empty($user->distributor_id)) {
+            $cleanDistributorId = preg_replace('/-\d+$/', '', $user->distributor_id);
+        }
 
-            // ---------------------------------------------------------------
-            // Local order stats (NULL-safe COALESCE, cancelled excluded)
-            // ---------------------------------------------------------------
-            $stats = DB::table('orders as o')
-                ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
-                ->join('products as p', 'ol.product_id', '=', 'p.id')
-                ->where('o.user_id', $userId)
-                ->where('o.status', '!=', 'cancelled')
-                ->select([
-                    DB::raw('COUNT(DISTINCT o.id) as total_orders'),
-                    DB::raw('COALESCE(SUM(COALESCE(p.distributor_mrp, 0) * ol.quantity), 0) as total_amount_mrp'),
-                    DB::raw('COALESCE(SUM((COALESCE(p.distributor_mrp, 0) - COALESCE(p.distributor_price, 0)) * ol.quantity), 0) as total_savings'),
-                ])
-                ->first();
+        // ---------------------------------------------------------------
+        // Local order stats
+        // ---------------------------------------------------------------
+        $stats = DB::table('orders as o')
+            ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
+            ->join('products as p', 'ol.product_id', '=', 'p.id')
+            ->where('o.user_id', $userId)
+            ->where('o.status', '!=', 'cancelled')
+            ->select([
+                DB::raw('COUNT(DISTINCT o.id) as total_orders'),
+                DB::raw('COALESCE(SUM(COALESCE(p.distributor_mrp, 0) * ol.quantity), 0) as total_amount_mrp'),
+                DB::raw('COALESCE(SUM((COALESCE(p.distributor_mrp, 0) - COALESCE(p.distributor_price, 0)) * ol.quantity), 0) as total_savings'),
+            ])
+            ->first();
 
-            // ---------------------------------------------------------------
-            // Ignite: rank progress, CV, coins redeemed
-            // ---------------------------------------------------------------
-            $rankProgress           = null;
-            $totalCoinsRedeemed     = 0;
-            $igniteCv               = 0;
-            $currentRankName        = 'Unranked';
-            $nextRankName           = 'N/A';
-            $rankProgressPercentage = 0;
-            $blockingConditions     = [];
+        // ---------------------------------------------------------------
+        // Ignite: rank progress, CV, coins redeemed
+        // ---------------------------------------------------------------
+        $rankProgress           = null;
+        $totalCoinsRedeemed     = 0;
+        $igniteCv               = 0;
+        $currentRankName        = 'Unranked';
+        $nextRankName           = 'N/A';
+        $rankProgressPercentage = 0;
+        $blockingConditions     = [];
 
-            if ($user->distributor_id) {
-                $baId = $user->distributor_id;
+        if ($user->distributor_id) {
+            $baId = $user->distributor_id;
 
-                // ---------- 1. Rank progress ----------
-                try {
-                    $response = $this->ignite->rankProgress($baId);
+            // 1. Rank progress
+            try {
+                $response = $this->ignite->rankProgress($baId);
 
-                    if (($response['code'] ?? null) === ResultCode::OK->value) {
-                        $rankProgress  = $response['data'] ?? [];
-                        $ranks         = $rankProgress['ranks'] ?? [];
-                        $currentRankNo = (int) ($rankProgress['current']['rank_no'] ?? 0);
+                if (($response['code'] ?? null) === ResultCode::OK->value) {
+                    $rankProgress  = $response['data'] ?? [];
+                    $ranks         = $rankProgress['ranks'] ?? [];
+                    $currentRankNo = (int) ($rankProgress['current']['rank_no'] ?? 0);
 
-                        foreach ($ranks as $rank) {
-                            if ((int) ($rank['rank_no'] ?? 0) === $currentRankNo) {
-                                $currentRankName = $rank['name'] ?? $currentRankName;
-                                break;
-                            }
-                        }
-
-                        foreach ($ranks as $rank) {
-                            if (isset($rank['conditions']['direct_cv']['current'])) {
-                                $igniteCv = (float) $rank['conditions']['direct_cv']['current'];
-                                break;
-                            }
-                        }
-
-                        $sorted = $ranks;
-                        usort($sorted, fn($a, $b) => (int)($a['rank_no'] ?? 0) <=> (int)($b['rank_no'] ?? 0));
-
-                        $nextRankData = null;
-                        foreach ($sorted as $rank) {
-                            if ((int) ($rank['rank_no'] ?? 0) > $currentRankNo) {
-                                $nextRankData = $rank;
-                                break;
-                            }
-                        }
-
-                        if ($nextRankData !== null) {
-                            $nextRankName = $nextRankData['name'] ?? 'N/A';
-
-                            $metCount   = 0;
-                            $totalCount = 0;
-
-                            $conditionLabels = [
-                                'steps'               => 'Pairing Steps',
-                                'direct_cv'           => 'Direct CV',
-                                'downlines_one_below' => 'Downlines (1 below)',
-                                'downlines_two_below' => 'Downlines (2 below)',
-                                'tenure'              => 'Tenure (months)',
-                            ];
-
-                            foreach ($conditionLabels as $key => $label) {
-                                if (!isset($nextRankData['conditions'][$key])) {
-                                    continue;
-                                }
-
-                                $totalCount++;
-                                $cond = $nextRankData['conditions'][$key];
-
-                                if (!empty($cond['met'])) {
-                                    $metCount++;
-                                } else {
-                                    $blockingConditions[] = [
-                                        'key'      => $key,
-                                        'label'    => $label,
-                                        'current'  => $cond['current']  ?? 0,
-                                        'required' => $cond['required'] ?? 0,
-                                    ];
-                                }
-                            }
-
-                            $rankProgressPercentage = $totalCount > 0
-                                ? (int) round(($metCount / $totalCount) * 100)
-                                : 0;
-                        } else {
-                            $nextRankName = 'Max Rank Achieved';
-                            $rankProgressPercentage = 100;
-                        }
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('Ignite rankProgress failed', [
-                        'ba_id' => $baId,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-
-                // ---------- 2. Coins redeemed (paginated) ----------
-                try {
-                    $afterId = 0;
-                    $guard   = 0;
-
-                    do {
-                        $txResp = $this->ignite->pointTxs($baId, $afterId, 500);
-                        $rows   = $txResp['data']['rows'] ?? [];
-
-                        foreach ($rows as $tx) {
-                            $txType    = $tx['tx_type']    ?? null;
-                            $pointType = $tx['point_type'] ?? null;
-
-                            if (
-                                $txType === 'cr' &&
-                                in_array($pointType, ['yellow_bal', 'blue_bal', 'green_bal'], true)
-                            ) {
-                                $totalCoinsRedeemed += abs((float) ($tx['amount'] ?? 0));
-                            }
-                        }
-
-                        if (empty($rows) || !($txResp['data']['has_more'] ?? false)) {
+                    foreach ($ranks as $rank) {
+                        if ((int) ($rank['rank_no'] ?? 0) === $currentRankNo) {
+                            $currentRankName = $rank['name'] ?? $currentRankName;
                             break;
                         }
-
-                        $afterId = (int) end($rows)['id'];
-                        $guard++;
-                    } while ($guard < 100);
-                } catch (\Throwable $e) {
-                    Log::warning('Ignite pointTxs failed', [
-                        'ba_id' => $baId,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-
-            // ---------------------------------------------------------------
-            // ✅ NEW: Sales Period (current week + countdown) & Calendar History
-            // ---------------------------------------------------------------
-            $salesPeriod          = null;
-            $salesCalendarHistory = [];
-
-            try {
-                $currentYear = (int) now()->year;
-                $calendar    = $this->getSalesCalendar($currentYear);
-
-                // Handle year boundary: if current year's calendar has no current week, try previous year
-                if (!$calendar || !$this->calendarHasCurrentWeek($calendar)) {
-                    $prevCalendar = $this->getSalesCalendar($currentYear - 1);
-                    if ($prevCalendar && $this->calendarHasCurrentWeek($prevCalendar)) {
-                        $calendar = $prevCalendar;
                     }
-                }
 
-                if ($calendar) {
-                    // Flatten all weeks into one array
-                    $allWeeks = [];
-                    foreach (($calendar['all_months'] ?? []) as $month) {
-                        foreach (($month['weeks'] ?? []) as $w) {
-                            $allWeeks[] = $w;
+                    foreach ($ranks as $rank) {
+                        if (isset($rank['conditions']['direct_cv']['current'])) {
+                            $igniteCv = (float) $rank['conditions']['direct_cv']['current'];
+                            break;
                         }
                     }
 
-                    // Sort by start date ascending
-                    usort($allWeeks, function ($a, $b) {
-                        return strcmp($a['start'] ?? '', $b['start'] ?? '');
-                    });
+                    $sorted = $ranks;
+                    usort($sorted, fn($a, $b) => (int)($a['rank_no'] ?? 0) <=> (int)($b['rank_no'] ?? 0));
 
-                    // Find current week
-                    $now         = \Carbon\Carbon::now('Asia/Kolkata');
-                    $currentWeek = null;
+                    $nextRankData = null;
+                    foreach ($sorted as $rank) {
+                        if ((int) ($rank['rank_no'] ?? 0) > $currentRankNo) {
+                            $nextRankData = $rank;
+                            break;
+                        }
+                    }
 
-                    // 1st attempt: find week with is_current = true
+                    if ($nextRankData !== null) {
+                        $nextRankName = $nextRankData['name'] ?? 'N/A';
+
+                        $metCount   = 0;
+                        $totalCount = 0;
+
+                        $conditionLabels = [
+                            'steps'               => 'Pairing Steps',
+                            'direct_cv'           => 'Direct CV',
+                            'downlines_one_below' => 'Downlines (1 below)',
+                            'downlines_two_below' => 'Downlines (2 below)',
+                            'tenure'              => 'Tenure (months)',
+                        ];
+
+                        foreach ($conditionLabels as $key => $label) {
+                            if (!isset($nextRankData['conditions'][$key])) {
+                                continue;
+                            }
+
+                            $totalCount++;
+                            $cond = $nextRankData['conditions'][$key];
+
+                            if (!empty($cond['met'])) {
+                                $metCount++;
+                            } else {
+                                $blockingConditions[] = [
+                                    'key'      => $key,
+                                    'label'    => $label,
+                                    'current'  => $cond['current']  ?? 0,
+                                    'required' => $cond['required'] ?? 0,
+                                ];
+                            }
+                        }
+
+                        $rankProgressPercentage = $totalCount > 0
+                            ? (int) round(($metCount / $totalCount) * 100)
+                            : 0;
+                    } else {
+                        $nextRankName = 'Max Rank Achieved';
+                        $rankProgressPercentage = 100;
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Ignite rankProgress failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
+            }
+
+            // 2. Coins redeemed (paginated)
+            try {
+                $afterId = 0;
+                $guard   = 0;
+
+                do {
+                    $txResp = $this->ignite->pointTxs($baId, $afterId, 500);
+                    $rows   = $txResp['data']['rows'] ?? [];
+
+                    foreach ($rows as $tx) {
+                        $txType    = $tx['tx_type']    ?? null;
+                        $pointType = $tx['point_type'] ?? null;
+
+                        if ($txType === 'cr' && in_array($pointType, ['yellow_bal', 'blue_bal', 'green_bal'], true)) {
+                            $totalCoinsRedeemed += abs((float) ($tx['amount'] ?? 0));
+                        }
+                    }
+
+                    if (empty($rows) || !($txResp['data']['has_more'] ?? false)) {
+                        break;
+                    }
+
+                    $afterId = (int) end($rows)['id'];
+                    $guard++;
+                } while ($guard < 100);
+            } catch (\Throwable $e) {
+                Log::warning('Ignite pointTxs failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Sales Period + Calendar History (with actual sales data)
+        // ---------------------------------------------------------------
+        $salesPeriod          = null;
+        $salesCalendarHistory = [];
+
+        try {
+            $currentYear = (int) now()->year;
+            $calendar    = $this->getSalesCalendar($currentYear);
+
+            // Year boundary fallback
+            if (!$calendar || !$this->calendarHasCurrentWeek($calendar)) {
+                $prevCalendar = $this->getSalesCalendar($currentYear - 1);
+                if ($prevCalendar && $this->calendarHasCurrentWeek($prevCalendar)) {
+                    $calendar = $prevCalendar;
+                }
+            }
+
+            if ($calendar) {
+                // Flatten weeks
+                $allWeeks = [];
+                foreach (($calendar['all_months'] ?? []) as $month) {
+                    foreach (($month['weeks'] ?? []) as $w) {
+                        $allWeeks[] = $w;
+                    }
+                }
+
+                usort($allWeeks, fn($a, $b) => strcmp($a['start'] ?? '', $b['start'] ?? ''));
+
+                // Find current week
+                $now         = \Carbon\Carbon::now('Asia/Kolkata');
+                $currentWeek = null;
+
+                foreach ($allWeeks as $w) {
+                    if (!empty($w['is_current'])) {
+                        $currentWeek = $w;
+                        break;
+                    }
+                }
+
+                if (!$currentWeek) {
                     foreach ($allWeeks as $w) {
-                        if (!empty($w['is_current'])) {
+                        $s = !empty($w['start']) ? \Carbon\Carbon::parse($w['start'], 'Asia/Kolkata') : null;
+                        $e = !empty($w['end'])   ? \Carbon\Carbon::parse($w['end'],   'Asia/Kolkata') : null;
+
+                        if ($s && $e && $now->gte($s) && $now->lte($e)) {
                             $currentWeek = $w;
                             break;
                         }
                     }
+                }
 
-                    // Fallback: find week whose start <= now <= end
-                    if (!$currentWeek) {
-                        foreach ($allWeeks as $w) {
-                            $s = !empty($w['start']) ? \Carbon\Carbon::parse($w['start'], 'Asia/Kolkata') : null;
-                            $e = !empty($w['end'])   ? \Carbon\Carbon::parse($w['end'],   'Asia/Kolkata') : null;
+                // Build sales_period
+                if ($currentWeek) {
+                    $startAt = !empty($currentWeek['start']) ? \Carbon\Carbon::parse($currentWeek['start'], 'Asia/Kolkata') : null;
+                    $endAt   = !empty($currentWeek['end'])   ? \Carbon\Carbon::parse($currentWeek['end'],   'Asia/Kolkata') : null;
 
-                            if ($s && $e && $now->gte($s) && $now->lte($e)) {
-                                $currentWeek = $w;
-                                break;
-                            }
+                    $daysRemaining = $hoursRemaining = $minutesRemaining = $secondsRemaining = 0;
+                    $countdownText    = '—';
+                    $progressPercent  = 0;
+
+                    if ($endAt) {
+                        $diff = $now->diffInSeconds($endAt, false);
+
+                        if ($diff > 0) {
+                            $daysRemaining    = intdiv($diff, 86400);
+                            $hoursRemaining   = intdiv($diff % 86400, 3600);
+                            $minutesRemaining = intdiv($diff % 3600, 60);
+                            $secondsRemaining = $diff % 60;
+                            $countdownText    = ($daysRemaining > 0)
+                                ? "{$daysRemaining}d {$hoursRemaining}h {$minutesRemaining}m"
+                                : "{$hoursRemaining}h {$minutesRemaining}m {$secondsRemaining}s";
+                        } elseif ($startAt && $now->between($startAt, $endAt)) {
+                            $countdownText = 'Settles Today';
+                        } else {
+                            $countdownText = 'Settled';
                         }
                     }
 
-                    // Build sales_period
-                    if ($currentWeek) {
-                        $startAt = !empty($currentWeek['start'])
-                            ? \Carbon\Carbon::parse($currentWeek['start'], 'Asia/Kolkata')
-                            : null;
-                        $endAt   = !empty($currentWeek['end'])
-                            ? \Carbon\Carbon::parse($currentWeek['end'], 'Asia/Kolkata')
-                            : null;
+                    if ($startAt && $endAt && $startAt->lt($endAt)) {
+                        $total   = $endAt->timestamp - $startAt->timestamp;
+                        $elapsed = $now->timestamp - $startAt->timestamp;
+                        $progressPercent = $total > 0 ? round(min(100, max(0, ($elapsed / $total) * 100)), 1) : 0;
+                    }
 
-                        // Countdown
-                        $daysRemaining    = 0;
-                        $hoursRemaining   = 0;
-                        $minutesRemaining = 0;
-                        $secondsRemaining = 0;
-                        $countdownText    = '—';
-                        $progressPercent  = 0;
+                    $yearForWeek = (int) ($calendar['year'] ?? now()->year);
+                    $weekNo      = (int) ($currentWeek['week_no'] ?? 0);
 
-                        if ($endAt) {
-                            $diff = $now->diffInSeconds($endAt, false);
+                    $salesPeriod = [
+                        'year'              => $yearForWeek,
+                        'week_no'           => $weekNo,
+                        'week_label'        => sprintf('%d-W%02d', $yearForWeek, $weekNo),
+                        'start'             => $currentWeek['start']       ?? null,
+                        'end'               => $currentWeek['end']         ?? null,
+                        'payout_date'       => $currentWeek['payout_date'] ?? null,
+                        'is_current'        => (bool) ($currentWeek['is_current'] ?? false),
+                        'is_settled'        => (bool) ($currentWeek['is_settled'] ?? false),
+                        'days_remaining'    => $daysRemaining,
+                        'hours_remaining'   => $hoursRemaining,
+                        'minutes_remaining' => $minutesRemaining,
+                        'seconds_remaining' => $secondsRemaining,
+                        'countdown_text'    => $countdownText,
+                        'progress_percent'  => $progressPercent,
+                    ];
+                }
 
-                            if ($diff > 0) {
-                                $daysRemaining    = intdiv($diff, 86400);
-                                $hoursRemaining   = intdiv($diff % 86400, 3600);
-                                $minutesRemaining = intdiv($diff % 3600, 60);
-                                $secondsRemaining = $diff % 60;
+                // Build sales_calendar_history (current + previous 8 weeks)
+                if (!empty($allWeeks)) {
+                    $currentWeekStart = $currentWeek['start'] ?? null;
 
-                                $countdownText = ($daysRemaining > 0)
-                                    ? "{$daysRemaining}d {$hoursRemaining}h {$minutesRemaining}m"
-                                    : "{$hoursRemaining}h {$minutesRemaining}m {$secondsRemaining}s";
-                            } elseif ($startAt && $now->between($startAt, $endAt)) {
-                                $countdownText = 'Settles Today';
-                            } else {
-                                $countdownText = 'Settled';
-                            }
-                        }
+                    $filteredWeeks = array_filter($allWeeks, function ($w) use ($currentWeekStart) {
+                        if (!$currentWeekStart) return true;
+                        return strcmp($w['start'] ?? '', $currentWeekStart) <= 0;
+                    });
 
-                        if ($startAt && $endAt && $startAt->lt($endAt)) {
-                            $total   = $endAt->timestamp - $startAt->timestamp;
-                            $elapsed = $now->timestamp - $startAt->timestamp;
-                            $progressPercent = $total > 0
-                                ? round(min(100, max(0, ($elapsed / $total) * 100)), 1)
-                                : 0;
-                        }
+                    usort($filteredWeeks, fn($a, $b) => strcmp($b['start'] ?? '', $a['start'] ?? ''));
 
+                    $historySlice = array_slice($filteredWeeks, 0, 9);
+
+                    foreach ($historySlice as $w) {
                         $yearForWeek = (int) ($calendar['year'] ?? now()->year);
-                        $weekNo      = (int) ($currentWeek['week_no'] ?? 0);
+                        $weekNo      = (int) ($w['week_no'] ?? 0);
 
-                        $salesPeriod = [
-                            'year'              => $yearForWeek,
-                            'week_no'           => $weekNo,
-                            'week_label'        => sprintf('%d-W%02d', $yearForWeek, $weekNo),
-                            'start'             => $currentWeek['start']       ?? null,
-                            'end'               => $currentWeek['end']         ?? null,
-                            'payout_date'       => $currentWeek['payout_date'] ?? null,
-                            'is_current'        => (bool) ($currentWeek['is_current'] ?? false),
-                            'is_settled'        => (bool) ($currentWeek['is_settled'] ?? false),
-                            'days_remaining'    => $daysRemaining,
-                            'hours_remaining'   => $hoursRemaining,
-                            'minutes_remaining' => $minutesRemaining,
-                            'seconds_remaining' => $secondsRemaining,
-                            'countdown_text'    => $countdownText,
-                            'progress_percent'  => $progressPercent,
+                        $salesCalendarHistory[] = [
+                            'year'        => $yearForWeek,
+                            'week_no'     => $weekNo,
+                            'week_label'  => sprintf('%d-W%02d', $yearForWeek, $weekNo),
+                            'start'       => $w['start']       ?? null,
+                            'end'         => $w['end']         ?? null,
+                            'payout_date' => $w['payout_date'] ?? null,
+                            'is_current'  => (bool) ($w['is_current'] ?? false),
+                            'is_settled'  => (bool) ($w['is_settled'] ?? false),
                         ];
                     }
+                }
 
-                    // Build sales_calendar_history (previous 8 weeks + current, newest first)
-               // Build sales_calendar_history (current + previous 8 weeks, newest first)
-if (!empty($allWeeks)) {
-    $currentWeekStart = $currentWeek['start'] ?? null;
+                // ✅ NEW: Enrich with actual sales data from pointTxs
+                if (!empty($salesCalendarHistory) && !empty($user->distributor_id)) {
+                    try {
+                        $baIdForHistory = $user->distributor_id;
 
-    // Filter: only weeks whose start <= current week's start (past + current)
-    $filteredWeeks = array_filter($allWeeks, function ($w) use ($currentWeekStart) {
-        if (!$currentWeekStart) {
-            return true;
+                        $oldestWeekStart = \Carbon\Carbon::parse(
+                            end($salesCalendarHistory)['start'],
+                            'Asia/Kolkata'
+                        );
+
+                        $allTxs  = [];
+                        $afterId = 0;
+                        $guard   = 0;
+
+                        do {
+                            try {
+                                $resp = $this->ignite->pointTxs($baIdForHistory, $afterId, 500);
+                            } catch (\Throwable $e) {
+                                Log::warning('pointTxs fetch failed in sales history', [
+                                    'ba_id' => $baIdForHistory,
+                                    'error' => $e->getMessage(),
+                                ]);
+                                break;
+                            }
+
+                            if (($resp['code'] ?? null) !== ResultCode::OK->value) break;
+
+                            $batch = $resp['data']['rows'] ?? [];
+                            if (empty($batch)) break;
+
+                            $shouldBreak = false;
+                            foreach ($batch as $row) {
+                                $created = $row['created_at'] ?? null;
+                                if (!$created) continue;
+
+                                $dt = \Carbon\Carbon::parse($created, 'Asia/Hong_Kong')
+                                    ->setTimezone('Asia/Kolkata');
+
+                                if ($dt->lt($oldestWeekStart)) {
+                                    $shouldBreak = true;
+                                    break;
+                                }
+
+                                $allTxs[] = $row;
+                            }
+
+                            if ($shouldBreak) break;
+
+                            $afterId = (int) end($batch)['id'];
+                            $guard++;
+                        } while (!empty($resp['data']['has_more']) && $guard < 200);
+
+                        // Bucket transactions by week
+                        $weekBuckets = [];
+                        foreach ($salesCalendarHistory as $w) {
+                            $weekBuckets[$w['week_no']] = [
+                                'cash_bal'   => 0,
+                                'green_bal'  => 0,
+                                'yellow_bal' => 0,
+                                'blue_bal'   => 0,
+                                'pv1_bal'    => 0,
+                                'pv2_bal'    => 0,
+                                'tx_count'   => 0,
+                            ];
+                        }
+
+                        foreach ($allTxs as $tx) {
+                            $created = $tx['created_at'] ?? null;
+                            if (!$created) continue;
+
+                            $dt = \Carbon\Carbon::parse($created, 'Asia/Hong_Kong')
+                                ->setTimezone('Asia/Kolkata');
+
+                            $matchedWeekNo = null;
+                            foreach ($salesCalendarHistory as $w) {
+                                if (empty($w['start']) || empty($w['end'])) continue;
+
+                                $ws = \Carbon\Carbon::parse($w['start'], 'Asia/Kolkata');
+                                $we = \Carbon\Carbon::parse($w['end'],   'Asia/Kolkata');
+
+                                if ($dt->gte($ws) && $dt->lte($we)) {
+                                    $matchedWeekNo = $w['week_no'];
+                                    break;
+                                }
+                            }
+
+                            if ($matchedWeekNo === null) continue;
+
+                            $weekBuckets[$matchedWeekNo]['tx_count']++;
+
+                            $point = $tx['point_type'] ?? '';
+                            $amt   = (float) ($tx['amount'] ?? 0);
+
+                            if (isset($weekBuckets[$matchedWeekNo][$point])) {
+                                $weekBuckets[$matchedWeekNo][$point] += $amt;
+                            }
+                        }
+
+                        // Enrich sales_calendar_history
+                        $usdRateForHistory = (float) \App\Models\Setting::where('group', 'exchange_rate')
+                            ->where('key', 'usd_to_inr')->value('value') ?: 0;
+
+                        foreach ($salesCalendarHistory as &$week) {
+                            $weekNo = $week['week_no'];
+                            $b      = $weekBuckets[$weekNo] ?? [];
+                            $cash   = (float) ($b['cash_bal'] ?? 0);
+
+                            $week['cash_commission_usd'] = round($cash, 4);
+                            $week['cash_commission_inr'] = round($cash * $usdRateForHistory, 2);
+                            $week['green_coin']          = round((float) ($b['green_bal']  ?? 0), 4);
+                            $week['yellow_coin']         = round((float) ($b['yellow_bal'] ?? 0), 4);
+                            $week['blue_coin']           = round((float) ($b['blue_bal']   ?? 0), 4);
+                            $week['cv_left']             = round((float) ($b['pv1_bal']    ?? 0), 4);
+                            $week['cv_right']            = round((float) ($b['pv2_bal']    ?? 0), 4);
+                            $week['tx_count']            = (int) ($b['tx_count'] ?? 0);
+                        }
+                        unset($week);
+
+                    } catch (\Throwable $e) {
+                        Log::warning('sales history enrichment failed', [
+                            'ba_id' => $user->distributor_id ?? null,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('sales_period / sales_calendar_history build failed', [
+                'error' => $e->getMessage(),
+            ]);
         }
-        return strcmp($w['start'] ?? '', $currentWeekStart) <= 0;
-    });
 
-    // Sort by start descending (newest first)
-    usort($filteredWeeks, function ($a, $b) {
-        return strcmp($b['start'] ?? '', $a['start'] ?? '');
-    });
+        // ---------------------------------------------------------------
+        // Response
+        // ---------------------------------------------------------------
+        $result = [
+            'user_id'        => $user->id,
+            'full_name'      => $user->full_name,
+            'email'          => $user->email,
+            'phone'          => $user->phone,
+            'distributor_id' => $cleanDistributorId,
 
-    // Take top 9 (current + 8 previous)
-    $historySlice = array_slice($filteredWeeks, 0, 9);
+            // Orders
+            'total_orders'              => (int) $stats->total_orders,
+            'total_amount_mrp'          => (float) $stats->total_amount_mrp,
+            'total_amount_mrp_currency' => 'INR',
+            'total_savings'             => (float) $stats->total_savings,
+            'total_savings_currency'    => 'INR',
 
-    foreach ($historySlice as $w) {
-        $yearForWeek = (int) ($calendar['year'] ?? now()->year);
-        $weekNo      = (int) ($w['week_no'] ?? 0);
+            // CV & Coins
+            'total_cv'              => number_format($igniteCv, 2, '.', ''),
+            'total_cv_unit'         => 'CV',
+            'total_coins_redeemed'  => (int) $totalCoinsRedeemed,
 
-        $salesCalendarHistory[] = [
-            'year'        => $yearForWeek,
-            'week_no'     => $weekNo,
-            'week_label'  => sprintf('%d-W%02d', $yearForWeek, $weekNo),
-            'start'       => $w['start']       ?? null,
-            'end'         => $w['end']         ?? null,
-            'payout_date' => $w['payout_date'] ?? null,
-            'is_current'  => (bool) ($w['is_current'] ?? false),
-            'is_settled'  => (bool) ($w['is_settled'] ?? false),
+            // Rank
+            'current_rank_name'     => $currentRankName,
+            'next_rank_name'        => $nextRankName,
+            'rank_progress_percent' => $rankProgressPercentage,
+            'next_rank_blocking'    => $blockingConditions,
+
+            // Sales Period
+            'sales_period'           => $salesPeriod,
+
+            // Sales Calendar History (with actual CV/commission/coins)
+            'sales_calendar_history' => $salesCalendarHistory,
+
+            'account_type' => $user->account_type,
+            'joined_at'    => $user->created_at?->toDateTimeString(),
+            'rank_progress'=> $rankProgress,
         ];
+
+        return response()->json([
+            'success' => true,
+            'data'    => $result,
+            'message' => 'Distributor stats retrieved successfully',
+        ]);
+
+    } catch (\Throwable $e) {
+        Log::error('getDistributorStats failed', [
+            'user_id' => Auth::id(),
+            'error'   => $e->getMessage(),
+            'trace'   => $e->getTraceAsString(),
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to retrieve distributor stats',
+            'error'   => $e->getMessage(),
+        ], 500);
     }
 }
-                }
-            } catch (\Throwable $e) {
-                Log::warning('sales_period / sales_calendar_history build failed', [
-                    'error' => $e->getMessage(),
-                ]);
-            }
-
-            // ---------------------------------------------------------------
-            // Response
-            // ---------------------------------------------------------------
-            $result = [
-                'user_id'        => $user->id,
-                'full_name'      => $user->full_name,
-                'email'          => $user->email,
-                'phone'          => $user->phone,
-                'distributor_id' => $cleanDistributorId,
-
-                // Orders
-                'total_orders'              => (int) $stats->total_orders,
-                'total_amount_mrp'          => (float) $stats->total_amount_mrp,
-                'total_amount_mrp_currency' => 'INR',
-                'total_savings'             => (float) $stats->total_savings,
-                'total_savings_currency'    => 'INR',
-
-                // CV & Coins
-                'total_cv'              => number_format($igniteCv, 2, '.', ''),
-                'total_cv_unit'         => 'CV',
-                'total_coins_redeemed'  => (int) $totalCoinsRedeemed,
-
-                // Rank
-                'current_rank_name'     => $currentRankName,
-                'next_rank_name'        => $nextRankName,
-                'rank_progress_percent' => $rankProgressPercentage,
-                'next_rank_blocking'    => $blockingConditions,
-
-                // ✅ NEW — Sales Period (with countdown & week number)
-                'sales_period'           => $salesPeriod,
-
-                // ✅ NEW — Sales Calendar History (previous weeks)
-                'sales_calendar_history' => $salesCalendarHistory,
-
-                'account_type' => $user->account_type,
-                'joined_at'    => $user->created_at?->toDateTimeString(),
-                'rank_progress'=> $rankProgress,
-            ];
-
-            return response()->json([
-                'success' => true,
-                'data'    => $result,
-                'message' => 'Distributor stats retrieved successfully',
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('getDistributorStats failed', [
-                'user_id' => Auth::id(),
-                'error'   => $e->getMessage(),
-                'trace'   => $e->getTraceAsString(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve distributor stats',
-                'error'   => $e->getMessage(),
-            ], 500);
-        }
-    }
 
     /**
      * Check if a sales calendar has at least one week marked is_current.
