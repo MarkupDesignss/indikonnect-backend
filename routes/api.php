@@ -142,6 +142,7 @@ Route::prefix('admin')->group(function () {
             // Finance: Consolidated Commission Export (all distributors, Excel)
         Route::get('/finance/commission-export', [FinanceCommissionExportController::class, 'download']);
         Route::get('/finance/sales-report', [SalesReportExportController::class, 'download']);
+        Route::get('/weekly-commission-report', [FinanceCommissionExportController::class, 'weeklyCommissionReport']);
 
         // Orders
         Route::get('/all-orders', [OrderController::class, 'allOrder'])
