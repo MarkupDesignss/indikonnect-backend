@@ -8448,8 +8448,7 @@ class ProductController extends Controller
             ];
         });
 
-        // ---------------- Orders ----------------
-        // Search by: order reference, user email, user phone, courier tracking number
+        // ---------------- Orders (with lines / items) ----------------
         $orders = Order::query()
             ->select(
                 'orders.id',
@@ -8460,40 +8459,71 @@ class ProductController extends Controller
             ->with([
                 // Shipping details (tracking number, courier, etc.)
                 'shippingDetails:id,order_id,courier_tracking_number,courier_company,status',
+
                 // User info for email & phone
                 'user:id,full_name,email,phone',
+
+                // Order lines (items) — pick only needed columns + nested product/variant
+                'lines:id,order_id,product_id,variant_id,item_reference_id,quantity,unit_price,line_total,delivery_status,return_status,ignite_order_no',
+                'lines.product:id,name',
+                'lines.product.images' => function ($q) {
+                    $q->where('is_primary', true)->select('product_id', 'image');
+                },
+                'lines.variant:id,product_id,name,sku', // adjust to your variant columns
             ])
             ->where(function ($query) use ($searchTerm) {
-                // 1) Master Order Reference
                 $query->where('orders.order_reference', 'LIKE', "%{$searchTerm}%")
 
-                    // 2) User Email
                     ->orWhereHas('user', function ($u) use ($searchTerm) {
                         $u->where('email', 'LIKE', "%{$searchTerm}%");
                     })
 
-                    // 3) User Phone
                     ->orWhereHas('user', function ($u) use ($searchTerm) {
                         $u->where('phone', 'LIKE', "%{$searchTerm}%");
                     })
 
-                    // 4) Courier Tracking Number (from order_shipping_details)
                     ->orWhereHas('shippingDetails', function ($s) use ($searchTerm) {
                         $s->where('courier_tracking_number', 'LIKE', "%{$searchTerm}%");
+                    })
+
+                    // Bonus: also match the order line's item_reference_id
+                    ->orWhereHas('lines', function ($l) use ($searchTerm) {
+                        $l->where('item_reference_id', 'LIKE', "%{$searchTerm}%");
                     });
             })
             ->orderByDesc('orders.created_at')
             ->paginate($perPage, ['*'], 'orders_page');
 
-        // Transform orders as requested
+        // Transform orders — now each order carries its lines
         $orders->getCollection()->transform(function ($order) {
-            // A single order can have multiple shipping rows (per line item),
-            // so collect unique tracking numbers to avoid duplicates.
             $trackingNumbers = $order->shippingDetails
                 ->pluck('courier_tracking_number')
                 ->filter()
                 ->unique()
                 ->values();
+
+            $lines = $order->lines->map(function ($line) {
+                $primaryImage = optional($line->product->images->first())->image;
+
+                return [
+                    'id'                   => $line->id,
+                    'item_reference_id'    => $line->item_reference_id,
+                    'ignite_order_no'      => $line->ignite_order_no,
+                    'product_id'           => $line->product_id,
+                    'product_name'         => optional($line->product)->name,
+                    'product_image'        => $primaryImage
+                        ? url('/storage/' . $primaryImage)
+                        : null,
+                    'variant_id'           => $line->variant_id,
+                    'variant_name'         => optional($line->variant)->name,
+                    'variant_sku'          => optional($line->variant)->sku,
+                    'quantity'             => (int) $line->quantity,
+                    'unit_price'           => $line->unit_price,
+                    'line_total'           => $line->line_total,
+                    'delivery_status'      => $line->delivery_status,
+                    'return_status'        => $line->return_status,
+                ];
+            })->values();
 
             return [
                 'id'              => $order->id,
@@ -8504,6 +8534,8 @@ class ProductController extends Controller
                     ? $trackingNumbers->implode(', ')
                     : null,
                 'created_at'      => $order->created_at,
+                'lines'           => $lines,
+                r
             ];
         });
 
@@ -8522,7 +8554,6 @@ class ProductController extends Controller
             ],
         ]);
     }
-
     public function togglePublished(Request $request, Product $product)
     {
         try {
