@@ -1323,7 +1323,6 @@ class GenealogyController extends Controller
         // 3. Base account + its TCs (-001, -002, -003)
         $accounts = [];
 
-        // ✅ NEW: Resolve base account's user name (used for base + all its TCs)
         $baseFullName = $this->resolveBaseOwnerName($baseId, $mainBaId);
 
         $baseAccount = $this->fetchMemberDetails($baseId . '-001');
@@ -1340,22 +1339,22 @@ class GenealogyController extends Controller
                 'rank_no'   => $tcAcc['rank_no'] ?? 0,
                 'status'    => ucfirst($tcAcc['membership_status'] ?? 'Inactive'),
                 'qualified' => !empty($tcAcc['qualified_at']),
-                'full_name' => $baseFullName,     // ✅ NEW: same name for all TCs of this base
+                'full_name' => $baseFullName,
             ];
         }
 
         $accounts[] = [
-            'account_id' => $baseId,
-            'full_name'  => $baseFullName,        // ✅ NEW: base owner's name
+            'account_id'    => $baseId,
+            'full_name'     => $baseFullName,
             'display_label' => $baseFullName
                 ? "{$baseId} — {$baseFullName}"
                 : $baseId,
-            'rank_no'    => $baseAccount['rank_no'] ?? 0,
-            'status'     => ucfirst($baseAccount['membership_status'] ?? 'Inactive'),
-            'qualified'  => !empty($baseAccount['qualified_at']),
-            'type'       => 'base',
-            'tc_count'   => count($baseTcs),
-            'tcs'        => $baseTcs,
+            'rank_no'   => $baseAccount['rank_no'] ?? 0,
+            'status'    => ucfirst($baseAccount['membership_status'] ?? 'Inactive'),
+            'qualified' => !empty($baseAccount['qualified_at']),
+            'type'      => 'base',
+            'tc_count'  => count($baseTcs),
+            'tcs'       => $baseTcs,
         ];
 
         // 4. Available placements -> grouped by base ID
@@ -1381,7 +1380,7 @@ class GenealogyController extends Controller
                 if (preg_match('/^(.*)-(\d{3,})$/', $nodeBaId, $m)) {
                     $base        = $m[1];
                     $suffix      = $m[2];
-                    $tcLabel     = 'TC-' . $suffix;   // TC-004
+                    $tcLabel     = 'TC-' . $suffix;
                 } else {
                     $base    = $nodeBaId;
                     $suffix  = null;
@@ -1398,12 +1397,39 @@ class GenealogyController extends Controller
                     'ba_id'           => $nodeBaId,
                     'member_id'       => $row['member_id'] ?? null,
                     'tc_suffix'       => $suffix,
-                    'tc_label'        => $tcLabel,        // TC-004
-                    'display_label'   => $tcLabel,        // dropdown me yahi dikhega
+                    'tc_label'        => $tcLabel,
+                    'display_label'   => $tcLabel,     // will be replaced below
                     'left_available'  => $isLeftFree,
                     'right_available' => $isRightFree,
                 ];
             }
+
+            // ✅ NEW: Collect every base ID and resolve owner name for EACH group
+            $allBaseIds = array_keys($groups);
+            $baseNameMap = $this->resolveBaseOwnerNames($allBaseIds, $mainBaId);
+
+            // ✅ NEW: Enrich each group + its slots with the owner's name
+            foreach ($groups as $baseKey => &$group) {
+                $ownerName = $baseNameMap[$baseKey] ?? null;
+
+                $group['full_name']     = $ownerName;
+                $group['display_label'] = $ownerName
+                    ? "{$baseKey} — {$ownerName}"
+                    : $baseKey;
+                $group['label']         = $ownerName
+                    ? "{$baseKey} — {$ownerName}"
+                    : $baseKey;
+
+                // Enrich each slot with the same owner name
+                foreach ($group['slots'] as &$slot) {
+                    $slot['full_name']     = $ownerName;
+                    $slot['display_label'] = $ownerName
+                        ? "{$slot['tc_label']} — {$ownerName}"
+                        : $slot['tc_label'];
+                }
+                unset($slot);
+            }
+            unset($group);
 
             // sort slots inside each group by suffix numerically
             foreach ($groups as &$g) {
@@ -1828,50 +1854,73 @@ class GenealogyController extends Controller
     }
 
     /**
-     * Resolve the display name of a base BA ID's owner.
+     * Resolve display names of many base BA IDs at once.
      *
-     * Looks up by base ID in local `users` table, then falls back to
-     * Ignite pendingPlacements. Returns null if no name is available.
+     * Returns: [base_id => full_name|null]
+     *   1. Local `users` table (tries both base and "-001" form)
+     *   2. Ignite pendingPlacements (referrals not yet in local DB)
+     *   3. null (name not found anywhere)
      *
-     * @param  string  $baseId    e.g. "AIA1675197" (no suffix)
+     * @param  array   $baseIds   e.g. ["AIA1675197", "AIA2325349"]
      * @param  string  $mainBaId  root BA ID for pendingPlacements lookup
-     * @return string|null
+     * @return array
      */
-    private function resolveBaseOwnerName(string $baseId, string $mainBaId): ?string
+    private function resolveBaseOwnerNames(array $baseIds, string $mainBaId): array
     {
-        // 1) Local DB — try both "-001" form and bare base
-        $localUser = User::whereIn('distributor_id', [$baseId, $baseId . '-001'])
-            ->whereNotNull('full_name')
-            ->first();
-
-        if ($localUser && !empty($localUser->full_name)) {
-            return $localUser->full_name;
+        if (empty($baseIds)) {
+            return [];
         }
 
-        // 2) Ignite pendingPlacements
-        try {
-            $pendingResp = $this->ignite->pendingPlacements($mainBaId);
-            if (($pendingResp['code'] ?? null) === ResultCode::OK->value) {
-                foreach (($pendingResp['data']['rows'] ?? []) as $pRow) {
-                    $pBaId = $pRow['ba_id'] ?? null;
-                    $pName = $pRow['fullname'] ?? null;
-                    if (!$pBaId || !$pName) {
-                        continue;
-                    }
-                    $pBase = preg_replace('/-\d{3,}$/', '', $pBaId);
-                    if ($pBase === $baseId) {
-                        return $pName;
+        $baseIds = array_values(array_unique($baseIds));
+        $result  = array_fill_keys($baseIds, null);
+
+        // Build candidate IDs: base + "-001"
+        $candidates = [];
+        foreach ($baseIds as $base) {
+            $candidates[] = $base;
+            $candidates[] = $base . '-001';
+        }
+
+        // 1) Local DB
+        $localUsers = User::whereIn('distributor_id', $candidates)
+            ->whereNotNull('full_name')
+            ->get(['distributor_id', 'full_name']);
+
+        foreach ($localUsers as $u) {
+            $base = preg_replace('/-\d{3,}$/', '', $u->distributor_id);
+            if (in_array($base, $baseIds, true) && !empty($u->full_name)) {
+                $result[$base] = $u->full_name;
+            }
+        }
+
+        // 2) Ignite pendingPlacements — only for missing ones
+        $missing = array_keys(array_filter($result, fn ($v) => $v === null));
+
+        if (!empty($missing)) {
+            try {
+                $pendingResp = $this->ignite->pendingPlacements($mainBaId);
+                if (($pendingResp['code'] ?? null) === ResultCode::OK->value) {
+                    foreach (($pendingResp['data']['rows'] ?? []) as $pRow) {
+                        $pBaId = $pRow['ba_id'] ?? null;
+                        $pName = $pRow['fullname'] ?? null;
+                        if (!$pBaId || !$pName) {
+                            continue;
+                        }
+                        $pBase = preg_replace('/-\d{3,}$/', '', $pBaId);
+                        if (in_array($pBase, $missing, true) && empty($result[$pBase])) {
+                            $result[$pBase] = $pName;
+                        }
                     }
                 }
+            } catch (\Throwable $e) {
+                Log::warning('pendingPlacements failed in resolveBaseOwnerNames', [
+                    'main_ba_id' => $mainBaId,
+                    'error'      => $e->getMessage(),
+                ]);
             }
-        } catch (\Throwable $e) {
-            Log::warning('pendingPlacements failed in resolveBaseOwnerName', [
-                'base_id' => $baseId,
-                'error'   => $e->getMessage(),
-            ]);
         }
 
-        return null;
+        return $result;
     }
 
 }
