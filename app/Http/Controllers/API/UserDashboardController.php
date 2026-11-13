@@ -835,7 +835,254 @@ class UserDashboardController extends Controller
      * @return \Illuminate\Http\JsonResponse
      */
 
-   public function getDistributorStats(Request $request)
+//    public function getDistributorStats(Request $request)
+//     {
+//         try {
+//             $authUser = Auth::user();
+
+//             if (!$authUser) {
+//                 return response()->json([
+//                     'success' => false,
+//                     'message' => 'Unauthenticated. Please login first.',
+//                     'data'    => [],
+//                 ], 401);
+//             }
+
+//             if ($authUser->account_type !== 'distributor') {
+//                 return response()->json([
+//                     'success' => false,
+//                     'message' => 'Access denied. Only distributors can access this data.',
+//                     'data'    => [],
+//                 ], 403);
+//             }
+
+//             $userId = $authUser->id;
+
+//             $user = User::where('account_type', 'distributor')
+//                 ->where('id', $userId)
+//                 ->first();
+
+//             if (!$user) {
+//                 return response()->json([
+//                     'success' => false,
+//                     'message' => 'Distributor not found',
+//                     'data'    => [],
+//                 ], 404);
+//             }
+
+//             // Clean distributor_id for response (strip "-001" style suffix)
+//             $cleanDistributorId = null;
+//             if (!empty($user->distributor_id)) {
+//                 $cleanDistributorId = preg_replace('/-\d+$/', '', $user->distributor_id);
+//             }
+
+//             // ---------------------------------------------------------------
+//             // Local order stats (NULL-safe COALESCE, cancelled excluded)
+//             // ---------------------------------------------------------------
+//             $stats = DB::table('orders as o')
+//                 ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
+//                 ->join('products as p', 'ol.product_id', '=', 'p.id')
+//                 ->where('o.user_id', $userId)
+//                 ->where('o.status', '!=', 'cancelled')
+//                 ->select([
+//                     DB::raw('COUNT(DISTINCT o.id) as total_orders'),
+//                     DB::raw('COALESCE(SUM(COALESCE(p.distributor_mrp, 0) * ol.quantity), 0) as total_amount_mrp'),
+//                     DB::raw('COALESCE(SUM((COALESCE(p.distributor_mrp, 0) - COALESCE(p.distributor_price, 0)) * ol.quantity), 0) as total_savings'),
+//                 ])
+//                 ->first();
+
+//             // ---------------------------------------------------------------
+//             // Ignite: rank progress, CV, coins redeemed
+//             // ---------------------------------------------------------------
+//             $rankProgress           = null;
+//             $totalCoinsRedeemed     = 0;
+//             $igniteCv               = 0;
+//             $currentRankName        = 'Unranked';
+//             $nextRankName           = 'N/A';
+//             $rankProgressPercentage = 0;
+//             $blockingConditions     = [];
+
+//             if ($user->distributor_id) {
+//                 $baId = $user->distributor_id;
+
+//                 // ---------- 1. Rank progress ----------
+//                 try {
+//                     $response = $this->ignite->rankProgress($baId);
+
+//                     if (($response['code'] ?? null) === ResultCode::OK->value) {
+//                         $rankProgress  = $response['data'] ?? [];
+//                         $ranks         = $rankProgress['ranks'] ?? [];
+//                         $currentRankNo = (int) ($rankProgress['current']['rank_no'] ?? 0);
+
+//                         // 1a. Current rank name — match by rank_no (NOT array index)
+//                         foreach ($ranks as $rank) {
+//                             if ((int) ($rank['rank_no'] ?? 0) === $currentRankNo) {
+//                                 $currentRankName = $rank['name'] ?? $currentRankName;
+//                                 break;
+//                             }
+//                         }
+
+//                         // 1b. Direct CV — first available rank's direct_cv.current
+//                         foreach ($ranks as $rank) {
+//                             if (isset($rank['conditions']['direct_cv']['current'])) {
+//                                 $igniteCv = (float) $rank['conditions']['direct_cv']['current'];
+//                                 break;
+//                             }
+//                         }
+
+//                         // 1c. Next rank — first rank with rank_no > currentRankNo
+//                         $sorted = $ranks;
+//                         usort($sorted, fn($a, $b) => (int)($a['rank_no'] ?? 0) <=> (int)($b['rank_no'] ?? 0));
+
+//                         $nextRankData = null;
+//                         foreach ($sorted as $rank) {
+//                             if ((int) ($rank['rank_no'] ?? 0) > $currentRankNo) {
+//                                 $nextRankData = $rank;
+//                                 break;
+//                             }
+//                         }
+
+//                         if ($nextRankData !== null) {
+//                             $nextRankName = $nextRankData['name'] ?? 'N/A';
+
+//                             $metCount   = 0;
+//                             $totalCount = 0;
+
+//                             $conditionLabels = [
+//                                 'steps'               => 'Pairing Steps',
+//                                 'direct_cv'           => 'Direct CV',
+//                                 'downlines_one_below' => 'Downlines (1 below)',
+//                                 'downlines_two_below' => 'Downlines (2 below)',
+//                                 'tenure'              => 'Tenure (months)',
+//                             ];
+
+//                             foreach ($conditionLabels as $key => $label) {
+//                                 if (!isset($nextRankData['conditions'][$key])) {
+//                                     continue;
+//                                 }
+
+//                                 $totalCount++;
+//                                 $cond = $nextRankData['conditions'][$key];
+
+//                                 if (!empty($cond['met'])) {
+//                                     $metCount++;
+//                                 } else {
+//                                     $blockingConditions[] = [
+//                                         'key'      => $key,
+//                                         'label'    => $label,
+//                                         'current'  => $cond['current']  ?? 0,
+//                                         'required' => $cond['required'] ?? 0,
+//                                     ];
+//                                 }
+//                             }
+
+//                             $rankProgressPercentage = $totalCount > 0
+//                                 ? (int) round(($metCount / $totalCount) * 100)
+//                                 : 0;
+//                         } else {
+//                             $nextRankName = 'Max Rank Achieved';
+//                             $rankProgressPercentage = 100;
+//                         }
+//                     }
+//                 } catch (\Throwable $e) {
+//                     Log::warning('Ignite rankProgress failed', [
+//                         'ba_id' => $baId,
+//                         'error' => $e->getMessage(),
+//                     ]);
+//                 }
+
+//                 // ---------- 2. Coins redeemed (paginated) ----------
+//                 try {
+//                     $afterId = 0;
+//                     $guard   = 0; // safety against infinite loop
+
+//                     do {
+//                         $txResp = $this->ignite->pointTxs($baId, $afterId, 500);
+//                         $rows   = $txResp['data']['rows'] ?? [];
+
+//                         foreach ($rows as $tx) {
+//                             $txType    = $tx['tx_type']    ?? null;
+//                             $pointType = $tx['point_type'] ?? null;
+
+//                             // Coin redemption: tx_type 'cr' on a coin balance
+//                             // (yellow_bal, blue_bal, green_bal). Cash side is 'cr_in' on cash_bal.
+//                             if (
+//                                 $txType === 'cr' &&
+//                                 in_array($pointType, ['yellow_bal', 'blue_bal', 'green_bal'], true)
+//                             ) {
+//                                 $totalCoinsRedeemed += abs((float) ($tx['amount'] ?? 0));
+//                             }
+//                         }
+
+//                         if (empty($rows) || !($txResp['data']['has_more'] ?? false)) {
+//                             break;
+//                         }
+
+//                         $afterId = (int) end($rows)['id'];
+//                         $guard++;
+//                     } while ($guard < 100); // max 50,000 rows to be safe
+//                 } catch (\Throwable $e) {
+//                     Log::warning('Ignite pointTxs failed', [
+//                         'ba_id' => $baId,
+//                         'error' => $e->getMessage(),
+//                     ]);
+//                 }
+//             }
+
+//             // ---------------------------------------------------------------
+//             // Response
+//             // ---------------------------------------------------------------
+//             $result = [
+//                 'user_id'        => $user->id,
+//                 'full_name'      => $user->full_name,
+//                 'email'          => $user->email,
+//                 'phone'          => $user->phone,
+//                 'distributor_id' => $cleanDistributorId,
+
+//                 // Orders
+//                 'total_orders'              => (int) $stats->total_orders,
+//                 'total_amount_mrp'          => (float) $stats->total_amount_mrp,
+//                 'total_amount_mrp_currency' => 'INR',
+//                 'total_savings'             => (float) $stats->total_savings,
+//                 'total_savings_currency'    => 'INR',
+
+//                 // CV & Coins
+//                 'total_cv'              => number_format($igniteCv, 2, '.', ''),
+//                 'total_cv_unit'         => 'CV',
+//                 'total_coins_redeemed'  => (int) $totalCoinsRedeemed,
+
+//                 // Rank
+//                 'current_rank_name'     => $currentRankName,
+//                 'next_rank_name'        => $nextRankName,
+//                 'rank_progress_percent' => $rankProgressPercentage,
+//                 'next_rank_blocking'    => $blockingConditions,   // ✅ NEW
+
+//                 'account_type' => $user->account_type,
+//                 'joined_at'    => $user->created_at?->toDateTimeString(),
+//                 'rank_progress'=> $rankProgress,
+//             ];
+
+//             return response()->json([
+//                 'success' => true,
+//                 'data'    => $result,
+//                 'message' => 'Distributor stats retrieved successfully',
+//             ]);
+//         } catch (\Throwable $e) {
+//             Log::error('getDistributorStats failed', [
+//                 'user_id' => Auth::id(),
+//                 'error'   => $e->getMessage(),
+//                 'trace'   => $e->getTraceAsString(),
+//             ]);
+
+//             return response()->json([
+//                 'success' => false,
+//                 'message' => 'Failed to retrieve distributor stats',
+//                 'error'   => $e->getMessage(),
+//             ], 500);
+//         }
+//     }
+      
+      public function getDistributorStats(Request $request)
     {
         try {
             $authUser = Auth::user();
@@ -914,7 +1161,6 @@ class UserDashboardController extends Controller
                         $ranks         = $rankProgress['ranks'] ?? [];
                         $currentRankNo = (int) ($rankProgress['current']['rank_no'] ?? 0);
 
-                        // 1a. Current rank name — match by rank_no (NOT array index)
                         foreach ($ranks as $rank) {
                             if ((int) ($rank['rank_no'] ?? 0) === $currentRankNo) {
                                 $currentRankName = $rank['name'] ?? $currentRankName;
@@ -922,7 +1168,6 @@ class UserDashboardController extends Controller
                             }
                         }
 
-                        // 1b. Direct CV — first available rank's direct_cv.current
                         foreach ($ranks as $rank) {
                             if (isset($rank['conditions']['direct_cv']['current'])) {
                                 $igniteCv = (float) $rank['conditions']['direct_cv']['current'];
@@ -930,7 +1175,6 @@ class UserDashboardController extends Controller
                             }
                         }
 
-                        // 1c. Next rank — first rank with rank_no > currentRankNo
                         $sorted = $ranks;
                         usort($sorted, fn($a, $b) => (int)($a['rank_no'] ?? 0) <=> (int)($b['rank_no'] ?? 0));
 
@@ -994,7 +1238,7 @@ class UserDashboardController extends Controller
                 // ---------- 2. Coins redeemed (paginated) ----------
                 try {
                     $afterId = 0;
-                    $guard   = 0; // safety against infinite loop
+                    $guard   = 0;
 
                     do {
                         $txResp = $this->ignite->pointTxs($baId, $afterId, 500);
@@ -1004,8 +1248,6 @@ class UserDashboardController extends Controller
                             $txType    = $tx['tx_type']    ?? null;
                             $pointType = $tx['point_type'] ?? null;
 
-                            // Coin redemption: tx_type 'cr' on a coin balance
-                            // (yellow_bal, blue_bal, green_bal). Cash side is 'cr_in' on cash_bal.
                             if (
                                 $txType === 'cr' &&
                                 in_array($pointType, ['yellow_bal', 'blue_bal', 'green_bal'], true)
@@ -1020,13 +1262,177 @@ class UserDashboardController extends Controller
 
                         $afterId = (int) end($rows)['id'];
                         $guard++;
-                    } while ($guard < 100); // max 50,000 rows to be safe
+                    } while ($guard < 100);
                 } catch (\Throwable $e) {
                     Log::warning('Ignite pointTxs failed', [
                         'ba_id' => $baId,
                         'error' => $e->getMessage(),
                     ]);
                 }
+            }
+
+            // ---------------------------------------------------------------
+            // ✅ NEW: Sales Period (current week + countdown) & Calendar History
+            // ---------------------------------------------------------------
+            $salesPeriod          = null;
+            $salesCalendarHistory = [];
+
+            try {
+                $currentYear = (int) now()->year;
+                $calendar    = $this->getSalesCalendar($currentYear);
+
+                // Handle year boundary: if current year's calendar has no current week, try previous year
+                if (!$calendar || !$this->calendarHasCurrentWeek($calendar)) {
+                    $prevCalendar = $this->getSalesCalendar($currentYear - 1);
+                    if ($prevCalendar && $this->calendarHasCurrentWeek($prevCalendar)) {
+                        $calendar = $prevCalendar;
+                    }
+                }
+
+                if ($calendar) {
+                    // Flatten all weeks into one array
+                    $allWeeks = [];
+                    foreach (($calendar['all_months'] ?? []) as $month) {
+                        foreach (($month['weeks'] ?? []) as $w) {
+                            $allWeeks[] = $w;
+                        }
+                    }
+
+                    // Sort by start date ascending
+                    usort($allWeeks, function ($a, $b) {
+                        return strcmp($a['start'] ?? '', $b['start'] ?? '');
+                    });
+
+                    // Find current week
+                    $now         = \Carbon\Carbon::now('Asia/Kolkata');
+                    $currentWeek = null;
+
+                    // 1st attempt: find week with is_current = true
+                    foreach ($allWeeks as $w) {
+                        if (!empty($w['is_current'])) {
+                            $currentWeek = $w;
+                            break;
+                        }
+                    }
+
+                    // Fallback: find week whose start <= now <= end
+                    if (!$currentWeek) {
+                        foreach ($allWeeks as $w) {
+                            $s = !empty($w['start']) ? \Carbon\Carbon::parse($w['start'], 'Asia/Kolkata') : null;
+                            $e = !empty($w['end'])   ? \Carbon\Carbon::parse($w['end'],   'Asia/Kolkata') : null;
+
+                            if ($s && $e && $now->gte($s) && $now->lte($e)) {
+                                $currentWeek = $w;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Build sales_period
+                    if ($currentWeek) {
+                        $startAt = !empty($currentWeek['start'])
+                            ? \Carbon\Carbon::parse($currentWeek['start'], 'Asia/Kolkata')
+                            : null;
+                        $endAt   = !empty($currentWeek['end'])
+                            ? \Carbon\Carbon::parse($currentWeek['end'], 'Asia/Kolkata')
+                            : null;
+
+                        // Countdown
+                        $daysRemaining    = 0;
+                        $hoursRemaining   = 0;
+                        $minutesRemaining = 0;
+                        $secondsRemaining = 0;
+                        $countdownText    = '—';
+                        $progressPercent  = 0;
+
+                        if ($endAt) {
+                            $diff = $now->diffInSeconds($endAt, false);
+
+                            if ($diff > 0) {
+                                $daysRemaining    = intdiv($diff, 86400);
+                                $hoursRemaining   = intdiv($diff % 86400, 3600);
+                                $minutesRemaining = intdiv($diff % 3600, 60);
+                                $secondsRemaining = $diff % 60;
+
+                                $countdownText = ($daysRemaining > 0)
+                                    ? "{$daysRemaining}d {$hoursRemaining}h {$minutesRemaining}m"
+                                    : "{$hoursRemaining}h {$minutesRemaining}m {$secondsRemaining}s";
+                            } elseif ($startAt && $now->between($startAt, $endAt)) {
+                                $countdownText = 'Settles Today';
+                            } else {
+                                $countdownText = 'Settled';
+                            }
+                        }
+
+                        if ($startAt && $endAt && $startAt->lt($endAt)) {
+                            $total   = $endAt->timestamp - $startAt->timestamp;
+                            $elapsed = $now->timestamp - $startAt->timestamp;
+                            $progressPercent = $total > 0
+                                ? round(min(100, max(0, ($elapsed / $total) * 100)), 1)
+                                : 0;
+                        }
+
+                        $yearForWeek = (int) ($calendar['year'] ?? now()->year);
+                        $weekNo      = (int) ($currentWeek['week_no'] ?? 0);
+
+                        $salesPeriod = [
+                            'year'              => $yearForWeek,
+                            'week_no'           => $weekNo,
+                            'week_label'        => sprintf('%d-W%02d', $yearForWeek, $weekNo),
+                            'start'             => $currentWeek['start']       ?? null,
+                            'end'               => $currentWeek['end']         ?? null,
+                            'payout_date'       => $currentWeek['payout_date'] ?? null,
+                            'is_current'        => (bool) ($currentWeek['is_current'] ?? false),
+                            'is_settled'        => (bool) ($currentWeek['is_settled'] ?? false),
+                            'days_remaining'    => $daysRemaining,
+                            'hours_remaining'   => $hoursRemaining,
+                            'minutes_remaining' => $minutesRemaining,
+                            'seconds_remaining' => $secondsRemaining,
+                            'countdown_text'    => $countdownText,
+                            'progress_percent'  => $progressPercent,
+                        ];
+                    }
+
+                    // Build sales_calendar_history (previous 8 weeks + current, newest first)
+                    $startIdx = 0;
+                    if ($currentWeek) {
+                        foreach ($allWeeks as $i => $w) {
+                            if (($w['week_no'] ?? null) === ($currentWeek['week_no'] ?? null)
+                                && ($w['start']   ?? null) === ($currentWeek['start']   ?? null)
+                            ) {
+                                $startIdx = $i;
+                                break;
+                            }
+                        }
+                    }
+
+                    $historySlice = array_slice(
+                        $allWeeks,
+                        max(0, $startIdx - 8),
+                        $startIdx + 1
+                    );
+                    $historySlice = array_reverse($historySlice);
+
+                    foreach ($historySlice as $w) {
+                        $yearForWeek = (int) ($calendar['year'] ?? now()->year);
+                        $weekNo      = (int) ($w['week_no'] ?? 0);
+
+                        $salesCalendarHistory[] = [
+                            'year'        => $yearForWeek,
+                            'week_no'     => $weekNo,
+                            'week_label'  => sprintf('%d-W%02d', $yearForWeek, $weekNo),
+                            'start'       => $w['start']       ?? null,
+                            'end'         => $w['end']         ?? null,
+                            'payout_date' => $w['payout_date'] ?? null,
+                            'is_current'  => (bool) ($w['is_current'] ?? false),
+                            'is_settled'  => (bool) ($w['is_settled'] ?? false),
+                        ];
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('sales_period / sales_calendar_history build failed', [
+                    'error' => $e->getMessage(),
+                ]);
             }
 
             // ---------------------------------------------------------------
@@ -1055,7 +1461,13 @@ class UserDashboardController extends Controller
                 'current_rank_name'     => $currentRankName,
                 'next_rank_name'        => $nextRankName,
                 'rank_progress_percent' => $rankProgressPercentage,
-                'next_rank_blocking'    => $blockingConditions,   // ✅ NEW
+                'next_rank_blocking'    => $blockingConditions,
+
+                // ✅ NEW — Sales Period (with countdown & week number)
+                'sales_period'           => $salesPeriod,
+
+                // ✅ NEW — Sales Calendar History (previous weeks)
+                'sales_calendar_history' => $salesCalendarHistory,
 
                 'account_type' => $user->account_type,
                 'joined_at'    => $user->created_at?->toDateTimeString(),
@@ -1080,6 +1492,24 @@ class UserDashboardController extends Controller
                 'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Check if a sales calendar has at least one week marked is_current.
+     *
+     * @param  array  $calendar
+     * @return bool
+     */
+    private function calendarHasCurrentWeek(array $calendar): bool
+    {
+        foreach (($calendar['all_months'] ?? []) as $month) {
+            foreach (($month['weeks'] ?? []) as $w) {
+                if (!empty($w['is_current'])) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public function directRedeemCoin(Request $request)
