@@ -40,6 +40,7 @@ class CorrectionRequestController extends Controller
                 ->where('type', $data['type'])
                 ->exists();
 
+
             if ($exists) {
                 return response()->json([
                     'status'  => false,
