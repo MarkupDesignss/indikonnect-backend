@@ -8297,17 +8297,99 @@ class ProductController extends Controller
         ];
     }
 
+    // public function globalSearch(Request $request)
+    // {
+    //     $request->validate([
+    //         'search' => 'required|string|min:2',
+    //         'per_page' => 'nullable|integer|min:1|max:100'
+    //     ]);
+
+    //     $searchTerm = $request->search;
+    //     $perPage = $request->per_page ?? 20;
+
+    //     // Search Products with image from product_images table
+    //     $products = Product::where('name', 'LIKE', "%{$searchTerm}%")
+    //         ->orWhere('slug', 'LIKE', "%{$searchTerm}%")
+    //         ->orWhere('description', 'LIKE', "%{$searchTerm}%")
+    //         ->orWhere('product_code', 'LIKE', "%{$searchTerm}%")
+    //         ->orWhere('hsn_code', 'LIKE', "%{$searchTerm}%")
+    //         ->select('id', 'name')
+    //         ->with(['images' => function ($query) {
+    //             $query->where('is_primary', true)
+    //                 ->select('product_id', 'image');
+    //         }])
+    //         ->paginate($perPage, ['*'], 'products_page');
+
+    //     // Transform products to include full image URL
+    //     $products->getCollection()->transform(function ($product) {
+    //         return [
+    //             'id' => $product->id,
+    //             'name' => $product->name,
+    //             'image' => $product->images->first()
+    //                 ? url('/storage/' . $product->images->first()->image)
+    //                 : null,
+    //         ];
+    //     });
+
+    //     // Search Admins
+    //     $admins = Admin::where('name', 'LIKE', "%{$searchTerm}%")
+    //         ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+    //         ->select('id', 'name', 'email', 'profile_image')
+    //         ->paginate($perPage, ['*'], 'admins_page');
+
+    //     // Transform admins to include full image URL
+    //     $admins->getCollection()->transform(function ($admin) {
+    //         return [
+    //             'id' => $admin->id,
+    //             'name' => $admin->name,
+    //             'email' => $admin->email,
+    //             'profile_image' => $admin->profile_image
+    //                 ? url('storage/' . $admin->profile_image)
+    //                 : null,
+    //         ];
+    //     });
+
+    //     // Search Users
+    //     $users = User::where('full_name', 'LIKE', "%{$searchTerm}%")
+    //         ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+    //         ->orWhere('phone', 'LIKE', "%{$searchTerm}%")
+    //         ->where('is_registered', true)
+    //         ->select('id', 'full_name as name', 'email', 'profile_picture')
+    //         ->paginate($perPage, ['*'], 'users_page');
+
+    //     // Transform users to include full image URL
+    //     $users->getCollection()->transform(function ($user) {
+    //         return [
+    //             'id' => $user->id,
+    //             'name' => $user->name,
+    //             'email' => $user->email,
+    //             'profile_picture' => $user->profile_picture
+    //                 ? url('storage/' . $user->profile_picture)
+    //                 : null,
+    //         ];
+    //     });
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'data' => [
+    //             'products' => $products->items(),
+    //             'admins' => $admins->items(),
+    //             'users' => $users->items(),
+    //             'total_results' => $products->total() + $admins->total() + $users->total()
+    //         ]
+    //     ]);
+    // }
     public function globalSearch(Request $request)
     {
         $request->validate([
-            'search' => 'required|string|min:2',
-            'per_page' => 'nullable|integer|min:1|max:100'
+            'search'    => 'required|string|min:2',
+            'per_page'  => 'nullable|integer|min:1|max:100',
         ]);
 
         $searchTerm = $request->search;
-        $perPage = $request->per_page ?? 20;
+        $perPage    = $request->per_page ?? 20;
 
-        // Search Products with image from product_images table
+        // ---------------- Products ----------------
         $products = Product::where('name', 'LIKE', "%{$searchTerm}%")
             ->orWhere('slug', 'LIKE', "%{$searchTerm}%")
             ->orWhere('description', 'LIKE', "%{$searchTerm}%")
@@ -8320,36 +8402,34 @@ class ProductController extends Controller
             }])
             ->paginate($perPage, ['*'], 'products_page');
 
-        // Transform products to include full image URL
         $products->getCollection()->transform(function ($product) {
             return [
-                'id' => $product->id,
-                'name' => $product->name,
+                'id'    => $product->id,
+                'name'  => $product->name,
                 'image' => $product->images->first()
                     ? url('/storage/' . $product->images->first()->image)
                     : null,
             ];
         });
 
-        // Search Admins
+        // ---------------- Admins ----------------
         $admins = Admin::where('name', 'LIKE', "%{$searchTerm}%")
             ->orWhere('email', 'LIKE', "%{$searchTerm}%")
             ->select('id', 'name', 'email', 'profile_image')
             ->paginate($perPage, ['*'], 'admins_page');
 
-        // Transform admins to include full image URL
         $admins->getCollection()->transform(function ($admin) {
             return [
-                'id' => $admin->id,
-                'name' => $admin->name,
-                'email' => $admin->email,
+                'id'            => $admin->id,
+                'name'          => $admin->name,
+                'email'         => $admin->email,
                 'profile_image' => $admin->profile_image
                     ? url('storage/' . $admin->profile_image)
                     : null,
             ];
         });
 
-        // Search Users
+        // ---------------- Users ----------------
         $users = User::where('full_name', 'LIKE', "%{$searchTerm}%")
             ->orWhere('email', 'LIKE', "%{$searchTerm}%")
             ->orWhere('phone', 'LIKE', "%{$searchTerm}%")
@@ -8357,26 +8437,89 @@ class ProductController extends Controller
             ->select('id', 'full_name as name', 'email', 'profile_picture')
             ->paginate($perPage, ['*'], 'users_page');
 
-        // Transform users to include full image URL
         $users->getCollection()->transform(function ($user) {
             return [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
+                'id'              => $user->id,
+                'name'            => $user->name,
+                'email'           => $user->email,
                 'profile_picture' => $user->profile_picture
                     ? url('storage/' . $user->profile_picture)
                     : null,
             ];
         });
 
+        // ---------------- Orders ----------------
+        // Search by: order reference, user email, user phone, courier tracking number
+        $orders = Order::query()
+            ->select(
+                'orders.id',
+                'orders.order_reference',
+                'orders.user_id',
+                'orders.created_at'
+            )
+            ->with([
+                // Shipping details (tracking number, courier, etc.)
+                'shippingDetails:id,order_id,courier_tracking_number,courier_company,status',
+                // User info for email & phone
+                'user:id,full_name,email,phone',
+            ])
+            ->where(function ($query) use ($searchTerm) {
+                // 1) Master Order Reference
+                $query->where('orders.order_reference', 'LIKE', "%{$searchTerm}%")
+
+                    // 2) User Email
+                    ->orWhereHas('user', function ($u) use ($searchTerm) {
+                        $u->where('email', 'LIKE', "%{$searchTerm}%");
+                    })
+
+                    // 3) User Phone
+                    ->orWhereHas('user', function ($u) use ($searchTerm) {
+                        $u->where('phone', 'LIKE', "%{$searchTerm}%");
+                    })
+
+                    // 4) Courier Tracking Number (from order_shipping_details)
+                    ->orWhereHas('shippingDetails', function ($s) use ($searchTerm) {
+                        $s->where('courier_tracking_number', 'LIKE', "%{$searchTerm}%");
+                    });
+            })
+            ->orderByDesc('orders.created_at')
+            ->paginate($perPage, ['*'], 'orders_page');
+
+        // Transform orders as requested
+        $orders->getCollection()->transform(function ($order) {
+            // A single order can have multiple shipping rows (per line item),
+            // so collect unique tracking numbers to avoid duplicates.
+            $trackingNumbers = $order->shippingDetails
+                ->pluck('courier_tracking_number')
+                ->filter()
+                ->unique()
+                ->values();
+
+            return [
+                'id'              => $order->id,
+                'master_order_id' => $order->order_reference,
+                'email'           => optional($order->user)->email,
+                'phone'           => optional($order->user)->phone,
+                'tracking_number' => $trackingNumbers->isNotEmpty()
+                    ? $trackingNumbers->implode(', ')
+                    : null,
+                'created_at'      => $order->created_at,
+            ];
+        });
+
+        // ---------------- Response ----------------
         return response()->json([
             'success' => true,
-            'data' => [
-                'products' => $products->items(),
-                'admins' => $admins->items(),
-                'users' => $users->items(),
-                'total_results' => $products->total() + $admins->total() + $users->total()
-            ]
+            'data'    => [
+                'products'      => $products->items(),
+                'admins'        => $admins->items(),
+                'users'         => $users->items(),
+                'orders'        => $orders->items(),
+                'total_results' => $products->total()
+                    + $admins->total()
+                    + $users->total()
+                    + $orders->total(),
+            ],
         ]);
     }
 
