@@ -471,14 +471,43 @@ class InvoiceController extends Controller
                 'seller' => [
                     'name'    => $invoice->seller_name,
                     'gstin'   => $invoice->seller_gstin,
-                    'address' => $invoice->seller_address,
+                    'address' => !empty($invoice->seller_address) ? $invoice->seller_address : "punjab",
                 ],
 
-                // Buyer Details
+                // Buyer Details — split into billing & delivery addresses
                 'buyer' => [
-                    'name'    => $invoice->buyer_name,
-                    'gstin'   => $invoice->buyer_gstin,
-                    'address' => $invoice->buyer_address,
+                    'name'  => $invoice->buyer_name,
+                    'gstin' => $invoice->buyer_gstin,
+
+                    // Billing address (billing_* fields)
+                    'billing_address' => $order->billingAddress ? [
+                        'id'             => $order->billingAddress->id,
+                        'recipient_name' => $order->billingAddress->billing_recipient_name,
+                        'contact_number' => $order->billingAddress->billing_contact_number,
+                        'address_line_1' => $order->billingAddress->billing_address_line_1,
+                        'address_line_2' => $order->billingAddress->billing_address_line_2,
+                        'city'           => $order->billingAddress->billing_city,
+                        'post_office'    => $order->billingAddress->billing_post_office,
+                        'type'           => $order->billingAddress->type ?? null,
+                        'state'          => $order->billingAddress->billing_state,
+                        'pincode'        => $order->billingAddress->billing_postcode,
+                        'country'        => $order->billingAddress->billing_country,
+                    ] : null,
+
+                    // Delivery address (normal fields)
+                    'delivery_address' => $order->deliveryAddress ? [
+                        'id'             => $order->deliveryAddress->id,
+                        'recipient_name' => $order->deliveryAddress->recipient_name,
+                        'contact_number' => $order->deliveryAddress->contact_number,
+                        'address_line_1' => $order->deliveryAddress->address_line_1,
+                        'address_line_2' => $order->deliveryAddress->address_line_2,
+                        'city'           => $order->deliveryAddress->city,
+                        'post_office'    => $order->deliveryAddress->post_office,
+                        'type'           => $order->deliveryAddress->type ?? null,
+                        'state'          => $order->deliveryAddress->state,
+                        'pincode'        => $order->deliveryAddress->postcode,
+                        'country'        => $order->deliveryAddress->country,
+                    ] : null,
                 ],
 
                 'delivery_state' => $invoice->delivery_state,
@@ -556,28 +585,7 @@ class InvoiceController extends Controller
                 // Additional Data
                 'summary_data' => $summaryData,
 
-                // Addresses
-                'billing_address' => $order->billingAddress ? [
-                    'id' => $order->billingAddress->id,
-                    'address_line_1' => $order->billingAddress->billing_address_line_1,
-                    'address_line_2' => $order->billingAddress->billing_address_line_2,
-                    'city' => $order->billingAddress->billing_city,
-                    'type' => $order->billingAddress->type ?? null,
-                    'state' => $order->billingAddress->billing_state,
-                    'pincode' => $order->billingAddress->billing_postcode,
-                    'country' => $order->billingAddress->billing_country,
-                ] : null,
 
-                'delivery_address' => $order->deliveryAddress ? [
-                    'id' => $order->deliveryAddress->id,
-                    'address_line_1' => $order->deliveryAddress->address_line_1,
-                    'address_line_2' => $order->deliveryAddress->address_line_2,
-                    'city' => $order->deliveryAddress->city,
-                    'type' => $order->deliveryAddress->type ?? null,
-                    'state' => $order->deliveryAddress->state,
-                    'pincode' => $order->deliveryAddress->pincode,
-                    'country' => $order->deliveryAddress->country,
-                ] : null,
 
                 // User Details
                 'user' => $order->user ? [
@@ -591,7 +599,6 @@ class InvoiceController extends Controller
                 'items_count' => count($orderLines),
                 'total_items' => count($orderLines),
 
-                // ✅ GST BREAKDOWN AGGREGATE (invoice-level)
                 'gst_breakdown' => [
                     // SGST label — SGST ya UTGST (state ke hisaab se)
                     'sgst_label' => $sgstLabel,
