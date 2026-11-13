@@ -21,13 +21,71 @@ class GenealogyController extends Controller
         $this->ignite = $ignite;
     }
 
+    // public function tree(Request $request)
+    // {
+    //     $user = Auth::user();
+
+    //     if (!$user->distributor_id) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'You are not registered on Ignite yet.',
+    //         ], 422);
+    //     }
+
+    //     // Normalize -001 (in case user.distributor_id is -002/-003)
+    //     $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+
+    //     $depth = min(max((int) $request->input('depth', 3), 1), 5);
+
+    //     // 1) Fetch binary tree from Ignite
+    //     $response = $this->ignite->binaryTree($mainBaId, $depth);
+
+    //     if ($response['code'] !== ResultCode::OK->value) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $response['msg'] ?? 'Failed to fetch binary tree',
+    //             'code'    => $response['code'],
+    //         ], 422);
+    //     }
+
+    //     $rows = $response['data']['rows'] ?? [];
+
+    //     // Root node (level 0)
+    //     $root = collect($rows)->firstWhere('level', 0);
+
+    //     // 2) Volumes come from memberDetails, NOT binaryTree rows
+    //     $member     = $this->fetchMemberDetails($mainBaId);
+    //     $leftVolume  = (float) ($member['cv_left']  ?? 0) + (float) ($member['floating_cv_left']  ?? 0);
+    //     $rightVolume = (float) ($member['cv_right'] ?? 0) + (float) ($member['floating_cv_right'] ?? 0);
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'data' => [
+    //             'root'             => $root,
+    //             'rows'             => $rows,
+    //             'left_volume'      => number_format($leftVolume, 4, '.', ''),
+    //             'right_volume'     => number_format($rightVolume, 4, '.', ''),
+    //             'weaker_leg'       => $this->getWeakerLeg($leftVolume, $rightVolume),
+    //             'depth'            => $depth,
+    //             'total_nodes'      => count($rows),
+    //             'cv_settled_left'  => $member['cv_left']           ?? '0.0000',
+    //             'cv_settled_right' => $member['cv_right']          ?? '0.0000',
+    //             'cv_floating_left' => $member['floating_cv_left']  ?? '0.0000',
+    //             'cv_floating_right'=> $member['floating_cv_right'] ?? '0.0000',
+    //         ],
+    //     ]);
+    // }
+
     /**
      * Get the binary tree for the authenticated distributor.
      *
      * Retrieves the binary tree from Ignite using the distributor's BA ID.
      * Supports an optional `depth` query parameter (default 3, max 5).
-     * Volumes (left/right) are fetched from memberDetails() because
-     * binaryTree() rows do NOT include CV volumes.
+     *
+     * Enriches each row with the member's full_name from:
+     *   1. Local `users` table (for this partner's members)
+     *   2. Ignite pendingPlacements (for referrals not yet in local DB)
+     *   3. Fallback: "Ignite Member"
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -43,15 +101,13 @@ class GenealogyController extends Controller
             ], 422);
         }
 
-        // Normalize -001 (in case user.distributor_id is -002/-003)
         $mainBaId = $this->normalizeMainBaId($user->distributor_id);
-
-        $depth = min(max((int) $request->input('depth', 3), 1), 5);
+        $depth    = min(max((int) $request->input('depth', 3), 1), 5);
 
         // 1) Fetch binary tree from Ignite
         $response = $this->ignite->binaryTree($mainBaId, $depth);
 
-        if ($response['code'] !== ResultCode::OK->value) {
+        if (($response['code'] ?? null) !== ResultCode::OK->value) {
             return response()->json([
                 'success' => false,
                 'message' => $response['msg'] ?? 'Failed to fetch binary tree',
@@ -61,28 +117,31 @@ class GenealogyController extends Controller
 
         $rows = $response['data']['rows'] ?? [];
 
-        // Root node (level 0)
+        // 2) Enrich every row with full_name
+        $rows = $this->enrichTreeRowsWithNames($rows, $mainBaId);
+
+        // 3) Root node (level 0)
         $root = collect($rows)->firstWhere('level', 0);
 
-        // 2) Volumes come from memberDetails, NOT binaryTree rows
-        $member     = $this->fetchMemberDetails($mainBaId);
-        $leftVolume  = (float) ($member['cv_left']  ?? 0) + (float) ($member['floating_cv_left']  ?? 0);
+        // 4) Volumes from memberDetails (unchanged)
+        $member      = $this->fetchMemberDetails($mainBaId);
+        $leftVolume  = (float) ($member['cv_left'] ?? 0) + (float) ($member['floating_cv_left'] ?? 0);
         $rightVolume = (float) ($member['cv_right'] ?? 0) + (float) ($member['floating_cv_right'] ?? 0);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'root'             => $root,
-                'rows'             => $rows,
-                'left_volume'      => number_format($leftVolume, 4, '.', ''),
-                'right_volume'     => number_format($rightVolume, 4, '.', ''),
-                'weaker_leg'       => $this->getWeakerLeg($leftVolume, $rightVolume),
-                'depth'            => $depth,
-                'total_nodes'      => count($rows),
-                'cv_settled_left'  => $member['cv_left']           ?? '0.0000',
-                'cv_settled_right' => $member['cv_right']          ?? '0.0000',
-                'cv_floating_left' => $member['floating_cv_left']  ?? '0.0000',
-                'cv_floating_right'=> $member['floating_cv_right'] ?? '0.0000',
+                'root'              => $root,
+                'rows'              => $rows,
+                'left_volume'       => number_format($leftVolume, 4, '.', ''),
+                'right_volume'      => number_format($rightVolume, 4, '.', ''),
+                'weaker_leg'        => $this->getWeakerLeg($leftVolume, $rightVolume),
+                'depth'             => $depth,
+                'total_nodes'       => count($rows),
+                'cv_settled_left'   => $member['cv_left']           ?? '0.0000',
+                'cv_settled_right'  => $member['cv_right']          ?? '0.0000',
+                'cv_floating_left'  => $member['floating_cv_left']  ?? '0.0000',
+                'cv_floating_right' => $member['floating_cv_right'] ?? '0.0000',
             ],
         ]);
     }
@@ -1604,6 +1663,82 @@ class GenealogyController extends Controller
                 'is_settled'  => $pairingRow !== null,
             ],
         ]);
+    }
+
+    /**
+     * Enrich binary-tree rows with each member's full_name.
+     *
+     * Lookup order:
+     *   1. Local `users` table by distributor_id (= BA ID)
+     *   2. Ignite pendingPlacements (referrals not yet in local DB)
+     *   3. Fallback: "Ignite Member"
+     *
+     * @param  array   $rows      Ignite binaryTree rows
+     * @param  string  $mainBaId  Root BA ID (for pendingPlacements lookup)
+     * @return array              Rows with full_name added
+     */
+    private function enrichTreeRowsWithNames(array $rows, string $mainBaId): array
+    {
+        if (empty($rows)) {
+            return $rows;
+        }
+
+        // Collect every BA ID from the tree
+        $baIds = collect($rows)
+            ->pluck('ba_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        // 1) Local users lookup (single query)
+        $localNames = empty($baIds)
+            ? []
+            : User::whereIn('distributor_id', $baIds)
+                ->pluck('full_name', 'distributor_id')
+                ->all();
+
+        // 2) Ignite pendingPlacements lookup (for names not in local DB)
+        $igniteNames = [];
+        $missingBaIds = array_diff($baIds, array_keys($localNames));
+
+        if (!empty($missingBaIds)) {
+            try {
+                $pendingResp = $this->ignite->pendingPlacements($mainBaId);
+                if (($pendingResp['code'] ?? null) === ResultCode::OK->value) {
+                    foreach (($pendingResp['data']['rows'] ?? []) as $pRow) {
+                        $pBaId = $pRow['ba_id'] ?? null;
+                        $pName = $pRow['fullname'] ?? null;
+                        if ($pBaId && $pName) {
+                            $igniteNames[$pBaId] = $pName;
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Ignore — fallback name will be used
+                Log::warning('pendingPlacements failed in tree enrichment', [
+                    'main_ba_id' => $mainBaId,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // 3) Attach full_name to each row
+        foreach ($rows as &$row) {
+            $baId = $row['ba_id'] ?? null;
+
+            if (!$baId) {
+                $row['full_name'] = null;   // Outsider node (no BA ID visible)
+                continue;
+            }
+
+            $row['full_name'] = $localNames[$baId]
+                ?? $igniteNames[$baId]
+                ?? 'Ignite Member';
+        }
+        unset($row);
+
+        return $rows;
     }
 
 }
