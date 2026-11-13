@@ -3385,6 +3385,7 @@ class AuthController extends Controller
             // ============ Save Bank Details (Always) ============
             $distributorProfile->update([
                 'encrypted_bank_account' => encrypt($request->encrypted_bank_account),
+                'complete_bank_account' => $request->encrypted_bank_account,
                 'bank_ifsc'              => $request->bank_ifsc,
                 'title'                  => $request->title,
                 'type_of_entity'         => $request->type_of_entity,
