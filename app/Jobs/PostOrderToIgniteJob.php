@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\Order;
+use App\Models\OrderLine;
 use App\Sdks\Partner\IgniteClient;
 use App\Sdks\Partner\ResultCode;
 use Illuminate\Bus\Queueable;
@@ -22,7 +23,6 @@ class PostOrderToIgniteJob implements ShouldQueue
 
     public array $backoff = [30, 60, 120, 300, 600];
 
-    // SDK comment #3: all times are UTC+8 (Hong Kong). Never read from config.
     private const IGNITE_TIMEZONE = 'Asia/Hong_Kong';
 
     private const PERMANENT_CODES = [
@@ -56,11 +56,8 @@ class PostOrderToIgniteJob implements ShouldQueue
         ]);
 
         $order = Order::with(['lines.product', 'user'])->find($this->orderId);
-        if (!$order) {
-            return;
-        }
+        if (!$order) return;
 
-        // Idempotency check
         if ($order->ignite_sync_status === 'posted' && !empty($order->ignite_order_no)) {
             return;
         }
@@ -75,7 +72,6 @@ class PostOrderToIgniteJob implements ShouldQueue
         }
 
         $localCurrency = config('services.ignite.local_currency');
-
         if (!$localCurrency) {
             $order->update([
                 'ignite_sync_status' => 'failed',
@@ -93,11 +89,11 @@ class PostOrderToIgniteJob implements ShouldQueue
                 throw new \Exception("catalog() refused: " . ($catalogRes['msg'] ?? 'unknown'));
             }
 
-            $catalogItems = collect($catalogRes['data']['items'] ?? []);
-            $catalogByRef = $catalogItems->whereNotNull('partner_product_ref')->keyBy('partner_product_ref');
+            $catalogItems     = collect($catalogRes['data']['items'] ?? []);
+            $catalogByRef     = $catalogItems->whereNotNull('partner_product_ref')->keyBy('partner_product_ref');
             $catalogByProduct = $catalogItems->groupBy('product_id');
 
-            // ── 2. PRE-FLIGHT: MAP ORDER LINES ──
+            // ── 2. MAP ORDER LINES (partial allowed — skipped lines don't block) ──
             $lines         = [];
             $totalCv       = 0.0;
             $eligibleLines = [];
@@ -105,50 +101,47 @@ class PostOrderToIgniteJob implements ShouldQueue
 
             foreach ($order->lines as $line) {
                 if (in_array($line->delivery_status, ['cancelled', 'returned'], true)) {
-                    continue; // Cancelled / returned lines ignored
+                    continue;
                 }
 
                 $product    = $line->product;
                 $igniteItem = null;
 
-                // SDK comment #1: partner_product_ref is the primary mapping key.
                 if ($product && !empty($product->partner_product_ref)) {
                     $igniteItem = $catalogByRef->get($product->partner_product_ref);
                 }
 
-                // Safe fallback via ignite_product_id — only when unambiguous.
                 if (!$igniteItem && $product && !empty($product->ignite_product_id)) {
                     $candidates = $catalogByProduct->get((int) $product->ignite_product_id, collect());
-
                     if ($candidates->count() === 1) {
                         $igniteItem = $candidates->first();
                     } elseif ($candidates->count() > 1) {
-                        // Ambiguous — refuse rather than guess (SDK comment #2).
                         $skippedLines[] = [
                             'line_id'          => $line->id,
                             'product_id'       => $product->id,
-                            'reason'           => 'Multiple catalog lines; no partner_product_ref set.',
+                            'product_name'     => $product->name,
+                            'reason'           => 'Multiple catalog lines; no partner_product_ref.',
                             'catalog_item_ids' => $candidates->pluck('catalog_item_id')->all(),
                         ];
                         $line->update([
                             'ignite_sync_status' => 'skipped',
-                            'ignite_sync_error'  => 'Multiple catalog lines & no partner_product_ref — set it on the product.',
+                            'ignite_sync_error'  => 'Multiple catalog lines & no partner_product_ref.',
                         ]);
                         continue;
                     }
                 }
 
-                // SDK comment #2: catalog_item_id MUST be sent so promos/past prices work.
                 if (!$igniteItem || empty($igniteItem['catalog_item_id'])) {
                     $skippedLines[] = [
                         'line_id'      => $line->id,
                         'product_id'   => $product?->id,
                         'product_name' => $product?->name ?? 'Unknown Product',
-                        'reason'       => 'No catalog_item_id resolvable via partner_product_ref.',
+                        'product_code' => $product?->product_code,
+                        'reason'       => 'No catalog_item_id resolvable.',
                     ];
                     $line->update([
                         'ignite_sync_status' => 'skipped',
-                        'ignite_sync_error'  => 'No catalog_item_id resolvable via partner_product_ref.',
+                        'ignite_sync_error'  => 'No catalog_item_id resolvable.',
                     ]);
                     continue;
                 }
@@ -160,7 +153,6 @@ class PostOrderToIgniteJob implements ShouldQueue
                     'qty'             => (int) $line->quantity,
                     'catalog_item_id' => (int) $igniteItem['catalog_item_id'],
                 ];
-
                 $totalCv         += $lineCv;
                 $eligibleLines[] = [
                     'line'            => $line,
@@ -169,22 +161,19 @@ class PostOrderToIgniteJob implements ShouldQueue
                 ];
             }
 
+            if (!empty($skippedLines)) {
+                Log::warning('Ignite job: partial order — some lines skipped', [
+                    'order_id' => $order->id,
+                    'skipped'  => $skippedLines,
+                ]);
+            }
+
             if (empty($lines)) {
                 $order->update([
                     'ignite_sync_status' => 'skipped',
                     'ignite_sync_error'  => 'No mapped products found for this order.',
                 ]);
-                Log::warning('Ignite job: Entire order skipped (no mapped products).', [
-                    'order_id' => $order->id,
-                ]);
                 return;
-            }
-
-            if (!empty($skippedLines)) {
-                Log::warning('Ignite job: Some lines skipped (unmapped).', [
-                    'order_id' => $order->id,
-                    'skipped'  => $skippedLines,
-                ]);
             }
 
             // ── 3. Fetch Plan, Member & Tree ──
@@ -192,7 +181,9 @@ class PostOrderToIgniteJob implements ShouldQueue
             if (($planRes['code'] ?? null) !== ResultCode::OK->value) {
                 throw new \Exception("planRanks() refused: " . ($planRes['msg'] ?? 'unknown'));
             }
-            $qualifyCv = (float) ($planRes['data']['plan']['qualify_cv'] ?? 0);
+            $plan          = $planRes['data']['plan'] ?? [];
+            $qualifyCv     = (float) ($plan['qualify_cv'] ?? 0);
+            $baseProductCv = (float) ($plan['base_product_cv'] ?? 600);
 
             $memberRes = $ignite->memberDetails($mainBaId);
             if (($memberRes['code'] ?? null) !== ResultCode::OK->value) {
@@ -216,7 +207,7 @@ class PostOrderToIgniteJob implements ShouldQueue
                 return;
             }
 
-            // ── 4. Allocations ──
+            // ── 4. Allocations (partial-safe with extra TC handling) ──
             $cv001 = 0.0;
             if (empty($member['qualified_at'])) {
                 $cv001 = min(
@@ -227,7 +218,7 @@ class PostOrderToIgniteJob implements ShouldQueue
             $cv001     = round($cv001, 4);
             $remaining = round($totalCv - $cv001, 4);
 
-            // -002 and -003 must each hold qualify_cv before anything else.
+            // Fetch current CV in -002 and -003
             $child002 = $level1->firstWhere('binary_side', 1);
             $child003 = $level1->firstWhere('binary_side', 2);
 
@@ -237,32 +228,118 @@ class PostOrderToIgniteJob implements ShouldQueue
             $cv002Need = max(0.0, round($qualifyCv - $cv002Have, 4));
             $cv003Need = max(0.0, round($qualifyCv - $cv003Have, 4));
 
+            // Fill -002 first
             $cv002 = min($remaining, $cv002Need);
-            $remaining -= $cv002;
+            $remaining = round($remaining - $cv002, 4);
 
+            // Then -003
             $cv003 = min($remaining, $cv003Need);
-            $remaining -= $cv003;
-
-            if ($remaining > 0.0001) {
-                $order->update([
-                    'ignite_sync_status' => 'failed',
-                    'ignite_sync_error'  => 'Partial order cannot fill -001/-002/-003 to qualify_cv; '
-                                          . 'no extra TC logic implemented. Remaining CV: ' . $remaining,
-                ]);
-                Log::error('Ignite job: partial order cannot be allocated', [
-                    'order_id'  => $order->id,
-                    'remaining' => $remaining,
-                ]);
-                return;
-            }
+            $remaining = round($remaining - $cv003, 4);
 
             $allocations = [];
             if ($cv001 > 0) $allocations[] = ['ba_id' => $mainBaId, 'cv' => number_format($cv001, 4, '.', '')];
             if ($cv002 > 0) $allocations[] = ['ba_id' => $ba002,   'cv' => number_format($cv002, 4, '.', '')];
             if ($cv003 > 0) $allocations[] = ['ba_id' => $ba003,   'cv' => number_format($cv003, 4, '.', '')];
 
+            // ── Extra TC handling (if remaining CV exists) ──
+            $extraTcs = [];
+            if ($remaining > 0.0001 && $baseProductCv > 0) {
+                $extraTcCount = (int) floor($remaining / $baseProductCv);
+                $extraTcCv    = round($extraTcCount * $baseProductCv, 4);
+                $leftover     = round($remaining - $extraTcCv, 4);
+
+                Log::info('Ignite job: extra TC calculation', [
+                    'order_id'       => $order->id,
+                    'remaining'      => $remaining,
+                    'base_product_cv'=> $baseProductCv,
+                    'extra_tc_count' => $extraTcCount,
+                    'extra_tc_cv'    => $extraTcCv,
+                    'leftover'       => $leftover,
+                ]);
+
+                if ($extraTcCount > 0) {
+                    // Placement parent dhundho: buyer's far_left_id / far_right_id
+                    // Simple strategy: alternate sides, use far ends from memberDetails
+                    $farLeftId  = $member['far_left_id']  ?? null;
+                    $farRightId = $member['far_right_id'] ?? null;
+
+                    // Prefer placing under buyer's own -002/-003 (safer)
+                    $placementParentId = $farLeftId ?? $farRightId ?? ($child002['member_id'] ?? null);
+
+                    if (!$placementParentId) {
+                        // Fallback: place under -002
+                        $placementParentId = $child002['member_id'] ?? null;
+                    }
+
+                    if (!$placementParentId) {
+                        $order->update([
+                            'ignite_sync_status' => 'failed',
+                            'ignite_sync_error'  => "Cannot place extra TC — no valid placement parent. Remaining CV: {$remaining}.",
+                        ]);
+                        Log::error('Ignite job: no valid extra TC placement parent', [
+                            'order_id'  => $order->id,
+                            'remaining' => $remaining,
+                        ]);
+                        return;
+                    }
+
+                    // Create extra TC requests
+                    for ($i = 0; $i < $extraTcCount; $i++) {
+                        $extraTcs[] = [
+                            'placement_member_id' => (int) $placementParentId,
+                            'side'                => ($i % 2 === 0) ? 1 : 2,  // alternate
+                        ];
+                        $allocations[] = [
+                            'extra_tc' => $i,
+                            'cv'       => number_format($baseProductCv, 4, '.', ''),
+                        ];
+                    }
+                }
+
+                // Leftover CV — absorb into -001 if unqualified, otherwise -002
+                if ($leftover > 0.0001) {
+                    if (empty($member['qualified_at']) && $cv001 < $qualifyCv) {
+                        // Add leftover to -001
+                        $allocations[] = ['ba_id' => $mainBaId, 'cv' => number_format($leftover, 4, '.', '')];
+                    } else {
+                        // Add leftover to -002
+                        $allocations[] = ['ba_id' => $ba002, 'cv' => number_format($leftover, 4, '.', '')];
+                    }
+                    Log::info('Ignite job: leftover CV absorbed', [
+                        'order_id' => $order->id,
+                        'leftover' => $leftover,
+                    ]);
+                }
+            } elseif ($remaining > 0.0001) {
+                // base_product_cv is 0 — can't compute extra TCs. Fail.
+                $order->update([
+                    'ignite_sync_status' => 'failed',
+                    'ignite_sync_error'  => "Unallocated CV {$remaining} but base_product_cv is 0.",
+                ]);
+                Log::error('Ignite job: cannot allocate remaining CV', [
+                    'order_id'       => $order->id,
+                    'remaining'      => $remaining,
+                    'base_product_cv'=> $baseProductCv,
+                ]);
+                return;
+            }
+
+            // Verify allocations sum = totalCv (sanity check)
+            $allocSum = 0.0;
+            foreach ($allocations as $a) {
+                $allocSum += (float) $a['cv'];
+            }
+            $allocSum = round($allocSum, 4);
+            if (abs($allocSum - round($totalCv, 4)) > 0.01) {
+                Log::warning('Ignite job: allocation sum mismatch', [
+                    'order_id'     => $order->id,
+                    'total_cv'     => $totalCv,
+                    'alloc_sum'    => $allocSum,
+                    'diff'         => $allocSum - $totalCv,
+                ]);
+            }
+
             // ── 5. Create Order ──
-            // SDK comment #3: ordered_at MUST be in Asia/Hong_Kong (+8)
             $igniteTz  = new \DateTimeZone(self::IGNITE_TIMEZONE);
             $orderedAt = $order->confirmed_at
                 ? $order->confirmed_at->copy()->setTimezone($igniteTz)
@@ -276,7 +353,7 @@ class PostOrderToIgniteJob implements ShouldQueue
                 localCurrency:   $localCurrency,
                 lines:           $lines,
                 allocations:     $allocations,
-                extraTcs:        [],
+                extraTcs:        $extraTcs,
             );
 
             $code = $response['code'] ?? null;
@@ -289,15 +366,17 @@ class PostOrderToIgniteJob implements ShouldQueue
                     $existing = $ignite->getOrder($order->order_reference);
                     $data = $existing['data'] ?? [];
                 }
-
                 $this->markOrderPosted($order, $eligibleLines, $data, $totalCv);
                 $this->forgetMemberCache($mainBaId);
-
-                Log::info('Ignite order posted (partial if lines skipped)', ['order_id' => $order->id]);
+                Log::info('Ignite order posted (partial if lines skipped)', [
+                    'order_id'      => $order->id,
+                    'skipped_count' => count($skippedLines),
+                    'extra_tcs'     => count($extraTcs),
+                ]);
                 return;
             }
 
-            // ── 7. PRODUCT_NOT_ON_CATALOG (SDK comment #2) ──
+            // ── 7. PRODUCT_NOT_ON_CATALOG ──
             if ($code === ResultCode::PRODUCT_NOT_ON_CATALOG->value) {
                 $order->update([
                     'ignite_sync_status' => 'failed',
@@ -321,20 +400,9 @@ class PostOrderToIgniteJob implements ShouldQueue
                 return;
             }
 
-            if ($code === ResultCode::NETWORK_BUSY->value) {
-                $this->release(30);
-                return;
-            }
-
-            if ($code === ResultCode::PLACEMENT_REFUSED->value) {
-                $this->release(60);
-                return;
-            }
-
-            if ($code === ResultCode::ORDER_WEEK_UNKNOWN->value) {
-                $this->release(3600);
-                return;
-            }
+            if ($code === ResultCode::NETWORK_BUSY->value) { $this->release(30); return; }
+            if ($code === ResultCode::PLACEMENT_REFUSED->value) { $this->release(60); return; }
+            if ($code === ResultCode::ORDER_WEEK_UNKNOWN->value) { $this->release(3600); return; }
 
             throw new \Exception("Ignite Error [{$code}]: {$msg}");
 
@@ -351,7 +419,6 @@ class PostOrderToIgniteJob implements ShouldQueue
                 ]);
                 return;
             }
-
             throw $e;
         }
     }
