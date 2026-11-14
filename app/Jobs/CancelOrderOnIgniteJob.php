@@ -27,7 +27,6 @@ class CancelOrderOnIgniteJob implements ShouldQueue
         ResultCode::MEMBER_NOT_FOUND->value,
     ];
 
-    // Ab constructor mein Order ID aayegi, Line ID nahi
     public function __construct(public int $orderId)
     {
         $this->onQueue('ignite-sync');
@@ -40,6 +39,7 @@ class CancelOrderOnIgniteJob implements ShouldQueue
 
     public function handle(IgniteClient $ignite): void
     {
+        // Order load karein (lines ke saath)
         $order = Order::with(['user', 'lines'])->find($this->orderId);
 
         if (!$order) {
@@ -47,13 +47,16 @@ class CancelOrderOnIgniteJob implements ShouldQueue
             return;
         }
 
-        // Agar order kabhi Ignite par gaya hi nahi, toh cancel karne ki zaroorat nahi
+        // Agar order kabhi Ignite par gaya hi nahi (ya saari lines skip ho gayi thi), toh cancel mat karo
         if (empty($order->ignite_order_no)) {
             Log::info('Ignite cancel: order never posted, skipping', ['order_id' => $order->id]);
+            
+            // Local DB me order status update kar do (just in case)
+            $order->update(['status' => 'cancelled']);
             return;
         }
 
-        // Agar pehle se cancel hai
+        // Agar pehle se Ignite par cancelled hai
         if ($order->ignite_sync_status === 'cancelled') {
             Log::info('Ignite cancel: already cancelled', ['order_id' => $order->id]);
             return;
@@ -65,12 +68,11 @@ class CancelOrderOnIgniteJob implements ShouldQueue
                 'ignite_sync_status' => 'failed',
                 'ignite_sync_error'  => 'order_reference is empty; cannot cancel on Ignite.',
             ]);
-            Log::error('Ignite cancel: empty order_reference', ['order_id' => $order->id]);
             return;
         }
 
         try {
-            // Ab API mein poore order ka reference jayega
+            // Ignite par cancel call bhejein (Order-level)
             $response = $ignite->cancelOrder($partnerRef);
         } catch (\Throwable $e) {
             Log::warning('Ignite cancelOrder transport error, retrying', [
@@ -94,7 +96,8 @@ class CancelOrderOnIgniteJob implements ShouldQueue
                 'ignite_sync_error'  => null,
             ]);
 
-            // Order cancel hua toh uski saari posted lines bhi cancel mark karni hain
+            // SIRF UN LINES KO CANCEL KAREIN JO ACTUALLY IGNITE PAR GAYI THI
+            // Jinhe humne post karte waqt 'skipped' mark kiya tha, unhe mat chhedo.
             $order->lines()
                 ->where('ignite_sync_status', 'posted')
                 ->update([
@@ -120,7 +123,7 @@ class CancelOrderOnIgniteJob implements ShouldQueue
             return;
         }
 
-        // ── ORDER_NOT_FOUND — may race with PostOrder; retry ──
+        // ── ORDER_NOT_FOUND — maybe post job is still running; retry ──
         if ($code === ResultCode::ORDER_NOT_FOUND->value) {
             if ($this->attempts() < $this->tries && now()->lt($this->retryUntil())) {
                 Log::info('Ignite cancel: ORDER_NOT_FOUND, retrying in 5 min', [
@@ -135,11 +138,6 @@ class CancelOrderOnIgniteJob implements ShouldQueue
                 'ignite_sync_status' => 'failed',
                 'ignite_sync_error'  => "ORDER_NOT_FOUND after {$this->attempts()} attempts: ref={$partnerRef}",
             ]);
-            Log::error('Ignite cancel: ORDER_NOT_FOUND exhausted retries', [
-                'order_id'        => $order->id,
-                'ref'             => $partnerRef,
-                'ignite_order_no' => $order->ignite_order_no,
-            ]);
             return;
         }
 
@@ -149,15 +147,10 @@ class CancelOrderOnIgniteJob implements ShouldQueue
                 'ignite_sync_status' => 'failed',
                 'ignite_sync_error'  => "[{$code}] {$msg}",
             ]);
-            Log::error('Ignite cancel: permanent refusal', [
-                'order_id' => $order->id,
-                'code'     => $code,
-                'msg'      => $msg,
-            ]);
             return;
         }
 
-        // ── Any other refusal — fail ──
+        // ── Any other refusal ──
         $order->update([
             'ignite_sync_status' => 'failed',
             'ignite_sync_error'  => "[{$code}] {$msg}",
