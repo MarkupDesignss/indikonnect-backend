@@ -55,12 +55,11 @@ class PostOrderToIgniteJob implements ShouldQueue
 
         $order = Order::with(['lines.product', 'user'])->find($this->orderId);
         if (!$order) {
-            Log::warning('Ignite job: order not found', ['order_id' => $this->orderId]);
             return;
         }
 
+        // Idempotency check
         if ($order->ignite_sync_status === 'posted' && !empty($order->ignite_order_no)) {
-            Log::info('Ignite job: already posted, skipping', ['order_id' => $order->id]);
             return;
         }
 
@@ -70,7 +69,6 @@ class PostOrderToIgniteJob implements ShouldQueue
                 'ignite_sync_status' => 'skipped',
                 'ignite_sync_error'  => 'Not a distributor order or missing distributor_id.',
             ]);
-            Log::info('Ignite job: skipped', ['order_id' => $order->id]);
             return;
         }
 
@@ -80,93 +78,67 @@ class PostOrderToIgniteJob implements ShouldQueue
         if (!$localCurrency || !$timezone) {
             $order->update([
                 'ignite_sync_status' => 'failed',
-                'ignite_sync_error'  => 'Ignite local_currency/timezone not configured.',
+                'ignite_sync_error'  => 'Ignite config missing.',
             ]);
-            Log::error('Ignite job: config missing');
             return;
         }
+
+        $mainBaId = preg_replace('/-(002|003)$/', '-001', $user->distributor_id);
 
         try {
-            new \DateTimeZone($timezone);
-        } catch (\Throwable $e) {
-            $order->update([
-                'ignite_sync_status' => 'failed',
-                'ignite_sync_error'  => "Invalid Ignite timezone: {$timezone}",
-            ]);
-            Log::error('Ignite job: invalid timezone', ['tz' => $timezone]);
-            return;
-        }
-
-        $mainBaId = $user->distributor_id;
-        if (preg_match('/-(002|003)$/', $mainBaId)) {
-            $mainBaId = preg_replace('/-(002|003)$/', '-001', $mainBaId);
-        }
-
-        if (empty($order->order_reference)) {
-            $order->update([
-                'ignite_sync_status' => 'failed',
-                'ignite_sync_error'  => 'order_reference is empty; cannot post to Ignite.',
-            ]);
-            Log::error('Ignite job: empty order_reference', ['order_id' => $order->id]);
-            return;
-        }
-
-        try {
-            // ── Catalog ──
+            // ── 1. Fetch Catalog ──
             $catalogRes = $ignite->catalog();
             if (($catalogRes['code'] ?? null) !== ResultCode::OK->value) {
-                throw new \Exception("catalog() refused: {$catalogRes['code']} " . ($catalogRes['msg'] ?? 'unknown'));
+                throw new \Exception("catalog() refused");
             }
-            $catalogByProduct = collect($catalogRes['data']['items'] ?? [])->groupBy('product_id');
+            
+            $catalogItems     = collect($catalogRes['data']['items'] ?? []);
+            $catalogByProduct = $catalogItems->groupBy('product_id');
+            $catalogByRef     = $catalogItems->whereNotNull('partner_product_ref')->keyBy('partner_product_ref');
 
-            // ── Pre-flight: build eligible lines; skip unmapped/multi/unsellable ──
+            // ── 2. PRE-FLIGHT: STRICT ALL-OR-NOTHING ──
             $lines         = [];
             $totalCv       = 0.0;
-            $skippedLines  = [];
             $eligibleLines = [];
+            $unmappedLines = []; // Track missing products
 
             foreach ($order->lines as $line) {
                 if (in_array($line->delivery_status, ['cancelled', 'returned'], true)) {
-                    $skippedLines[] = ['line_id' => $line->id, 'reason' => 'cancelled_or_returned'];
-                    continue;
+                    continue; // Cancelled lines are ignored
                 }
 
                 $product = $line->product;
-                if (!$product || empty($product->ignite_product_id)) {
-                    $skippedLines[] = ['line_id' => $line->id, 'reason' => 'no_ignite_product_id'];
-                    continue;
+                $igniteItem = null;
+
+                // Priority 1: Match by partner_product_ref (if exists in DB)
+                if ($product && !empty($product->partner_product_ref)) {
+                    $igniteItem = $catalogByRef->get($product->partner_product_ref);
                 }
 
-                $candidates = $catalogByProduct->get((int) $product->ignite_product_id, collect());
-                if ($candidates->isEmpty()) {
-                    $skippedLines[] = [
-                        'line_id'           => $line->id,
-                        'reason'            => 'not_in_ignite_catalog',
-                        'ignite_product_id' => $product->ignite_product_id,
+                // Priority 2: Match by ignite_product_id (Main fallback)
+                if (!$igniteItem && $product && !empty($product->ignite_product_id)) {
+                    $candidates = $catalogByProduct->get((int) $product->ignite_product_id, collect());
+                    
+                    // If exactly 1 line found, use it. If 0 or >1, it's considered unmapped/ambiguous.
+                    if ($candidates->count() === 1) {
+                        $igniteItem = $candidates->first();
+                    }
+                }
+
+                // ❌ If not mapped, add to missing array
+                if (!$igniteItem || empty($igniteItem['catalog_item_id'])) {
+                    $unmappedLines[] = [
+                        'line_id'      => $line->id,
+                        'product_id'   => $product ? $product->id : null,
+                        'product_name' => $product ? $product->name : 'Unknown Product',
                     ];
                     continue;
                 }
 
-                if ($candidates->count() > 1) {
-                    $skippedLines[] = [
-                        'line_id'           => $line->id,
-                        'reason'            => 'multiple_catalog_lines',
-                        'ignite_product_id' => $product->ignite_product_id,
-                        'catalog_item_ids'  => $candidates->pluck('catalog_item_id')->all(),
-                    ];
-                    continue;
-                }
-
-                $igniteItem = $candidates->first();
-                if (empty($igniteItem['catalog_item_id'])) {
-                    $skippedLines[] = ['line_id' => $line->id, 'reason' => 'no_catalog_item_id'];
-                    continue;
-                }
-
+                // ✅ If mapped, add to valid lines
                 $lineCv = round((float) $igniteItem['cv'] * (int) $line->quantity, 4);
-
                 $lines[] = [
-                    'product_id'      => (int) $product->ignite_product_id,
+                    'product_id'      => (int) $igniteItem['product_id'],
                     'qty'             => (int) $line->quantity,
                     'catalog_item_id' => (int) $igniteItem['catalog_item_id'],
                 ];
@@ -174,68 +146,53 @@ class PostOrderToIgniteJob implements ShouldQueue
                 $eligibleLines[] = ['line' => $line, 'cv' => $lineCv];
             }
 
-            if (!empty($skippedLines)) {
-                Log::warning('Ignite job: some lines skipped', [
-                    'order_id' => $order->id,
-                    'skipped'  => $skippedLines,
+            // 🚨 STRICT ACTION: If ANY product is missing, SKIP ENTIRE ORDER
+            if (!empty($unmappedLines)) {
+                $order->update([
+                    'ignite_sync_status' => 'skipped',
+                    'ignite_sync_error'  => 'Order skipped: Missing Ignite mapping.',
                 ]);
+                Log::error('Ignite job: Entire order skipped due to unmapped products.', [
+                    'order_id' => $order->id,
+                    'missing'  => $unmappedLines
+                ]);
+                return; // Exit: No API call to Ignite
             }
 
-            // ── No eligible lines at all → mark skipped, do not post ──
             if (empty($lines)) {
                 $order->update([
                     'ignite_sync_status' => 'skipped',
-                    'ignite_sync_error'  => 'No eligible lines to post to Ignite.',
+                    'ignite_sync_error'  => 'No eligible lines to post.',
                 ]);
-                Log::warning('Ignite job: no postable lines, order skipped', ['order_id' => $order->id]);
                 return;
             }
 
-            // ── Plan figures ──
-            $planRes = $ignite->planRanks();
-            if (($planRes['code'] ?? null) !== ResultCode::OK->value) {
-                throw new \Exception("planRanks() refused: {$planRes['code']} " . ($planRes['msg'] ?? 'unknown'));
-            }
+            // ── 3. Fetch Plan, Member & Tree ──
+            $planRes   = $ignite->planRanks();
             $qualifyCv = (float) ($planRes['data']['plan']['qualify_cv'] ?? 0);
-            if ($qualifyCv <= 0) {
-                throw new \Exception('planRanks returned qualify_cv <= 0.');
-            }
 
-            // ── Member ──
             $memberRes = $ignite->memberDetails($mainBaId);
-            if (($memberRes['code'] ?? null) !== ResultCode::OK->value) {
-                throw new \Exception("memberDetails({$mainBaId}) refused: {$memberRes['code']} " . ($memberRes['msg'] ?? 'unknown'));
-            }
-            $member = $memberRes['data'] ?? [];
+            $member    = $memberRes['data'] ?? [];
 
-            // ── Binary tree ──
             $treeRes = $ignite->binaryTree($mainBaId, 1);
-            if (($treeRes['code'] ?? null) !== ResultCode::OK->value) {
-                throw new \Exception("binaryTree({$mainBaId}) refused: {$treeRes['code']} " . ($treeRes['msg'] ?? 'unknown'));
-            }
-            $level1 = collect($treeRes['data']['rows'] ?? [])->where('level', 1);
-            $ba002  = $level1->firstWhere('binary_side', 1)['ba_id'] ?? null;
-            $ba003  = $level1->firstWhere('binary_side', 2)['ba_id'] ?? null;
+            $level1  = collect($treeRes['data']['rows'] ?? [])->where('level', 1);
+            $ba002   = $level1->firstWhere('binary_side', 1)['ba_id'] ?? null;
+            $ba003   = $level1->firstWhere('binary_side', 2)['ba_id'] ?? null;
 
             if (!$ba002 || !$ba003) {
                 $order->update([
                     'ignite_sync_status' => 'pending_placement',
-                    'ignite_sync_error'  => 'Member has no -002/-003 (not yet placed).',
+                    'ignite_sync_error'  => 'Member has no -002/-003 (not placed).',
                 ]);
-                Log::warning('Ignite job: member not placed, parked', ['order_id' => $order->id]);
                 return;
             }
 
-            // ── Allocations ──
+            // ── 4. Calculate Allocations (Order-wise) ──
             $cv001 = 0.0;
             if (empty($member['qualified_at'])) {
-                $cv001 = min(
-                    max(0.0, round($qualifyCv - (float) ($member['cv_allocated'] ?? 0), 4)),
-                    round($totalCv, 4)
-                );
+                $cv001 = min(max(0.0, round($qualifyCv - (float) ($member['cv_allocated'] ?? 0), 4)), round($totalCv, 4));
             }
             $cv001 = round($cv001, 4);
-
             $remaining = round($totalCv - $cv001, 4);
             $cv002     = round($remaining / 2, 4);
             $cv003     = round($remaining - $cv002, 4);
@@ -245,22 +202,9 @@ class PostOrderToIgniteJob implements ShouldQueue
             if ($cv002 > 0) $allocations[] = ['ba_id' => $ba002,   'cv' => number_format($cv002, 4, '.', '')];
             if ($cv003 > 0) $allocations[] = ['ba_id' => $ba003,   'cv' => number_format($cv003, 4, '.', '')];
 
-            $allocSum = round(array_sum(array_map(fn($a) => (float) $a['cv'], $allocations)), 4);
-            if ($allocSum !== round($totalCv, 4)) {
-                throw new \Exception("Internal allocation mismatch: allocated={$allocSum}, totalCv=" . round($totalCv, 4));
-            }
-
-            // ── ordered_at ──
-            $nowInTz = now()->setTimezone($timezone);
-            $orderedAt = $order->confirmed_at
-                ? $order->confirmed_at->copy()->setTimezone($timezone)
-                : $nowInTz->copy();
-            if ($orderedAt->greaterThan($nowInTz)) {
-                Log::warning('Ignite job: ordered_at clamped from future', ['order_id' => $order->id]);
-                $orderedAt = $nowInTz->copy();
-            }
-
-            // ── createOrder ──
+            // ── 5. Create Order on Ignite (ONE API CALL) ──
+            $orderedAt = $order->confirmed_at ? $order->confirmed_at->copy()->setTimezone($timezone) : now()->setTimezone($timezone);
+            
             $response = $ignite->createOrder(
                 baId:            $mainBaId,
                 partnerOrderRef: $order->order_reference,
@@ -275,47 +219,27 @@ class PostOrderToIgniteJob implements ShouldQueue
             $code = $response['code'] ?? null;
             $msg  = $response['msg'] ?? 'unknown';
 
-            if ($code === ResultCode::OK->value) {
-                $this->markOrderPosted($order, $eligibleLines, $response['data'] ?? [], $totalCv);
-                $this->forgetMemberCache($mainBaId);
-
-                Log::info('Ignite order posted (partial if lines skipped)', [
-                    'order_id'         => $order->id,
-                    'ref'              => $order->order_reference,
-                    'ignite_order_no'  => $response['data']['order_no'] ?? null,
-                    'total_cv'         => $response['data']['total_cv'] ?? $totalCv,
-                    'posted_lines'     => count($lines),
-                    'skipped_lines'    => $skippedLines,
-                ]);
-                return;
-            }
-
-            // Duplicate → treat as success
-            if ($code === ResultCode::ORDER_DUPLICATE->value) {
-                $data = [];
-                try {
+            // ── 6. Success Handling ──
+            if ($code === ResultCode::OK->value || $code === ResultCode::ORDER_DUPLICATE->value) {
+                $data = $response['data'] ?? [];
+                if ($code === ResultCode::ORDER_DUPLICATE->value) {
                     $existing = $ignite->getOrder($order->order_reference);
-                    if (($existing['code'] ?? null) === ResultCode::OK->value) {
-                        $data = $existing['data'] ?? [];
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('Ignite duplicate: getOrder threw', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+                    $data = $existing['data'] ?? [];
                 }
 
-                $cv = (float) ($data['total_cv'] ?? $totalCv);
-                $this->markOrderPosted($order, $eligibleLines, $data, $cv);
+                $this->markOrderPosted($order, $eligibleLines, $data, $totalCv);
                 $this->forgetMemberCache($mainBaId);
 
-                Log::info('Ignite order duplicate resolved', ['order_id' => $order->id]);
+                Log::info('Ignite order posted successfully', ['order_id' => $order->id]);
                 return;
             }
 
+            // ── 7. Error Handling ──
             if (in_array($code, self::PERMANENT_CODES, true)) {
                 $order->update([
                     'ignite_sync_status' => 'failed',
                     'ignite_sync_error'  => "[{$code}] {$msg}",
                 ]);
-                Log::error('Ignite order permanently refused', ['order_id' => $order->id, 'code' => $code, 'msg' => $msg]);
                 return;
             }
 
@@ -323,10 +247,12 @@ class PostOrderToIgniteJob implements ShouldQueue
                 $this->release(30);
                 return;
             }
+            
             if ($code === ResultCode::PLACEMENT_REFUSED->value) {
                 $this->release(60);
                 return;
             }
+            
             if ($code === ResultCode::ORDER_WEEK_UNKNOWN->value) {
                 $this->release(3600);
                 return;
@@ -338,7 +264,6 @@ class PostOrderToIgniteJob implements ShouldQueue
             Log::error("Ignite Job Failed: Order {$order->order_reference}", [
                 'order_id' => $order->id,
                 'error'    => $e->getMessage(),
-                'attempt'  => $this->attempts(),
             ]);
 
             if ($this->attempts() >= $this->tries || !now()->lt($this->retryUntil())) {

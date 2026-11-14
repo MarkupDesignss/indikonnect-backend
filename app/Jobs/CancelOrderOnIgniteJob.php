@@ -27,6 +27,7 @@ class CancelOrderOnIgniteJob implements ShouldQueue
         ResultCode::MEMBER_NOT_FOUND->value,
     ];
 
+    // Ab constructor mein Order ID aayegi, Line ID nahi
     public function __construct(public int $orderId)
     {
         $this->onQueue('ignite-sync');
@@ -46,11 +47,13 @@ class CancelOrderOnIgniteJob implements ShouldQueue
             return;
         }
 
+        // Agar order kabhi Ignite par gaya hi nahi, toh cancel karne ki zaroorat nahi
         if (empty($order->ignite_order_no)) {
             Log::info('Ignite cancel: order never posted, skipping', ['order_id' => $order->id]);
             return;
         }
 
+        // Agar pehle se cancel hai
         if ($order->ignite_sync_status === 'cancelled') {
             Log::info('Ignite cancel: already cancelled', ['order_id' => $order->id]);
             return;
@@ -67,6 +70,7 @@ class CancelOrderOnIgniteJob implements ShouldQueue
         }
 
         try {
+            // Ab API mein poore order ka reference jayega
             $response = $ignite->cancelOrder($partnerRef);
         } catch (\Throwable $e) {
             Log::warning('Ignite cancelOrder transport error, retrying', [
@@ -90,8 +94,7 @@ class CancelOrderOnIgniteJob implements ShouldQueue
                 'ignite_sync_error'  => null,
             ]);
 
-            // Only lines that landed on Ignite get "cancelled".
-            // Skipped lines (never posted) have no Ignite record to reverse.
+            // Order cancel hua toh uski saari posted lines bhi cancel mark karni hain
             $order->lines()
                 ->where('ignite_sync_status', 'posted')
                 ->update([
