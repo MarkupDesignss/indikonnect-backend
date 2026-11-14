@@ -280,6 +280,35 @@ class PostOrderToIgniteJob implements ShouldQueue
         }
     }
 
+    // protected function markOrderPosted(Order $order, array $eligibleLines, array $respData, float $fallbackCv): void
+    // {
+    //     $igniteOrderNo = $respData['order_no'] ?? null;
+    //     $totalCv       = round((float) ($respData['total_cv'] ?? $fallbackCv), 2);
+
+    //     foreach ($eligibleLines as $entry) {
+    //         $entry['line']->update([
+    //             'ignite_order_no'             => $igniteOrderNo,
+    //             'ignite_sync_status'          => 'posted',
+    //             'ignite_sync_error'           => null,
+    //             'ignite_cv_posted'            => round((float) $entry['cv'], 2),
+    //             'ignite_sales_week_year'      => $respData['sales_week']['year']         ?? null,
+    //             'ignite_sales_week_no'        => $respData['sales_week']['week_no']      ?? null,
+    //             'ignite_settlement_week_year' => $respData['settlement_week']['year']    ?? null,
+    //             'ignite_settlement_week_no'   => $respData['settlement_week']['week_no'] ?? null,
+    //         ]);
+    //     }
+
+    //     $order->update([
+    //         'ignite_order_no'       => $igniteOrderNo,
+    //         'ignite_sync_status'    => 'posted',
+    //         'ignite_sync_error'     => null,
+    //         'commissionable_volume' => $totalCv,
+    //         'sales_week_year'       => $respData['sales_week']['year']         ?? null,
+    //         'sales_week_no'         => $respData['sales_week']['week_no']      ?? null,
+    //         'settlement_week_year'  => $respData['settlement_week']['year']    ?? null,
+    //         'settlement_week_no'    => $respData['settlement_week']['week_no'] ?? null,
+    //     ]);
+    // }
     protected function markOrderPosted(Order $order, array $eligibleLines, array $respData, float $fallbackCv): void
     {
         $igniteOrderNo = $respData['order_no'] ?? null;
@@ -291,6 +320,7 @@ class PostOrderToIgniteJob implements ShouldQueue
                 'ignite_sync_status'          => 'posted',
                 'ignite_sync_error'           => null,
                 'ignite_cv_posted'            => round((float) $entry['cv'], 2),
+                'ignite_catalog_item_id'      => $entry['catalog_item_id'] ?? null,
                 'ignite_sales_week_year'      => $respData['sales_week']['year']         ?? null,
                 'ignite_sales_week_no'        => $respData['sales_week']['week_no']      ?? null,
                 'ignite_settlement_week_year' => $respData['settlement_week']['year']    ?? null,
