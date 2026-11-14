@@ -39,7 +39,6 @@ class CancelOrderOnIgniteJob implements ShouldQueue
 
     public function handle(IgniteClient $ignite): void
     {
-        // Order load karein (lines ke saath)
         $order = Order::with(['user', 'lines'])->find($this->orderId);
 
         if (!$order) {
@@ -47,16 +46,13 @@ class CancelOrderOnIgniteJob implements ShouldQueue
             return;
         }
 
-        // Agar order kabhi Ignite par gaya hi nahi (ya saari lines skip ho gayi thi), toh cancel mat karo
+        // Order never reached Ignite → nothing to cancel remotely.
         if (empty($order->ignite_order_no)) {
             Log::info('Ignite cancel: order never posted, skipping', ['order_id' => $order->id]);
-            
-            // Local DB me order status update kar do (just in case)
             $order->update(['status' => 'cancelled']);
             return;
         }
 
-        // Agar pehle se Ignite par cancelled hai
         if ($order->ignite_sync_status === 'cancelled') {
             Log::info('Ignite cancel: already cancelled', ['order_id' => $order->id]);
             return;
@@ -72,7 +68,6 @@ class CancelOrderOnIgniteJob implements ShouldQueue
         }
 
         try {
-            // Ignite par cancel call bhejein (Order-level)
             $response = $ignite->cancelOrder($partnerRef);
         } catch (\Throwable $e) {
             Log::warning('Ignite cancelOrder transport error, retrying', [
@@ -96,8 +91,7 @@ class CancelOrderOnIgniteJob implements ShouldQueue
                 'ignite_sync_error'  => null,
             ]);
 
-            // SIRF UN LINES KO CANCEL KAREIN JO ACTUALLY IGNITE PAR GAYI THI
-            // Jinhe humne post karte waqt 'skipped' mark kiya tha, unhe mat chhedo.
+            // Only cancel lines that actually reached Ignite.
             $order->lines()
                 ->where('ignite_sync_status', 'posted')
                 ->update([
@@ -123,8 +117,17 @@ class CancelOrderOnIgniteJob implements ShouldQueue
             return;
         }
 
-        // ── ORDER_NOT_FOUND — maybe post job is still running; retry ──
+        // ── ORDER_NOT_FOUND ──
         if ($code === ResultCode::ORDER_NOT_FOUND->value) {
+            // Safety net: if the post job permanently failed, no order exists remotely.
+            if ($order->ignite_sync_status === 'failed') {
+                Log::info('Ignite cancel: post job failed, nothing to cancel remotely', [
+                    'order_id' => $order->id,
+                ]);
+                $order->update(['status' => 'cancelled']);
+                return;
+            }
+
             if ($this->attempts() < $this->tries && now()->lt($this->retryUntil())) {
                 Log::info('Ignite cancel: ORDER_NOT_FOUND, retrying in 5 min', [
                     'order_id' => $order->id,
