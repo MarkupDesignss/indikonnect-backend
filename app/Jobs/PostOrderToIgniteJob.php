@@ -133,7 +133,6 @@ class PostOrderToIgniteJob implements ShouldQueue
                         'reason'       => 'No matching catalog line on Ignite (ref/promo issue).',
                     ];
                     
-                    // Mark this line as skipped locally
                     $line->update([
                         'ignite_sync_status' => 'skipped',
                         'ignite_sync_error'  => 'Product not mapped on Ignite.',
@@ -210,7 +209,7 @@ class PostOrderToIgniteJob implements ShouldQueue
                 return;
             }
 
-            // ── 4. Calculate Allocations (Sequential Fill to avoid CV_ORIGINALS_FIRST) ──
+            // ── 4. Calculate Allocations (Strict SDK Compliance: Sequential Fill) ──
             $cv001 = 0.0;
             if (empty($member['qualified_at'])) {
                 $cv001 = min(
@@ -230,19 +229,20 @@ class PostOrderToIgniteJob implements ShouldQueue
             $cv002Need = max(0.0, round($qualifyCv - $cv002Have, 4));
             $cv003Need = max(0.0, round($qualifyCv - $cv003Have, 4));
 
+            // Fill -002 first, then -003. Never 50/50 split.
             $cv002 = min($remaining, $cv002Need);
             $remaining -= $cv002;
 
             $cv003 = min($remaining, $cv003Need);
             $remaining -= $cv003;
 
-            // Agar partial order me CV bach gaya jise allocate nahi kar sakte
+            // Agar bacha hua CV remaining hai (jab saare base nodes full ho gaye aur Extra TC nahi hai)
             if ($remaining > 0.0001) {
                 $order->update([
                     'ignite_sync_status' => 'failed',
-                    'ignite_sync_error'  => 'Partial order cannot fill -001/-002/-003 to qualify_cv. Remaining CV: ' . $remaining,
+                    'ignite_sync_error'  => 'Order CV exceeds original nodes (-001/-002/-003) but no Extra TC logic implemented. Remaining CV: ' . $remaining,
                 ]);
-                Log::error('Ignite job: partial order cannot be allocated', [
+                Log::error('Ignite job: CV exceeds original nodes', [
                     'order_id'  => $order->id,
                     'remaining' => $remaining,
                 ]);
@@ -255,7 +255,6 @@ class PostOrderToIgniteJob implements ShouldQueue
             if ($cv003 > 0) $allocations[] = ['ba_id' => $ba003,   'cv' => number_format($cv003, 4, '.', '')];
 
             // ── 5. Create Order on Ignite ──
-            // SDK comment #3: ordered_at MUST be Asia/Hong_Kong (UTC+8)
             $orderedAt = $order->confirmed_at
                 ? $order->confirmed_at->copy()->setTimezone($igniteTz)
                 : now($igniteTz);
