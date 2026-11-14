@@ -2,7 +2,7 @@
 
 namespace App\Jobs;
 
-use App\Models\OrderLine;
+use App\Models\Order;
 use App\Sdks\Partner\IgniteClient;
 use App\Sdks\Partner\ResultCode;
 use Illuminate\Bus\Queueable;
@@ -17,146 +17,161 @@ class CancelOrderOnIgniteJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 20;
+    public int $tries = 200;
     public int $timeout = 60;
 
-    /** Exponential backoff — covers the Saturday settlement window (~1h). */
     public array $backoff = [30, 60, 120, 300, 600];
 
-    public function __construct(public int $orderLineId)
+    private const PERMANENT_CODES = [
+        ResultCode::VALIDATION_FAILED->value,
+        ResultCode::MEMBER_NOT_FOUND->value,
+    ];
+
+    public function __construct(public int $orderId)
     {
         $this->onQueue('ignite-sync');
     }
 
     public function retryUntil(): \DateTime
     {
-        return now()->addHours(6);
+        return now()->addHours(12);
     }
 
     public function handle(IgniteClient $ignite): void
     {
-        $line = OrderLine::with('order')->find($this->orderLineId);
+        $order = Order::with(['user', 'lines'])->find($this->orderId);
 
-        if (! $line) {
-            Log::warning('Ignite cancel: line not found', ['line_id' => $this->orderLineId]);
+        if (!$order) {
+            Log::warning('Ignite cancel: order not found', ['order_id' => $this->orderId]);
             return;
         }
 
-        // Line was never posted to Ignite — nothing to cancel there
-        if (empty($line->ignite_order_no)) {
-            Log::info('Ignite cancel: no ignite_order_no on line, skipping', [
-                'line_id' => $line->id,
+        if (empty($order->ignite_order_no)) {
+            Log::info('Ignite cancel: order never posted, skipping', ['order_id' => $order->id]);
+            return;
+        }
+
+        if ($order->ignite_sync_status === 'cancelled') {
+            Log::info('Ignite cancel: already cancelled', ['order_id' => $order->id]);
+            return;
+        }
+
+        $partnerRef = $order->order_reference;
+        if (empty($partnerRef)) {
+            $order->update([
+                'ignite_sync_status' => 'failed',
+                'ignite_sync_error'  => 'order_reference is empty; cannot cancel on Ignite.',
             ]);
+            Log::error('Ignite cancel: empty order_reference', ['order_id' => $order->id]);
             return;
         }
-
-        // Already cancelled on Ignite
-        if ($line->ignite_sync_status === 'cancelled') {
-            Log::info('Ignite cancel: already cancelled', ['line_id' => $line->id]);
-            return;
-        }
-
-        $order = $line->order;
-
-        if (! $order) {
-            Log::warning('Ignite cancel: parent order missing', ['line_id' => $line->id]);
-            return;
-        }
-
-        // SAME ref builder as PostOrderToIgniteJob
-        $partnerRef = $this->buildPartnerRef($order->order_reference, $line->id);
 
         try {
             $response = $ignite->cancelOrder($partnerRef);
         } catch (\Throwable $e) {
             Log::warning('Ignite cancelOrder transport error, retrying', [
-                'line_id' => $line->id,
-                'ref'     => $partnerRef,
-                'error'   => $e->getMessage(),
+                'order_id' => $order->id,
+                'ref'      => $partnerRef,
+                'error'    => $e->getMessage(),
             ]);
             $this->release(30);
             return;
         }
 
         $code = $response['code'] ?? null;
+        $msg  = $response['msg'] ?? 'unknown';
 
-        // ── Success (idempotent) ─────────────────────────────────────
+        // Success (idempotent)
         if ($code === ResultCode::OK->value
             || $code === ResultCode::ORDER_ALREADY_CANCELLED->value) {
 
-            $line->update([
+            $order->update([
                 'ignite_sync_status' => 'cancelled',
                 'ignite_sync_error'  => null,
             ]);
 
-            $this->forgetMemberCache($order, $line);
+            $order->lines()->update([
+                'ignite_sync_status' => 'cancelled',
+                'ignite_sync_error'  => null,
+                'ignite_cv_posted'   => 0,
+            ]);
 
-            Log::info('Ignite line cancelled', [
-                'line_id' => $line->id,
-                'ref'     => $partnerRef,
-                'code'    => $code,
+            $this->forgetMemberCache($order);
+
+            Log::info('Ignite order cancelled', [
+                'order_id' => $order->id,
+                'ref'      => $partnerRef,
+                'code'     => $code,
             ]);
             return;
         }
 
-        // ── Settlement running — retry ───────────────────────────────
+        // Settlement running — retry
         if ($code === ResultCode::NETWORK_BUSY->value) {
-            Log::info('Ignite cancel: settlement in progress, retrying', [
-                'line_id' => $line->id,
-            ]);
+            Log::info('Ignite cancel: NETWORK_BUSY, releasing 30s', ['order_id' => $order->id]);
             $this->release(30);
             return;
         }
 
-        // ── Order never landed on Ignite — permanent fail ────────────
-        // Ref mismatch (line created with a different ref), or the line
-        // was marked posted but createOrder never actually landed.
+        // ORDER_NOT_FOUND may race with PostOrder — retry until exhausted
         if ($code === ResultCode::ORDER_NOT_FOUND->value) {
-            $line->update([
-                'ignite_sync_status' => 'failed',
-                'ignite_sync_error'  => "ORDER_NOT_FOUND: ref={$partnerRef}",
-            ]);
+            if ($this->attempts() < $this->tries && $this->hasTimeLeft()) {
+                Log::info('Ignite cancel: ORDER_NOT_FOUND, retrying in 5 min', [
+                    'order_id' => $order->id,
+                    'attempt'  => $this->attempts(),
+                ]);
+                $this->release(300);
+                return;
+            }
 
-            Log::error('Ignite cancel: ORDER_NOT_FOUND — partner_ref mismatch or createOrder never landed', [
-                'line_id'         => $line->id,
+            $order->update([
+                'ignite_sync_status' => 'failed',
+                'ignite_sync_error'  => "ORDER_NOT_FOUND after {$this->attempts()} attempts: ref={$partnerRef}",
+            ]);
+            Log::error('Ignite cancel: ORDER_NOT_FOUND exhausted retries', [
                 'order_id'        => $order->id,
                 'ref'             => $partnerRef,
-                'ignite_order_no' => $line->ignite_order_no,
+                'ignite_order_no' => $order->ignite_order_no,
             ]);
             return;
         }
 
-        // ── Any other business refusal — permanent fail ──────────────
-        $line->update([
+        // Permanent
+        if (in_array($code, self::PERMANENT_CODES, true)) {
+            $order->update([
+                'ignite_sync_status' => 'failed',
+                'ignite_sync_error'  => "[{$code}] {$msg}",
+            ]);
+            Log::error('Ignite cancel: permanent refusal', [
+                'order_id' => $order->id,
+                'code'     => $code,
+                'msg'      => $msg,
+            ]);
+            return;
+        }
+
+        // Any other refusal — fail (cancel has no other expected code)
+        $order->update([
             'ignite_sync_status' => 'failed',
-            'ignite_sync_error'  => "[{$code}] " . ($response['msg'] ?? 'unknown'),
+            'ignite_sync_error'  => "[{$code}] {$msg}",
         ]);
-
         Log::error('Ignite cancel: non-retryable refusal', [
-            'line_id' => $line->id,
-            'order_id'=> $order->id,
-            'ref'     => $partnerRef,
-            'code'    => $code,
-            'msg'     => $response['msg'] ?? null,
+            'order_id' => $order->id,
+            'ref'      => $partnerRef,
+            'code'     => $code,
+            'msg'      => $msg,
         ]);
     }
 
-    /**
-     * Same as PostOrderToIgniteJob::buildPartnerRef() — MUST stay in sync.
-     */
-    protected function buildPartnerRef(string $orderRef, int $lineId): string
+    private function hasTimeLeft(): bool
     {
-        return $orderRef . '-' . $lineId;
+        return now()->lt($this->retryUntil());
     }
 
-    /**
-     * Clear the member cache so subsequent reads see fresh balances/CV.
-     */
-    protected function forgetMemberCache($order, $line): void
+    protected function forgetMemberCache(Order $order): void
     {
         $user = $order->user;
-
-        if ($user && ! empty($user->distributor_id)) {
+        if ($user && !empty($user->distributor_id)) {
             $mainBaId = preg_replace('/-(002|003)$/', '-001', $user->distributor_id);
             Cache::forget("ignite_member_{$mainBaId}");
             Cache::forget("ignite_binary_tree_{$mainBaId}");
