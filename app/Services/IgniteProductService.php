@@ -19,14 +19,6 @@ class IgniteProductService
      *   2. Push its pricing into the Ignite catalog (may go to approval queue)
      *
      * Never throws — logs failures and returns a structured status.
-     *
-     * @return array{
-     *     product: string,
-     *     catalog: string,
-     *     catalog_request_id?: int|null,
-     *     catalog_errors?: array,
-     *     warning?: string
-     * }
      */
     public function syncProduct(Product $product): array
     {
@@ -49,7 +41,6 @@ class IgniteProductService
         $result['product'] = $this->syncProductRecord($product);
 
         if (!$product->ignite_product_id) {
-            // product sync hi fail hua — catalog push useless hai
             $result['catalog'] = 'skipped:product_not_synced';
             if ($result['product'] === 'unreachable') {
                 $result['warning'] = 'Ignite unreachable — product not synced. Retry later.';
@@ -97,7 +88,6 @@ class IgniteProductService
         ];
 
         try {
-            // Already on Ignite → update
             if ($product->ignite_product_id) {
                 $res = $this->ignite->updateProduct($product->ignite_product_id, $payload);
 
@@ -105,7 +95,6 @@ class IgniteProductService
                     return 'updated';
                 }
 
-                // Ignite pe product delete ho gaya — recreate
                 if ($res['code'] === ResultCode::PRODUCT_NOT_FOUND->value) {
                     return $this->createProductRecord($product, $payload);
                 }
@@ -120,7 +109,6 @@ class IgniteProductService
                 return 'refused:' . $res['code'];
             }
 
-            // First-time sync
             return $this->createProductRecord($product, $payload);
 
         } catch (\Throwable $e) {
@@ -162,23 +150,22 @@ class IgniteProductService
     /**
      * Push the product's price / CV into the Ignite catalog.
      *
-     * NOTE: We no longer check `wasChanged()` here — after `$product->refresh()`
-     * in the controller, Laravel clears the change log, so the old check would
-     * silently skip pricing updates. Ignite's saveCatalogLines is idempotent
-     * (returns "unchanged" when nothing differs), so always pushing is safe
-     * and guarantees correct catalog state.
-     *
-     * Returns: approved | pending | unchanged | refused | unreachable
-     *
-     * @return array{status: string, request_id?: int|null, errors?: array}
+     * Fix: we now look up existing catalog_item_id via catalogLines()
+     * and pass it in the payload. If missing, we pass product_id to
+     * create a new line — otherwise Ignite refuses with 7002
+     * (partner_line_ref already used).
      */
     protected function syncCatalogPricing(Product $product): array
     {
         $batchRef = 'PB-' . $product->product_code . '-' . now()->format('YmdHis');
         $lineRef  = 'CL-' . $product->product_code;
 
+        // -----------------------------------------------------------------
+        // FIX: resolve existing catalog_item_id for this partner_line_ref
+        // -----------------------------------------------------------------
+        $existingCatalogItemId = $this->findExistingCatalogItemId($lineRef);
+
         $line = [
-            'product_id'       => (int) $product->ignite_product_id,
             'partner_line_ref' => $lineRef,
             'retail_price'     => $this->fmtAmount($product->retail_price),
             'member_price'     => $this->fmtAmount($product->distributor_price ?? $product->retail_price),
@@ -189,6 +176,14 @@ class IgniteProductService
             'visible_end_at'   => null,
             'is_enabled'       => (bool) $product->is_published,
         ];
+
+        if ($existingCatalogItemId) {
+            // Update existing line — DO NOT send product_id
+            $line['catalog_item_id'] = $existingCatalogItemId;
+        } else {
+            // First-time create for this line — send product_id
+            $line['product_id'] = (int) $product->ignite_product_id;
+        }
 
         try {
             $res = $this->ignite->saveCatalogLines([$line], $batchRef);
@@ -228,6 +223,38 @@ class IgniteProductService
         ]);
 
         return ['status' => 'refused'];
+    }
+
+    /**
+     * Look up an existing catalog_item_id by partner_line_ref.
+     * Returns null if none — meaning we should create a new line.
+     */
+    protected function findExistingCatalogItemId(string $lineRef): ?int
+    {
+        try {
+            $res = $this->ignite->catalogLines();
+
+            if (($res['code'] ?? null) !== ResultCode::OK->value) {
+                Log::warning('catalogLines() refused during catalog sync lookup', [
+                    'line_ref' => $lineRef,
+                    'code'     => $res['code'] ?? null,
+                    'msg'      => $res['msg'] ?? null,
+                ]);
+                return null;
+            }
+
+            $existing = collect($res['data']['lines'] ?? [])
+                ->firstWhere('partner_line_ref', $lineRef);
+
+            return $existing ? (int) $existing['catalog_item_id'] : null;
+
+        } catch (\Throwable $e) {
+            Log::warning('catalogLines() threw during catalog sync lookup', [
+                'line_ref' => $lineRef,
+                'error'    => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 
     /**
