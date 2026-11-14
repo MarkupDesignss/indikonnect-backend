@@ -96,11 +96,11 @@ class PostOrderToIgniteJob implements ShouldQueue
             $catalogByProduct = $catalogItems->groupBy('product_id');
             $catalogByRef     = $catalogItems->whereNotNull('partner_product_ref')->keyBy('partner_product_ref');
 
-            // ── 2. PRE-FLIGHT: STRICT ALL-OR-NOTHING ──
+            // ── 2. PRE-FLIGHT: PARTIAL POSTING (Best-Effort) ──
             $lines         = [];
             $totalCv       = 0.0;
             $eligibleLines = [];
-            $unmappedLines = []; // Track missing products
+            $skippedLines  = []; // Track unmapped products
 
             foreach ($order->lines as $line) {
                 if (in_array($line->delivery_status, ['cancelled', 'returned'], true)) {
@@ -110,29 +110,33 @@ class PostOrderToIgniteJob implements ShouldQueue
                 $product = $line->product;
                 $igniteItem = null;
 
-                // Priority 1: Match by partner_product_ref (if exists in DB)
+                // Priority 1: Match by partner_product_ref
                 if ($product && !empty($product->partner_product_ref)) {
                     $igniteItem = $catalogByRef->get($product->partner_product_ref);
                 }
 
-                // Priority 2: Match by ignite_product_id (Main fallback)
+                // Priority 2: Match by ignite_product_id
                 if (!$igniteItem && $product && !empty($product->ignite_product_id)) {
                     $candidates = $catalogByProduct->get((int) $product->ignite_product_id, collect());
-                    
-                    // If exactly 1 line found, use it. If 0 or >1, it's considered unmapped/ambiguous.
                     if ($candidates->count() === 1) {
                         $igniteItem = $candidates->first();
                     }
                 }
 
-                // ❌ If not mapped, add to missing array
+                // ❌ If NOT mapped, skip this line (but don't stop the order)
                 if (!$igniteItem || empty($igniteItem['catalog_item_id'])) {
-                    $unmappedLines[] = [
+                    $skippedLines[] = [
                         'line_id'      => $line->id,
                         'product_id'   => $product ? $product->id : null,
                         'product_name' => $product ? $product->name : 'Unknown Product',
                     ];
-                    continue;
+                    
+                    // Update line status to skipped
+                    $line->update([
+                        'ignite_sync_status' => 'skipped',
+                        'ignite_sync_error'  => 'Product not mapped on Ignite.',
+                    ]);
+                    continue; 
                 }
 
                 // ✅ If mapped, add to valid lines
@@ -146,25 +150,23 @@ class PostOrderToIgniteJob implements ShouldQueue
                 $eligibleLines[] = ['line' => $line, 'cv' => $lineCv];
             }
 
-            // 🚨 STRICT ACTION: If ANY product is missing, SKIP ENTIRE ORDER
-            if (!empty($unmappedLines)) {
-                $order->update([
-                    'ignite_sync_status' => 'skipped',
-                    'ignite_sync_error'  => 'Order skipped: Missing Ignite mapping.',
-                ]);
-                Log::error('Ignite job: Entire order skipped due to unmapped products.', [
-                    'order_id' => $order->id,
-                    'missing'  => $unmappedLines
-                ]);
-                return; // Exit: No API call to Ignite
-            }
-
+            // Agar ek bhi product mapped nahi mila, toh order skip
             if (empty($lines)) {
                 $order->update([
                     'ignite_sync_status' => 'skipped',
-                    'ignite_sync_error'  => 'No eligible lines to post.',
+                    'ignite_sync_error'  => 'No mapped products found for this order.',
+                ]);
+                Log::warning('Ignite job: Entire order skipped (no mapped products).', [
+                    'order_id' => $order->id,
                 ]);
                 return;
+            }
+
+            if (!empty($skippedLines)) {
+                Log::warning('Ignite job: Some lines skipped (unmapped).', [
+                    'order_id' => $order->id,
+                    'skipped'  => $skippedLines
+                ]);
             }
 
             // ── 3. Fetch Plan, Member & Tree ──
@@ -187,7 +189,7 @@ class PostOrderToIgniteJob implements ShouldQueue
                 return;
             }
 
-            // ── 4. Calculate Allocations (Order-wise) ──
+            // ── 4. Calculate Allocations (Sirf mapped products ka CV) ──
             $cv001 = 0.0;
             if (empty($member['qualified_at'])) {
                 $cv001 = min(max(0.0, round($qualifyCv - (float) ($member['cv_allocated'] ?? 0), 4)), round($totalCv, 4));
@@ -202,7 +204,7 @@ class PostOrderToIgniteJob implements ShouldQueue
             if ($cv002 > 0) $allocations[] = ['ba_id' => $ba002,   'cv' => number_format($cv002, 4, '.', '')];
             if ($cv003 > 0) $allocations[] = ['ba_id' => $ba003,   'cv' => number_format($cv003, 4, '.', '')];
 
-            // ── 5. Create Order on Ignite (ONE API CALL) ──
+            // ── 5. Create Order on Ignite (Sirf mapped lines ke saath) ──
             $orderedAt = $order->confirmed_at ? $order->confirmed_at->copy()->setTimezone($timezone) : now()->setTimezone($timezone);
             
             $response = $ignite->createOrder(
@@ -230,7 +232,7 @@ class PostOrderToIgniteJob implements ShouldQueue
                 $this->markOrderPosted($order, $eligibleLines, $data, $totalCv);
                 $this->forgetMemberCache($mainBaId);
 
-                Log::info('Ignite order posted successfully', ['order_id' => $order->id]);
+                Log::info('Ignite order posted (Partial if lines skipped)', ['order_id' => $order->id]);
                 return;
             }
 
