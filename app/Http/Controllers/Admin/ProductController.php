@@ -3766,7 +3766,6 @@ class ProductController extends Controller
             'specification' => ['nullable', 'string'],
             'brand_id' => ['nullable'],
             'service_charge' => ['nullable'],
-            // 'ignite_product_id' => ['sometimes', 'required'],   // ❌ removed — Ignite se aayega
             'hsn_code' => ['nullable', 'string', 'max:50'],
             'uom' => ['nullable', 'string', 'max:50'],
             'category_id' => ['sometimes', 'required', 'exists:categories,id'],
@@ -3952,6 +3951,21 @@ class ProductController extends Controller
                     'parent_combo_id',
                 ])
                 ->toArray();
+
+            // ============================================================
+            // 🔥 FIX: Backfill partner_product_ref if missing (legacy products)
+            // SDK comment #1: partner_product_ref is the primary mapping key.
+            // It's always derived from product_code (immutable after sync).
+            // ============================================================
+            if (empty($product->partner_product_ref) && !empty($product->product_code)) {
+                $productData['partner_product_ref'] = $product->product_code;
+
+                Log::info('[ignite][update] backfilling partner_product_ref', [
+                    'product_id' => $product->id,
+                    'product_code' => $product->product_code,
+                ]);
+            }
+            // ============================================================
 
             if ($request->has('is_trending')) {
                 $isTrending = $request->input('is_trending');
@@ -4178,6 +4192,7 @@ class ProductController extends Controller
             Log::info('[ignite][update] starting sync', [
                 'product_id'         => $product->id,
                 'product_code'       => $product->product_code,
+                'partner_product_ref'=> $product->partner_product_ref,
                 'ignite_product_id'  => $product->ignite_product_id,
             ]);
 
