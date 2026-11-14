@@ -81,7 +81,7 @@ class CancelOrderOnIgniteJob implements ShouldQueue
         $code = $response['code'] ?? null;
         $msg  = $response['msg'] ?? 'unknown';
 
-        // Success (idempotent)
+        // ── Success (idempotent) ──
         if ($code === ResultCode::OK->value
             || $code === ResultCode::ORDER_ALREADY_CANCELLED->value) {
 
@@ -90,11 +90,15 @@ class CancelOrderOnIgniteJob implements ShouldQueue
                 'ignite_sync_error'  => null,
             ]);
 
-            $order->lines()->update([
-                'ignite_sync_status' => 'cancelled',
-                'ignite_sync_error'  => null,
-                'ignite_cv_posted'   => 0,
-            ]);
+            // Only lines that landed on Ignite get "cancelled".
+            // Skipped lines (never posted) have no Ignite record to reverse.
+            $order->lines()
+                ->where('ignite_sync_status', 'posted')
+                ->update([
+                    'ignite_sync_status' => 'cancelled',
+                    'ignite_sync_error'  => null,
+                    'ignite_cv_posted'   => 0,
+                ]);
 
             $this->forgetMemberCache($order);
 
@@ -106,16 +110,16 @@ class CancelOrderOnIgniteJob implements ShouldQueue
             return;
         }
 
-        // Settlement running — retry
+        // ── Settlement running — retry ──
         if ($code === ResultCode::NETWORK_BUSY->value) {
             Log::info('Ignite cancel: NETWORK_BUSY, releasing 30s', ['order_id' => $order->id]);
             $this->release(30);
             return;
         }
 
-        // ORDER_NOT_FOUND may race with PostOrder — retry until exhausted
+        // ── ORDER_NOT_FOUND — may race with PostOrder; retry ──
         if ($code === ResultCode::ORDER_NOT_FOUND->value) {
-            if ($this->attempts() < $this->tries && $this->hasTimeLeft()) {
+            if ($this->attempts() < $this->tries && now()->lt($this->retryUntil())) {
                 Log::info('Ignite cancel: ORDER_NOT_FOUND, retrying in 5 min', [
                     'order_id' => $order->id,
                     'attempt'  => $this->attempts(),
@@ -136,7 +140,7 @@ class CancelOrderOnIgniteJob implements ShouldQueue
             return;
         }
 
-        // Permanent
+        // ── Permanent refusals ──
         if (in_array($code, self::PERMANENT_CODES, true)) {
             $order->update([
                 'ignite_sync_status' => 'failed',
@@ -150,7 +154,7 @@ class CancelOrderOnIgniteJob implements ShouldQueue
             return;
         }
 
-        // Any other refusal — fail (cancel has no other expected code)
+        // ── Any other refusal — fail ──
         $order->update([
             'ignite_sync_status' => 'failed',
             'ignite_sync_error'  => "[{$code}] {$msg}",
@@ -161,11 +165,6 @@ class CancelOrderOnIgniteJob implements ShouldQueue
             'code'     => $code,
             'msg'      => $msg,
         ]);
-    }
-
-    private function hasTimeLeft(): bool
-    {
-        return now()->lt($this->retryUntil());
     }
 
     protected function forgetMemberCache(Order $order): void
