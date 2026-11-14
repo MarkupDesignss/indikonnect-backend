@@ -2558,6 +2558,9 @@ class ProductController extends Controller
         try {
             $validated = $validator->validated();
 
+            // Ignite product_id is assigned BY Ignite on createProduct — never from user input.
+            unset($validated['ignite_product_id']);
+
             if ($validated['product_type'] === 'combo') {
                 $validated['tax_category_id'] = null;
             }
@@ -2565,6 +2568,10 @@ class ProductController extends Controller
             $productData = collect($validated)
                 ->except(['product_images', 'variants', 'combo_product_ids'])
                 ->toArray();
+
+            // SDK comment #1: partner_product_ref is the primary mapping key on Ignite.
+            // We use product_code as partner_product_ref, so mirror it locally.
+            $productData['partner_product_ref'] = $productData['product_code'];
 
             if (empty($productData['brand_id'])) {
                 $productData['brand_id'] = 1;
@@ -2644,15 +2651,7 @@ class ProductController extends Controller
                 }
             }
 
-            /*
-        |--------------------------------------------------------------------------
-        | COMBO GROUPS — CREATE
-        |--------------------------------------------------------------------------
-        | parent_combo_id on this product = [[childA,childB],[childE,childF], ...]
-        | Children NEVER store reverse data. To find a child's parents, query
-        | products WHERE JSON_CONTAINS(parent_combo_id, childId).
-        |--------------------------------------------------------------------------
-        */
+            /* COMBO GROUPS — CREATE */
             $comboDetails = [];
 
             if (!empty($validated['combo_product_ids'])) {
@@ -2765,6 +2764,7 @@ class ProductController extends Controller
                 [
                     'product_id'           => $product->id,
                     'product_code'         => $product->product_code,
+                    'partner_product_ref'  => $product->partner_product_ref,
                     'name'                 => $product->name,
                     'slug'                 => $product->slug,
                     'category_id'          => $product->category_id,
@@ -3833,16 +3833,19 @@ class ProductController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        // ❌ Removed: validateIgniteProductIdUniqueness() — Ignite enforces it on
-        //    partner_product_ref (= product_code).
-
-        // ❌ product_code is immutable once set on Ignite (partner_product_ref never changes).
-        if ($request->filled('product_code') && $request->input('product_code') !== $product->product_code) {
+        // SDK comment #1: partner_product_ref is immutable on Ignite.
+        // We use product_code as partner_product_ref, so once synced, product_code is locked.
+        // Before first Ignite sync (ignite_product_id is null), allow fixing typos.
+        if (
+            $request->filled('product_code')
+            && $request->input('product_code') !== $product->product_code
+            && !empty($product->ignite_product_id)
+        ) {
             return response()->json([
                 'message' => 'Validation failed',
                 'errors'  => [
                     'product_code' => [
-                        'product_code cannot be changed once the product is created. Create a new product instead.',
+                        'product_code cannot be changed once the product is synced to Ignite. Create a new product instead.',
                     ],
                 ],
             ], 422);
@@ -3851,6 +3854,9 @@ class ProductController extends Controller
         DB::beginTransaction();
         try {
             $validated = $validator->validated();
+
+            // Ignite product_id is assigned by Ignite — never persisted from user input.
+            unset($validated['ignite_product_id']);
 
             // Determine effective product type (request value or existing DB value)
             $effectiveType = $validated['product_type'] ?? $product->product_type;
@@ -3863,6 +3869,7 @@ class ProductController extends Controller
             $oldValues = [
                 'product_id' => $product->id,
                 'product_code' => $product->product_code,
+                'partner_product_ref' => $product->partner_product_ref,
                 'name' => $product->name,
                 'slug' => $product->slug,
                 'product_type' => $product->product_type,
@@ -3931,7 +3938,7 @@ class ProductController extends Controller
             /* PRODUCT DATA UPDATE */
             $productData = collect($validated)
                 ->except([
-                    'product_code',          // ⬅ immutable — do not persist changes
+                    'product_code',          // immutable after sync — see check above
                     'product_images',
                     'remove_images',
                     'variants',
@@ -4085,14 +4092,7 @@ class ProductController extends Controller
                 }
             }
 
-            /*
-        |--------------------------------------------------------------------------
-        | COMBO GROUPS — REMOVE
-        |--------------------------------------------------------------------------
-        | Only touches THIS product's parent_combo_id.
-        | Children are not written to.
-        |--------------------------------------------------------------------------
-        */
+            /* COMBO GROUPS — REMOVE */
             $removedComboIds = [];
 
             if (!empty($validated['remove_combo_product_ids'])) {
@@ -4115,14 +4115,7 @@ class ProductController extends Controller
                 ]);
             }
 
-            /*
-        |--------------------------------------------------------------------------
-        | COMBO GROUPS — ADD (as a NEW group)
-        |--------------------------------------------------------------------------
-        | Only touches THIS product's parent_combo_id.
-        | Children are not written to.
-        |--------------------------------------------------------------------------
-        */
+            /* COMBO GROUPS — ADD (as a NEW group) */
             $addedComboIds = [];
 
             if (!empty($validated['combo_product_ids'])) {
@@ -4176,7 +4169,6 @@ class ProductController extends Controller
             DB::commit();
 
             $product->load(['category', 'taxCategory', 'images']);
-
             $product->refresh();
 
             // ============================================================
@@ -4205,6 +4197,7 @@ class ProductController extends Controller
             $newValues = [
                 'product_id' => $product->id,
                 'product_code' => $product->product_code,
+                'partner_product_ref' => $product->partner_product_ref,
                 'name' => $product->name,
                 'slug' => $product->slug,
                 'product_type' => $product->product_type,
@@ -4255,7 +4248,7 @@ class ProductController extends Controller
                 'manual_stock_adjustment_old'       => $adjustmentOld,
                 'manual_stock_adjustment_new'       => $adjustmentNew,
                 'manual_stock_adjustment_operation' => $validated['manual_stock_adjustment_operation'] ?? null,
-                'ignite_sync'                       => $igniteSync,   // audit trail
+                'ignite_sync'                       => $igniteSync,
                 'updated_by' => $this->getAdminId(),
                 'updated_at' => now()->toDateTimeString(),
             ];
@@ -4273,7 +4266,7 @@ class ProductController extends Controller
                     'parent_groups'     => $finalParentGroups,
                     'current_children'  => $finalComboChildIds,
                 ];
-                $response['ignite_sync'] = $igniteSync;   // admin UI reads this
+                $response['ignite_sync'] = $igniteSync;
             }
 
             return response()->json($response);
