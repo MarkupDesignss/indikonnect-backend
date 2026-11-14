@@ -17,14 +17,39 @@ class PostOrderToIgniteJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $tries = 5;
-    public $timeout = 120;
+    public int $tries = 120;
+    public int $timeout = 60;
 
-    public function __construct(public int $orderId) {}
+    public array $backoff = [30, 60, 120, 300, 600];
+
+    /** Refusals retrying will never fix. */
+    private const PERMANENT_CODES = [
+        ResultCode::VALIDATION_FAILED->value,
+        ResultCode::MEMBER_NOT_FOUND->value,
+        ResultCode::PRODUCT_NOT_ON_CATALOG->value,
+        ResultCode::CV_ALLOCATION_MISMATCH->value,
+        ResultCode::ALLOCATION_TARGET_INVALID->value,
+        ResultCode::CV_001_MISMATCH->value,
+        ResultCode::EXTRA_TC_OVER_ENTITLEMENT->value,
+        ResultCode::EXTRA_TC_PARENT_INVALID->value,
+        ResultCode::ORDER_NO_CV->value,
+        ResultCode::CV_ORIGINALS_FIRST->value,
+        ResultCode::ORDER_DISABLED->value,
+    ];
+
+    public function __construct(public int $orderId)
+    {
+        $this->onQueue('ignite-sync');
+    }
+
+    public function retryUntil(): \DateTime
+    {
+        return now()->addHours(12);
+    }
 
     public function handle(IgniteClient $ignite): void
     {
-        Log::info('Ignite line-wise job started', [
+        Log::info('Ignite order job started', [
             'order_id' => $this->orderId,
             'attempt'  => $this->attempts(),
         ]);
@@ -36,17 +61,32 @@ class PostOrderToIgniteJob implements ShouldQueue
             return;
         }
 
+        // Idempotency: already posted
+        if ($order->ignite_sync_status === 'posted' && !empty($order->ignite_order_no)) {
+            Log::info('Ignite job: already posted, skipping', [
+                'order_id'        => $order->id,
+                'ignite_order_no' => $order->ignite_order_no,
+            ]);
+            return;
+        }
+
         $user = $order->user;
         if (!$user || empty($user->distributor_id) || $order->order_type !== 'distributor') {
             $order->update([
                 'ignite_sync_status' => 'skipped',
                 'ignite_sync_error'  => 'Not a distributor order or missing distributor_id.',
             ]);
-            Log::info('Ignite job: skipped', ['order_id' => $order->id]);
+            Log::info('Ignite job: skipped', [
+                'order_id' => $order->id,
+                'reason'   => 'not_distributor_or_no_id',
+                'has_user' => (bool) $user,
+                'has_did'  => !empty($user?->distributor_id),
+                'type'     => $order->order_type,
+            ]);
             return;
         }
 
-        // Config guards
+        // Config
         $localCurrency = config('services.ignite.local_currency');
         $timezone      = config('services.ignite.timezone');
 
@@ -59,32 +99,147 @@ class PostOrderToIgniteJob implements ShouldQueue
             return;
         }
 
-        $tzObj  = new \DateTimeZone($timezone);
-        $offset = $tzObj->getOffset(new \DateTime('now', $tzObj));
-        if ($offset !== 28800) {
+        // Timezone must be a valid PHP tz — no offset assertion.
+        try {
+            new \DateTimeZone($timezone);
+        } catch (\Throwable $e) {
             $order->update([
                 'ignite_sync_status' => 'failed',
-                'ignite_sync_error'  => "Ignite timezone must be UTC+8, got {$timezone}.",
+                'ignite_sync_error'  => "Invalid Ignite timezone: {$timezone}",
             ]);
-            Log::error('Ignite job: timezone not UTC+8', ['tz' => $timezone]);
+            Log::error('Ignite job: invalid timezone', ['tz' => $timezone, 'error' => $e->getMessage()]);
             return;
         }
 
-        $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+        // Normalize to -001
+        $mainBaId = $user->distributor_id;
+        if (preg_match('/-(002|003)$/', $mainBaId)) {
+            $mainBaId = preg_replace('/-(002|003)$/', '-001', $mainBaId);
+        }
+
+        if (empty($order->order_reference)) {
+            $order->update([
+                'ignite_sync_status' => 'failed',
+                'ignite_sync_error'  => 'order_reference is empty; cannot post to Ignite.',
+            ]);
+            Log::error('Ignite job: empty order_reference', ['order_id' => $order->id]);
+            return;
+        }
 
         try {
-            // Cache once per job
-            $catalog    = Cache::remember('ignite_catalog', 1800, fn() => $ignite->catalog()['data']['items'] ?? []);
-            $catalogMap = collect($catalog)->keyBy('product_id');
+            // ── Catalog ──
+            $catalogRes = $ignite->catalog();
+            if (($catalogRes['code'] ?? null) !== ResultCode::OK->value) {
+                throw new \Exception(
+                    "catalog() refused: {$catalogRes['code']} " . ($catalogRes['msg'] ?? 'unknown')
+                );
+            }
+            // product_id => Collection<catalog line>
+            $catalogByProduct = collect($catalogRes['data']['items'] ?? [])->groupBy('product_id');
 
-            $member    = Cache::remember("ignite_member_{$mainBaId}", 300, fn() => $ignite->memberDetails($mainBaId)['data'] ?? []);
-            $qualifyCv = (float) Cache::remember('ignite_qualify_cv', 3600, fn() => $ignite->planRanks()['data']['plan']['qualify_cv'] ?? 0);
+            // ── Pre-flight (all-or-nothing) ──
+            $lines         = [];
+            $totalCv       = 0.0;
+            $lineErrors    = [];
+            $eligibleLines = [];
 
-            $tree   = Cache::remember("ignite_binary_tree_{$mainBaId}", 300, fn() => $ignite->binaryTree($mainBaId, 1)['data']['rows'] ?? []);
-            $level1 = collect($tree)->where('level', 1);
+            foreach ($order->lines as $line) {
+                if (in_array($line->delivery_status, ['cancelled', 'returned'], true)) {
+                    Log::info('Ignite job: skipping cancelled/returned line', [
+                        'order_id'        => $order->id,
+                        'line_id'         => $line->id,
+                        'delivery_status' => $line->delivery_status,
+                    ]);
+                    continue;
+                }
 
-            $ba002 = $level1->firstWhere('binary_side', 1)['ba_id'] ?? null;
-            $ba003 = $level1->firstWhere('binary_side', 2)['ba_id'] ?? null;
+                $product = $line->product;
+                if (!$product || empty($product->ignite_product_id)) {
+                    $lineErrors[] = "Line {$line->id}: product missing ignite_product_id";
+                    continue;
+                }
+
+                $candidates = $catalogByProduct->get((int) $product->ignite_product_id, collect());
+                if ($candidates->isEmpty()) {
+                    $lineErrors[] = "Line {$line->id}: product {$product->ignite_product_id} not in Ignite catalog";
+                    continue;
+                }
+
+                if ($candidates->count() > 1) {
+                    $ids = $candidates->pluck('catalog_item_id')->implode(', ');
+                    $lineErrors[] = "Line {$line->id}: product {$product->ignite_product_id} has {$candidates->count()} catalog lines on sale ({$ids}); cannot pick one";
+                    continue;
+                }
+
+                $igniteItem = $candidates->first();
+                if (empty($igniteItem['catalog_item_id'])) {
+                    $lineErrors[] = "Line {$line->id}: product {$product->ignite_product_id} has no catalog_item_id";
+                    continue;
+                }
+
+                $lineCv = round((float) $igniteItem['cv'] * (int) $line->quantity, 4);
+
+                $lines[] = [
+                    'product_id'      => (int) $product->ignite_product_id,
+                    'qty'             => (int) $line->quantity,
+                    'catalog_item_id' => (int) $igniteItem['catalog_item_id'],
+                ];
+                $totalCv += $lineCv;
+                $eligibleLines[] = ['line' => $line, 'cv' => $lineCv];
+            }
+
+            if (!empty($lineErrors)) {
+                $order->update([
+                    'ignite_sync_status' => 'blocked',
+                    'ignite_sync_error'  => implode(' | ', $lineErrors),
+                ]);
+                Log::error('Ignite job: pre-flight failed, order blocked', [
+                    'order_id' => $order->id,
+                    'errors'   => $lineErrors,
+                ]);
+                return;
+            }
+
+            if (empty($lines)) {
+                $order->update([
+                    'ignite_sync_status' => 'skipped',
+                    'ignite_sync_error'  => 'No eligible lines to post.',
+                ]);
+                Log::info('Ignite job: no eligible lines', ['order_id' => $order->id]);
+                return;
+            }
+
+            // ── Plan figures ──
+            $planRes = $ignite->planRanks();
+            if (($planRes['code'] ?? null) !== ResultCode::OK->value) {
+                throw new \Exception(
+                    "planRanks() refused: {$planRes['code']} " . ($planRes['msg'] ?? 'unknown')
+                );
+            }
+            $qualifyCv = (float) ($planRes['data']['plan']['qualify_cv'] ?? 0);
+            if ($qualifyCv <= 0) {
+                throw new \Exception('planRanks returned qualify_cv <= 0; misconfig on Ignite.');
+            }
+
+            // ── Member ──
+            $memberRes = $ignite->memberDetails($mainBaId);
+            if (($memberRes['code'] ?? null) !== ResultCode::OK->value) {
+                throw new \Exception(
+                    "memberDetails({$mainBaId}) refused: {$memberRes['code']} " . ($memberRes['msg'] ?? 'unknown')
+                );
+            }
+            $member = $memberRes['data'] ?? [];
+
+            // ── Binary tree (need -002 / -003 under -001) ──
+            $treeRes = $ignite->binaryTree($mainBaId, 1);
+            if (($treeRes['code'] ?? null) !== ResultCode::OK->value) {
+                throw new \Exception(
+                    "binaryTree({$mainBaId}) refused: {$treeRes['code']} " . ($treeRes['msg'] ?? 'unknown')
+                );
+            }
+            $level1 = collect($treeRes['data']['rows'] ?? [])->where('level', 1);
+            $ba002  = $level1->firstWhere('binary_side', 1)['ba_id'] ?? null;
+            $ba003  = $level1->firstWhere('binary_side', 2)['ba_id'] ?? null;
 
             if (!$ba002 || !$ba003) {
                 $order->update([
@@ -95,262 +250,206 @@ class PostOrderToIgniteJob implements ShouldQueue
                 return;
             }
 
-            $anyPosted   = false;
-            $anyFailed   = false;
-            $anyPostedCv = 0.0;
-
-            foreach ($order->lines as $line) {
-                // Idempotency — already posted
-                if ($line->ignite_sync_status === 'posted') {
-                    $anyPosted   = true;
-                    $anyPostedCv += (float) ($line->ignite_cv_posted ?? 0);
-                    continue;
-                }
-
-                // Skip cancelled/returned lines
-                if (in_array($line->delivery_status, ['cancelled', 'returned'], true)) {
-                    $line->update([
-                        'ignite_sync_status' => 'skipped',
-                        'ignite_sync_error'  => 'Line cancelled/returned before Ignite post.',
-                    ]);
-                    continue;
-                }
-
-                $product = $line->product;
-                if (!$product || !$product->ignite_product_id) {
-                    $line->update([
-                        'ignite_sync_status' => 'failed',
-                        'ignite_sync_error'  => 'Missing ignite_product_id.',
-                    ]);
-                    $anyFailed = true;
-                    Log::warning('Ignite line: missing ignite_product_id', [
-                        'order_id' => $order->id, 'line_id' => $line->id,
-                    ]);
-                    continue;
-                }
-
-                $igniteItem = $catalogMap->get($product->ignite_product_id);
-                if (!$igniteItem) {
-                    $line->update([
-                        'ignite_sync_status' => 'failed',
-                        'ignite_sync_error'  => "Product {$product->ignite_product_id} not on Ignite catalog.",
-                    ]);
-                    $anyFailed = true;
-                    Log::warning('Ignite line: product not on catalog', [
-                        'order_id' => $order->id, 'line_id' => $line->id,
-                        'ignite_product_id' => $product->ignite_product_id,
-                    ]);
-                    continue;
-                }
-
-                $lineCv = round((float) $igniteItem['cv'] * $line->quantity, 2);
-
-                $partnerRef = $this->buildPartnerRef($order->order_reference, $line->id);
-
-                $allocations = $this->buildLineAllocations(
-                    $lineCv, $mainBaId, $ba002, $ba003, $member, $qualifyCv
+            // ── Allocations (4-dec internally; residual on -003) ──
+            $cv001 = 0.0;
+            if (empty($member['qualified_at'])) {
+                $cv001 = min(
+                    max(0.0, round($qualifyCv - (float) ($member['cv_allocated'] ?? 0), 4)),
+                    round($totalCv, 4)
                 );
+            }
+            $cv001 = round($cv001, 4);
 
-                $lineAmount = (string) round((float) $line->line_total, 2);
+            $remaining = round($totalCv - $cv001, 4);
+            $cv002     = round($remaining / 2, 4);
+            $cv003     = round($remaining - $cv002, 4);
 
-                $orderedAt = $order->confirmed_at
-                    ? $order->confirmed_at->copy()->setTimezone($timezone)->format('Y-m-d H:i:s')
-                    : now()->setTimezone($timezone)->format('Y-m-d H:i:s');
+            $allocations = [];
+            if ($cv001 > 0) $allocations[] = ['ba_id' => $mainBaId, 'cv' => number_format($cv001, 4, '.', '')];
+            if ($cv002 > 0) $allocations[] = ['ba_id' => $ba002,   'cv' => number_format($cv002, 4, '.', '')];
+            if ($cv003 > 0) $allocations[] = ['ba_id' => $ba003,   'cv' => number_format($cv003, 4, '.', '')];
 
+            $allocSum = round(array_sum(array_map(fn($a) => (float) $a['cv'], $allocations)), 4);
+            if ($allocSum !== round($totalCv, 4)) {
+                throw new \Exception("Internal allocation mismatch: allocated={$allocSum}, totalCv=" . round($totalCv, 4));
+            }
+
+            // ── ordered_at: convert to configured tz, clamp if in future ──
+            $nowInTz = now()->setTimezone($timezone);
+            $orderedAt = $order->confirmed_at
+                ? $order->confirmed_at->copy()->setTimezone($timezone)
+                : $nowInTz->copy();
+
+            if ($orderedAt->greaterThan($nowInTz)) {
+                Log::warning('Ignite job: ordered_at clamped from future', [
+                    'order_id' => $order->id,
+                    'original' => $orderedAt->format('Y-m-d H:i:s'),
+                    'clamped'  => $nowInTz->format('Y-m-d H:i:s'),
+                ]);
+                $orderedAt = $nowInTz->copy();
+            }
+            $orderedAtStr = $orderedAt->format('Y-m-d H:i:s');
+
+            // ── createOrder ──
+            $response = $ignite->createOrder(
+                baId:            $mainBaId,
+                partnerOrderRef: $order->order_reference,
+                orderedAt:       $orderedAtStr,
+                localAmount:     number_format(round((float) $order->total_payable, 2), 2, '.', ''),
+                localCurrency:   $localCurrency,
+                lines:           $lines,
+                allocations:     $allocations,
+                extraTcs:        [],
+            );
+
+            $code = $response['code'] ?? null;
+            $msg  = $response['msg'] ?? 'unknown';
+
+            // ── SUCCESS ──
+            if ($code === ResultCode::OK->value) {
+                $this->markOrderPosted($order, $eligibleLines, $response['data'] ?? [], $totalCv);
+                $this->forgetMemberCache($mainBaId);
+
+                Log::info('Ignite order posted', [
+                    'order_id'        => $order->id,
+                    'ref'             => $order->order_reference,
+                    'ignite_order_no' => $response['data']['order_no'] ?? null,
+                    'total_cv'        => $response['data']['total_cv'] ?? $totalCv,
+                    'sales_week'      => $response['data']['sales_week'] ?? null,
+                    'settlement_week' => $response['data']['settlement_week'] ?? null,
+                    'allocations'     => $allocations,
+                ]);
+                return;
+            }
+
+            // ── DUPLICATE (5001) → success; getOrder best-effort ──
+            if ($code === ResultCode::ORDER_DUPLICATE->value) {
+                $data = [];
                 try {
-                    $response = $ignite->createOrder(
-                        baId:            $mainBaId,
-                        partnerOrderRef: $partnerRef,
-                        orderedAt:       $orderedAt,
-                        localAmount:     $lineAmount,
-                        localCurrency:   $localCurrency,
-                        lines:           [['product_id' => (int) $product->ignite_product_id, 'qty' => (int) $line->quantity]],
-                        allocations:     $allocations,
-                        extraTcs:        [],
-                    );
-                } catch (\Throwable $e) {
-                    $line->update([
-                        'ignite_sync_status' => 'failed',
-                        'ignite_sync_error'  => 'Ignite threw: ' . $e->getMessage(),
-                    ]);
-                    $anyFailed = true;
-                    Log::error('Ignite line: createOrder threw', [
-                        'order_id' => $order->id, 'line_id' => $line->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                    continue;
-                }
-
-                // Success
-                if (($response['code'] ?? null) === ResultCode::OK->value) {
-                    $line->update([
-                        'ignite_order_no'             => $response['data']['order_no'] ?? null,
-                        'ignite_sync_status'          => 'posted',
-                        'ignite_sync_error'           => null,
-                        'ignite_cv_posted'            => $response['data']['total_cv'] ?? $lineCv,
-                        'ignite_sales_week_year'      => $response['data']['sales_week']['year']       ?? null,
-                        'ignite_sales_week_no'        => $response['data']['sales_week']['week_no']    ?? null,
-                        'ignite_settlement_week_year' => $response['data']['settlement_week']['year']  ?? null,
-                        'ignite_settlement_week_no'   => $response['data']['settlement_week']['week_no'] ?? null,
-                    ]);
-                    $anyPosted   = true;
-                    $anyPostedCv += (float) ($response['data']['total_cv'] ?? $lineCv);
-
-                    Log::info('Ignite line posted', [
-                        'order_id'        => $order->id,
-                        'line_id'         => $line->id,
-                        'ref'             => $partnerRef,
-                        'ignite_order_no' => $response['data']['order_no'] ?? null,
-                        'cv'              => $response['data']['total_cv'] ?? $lineCv,
-                    ]);
-                    continue;
-                }
-
-                // 5001 duplicate
-                if (($response['code'] ?? null) === ResultCode::ORDER_DUPLICATE->value) {
-                    $existing        = $ignite->getOrder($partnerRef);
-                    $existingOrderNo = $existing['data']['order_no'] ?? null;
-
-                    if (empty($existingOrderNo)) {
-                        $line->update([
-                            'ignite_sync_status' => 'failed',
-                            'ignite_sync_error'  => 'Ignite 5001 but getOrder returned no order_no.',
+                    $existing = $ignite->getOrder($order->order_reference);
+                    if (($existing['code'] ?? null) === ResultCode::OK->value) {
+                        $data = $existing['data'] ?? [];
+                    } else {
+                        Log::warning('Ignite duplicate: getOrder non-OK, marking posted anyway', [
+                            'order_id' => $order->id,
+                            'ref'      => $order->order_reference,
+                            'code'     => $existing['code'] ?? null,
                         ]);
-                        $anyFailed = true;
-                        continue;
                     }
-
-                    $cvFromExisting = $existing['data']['total_cv'] ?? $lineCv;
-
-                    $line->update([
-                        'ignite_order_no'             => $existingOrderNo,
-                        'ignite_sync_status'          => 'posted',
-                        'ignite_sync_error'           => null,
-                        'ignite_cv_posted'            => $cvFromExisting,
-                        'ignite_sales_week_year'      => $existing['data']['sales_week']['year']       ?? null,
-                        'ignite_sales_week_no'        => $existing['data']['sales_week']['week_no']    ?? null,
-                        'ignite_settlement_week_year' => $existing['data']['settlement_week']['year']  ?? null,
-                        'ignite_settlement_week_no'   => $existing['data']['settlement_week']['week_no'] ?? null,
+                } catch (\Throwable $e) {
+                    Log::warning('Ignite duplicate: getOrder threw, marking posted anyway', [
+                        'order_id' => $order->id,
+                        'error'    => $e->getMessage(),
                     ]);
-                    $anyPosted   = true;
-                    $anyPostedCv += (float) $cvFromExisting;
-
-                    Log::info('Ignite line duplicate resolved', [
-                        'order_id' => $order->id, 'line_id' => $line->id,
-                        'ignite_order_no' => $existingOrderNo,
-                    ]);
-                    continue;
                 }
 
-                // Other refusal
-                $line->update([
+                $cv = (float) ($data['total_cv'] ?? $totalCv);
+                $this->markOrderPosted($order, $eligibleLines, $data, $cv);
+                $this->forgetMemberCache($mainBaId);
+
+                Log::info('Ignite order duplicate resolved', [
+                    'order_id'        => $order->id,
+                    'ref'             => $order->order_reference,
+                    'ignite_order_no' => $data['order_no'] ?? null,
+                    'total_cv'        => $cv,
+                ]);
+                return;
+            }
+
+            // ── Permanent refusals ──
+            if (in_array($code, self::PERMANENT_CODES, true)) {
+                $order->update([
                     'ignite_sync_status' => 'failed',
-                    'ignite_sync_error'  => "Ignite [{$response['code']}]: " . ($response['msg'] ?? ''),
+                    'ignite_sync_error'  => "[{$code}] {$msg}",
                 ]);
-                $anyFailed = true;
-
-                Log::warning('Ignite line failed', [
-                    'order_id' => $order->id, 'line_id' => $line->id,
-                    'code' => $response['code'] ?? null, 'msg' => $response['msg'] ?? null,
+                Log::error('Ignite order permanently refused', [
+                    'order_id' => $order->id,
+                    'code'     => $code,
+                    'msg'      => $msg,
                 ]);
+                return;
             }
 
-            // Update parent order
-            $pendingCount = $order->lines()
-                ->whereNotIn('delivery_status', ['cancelled', 'returned'])
-                ->where(function ($q) {
-                    $q->whereNull('ignite_sync_status')
-                      ->orWhereIn('ignite_sync_status', ['failed', 'pending_placement']);
-                })
-                ->count();
-
-            if ($pendingCount === 0 && !$anyFailed) {
-                $order->update([
-                    'ignite_sync_status'    => 'posted',
-                    'ignite_sync_error'     => null,
-                    'commissionable_volume' => round($anyPostedCv, 2),
-                ]);
-                Cache::forget("ignite_member_{$mainBaId}");
-                Cache::forget("ignite_binary_tree_{$mainBaId}");
-            } elseif ($anyPosted) {
-                $order->update([
-                    'ignite_sync_status'    => 'partial',
-                    'ignite_sync_error'     => null,
-                    'commissionable_volume' => round($anyPostedCv, 2),
-                ]);
-            } else {
-                throw new \Exception('All lines failed — will retry.');
+            // ── Retryable ──
+            if ($code === ResultCode::NETWORK_BUSY->value) {
+                Log::info('Ignite order: NETWORK_BUSY, releasing 30s', ['order_id' => $order->id]);
+                $this->release(30);
+                return;
             }
+            if ($code === ResultCode::PLACEMENT_REFUSED->value) {
+                Log::info('Ignite order: PLACEMENT_REFUSED, releasing 60s', ['order_id' => $order->id]);
+                $this->release(60);
+                return;
+            }
+            if ($code === ResultCode::ORDER_WEEK_UNKNOWN->value) {
+                Log::warning('Ignite order: ORDER_WEEK_UNKNOWN, releasing 1h', ['order_id' => $order->id]);
+                $this->release(3600);
+                return;
+            }
+
+            throw new \Exception("Ignite Error [{$code}]: {$msg}");
+
         } catch (\Throwable $e) {
-            Log::error('Ignite line-wise job failed', [
+            Log::error("Ignite Job Failed: Order {$order->order_reference}", [
                 'order_id' => $order->id,
                 'error'    => $e->getMessage(),
                 'attempt'  => $this->attempts(),
             ]);
 
-            if ($this->attempts() >= $this->tries) {
+            if ($this->attempts() >= $this->tries || !$this->hasTimeLeft()) {
                 $order->update([
                     'ignite_sync_status' => 'failed',
                     'ignite_sync_error'  => $e->getMessage(),
                 ]);
-            } else {
-                $this->release(60);
+                return;
             }
+
+            throw $e; // let $backoff / retryUntil drive the next attempt
         }
     }
 
-    /**
-     * Unique partner_order_ref per line.
-     * Format: ORD6AD621923C174-54
-     */
-    protected function buildPartnerRef(string $orderRef, int $lineId): string
+    private function hasTimeLeft(): bool
     {
-        return $orderRef . '-' . $lineId;
+        return now()->lt($this->retryUntil());
     }
 
-    /**
-     * Per-line allocations.
-     */
-    protected function buildLineAllocations(
-        float $lineCv,
-        string $mainBaId,
-        ?string $ba002,
-        ?string $ba003,
-        array $member,
-        float $qualifyCv
-    ): array {
-        $allocations = [];
-        $cv001       = 0.0;
+    protected function markOrderPosted(
+        Order $order,
+        array $eligibleLines,
+        array $respData,
+        float $fallbackCv
+    ): void {
+        $igniteOrderNo = $respData['order_no'] ?? null;
+        $totalCv       = round((float) ($respData['total_cv'] ?? $fallbackCv), 2);
 
-        if (empty($member['qualified_at'])) {
-            $cv001 = min(
-                max(0, round($qualifyCv - (float) ($member['cv_allocated'] ?? 0), 2)),
-                round($lineCv, 2)
-            );
+        foreach ($eligibleLines as $entry) {
+            $entry['line']->update([
+                'ignite_order_no'             => $igniteOrderNo,
+                'ignite_sync_status'          => 'posted',
+                'ignite_sync_error'           => null,
+                'ignite_cv_posted'            => round((float) $entry['cv'], 2),
+                'ignite_sales_week_year'      => $respData['sales_week']['year']         ?? null,
+                'ignite_sales_week_no'        => $respData['sales_week']['week_no']      ?? null,
+                'ignite_settlement_week_year' => $respData['settlement_week']['year']    ?? null,
+                'ignite_settlement_week_no'   => $respData['settlement_week']['week_no'] ?? null,
+            ]);
         }
 
-        $remaining = round($lineCv - $cv001, 2);
-
-        if ($cv001 > 0) {
-            $allocations[] = ['ba_id' => $mainBaId, 'cv' => number_format($cv001, 2, '.', '')];
-        }
-
-        if ($remaining > 0 && $ba002 && $ba003) {
-            $half  = round($remaining / 2, 2);
-            $other = round($remaining - $half, 2);
-
-            if ($half > 0)  $allocations[] = ['ba_id' => $ba002, 'cv' => number_format($half, 2, '.', '')];
-            if ($other > 0) $allocations[] = ['ba_id' => $ba003, 'cv' => number_format($other, 2, '.', '')];
-        }
-
-        return $allocations;
+        $order->update([
+            'ignite_order_no'       => $igniteOrderNo,
+            'ignite_sync_status'    => 'posted',
+            'ignite_sync_error'     => null,
+            'commissionable_volume' => $totalCv,
+            'sales_week_year'       => $respData['sales_week']['year']         ?? null,
+            'sales_week_no'         => $respData['sales_week']['week_no']      ?? null,
+            'settlement_week_year'  => $respData['settlement_week']['year']    ?? null,
+            'settlement_week_no'    => $respData['settlement_week']['week_no'] ?? null,
+        ]);
     }
 
-    protected function normalizeMainBaId(string $baId): string
+    protected function forgetMemberCache(string $mainBaId): void
     {
-        if (preg_match('/-(002|003)$/', $baId)) {
-            return preg_replace('/-(002|003)$/', '-001', $baId);
-        }
-        return $baId;
+        Cache::forget("ignite_member_{$mainBaId}");
+        Cache::forget("ignite_binary_tree_{$mainBaId}");
     }
 }
