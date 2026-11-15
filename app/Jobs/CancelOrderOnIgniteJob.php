@@ -34,7 +34,8 @@ class CancelOrderOnIgniteJob implements ShouldQueue
 
     public function retryUntil(): \DateTime
     {
-        return now()->addHours(12);
+        // CHANGED: 12h → 7 days (outlive post job)
+        return now()->addDays(7);
     }
 
     public function handle(IgniteClient $ignite): void
@@ -49,7 +50,12 @@ class CancelOrderOnIgniteJob implements ShouldQueue
         // Order never reached Ignite → nothing to cancel remotely.
         if (empty($order->ignite_order_no)) {
             Log::info('Ignite cancel: order never posted, skipping', ['order_id' => $order->id]);
-            $order->update(['status' => 'cancelled']);
+            // CHANGED: mark skipped for audit clarity
+            $order->update([
+                'status'             => 'cancelled',
+                'ignite_sync_status' => 'skipped',
+                'ignite_sync_error'  => 'Never posted to Ignite; local cancel only.',
+            ]);
             return;
         }
 
@@ -86,9 +92,11 @@ class CancelOrderOnIgniteJob implements ShouldQueue
         if ($code === ResultCode::OK->value
             || $code === ResultCode::ORDER_ALREADY_CANCELLED->value) {
 
+            // CHANGED: zero commissionable_volume on cancel
             $order->update([
-                'ignite_sync_status' => 'cancelled',
-                'ignite_sync_error'  => null,
+                'ignite_sync_status'    => 'cancelled',
+                'ignite_sync_error'     => null,
+                'commissionable_volume' => 0,
             ]);
 
             // Only cancel lines that actually reached Ignite.
@@ -124,7 +132,12 @@ class CancelOrderOnIgniteJob implements ShouldQueue
                 Log::info('Ignite cancel: post job failed, nothing to cancel remotely', [
                     'order_id' => $order->id,
                 ]);
-                $order->update(['status' => 'cancelled']);
+                // CHANGED: proper skipped status for audit
+                $order->update([
+                    'status'             => 'cancelled',
+                    'ignite_sync_status' => 'skipped',
+                    'ignite_sync_error'  => 'Post job failed; nothing to cancel remotely.',
+                ]);
                 return;
             }
 
