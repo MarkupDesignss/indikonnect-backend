@@ -1700,6 +1700,175 @@ class UserDashboardController extends Controller
     /**
      * Get full wallet data for the UI (Balances + Transactions + Withdrawals) with INR conversion.
      */
+    // public function getWalletDetails(Request $request)
+    // {
+    //     $user = $request->user();
+
+    //     if (!$user || empty($user->distributor_id)) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Not registered on Ignite'
+    //         ], 422);
+    //     }
+
+    //     $baId = $user->distributor_id;
+
+    //     $memberResp = $this->ignite->memberDetails($baId);
+    //     if (($memberResp['code'] ?? null) !== ResultCode::OK->value) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to fetch wallet balances from Ignite'
+    //         ], 422);
+    //     }
+    //     $member = $memberResp['data'];
+
+    //     $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
+    //         ->where('key', 'usd_to_inr')->value('value') ?: 0;
+
+    //     $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
+    //         try {
+    //             $resp = $this->ignite->planRanks();
+    //             return ($resp['code'] ?? null) === ResultCode::OK->value
+    //                 ? ($resp['data']['plan'] ?? [])
+    //                 : [];
+    //         } catch (\Throwable $e) {
+    //             return [];
+    //         }
+    //     });
+
+    //     $yellowSmallRate = (float) ($planResp['yellow_usd_small'] ?? 30);
+    //     $yellowLargeRate = (float) ($planResp['yellow_usd_large'] ?? 40);
+    //     $blueRate        = (float) ($planResp['blue_usd']         ?? 12.5);
+    //     $greenRate       = (float) ($planResp['green_redeem_usd'] ?? 125);
+
+    //     $txResp  = $this->ignite->pointTxs($baId, 0, 100);
+    //     $rawTxs  = $txResp['data']['rows'] ?? [];
+    //     $hasMore = $txResp['data']['has_more'] ?? false;
+
+    //     $retailProfitUsd = 0;
+    //     foreach ($rawTxs as $tx) {
+    //         if (($tx['point_type'] ?? '') === 'cash_bal' && ($tx['description'] ?? '') === 'comm_retail') {
+    //             $retailProfitUsd += (float) $tx['amount'];
+    //         }
+    //     }
+
+    //     $transactions = [];
+    //     $withdrawals  = [];
+
+    //     foreach ($rawTxs as $tx) {
+    //         $category = match ($tx['tx_type']) {
+    //             'comm'  => 'Commission',
+    //             'cr'    => 'RedeemCoin',
+    //             'wd'    => 'Withdrawal',
+    //             'adj'   => 'Adjustment',
+    //             'pv'    => 'CV',
+    //             default => ucfirst($tx['tx_type'] ?? 'Other'),
+    //         };
+
+    //         $amt = (float) $tx['amount'];
+
+    //         $walletChangeUsd = ($tx['point_type'] ?? '') === 'cash_bal' ? $amt : 0;
+    //         $walletChangeInr = round($walletChangeUsd * $usdRate, 2);
+
+    //         $greenCoin  = ($tx['point_type'] ?? '') === 'green_bal'  ? $amt : 0;
+    //         $yellowCoin = ($tx['point_type'] ?? '') === 'yellow_bal' ? $amt : 0;
+    //         $blueCoin   = ($tx['point_type'] ?? '') === 'blue_bal'   ? $amt : 0;
+
+    //         $greenAbs  = abs($greenCoin);
+    //         $yellowAbs = abs($yellowCoin);
+    //         $blueAbs   = abs($blueCoin);
+
+    //         $greenValueInr  = round((floor($greenAbs / 6) * $greenRate) * $usdRate, 2);
+    //         $yellowValueInr = round(($yellowAbs * ($yellowAbs >= 3 ? $yellowLargeRate : $yellowSmallRate)) * $usdRate, 2);
+    //         $blueValueInr   = round(($blueAbs * $blueRate) * $usdRate, 2);
+
+    //         if ($greenCoin < 0)  $greenValueInr  = -$greenValueInr;
+    //         if ($yellowCoin < 0) $yellowValueInr = -$yellowValueInr;
+    //         if ($blueCoin < 0)   $blueValueInr   = -$blueValueInr;
+
+    //         $transactions[] = [
+    //             'id'            => $tx['id'],
+    //             'date'          => $tx['created_at'],
+    //             'category'      => $category,
+    //             'description'   => $tx['description'] ?? '-',
+    //             'point_type'    => $tx['point_type'] ?? null,
+
+    //             'wallet_change_usd' => $walletChangeUsd,
+    //             'wallet_change_inr' => $walletChangeInr,
+
+    //             'green_coin'    => $greenCoin,
+    //             'yellow_coin'   => $yellowCoin,
+    //             'blue_coin'     => $blueCoin,
+
+    //             'green_value_inr' => $greenValueInr,
+    //             'yellow_value_inr'=> $yellowValueInr,
+    //             'blue_value_inr'  => $blueValueInr,
+
+    //             'order_id'      => $tx['order_no'] ?? null,
+    //             'related_member'=> $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
+    //         ];
+
+    //         if (($tx['tx_type'] ?? '') === 'wd') {
+    //             // Ignite sends withdrawal as negative; the paid-out amount is positive
+    //             $amountUsdAbs = abs($amt);
+    //             $withdrawals[] = [
+    //                 'id'         => $tx['id'],
+    //                 'date'       => $tx['created_at'],
+    //                 'amount_usd' => round($amountUsdAbs, 4),
+    //                 'amount_inr' => round($amountUsdAbs * $usdRate, 2),
+    //                 'status'     => 'Paid',
+    //                 'remark'     => $tx['description'] ?? 'Withdrawal',
+    //                 'currency'   => 'INR',
+    //             ];
+    //         }
+    //     }
+
+    //     $cashUsd     = (float) ($member['cash_bal'] ?? 0);
+    //     $greenQty    = (float) ($member['green_bal'] ?? 0);
+    //     $yellowQty   = (float) ($member['yellow_bal'] ?? 0);
+    //     $blueQty     = (float) ($member['blue_bal'] ?? 0);
+
+    //     $greenValUsd  = floor($greenQty / 6) * $greenRate;
+    //     $yellowValUsd = $yellowQty * ($yellowQty >= 3 ? $yellowLargeRate : $yellowSmallRate);
+    //     $blueValUsd   = $blueQty >= 4 ? $blueQty * $blueRate : 0;
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'currency' => [
+    //             'base'    => 'USD',
+    //             'display' => 'INR',
+    //             'exchange_rate' => $usdRate,
+    //         ],
+    //         'data' => [
+    //             'balances' => [
+    //                 'cash_bal_usd'      => round($cashUsd, 4),
+    //                 'cash_bal_inr'      => round($cashUsd * $usdRate, 2),
+    //                 'cash_bal_display_currency' => 'INR',
+
+    //                 'retail_profit_usd' => round($retailProfitUsd, 2),
+    //                 'retail_profit_inr' => round($retailProfitUsd * $usdRate, 2),
+
+    //                 'green_bal'         => $greenQty,
+    //                 'yellow_bal'        => $yellowQty,
+    //                 'blue_bal'          => $blueQty,
+
+    //                 'green_value_usd'   => round($greenValUsd, 2),
+    //                 'yellow_value_usd'  => round($yellowValUsd, 2),
+    //                 'blue_value_usd'    => round($blueValUsd, 2),
+
+    //                 'green_value_inr'   => round($greenValUsd * $usdRate, 2),
+    //                 'yellow_value_inr'  => round($yellowValUsd * $usdRate, 2),
+    //                 'blue_value_inr'    => round($blueValUsd * $usdRate, 2),
+
+    //                 'exchange_rate'     => $usdRate,
+    //             ],
+    //             'transactions'          => $transactions,
+    //             'has_more_transactions' => $hasMore,
+    //             'withdrawals'           => $withdrawals,
+    //         ]
+    //     ]);
+    // }
+
     public function getWalletDetails(Request $request)
     {
         $user = $request->user();
@@ -1724,6 +1893,13 @@ class UserDashboardController extends Controller
 
         $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
             ->where('key', 'usd_to_inr')->value('value') ?: 0;
+
+        // ---- TDS rate decide karo distributor_profiles se ----
+        $gstIn = \App\Models\DistributorProfile::where('user_id', $user->id)->value('gst_in');
+
+        $isValidGst = !empty($gstIn) && strtoupper(trim($gstIn)) !== 'URP';
+
+        $tdsRate = $isValidGst ? 0.02 : 0.20;   // 2% ya 20%
 
         $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
             try {
@@ -1811,14 +1987,24 @@ class UserDashboardController extends Controller
             if (($tx['tx_type'] ?? '') === 'wd') {
                 // Ignite sends withdrawal as negative; the paid-out amount is positive
                 $amountUsdAbs = abs($amt);
+                $grossInr     = round($amountUsdAbs * $usdRate, 2);
+
+                // ---- TDS deduction ----
+                $tdsAmountInr = round($grossInr * $tdsRate, 2);
+                $netPayableInr = round($grossInr - $tdsAmountInr, 2);
+
                 $withdrawals[] = [
-                    'id'         => $tx['id'],
-                    'date'       => $tx['created_at'],
-                    'amount_usd' => round($amountUsdAbs, 4),
-                    'amount_inr' => round($amountUsdAbs * $usdRate, 2),
-                    'status'     => 'Paid',
-                    'remark'     => $tx['description'] ?? 'Withdrawal',
-                    'currency'   => 'INR',
+                    'id'               => $tx['id'],
+                    'date'             => $tx['created_at'],
+                    'amount_usd'       => round($amountUsdAbs, 4),
+                    'amount_inr'       => $grossInr,          // gross
+                    'tds_rate_percent' => $tdsRate * 100,     // 2 ya 20
+                    'tds_amount_inr'   => $tdsAmountInr,
+                    'net_payable_inr'  => $netPayableInr,
+                    'gst_in'           => $gstIn,             // debug/reference ke liye
+                    'status'           => 'Paid',
+                    'remark'           => $tx['description'] ?? 'Withdrawal',
+                    'currency'         => 'INR',
                 ];
             }
         }
@@ -1838,6 +2024,13 @@ class UserDashboardController extends Controller
                 'base'    => 'USD',
                 'display' => 'INR',
                 'exchange_rate' => $usdRate,
+            ],
+            'tds' => [
+                'gst_in'         => $gstIn,
+                'applied_rate'   => $tdsRate * 100, // 2 ya 20
+                'reason'         => $isValidGst
+                                        ? 'Valid GSTIN present'
+                                        : 'GSTIN missing or URP',
             ],
             'data' => [
                 'balances' => [
