@@ -147,13 +147,13 @@ class FinanceCommissionExportController extends Controller
                     'bank_holder_name'    => $profile->bank_holder_name ?? '-',
                     'bank_ifsc'           => $profile->bank_ifsc ?? '-',
 
-                   'pan_number'          => $this->maskPan(
+                    'pan_number'          => $this->maskPan(
                             $dist->complete_pan_card 
-                                ?? $this->decryptField($profile?->encrypted_pan)
+                                ?: $this->decryptField($profile?->encrypted_pan)
                         ),
                     'bank_account_number' => $profile?->complete_bank_account 
-                                                ?? $this->decryptField($profile?->encrypted_bank_account) 
-                                                ?? '-',
+                                                ?: $this->decryptField($profile?->encrypted_bank_account) 
+                                                ?: '-',
                 ];
             } catch (\Throwable $e) {
                 $failed[] = [
@@ -469,11 +469,24 @@ class FinanceCommissionExportController extends Controller
             return null;
         }
 
+        // Layer 1: Serialized string (s:N:"value";) — most likely case
+        if (preg_match('/^s:\d+:"(.*)";$/s', $encrypted, $m)) {
+            return $m[1];
+        }
+
+        // Layer 2: Try Crypt::decryptString (properly encrypted)
         try {
-            return \Crypt::decryptString($encrypted);
+            $decrypted = \Crypt::decryptString($encrypted);
+
+            // Decrypted value might itself be serialized
+            if (preg_match('/^s:\d+:"(.*)";$/s', $decrypted, $m)) {
+                return $m[1];
+            }
+
+            return $decrypted;
         } catch (\Throwable $e) {
-            Log::warning('Field decrypt failed', ['error' => $e->getMessage()]);
-            return null;
+            // Layer 3: Plain value (already decrypted / not encrypted)
+            return $encrypted;
         }
     }
 
@@ -481,6 +494,10 @@ class FinanceCommissionExportController extends Controller
     {
         if (empty($pan)) {
             return '-';
+        }
+
+        if (preg_match('/^s:\d+:"(.*)";$/s', $pan, $m)) {
+            $pan = $m[1];
         }
 
         $pan = strtoupper(trim($pan));
