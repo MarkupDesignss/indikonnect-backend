@@ -240,8 +240,8 @@ class UserDashboardController extends Controller
                 // Dashboard Widgets Data — now with INR everywhere
                 'strong_leg'              => $strongLeg,
 
-                'retail_profit_lifetime_usd' => round($retailProfitUsd, 2),
-                'retail_profit_lifetime_inr' => round($retailProfitUsd * $usdRate, 2),
+                'retail_profit_usd' => round($retailProfitUsd, 2),
+                'retail_profit_inr' => round($retailProfitUsd * $usdRate, 2),
 
                 'weekly_pairing_usd'      => round($weeklyPairingUsd, 2),
                 'weekly_pairing_inr'      => round($weeklyPairingUsd * $usdRate, 2),
@@ -1993,8 +1993,8 @@ class UserDashboardController extends Controller
                     'cash_bal_inr'      => round($cashUsd * $usdRate, 2),
                     'cash_bal_display_currency' => 'INR',
 
-                    'retail_profit_lifetime_usd' => round($retailProfitUsd, 2),
-                    'retail_profit_lifetime_inr' => round($retailProfitUsd * $usdRate, 2),
+                    'retail_profit_usd' => round($retailProfitUsd, 2),
+                    'retail_profit_inr' => round($retailProfitUsd * $usdRate, 2),
 
                     'green_bal'            => $greenQty,
                     'green_bal_redeemable' => $greenRedeemable,
