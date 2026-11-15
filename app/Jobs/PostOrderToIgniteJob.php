@@ -3,7 +3,6 @@
 namespace App\Jobs;
 
 use App\Models\Order;
-use App\Models\OrderLine;
 use App\Sdks\Partner\IgniteClient;
 use App\Sdks\Partner\ResultCode;
 use Illuminate\Bus\Queueable;
@@ -35,7 +34,7 @@ class PostOrderToIgniteJob implements ShouldQueue
         ResultCode::EXTRA_TC_PARENT_INVALID->value,
         ResultCode::ORDER_NO_CV->value,
         ResultCode::CV_ORIGINALS_FIRST->value,
-        ResultCode::ORDER_DISABLED->value,
+        // ORDER_DISABLED retryable (handled below)
     ];
 
     public function __construct(public int $orderId)
@@ -45,7 +44,7 @@ class PostOrderToIgniteJob implements ShouldQueue
 
     public function retryUntil(): \DateTime
     {
-        return now()->addHours(12);
+        return now()->addDays(7);
     }
 
     public function handle(IgniteClient $ignite): void
@@ -82,6 +81,31 @@ class PostOrderToIgniteJob implements ShouldQueue
 
         $mainBaId = preg_replace('/-(002|003)$/', '-001', $user->distributor_id);
 
+        // FIX: confirmed_at mandatory — no now() fallback
+        if (empty($order->confirmed_at)) {
+            $order->update([
+                'ignite_sync_status' => 'failed',
+                'ignite_sync_error'  => 'confirmed_at missing; cannot compute ordered_at.',
+            ]);
+            return;
+        }
+
+        // FIX: serialize per member to avoid stale cv_allocated race
+        $lock = Cache::lock("ignite:alloc:{$mainBaId}", 180);
+        if (!$lock->get()) {
+            $this->release(30);
+            return;
+        }
+
+        try {
+            $this->process($ignite, $order, $mainBaId, $localCurrency);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function process(IgniteClient $ignite, Order $order, string $mainBaId, string $localCurrency): void
+    {
         try {
             // ── 1. Fetch Catalog ──
             $catalogRes = $ignite->catalog();
@@ -90,10 +114,11 @@ class PostOrderToIgniteJob implements ShouldQueue
             }
 
             $catalogItems     = collect($catalogRes['data']['items'] ?? []);
-            $catalogByRef     = $catalogItems->whereNotNull('partner_product_ref')->keyBy('partner_product_ref');
+            $catalogByRef     = $catalogItems->whereNotNull('partner_product_ref')->groupBy('partner_product_ref');
             $catalogByProduct = $catalogItems->groupBy('product_id');
+            $catalogById      = $catalogItems->keyBy('catalog_item_id');
 
-            // ── 2. MAP ORDER LINES (partial allowed — skipped lines don't block) ──
+            // ── 2. Map order lines ──
             $lines         = [];
             $totalCv       = 0.0;
             $eligibleLines = [];
@@ -107,8 +132,28 @@ class PostOrderToIgniteJob implements ShouldQueue
                 $product    = $line->product;
                 $igniteItem = null;
 
-                if ($product && !empty($product->partner_product_ref)) {
-                    $igniteItem = $catalogByRef->get($product->partner_product_ref);
+                // FIX: prefer snapshot saved at checkout (handles ended promos)
+                if (!empty($line->ignite_catalog_item_id)) {
+                    $igniteItem = $catalogById->get((int) $line->ignite_catalog_item_id);
+                }
+
+                if (!$igniteItem && $product && !empty($product->partner_product_ref)) {
+                    $candidates = $catalogByRef->get($product->partner_product_ref, collect());
+                    if ($candidates->count() === 1) {
+                        $igniteItem = $candidates->first();
+                    } elseif ($candidates->count() > 1) {
+                        $skippedLines[] = [
+                            'line_id'          => $line->id,
+                            'product_id'       => $product->id,
+                            'reason'           => 'Ambiguous partner_product_ref.',
+                            'catalog_item_ids' => $candidates->pluck('catalog_item_id')->all(),
+                        ];
+                        $line->update([
+                            'ignite_sync_status' => 'skipped',
+                            'ignite_sync_error'  => 'Ambiguous partner_product_ref.',
+                        ]);
+                        continue;
+                    }
                 }
 
                 if (!$igniteItem && $product && !empty($product->ignite_product_id)) {
@@ -119,7 +164,6 @@ class PostOrderToIgniteJob implements ShouldQueue
                         $skippedLines[] = [
                             'line_id'          => $line->id,
                             'product_id'       => $product->id,
-                            'product_name'     => $product->name,
                             'reason'           => 'Multiple catalog lines; no partner_product_ref.',
                             'catalog_item_ids' => $candidates->pluck('catalog_item_id')->all(),
                         ];
@@ -136,7 +180,6 @@ class PostOrderToIgniteJob implements ShouldQueue
                         'line_id'      => $line->id,
                         'product_id'   => $product?->id,
                         'product_name' => $product?->name ?? 'Unknown Product',
-                        'product_code' => $product?->product_code,
                         'reason'       => 'No catalog_item_id resolvable.',
                     ];
                     $line->update([
@@ -168,22 +211,30 @@ class PostOrderToIgniteJob implements ShouldQueue
                 ]);
             }
 
-            if (empty($lines)) {
+            if (empty($lines) || $totalCv <= 0) {
                 $order->update([
                     'ignite_sync_status' => 'skipped',
-                    'ignite_sync_error'  => 'No mapped products found for this order.',
+                    'ignite_sync_error'  => 'No mapped products or zero CV.',
                 ]);
                 return;
             }
 
-            // ── 3. Fetch Plan, Member & Tree ──
+            // ── 3. Plan + Member + Tree ──
             $planRes = $ignite->planRanks();
             if (($planRes['code'] ?? null) !== ResultCode::OK->value) {
                 throw new \Exception("planRanks() refused: " . ($planRes['msg'] ?? 'unknown'));
             }
             $plan          = $planRes['data']['plan'] ?? [];
             $qualifyCv     = (float) ($plan['qualify_cv'] ?? 0);
-            $baseProductCv = (float) ($plan['base_product_cv'] ?? 600);
+            $baseProductCv = (float) ($plan['base_product_cv'] ?? 0);
+
+            if ($qualifyCv <= 0) {
+                $order->update([
+                    'ignite_sync_status' => 'failed',
+                    'ignite_sync_error'  => 'plan.qualify_cv missing or 0.',
+                ]);
+                return;
+            }
 
             $memberRes = $ignite->memberDetails($mainBaId);
             if (($memberRes['code'] ?? null) !== ResultCode::OK->value) {
@@ -191,13 +242,18 @@ class PostOrderToIgniteJob implements ShouldQueue
             }
             $member = $memberRes['data'];
 
-            $treeRes = $ignite->binaryTree($mainBaId, 1);
+            $treeRes = $ignite->binaryTree($mainBaId, 3);
             if (($treeRes['code'] ?? null) !== ResultCode::OK->value) {
                 throw new \Exception("binaryTree() refused for {$mainBaId}: " . ($treeRes['msg'] ?? 'unknown'));
             }
-            $level1 = collect($treeRes['data']['rows'] ?? [])->where('level', 1);
-            $ba002  = $level1->firstWhere('binary_side', 1)['ba_id'] ?? null;
-            $ba003  = $level1->firstWhere('binary_side', 2)['ba_id'] ?? null;
+            $treeRows = collect($treeRes['data']['rows'] ?? []);
+            $level1   = $treeRows->where('level', 1);
+
+            $child002 = $level1->firstWhere('binary_side', 1);
+            $child003 = $level1->firstWhere('binary_side', 2);
+
+            $ba002 = $child002['ba_id'] ?? null;
+            $ba003 = $child003['ba_id'] ?? null;
 
             if (!$ba002 || !$ba003) {
                 $order->update([
@@ -207,148 +263,149 @@ class PostOrderToIgniteJob implements ShouldQueue
                 return;
             }
 
-            // ── 4. Allocations (partial-safe with extra TC handling) ──
+            // ── 4. Allocations ──
+            // FIX: use cv_allocated (own-order CV), not cv_left/cv_right (downline CV)
+            $mem002Res = $ignite->memberDetails($ba002);
+            $mem003Res = $ignite->memberDetails($ba003);
+            $mem002    = ($mem002Res['code'] ?? null) === ResultCode::OK->value ? $mem002Res['data'] : [];
+            $mem003    = ($mem003Res['code'] ?? null) === ResultCode::OK->value ? $mem003Res['data'] : [];
+
+            $cv001Have = (float) ($member['cv_allocated'] ?? 0);
+            $cv002Have = (float) ($mem002['cv_allocated'] ?? 0);
+            $cv003Have = (float) ($mem003['cv_allocated'] ?? 0);
+
             $cv001 = 0.0;
             if (empty($member['qualified_at'])) {
                 $cv001 = min(
-                    max(0.0, round($qualifyCv - (float) ($member['cv_allocated'] ?? 0), 4)),
+                    max(0.0, round($qualifyCv - $cv001Have, 4)),
                     round($totalCv, 4)
                 );
             }
             $cv001     = round($cv001, 4);
             $remaining = round($totalCv - $cv001, 4);
 
-            // Fetch current CV in -002 and -003
-            $child002 = $level1->firstWhere('binary_side', 1);
-            $child003 = $level1->firstWhere('binary_side', 2);
-
-            $cv002Have = (float) ($child002['cv_left'] ?? 0) + (float) ($child002['cv_right'] ?? 0);
-            $cv003Have = (float) ($child003['cv_left'] ?? 0) + (float) ($child003['cv_right'] ?? 0);
-
             $cv002Need = max(0.0, round($qualifyCv - $cv002Have, 4));
             $cv003Need = max(0.0, round($qualifyCv - $cv003Have, 4));
 
-            // Fill -002 first
-            $cv002 = min($remaining, $cv002Need);
+            $cv002     = min($remaining, $cv002Need);
             $remaining = round($remaining - $cv002, 4);
 
-            // Then -003
-            $cv003 = min($remaining, $cv003Need);
+            $cv003     = min($remaining, $cv003Need);
             $remaining = round($remaining - $cv003, 4);
 
             $allocations = [];
-            if ($cv001 > 0) $allocations[] = ['ba_id' => $mainBaId, 'cv' => number_format($cv001, 4, '.', '')];
-            if ($cv002 > 0) $allocations[] = ['ba_id' => $ba002,   'cv' => number_format($cv002, 4, '.', '')];
-            if ($cv003 > 0) $allocations[] = ['ba_id' => $ba003,   'cv' => number_format($cv003, 4, '.', '')];
+            if ($cv001 > 0.0001) $allocations[] = ['ba_id' => $mainBaId, 'cv' => $this->fmt($cv001)];
+            if ($cv002 > 0.0001) $allocations[] = ['ba_id' => $ba002,   'cv' => $this->fmt($cv002)];
+            if ($cv003 > 0.0001) $allocations[] = ['ba_id' => $ba003,   'cv' => $this->fmt($cv003)];
 
-            // ── Extra TC handling (if remaining CV exists) ──
+            // ── Extra TCs ──
             $extraTcs = [];
             if ($remaining > 0.0001 && $baseProductCv > 0) {
                 $extraTcCount = (int) floor($remaining / $baseProductCv);
                 $extraTcCv    = round($extraTcCount * $baseProductCv, 4);
                 $leftover     = round($remaining - $extraTcCv, 4);
 
-                Log::info('Ignite job: extra TC calculation', [
-                    'order_id'       => $order->id,
-                    'remaining'      => $remaining,
-                    'base_product_cv'=> $baseProductCv,
-                    'extra_tc_count' => $extraTcCount,
-                    'extra_tc_cv'    => $extraTcCv,
-                    'leftover'       => $leftover,
+                Log::info('Ignite job: extra TC calc', [
+                    'order_id'        => $order->id,
+                    'remaining'       => $remaining,
+                    'base_product_cv' => $baseProductCv,
+                    'extra_tc_count'  => $extraTcCount,
+                    'leftover'        => $leftover,
                 ]);
 
                 if ($extraTcCount > 0) {
-                    // Placement parent dhundho: buyer's far_left_id / far_right_id
-                    // Simple strategy: alternate sides, use far ends from memberDetails
-                    $farLeftId  = $member['far_left_id']  ?? null;
-                    $farRightId = $member['far_right_id'] ?? null;
-
-                    // Prefer placing under buyer's own -002/-003 (safer)
-                    $placementParentId = $farLeftId ?? $farRightId ?? ($child002['member_id'] ?? null);
-
-                    if (!$placementParentId) {
-                        // Fallback: place under -002
-                        $placementParentId = $child002['member_id'] ?? null;
+                    // FIX: scan tree for free slots — never blind far_left/right
+                    $freeSlots = [];
+                    foreach ($treeRows as $row) {
+                        if (empty($row['far_left_id'])) {
+                            $freeSlots[] = ['placement_member_id' => (int) $row['member_id'], 'side' => 1];
+                        }
+                        if (empty($row['far_right_id'])) {
+                            $freeSlots[] = ['placement_member_id' => (int) $row['member_id'], 'side' => 2];
+                        }
                     }
 
-                    if (!$placementParentId) {
+                    if (count($freeSlots) < $extraTcCount) {
                         $order->update([
                             'ignite_sync_status' => 'failed',
-                            'ignite_sync_error'  => "Cannot place extra TC — no valid placement parent. Remaining CV: {$remaining}.",
-                        ]);
-                        Log::error('Ignite job: no valid extra TC placement parent', [
-                            'order_id'  => $order->id,
-                            'remaining' => $remaining,
+                            'ignite_sync_error'  => "Only " . count($freeSlots) . " free slots for {$extraTcCount} TCs (tree depth 3).",
                         ]);
                         return;
                     }
 
-                    // Create extra TC requests
                     for ($i = 0; $i < $extraTcCount; $i++) {
-                        $extraTcs[] = [
-                            'placement_member_id' => (int) $placementParentId,
-                            'side'                => ($i % 2 === 0) ? 1 : 2,  // alternate
-                        ];
+                        $extraTcs[] = $freeSlots[$i];
                         $allocations[] = [
                             'extra_tc' => $i,
-                            'cv'       => number_format($baseProductCv, 4, '.', ''),
+                            'cv'       => $this->fmt($baseProductCv),
                         ];
                     }
                 }
 
-                // Leftover CV — absorb into -001 if unqualified, otherwise -002
+                // FIX: leftover CV — only allocate if -002/-003 still has room
                 if ($leftover > 0.0001) {
-                    if (empty($member['qualified_at']) && $cv001 < $qualifyCv) {
-                        // Add leftover to -001
-                        $allocations[] = ['ba_id' => $mainBaId, 'cv' => number_format($leftover, 4, '.', '')];
-                    } else {
-                        // Add leftover to -002
-                        $allocations[] = ['ba_id' => $ba002, 'cv' => number_format($leftover, 4, '.', '')];
+                    $placed = false;
+                    if ($cv002Have + $cv002 + $leftover <= $qualifyCv + 0.0001) {
+                        $allocations[] = ['ba_id' => $ba002, 'cv' => $this->fmt($leftover)];
+                        $placed = true;
+                    } elseif ($cv003Have + $cv003 + $leftover <= $qualifyCv + 0.0001) {
+                        $allocations[] = ['ba_id' => $ba003, 'cv' => $this->fmt($leftover)];
+                        $placed = true;
                     }
-                    Log::info('Ignite job: leftover CV absorbed', [
-                        'order_id' => $order->id,
-                        'leftover' => $leftover,
-                    ]);
+
+                    if (!$placed) {
+                        $order->update([
+                            'ignite_sync_status' => 'failed',
+                            'ignite_sync_error'  => "Leftover CV {$leftover} cannot be allocated.",
+                        ]);
+                        Log::error('Ignite job: leftover CV unallocatable', [
+                            'order_id'   => $order->id,
+                            'leftover'   => $leftover,
+                            'cv002_have' => $cv002Have, 'cv002' => $cv002,
+                            'cv003_have' => $cv003Have, 'cv003' => $cv003,
+                            'qualify'    => $qualifyCv,
+                        ]);
+                        return;
+                    }
                 }
             } elseif ($remaining > 0.0001) {
-                // base_product_cv is 0 — can't compute extra TCs. Fail.
                 $order->update([
                     'ignite_sync_status' => 'failed',
                     'ignite_sync_error'  => "Unallocated CV {$remaining} but base_product_cv is 0.",
                 ]);
-                Log::error('Ignite job: cannot allocate remaining CV', [
-                    'order_id'       => $order->id,
-                    'remaining'      => $remaining,
-                    'base_product_cv'=> $baseProductCv,
+                return;
+            }
+
+            // FIX: hard-fail on sum mismatch — don't call createOrder
+            $allocSum = 0.0;
+            foreach ($allocations as $a) $allocSum += (float) $a['cv'];
+            $allocSum = round($allocSum, 4);
+            if (abs($allocSum - round($totalCv, 4)) > 0.0001) {
+                $order->update([
+                    'ignite_sync_status' => 'failed',
+                    'ignite_sync_error'  => "Local allocation sum {$allocSum} != order CV {$totalCv}.",
                 ]);
                 return;
             }
 
-            // Verify allocations sum = totalCv (sanity check)
-            $allocSum = 0.0;
-            foreach ($allocations as $a) {
-                $allocSum += (float) $a['cv'];
-            }
-            $allocSum = round($allocSum, 4);
-            if (abs($allocSum - round($totalCv, 4)) > 0.01) {
-                Log::warning('Ignite job: allocation sum mismatch', [
-                    'order_id'     => $order->id,
-                    'total_cv'     => $totalCv,
-                    'alloc_sum'    => $allocSum,
-                    'diff'         => $allocSum - $totalCv,
+            // ── 5. Sales-week pre-validate ──
+            $igniteTz     = new \DateTimeZone(self::IGNITE_TIMEZONE);
+            $orderedAt    = $order->confirmed_at->copy()->setTimezone($igniteTz);
+            $orderedAtStr = $orderedAt->format('Y-m-d H:i:s');
+
+            if (!$this->validateSalesWeek($ignite, $orderedAt)) {
+                $order->update([
+                    'ignite_sync_status' => 'failed',
+                    'ignite_sync_error'  => "ordered_at {$orderedAtStr} falls in no sales week.",
                 ]);
+                return;
             }
 
-            // ── 5. Create Order ──
-            $igniteTz  = new \DateTimeZone(self::IGNITE_TIMEZONE);
-            $orderedAt = $order->confirmed_at
-                ? $order->confirmed_at->copy()->setTimezone($igniteTz)
-                : now($igniteTz);
-
+            // ── 6. Create Order ──
             $response = $ignite->createOrder(
                 baId:            $mainBaId,
                 partnerOrderRef: $order->order_reference,
-                orderedAt:       $orderedAt->format('Y-m-d H:i:s'),
+                orderedAt:       $orderedAtStr,
                 localAmount:     number_format(round((float) $order->total_payable, 2), 2, '.', ''),
                 localCurrency:   $localCurrency,
                 lines:           $lines,
@@ -359,16 +416,33 @@ class PostOrderToIgniteJob implements ShouldQueue
             $code = $response['code'] ?? null;
             $msg  = $response['msg'] ?? 'unknown';
 
-            // ── 6. Success ──
+            // ── 7. Success ──
             if ($code === ResultCode::OK->value || $code === ResultCode::ORDER_DUPLICATE->value) {
                 $data = $response['data'] ?? [];
-                if ($code === ResultCode::ORDER_DUPLICATE->value) {
+
+                // FIX: trust data.order_no; getOrder only as last resort
+                if ($code === ResultCode::ORDER_DUPLICATE->value && empty($data['order_no'])) {
                     $existing = $ignite->getOrder($order->order_reference);
-                    $data = $existing['data'] ?? [];
+                    if (($existing['code'] ?? null) === ResultCode::OK->value
+                        && !empty($existing['data']['order_no'])) {
+                        $data = $existing['data'];
+                    } else {
+                        $this->release(300);
+                        return;
+                    }
                 }
+
+                if (empty($data['order_no'])) {
+                    $order->update([
+                        'ignite_sync_status' => 'failed',
+                        'ignite_sync_error'  => 'Ignite replied success without order_no.',
+                    ]);
+                    return;
+                }
+
                 $this->markOrderPosted($order, $eligibleLines, $data, $totalCv);
                 $this->forgetMemberCache($mainBaId);
-                Log::info('Ignite order posted (partial if lines skipped)', [
+                Log::info('Ignite order posted', [
                     'order_id'      => $order->id,
                     'skipped_count' => count($skippedLines),
                     'extra_tcs'     => count($extraTcs),
@@ -376,7 +450,7 @@ class PostOrderToIgniteJob implements ShouldQueue
                 return;
             }
 
-            // ── 7. PRODUCT_NOT_ON_CATALOG ──
+            // ── 8. PRODUCT_NOT_ON_CATALOG ──
             if ($code === ResultCode::PRODUCT_NOT_ON_CATALOG->value) {
                 $order->update([
                     'ignite_sync_status' => 'failed',
@@ -391,7 +465,7 @@ class PostOrderToIgniteJob implements ShouldQueue
                 return;
             }
 
-            // ── 8. Retryable / permanent ──
+            // ── 9. Permanent ──
             if (in_array($code, self::PERMANENT_CODES, true)) {
                 $order->update([
                     'ignite_sync_status' => 'failed',
@@ -400,9 +474,11 @@ class PostOrderToIgniteJob implements ShouldQueue
                 return;
             }
 
-            if ($code === ResultCode::NETWORK_BUSY->value) { $this->release(30); return; }
-            if ($code === ResultCode::PLACEMENT_REFUSED->value) { $this->release(60); return; }
+            // ── 10. Retryable ──
+            if ($code === ResultCode::NETWORK_BUSY->value)       { $this->release(30);   return; }
+            if ($code === ResultCode::PLACEMENT_REFUSED->value)  { $this->release(60);   return; }
             if ($code === ResultCode::ORDER_WEEK_UNKNOWN->value) { $this->release(3600); return; }
+            if ($code === ResultCode::ORDER_DISABLED->value)     { $this->release(3600); return; }
 
             throw new \Exception("Ignite Error [{$code}]: {$msg}");
 
@@ -423,17 +499,56 @@ class PostOrderToIgniteJob implements ShouldQueue
         }
     }
 
+    private function validateSalesWeek(IgniteClient $ignite, \DateTimeInterface $orderedAt): bool
+    {
+        $year   = (int) $orderedAt->format('Y');
+        $result = $ignite->salesCalendar($year);
+
+        if (($result['code'] ?? null) !== ResultCode::OK->value) {
+            return true; // don't block on calendar failure
+        }
+
+        $orderedAtStr = $orderedAt->format('Y-m-d H:i:s');
+
+        foreach ($result['data']['months'] ?? [] as $month) {
+            foreach ($month['weeks'] ?? [] as $week) {
+                if ($orderedAtStr >= $week['start_at'] && $orderedAtStr < $week['end_at']) {
+                    return true;
+                }
+            }
+        }
+
+        // Sales year can spill into next calendar year
+        $next = $ignite->salesCalendar($year + 1);
+        if (($next['code'] ?? null) === ResultCode::OK->value) {
+            foreach ($next['data']['months'] ?? [] as $month) {
+                foreach ($month['weeks'] ?? [] as $week) {
+                    if ($orderedAtStr >= $week['start_at'] && $orderedAtStr < $week['end_at']) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function fmt(float $v): string
+    {
+        return number_format($v, 4, '.', '');
+    }
+
     protected function markOrderPosted(Order $order, array $eligibleLines, array $respData, float $fallbackCv): void
     {
         $igniteOrderNo = $respData['order_no'] ?? null;
-        $totalCv       = round((float) ($respData['total_cv'] ?? $fallbackCv), 2);
+        $totalCv       = round((float) ($respData['total_cv'] ?? $fallbackCv), 4);
 
         foreach ($eligibleLines as $entry) {
             $entry['line']->update([
                 'ignite_order_no'             => $igniteOrderNo,
                 'ignite_sync_status'          => 'posted',
                 'ignite_sync_error'           => null,
-                'ignite_cv_posted'            => round((float) $entry['cv'], 2),
+                'ignite_cv_posted'            => round((float) $entry['cv'], 4),
                 'ignite_catalog_item_id'      => $entry['catalog_item_id'] ?? null,
                 'ignite_sales_week_year'      => $respData['sales_week']['year']         ?? null,
                 'ignite_sales_week_no'        => $respData['sales_week']['week_no']      ?? null,
