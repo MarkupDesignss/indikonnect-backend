@@ -1882,6 +1882,7 @@ class UserDashboardController extends Controller
 
         $baId = $user->distributor_id;
 
+        // ---------- 1. Member details ----------
         $memberResp = $this->ignite->memberDetails($baId);
         if (($memberResp['code'] ?? null) !== ResultCode::OK->value) {
             return response()->json([
@@ -1891,16 +1892,35 @@ class UserDashboardController extends Controller
         }
         $member = $memberResp['data'];
 
-        $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
-            ->where('key', 'usd_to_inr')->value('value') ?: 0;
+        // ---------- 2. Exchange rate (cached, zero-check) ----------
+        $usdRate = (float) Cache::remember('usd_to_inr_rate', 3600, function () {
+            return \App\Models\Setting::where('group', 'exchange_rate')
+                ->where('key', 'usd_to_inr')->value('value') ?: 0;
+        });
 
-        // ---- TDS rate decide karo distributor_profiles se ----
-        $gstIn = \App\Models\DistributorProfile::where('user_id', $user->id)->value('gst_in');
+        if ($usdRate <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Exchange rate not configured. Contact admin.'
+            ], 500);
+        }
 
-        $isValidGst = !empty($gstIn) && strtoupper(trim($gstIn)) !== 'URP';
+        // ---------- 3. Distributor profile (GSTIN + PAN) ----------
+        $profile = \App\Models\DistributorProfile::where('user_id', $user->id)->first();
+        $gstIn   = $profile?->gst_in;
+        $panVerified = (bool) ($profile?->pan_verified ?? false);
 
-        $tdsRate = $isValidGst ? 0.02 : 0.20;   // 2% ya 20%
+        $normalizedGst = strtoupper(trim((string) $gstIn));
 
+        $isValidGst = !empty($normalizedGst)
+            && $normalizedGst !== 'URP'
+            && preg_match('/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $normalizedGst);
+
+        // Valid GSTIN + verified PAN => 2%, warna 20%
+        $tdsRate = ($isValidGst && $panVerified) ? 0.02 : 0.20;
+        $tdsSection = $isValidGst ? '194-O' : '194J';
+
+        // ---------- 4. Plan rates ----------
         $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
             try {
                 $resp = $this->ignite->planRanks();
@@ -1917,6 +1937,7 @@ class UserDashboardController extends Controller
         $blueRate        = (float) ($planResp['blue_usd']         ?? 12.5);
         $greenRate       = (float) ($planResp['green_redeem_usd'] ?? 125);
 
+        // ---------- 5. Transactions ----------
         $txResp  = $this->ignite->pointTxs($baId, 0, 100);
         $rawTxs  = $txResp['data']['rows'] ?? [];
         $hasMore = $txResp['data']['has_more'] ?? false;
@@ -1949,6 +1970,7 @@ class UserDashboardController extends Controller
             $greenCoin  = ($tx['point_type'] ?? '') === 'green_bal'  ? $amt : 0;
             $yellowCoin = ($tx['point_type'] ?? '') === 'yellow_bal' ? $amt : 0;
             $blueCoin   = ($tx['point_type'] ?? '') === 'blue_bal'   ? $amt : 0;
+            $pvCoin     = in_array($tx['point_type'] ?? '', ['pv1_bal', 'pv2_bal']) ? $amt : 0;
 
             $greenAbs  = abs($greenCoin);
             $yellowAbs = abs($yellowCoin);
@@ -1961,6 +1983,13 @@ class UserDashboardController extends Controller
             if ($greenCoin < 0)  $greenValueInr  = -$greenValueInr;
             if ($yellowCoin < 0) $yellowValueInr = -$yellowValueInr;
             if ($blueCoin < 0)   $blueValueInr   = -$blueValueInr;
+
+            // ---------- TDS per-transaction (sirf wd par) ----------
+            $isWithdrawal  = ($tx['tx_type'] ?? '') === 'wd';
+            $amountUsdAbs  = $isWithdrawal ? abs($amt) : 0;
+            $grossInr      = $isWithdrawal ? round($amountUsdAbs * $usdRate, 2) : 0;
+            $tdsAmountInr  = $isWithdrawal ? round($grossInr * $tdsRate, 2) : 0;
+            $netPayableInr = $isWithdrawal ? round($grossInr - $tdsAmountInr, 2) : 0;
 
             $transactions[] = [
                 'id'            => $tx['id'],
@@ -1975,40 +2004,40 @@ class UserDashboardController extends Controller
                 'green_coin'    => $greenCoin,
                 'yellow_coin'   => $yellowCoin,
                 'blue_coin'     => $blueCoin,
+                'pv_coin'       => $pvCoin,
 
                 'green_value_inr' => $greenValueInr,
                 'yellow_value_inr'=> $yellowValueInr,
                 'blue_value_inr'  => $blueValueInr,
 
+                // TDS fields — withdrawal par value, baaki par 0
+                'tds_rate_percent' => $isWithdrawal ? round($tdsRate * 100, 2) : 0,
+                'tds_amount_inr'   => $tdsAmountInr,
+                'net_payable_inr'  => $netPayableInr,
+
                 'order_id'      => $tx['order_no'] ?? null,
                 'related_member'=> $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
             ];
 
-            if (($tx['tx_type'] ?? '') === 'wd') {
-                // Ignite sends withdrawal as negative; the paid-out amount is positive
-                $amountUsdAbs = abs($amt);
-                $grossInr     = round($amountUsdAbs * $usdRate, 2);
-
-                // ---- TDS deduction ----
-                $tdsAmountInr = round($grossInr * $tdsRate, 2);
-                $netPayableInr = round($grossInr - $tdsAmountInr, 2);
-
+            if ($isWithdrawal) {
                 $withdrawals[] = [
                     'id'               => $tx['id'],
                     'date'             => $tx['created_at'],
                     'amount_usd'       => round($amountUsdAbs, 4),
-                    'amount_inr'       => $grossInr,          // gross
-                    'tds_rate_percent' => $tdsRate * 100,     // 2 ya 20
+                    'amount_inr'       => $grossInr,
+                    'tds_section'      => $tdsSection,
+                    'tds_rate_percent' => round($tdsRate * 100, 2),
                     'tds_amount_inr'   => $tdsAmountInr,
                     'net_payable_inr'  => $netPayableInr,
-                    'gst_in'           => $gstIn,             // debug/reference ke liye
-                    'status'           => 'Paid',
+                    'gst_in'           => $gstIn,
+                    'status'           => ($member['allow_withdraw'] ?? true) ? 'Paid' : 'Held',
                     'remark'           => $tx['description'] ?? 'Withdrawal',
                     'currency'         => 'INR',
                 ];
             }
         }
 
+        // ---------- 6. Balances ----------
         $cashUsd     = (float) ($member['cash_bal'] ?? 0);
         $greenQty    = (float) ($member['green_bal'] ?? 0);
         $yellowQty   = (float) ($member['yellow_bal'] ?? 0);
@@ -2017,6 +2046,9 @@ class UserDashboardController extends Controller
         $greenValUsd  = floor($greenQty / 6) * $greenRate;
         $yellowValUsd = $yellowQty * ($yellowQty >= 3 ? $yellowLargeRate : $yellowSmallRate);
         $blueValUsd   = $blueQty >= 4 ? $blueQty * $blueRate : 0;
+
+        $greenRedeemable = floor($greenQty / 6) * 6;
+        $greenPending    = $greenQty - $greenRedeemable;
 
         return response()->json([
             'success' => true,
@@ -2027,10 +2059,12 @@ class UserDashboardController extends Controller
             ],
             'tds' => [
                 'gst_in'         => $gstIn,
-                'applied_rate'   => $tdsRate * 100, // 2 ya 20
+                'pan_verified'   => $panVerified,
+                'section'        => $tdsSection,
+                'applied_rate'   => round($tdsRate * 100, 2),
                 'reason'         => $isValidGst
-                                        ? 'Valid GSTIN present'
-                                        : 'GSTIN missing or URP',
+                                        ? ($panVerified ? 'Valid GSTIN + verified PAN' : 'Valid GSTIN but PAN not verified')
+                                        : 'GSTIN missing, invalid or URP',
             ],
             'data' => [
                 'balances' => [
@@ -2038,12 +2072,14 @@ class UserDashboardController extends Controller
                     'cash_bal_inr'      => round($cashUsd * $usdRate, 2),
                     'cash_bal_display_currency' => 'INR',
 
-                    'retail_profit_usd' => round($retailProfitUsd, 2),
-                    'retail_profit_inr' => round($retailProfitUsd * $usdRate, 2),
+                    'retail_profit_lifetime_usd' => round($retailProfitUsd, 2),
+                    'retail_profit_lifetime_inr' => round($retailProfitUsd * $usdRate, 2),
 
-                    'green_bal'         => $greenQty,
-                    'yellow_bal'        => $yellowQty,
-                    'blue_bal'          => $blueQty,
+                    'green_bal'          => $greenQty,
+                    'green_bal_redeemable' => $greenRedeemable,
+                    'green_bal_pending'  => $greenPending,
+                    'yellow_bal'         => $yellowQty,
+                    'blue_bal'           => $blueQty,
 
                     'green_value_usd'   => round($greenValUsd, 2),
                     'yellow_value_usd'  => round($yellowValUsd, 2),
