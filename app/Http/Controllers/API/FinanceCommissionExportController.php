@@ -38,7 +38,7 @@ class FinanceCommissionExportController extends Controller
         $week = (int) $request->week;
         $year = (int) $request->year;
 
-        // 🔍 DEBUG MODE: Show entire Ignite calendar
+        // DEBUG MODE: Show entire Ignite calendar
         if ($week === 0) {
             $calendar = $this->ignite->salesCalendar($year);
             return response()->json([
@@ -57,7 +57,18 @@ class FinanceCommissionExportController extends Controller
             'week_end'   => $weekEnd->toDateTimeString(),
         ]);
 
-        // ✅ complete_pan_card added to select
+        $usdRate = (float) Cache::remember('usd_to_inr_rate', 3600, function () {
+            return \App\Models\Setting::where('group', 'exchange_rate')
+                ->where('key', 'usd_to_inr')->value('value') ?: 0;
+        });
+
+        if ($usdRate <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Exchange rate not configured. Contact admin.'
+            ], 500);
+        }
+
         $distributors = User::query()
             ->with(['distributorProfile'])
             ->where('account_type', 'distributor')
@@ -72,13 +83,25 @@ class FinanceCommissionExportController extends Controller
 
         foreach ($distributors as $dist) {
             try {
-                $history = $this->fetchHistoryForWeek($dist->distributor_id, $weekStart, $weekEnd);
+                $history = $this->fetchHistoryForWeek($dist->distributor_id, $weekStart, $weekEnd, $usdRate);
 
+                // ---------- Gross commission (withdrawals excluded) ----------
                 $grossCommission = 0;
 
                 foreach ($history as $tx) {
-                    if (($tx['point_type'] ?? '') === 'cash_bal') {
-                        $grossCommission += (float) $tx['amount_inr'];
+                    if (($tx['point_type'] ?? '') !== 'cash_bal') continue;
+
+                    $desc   = $tx['description'] ?? '';
+                    $amount = (float) $tx['amount_inr'];
+
+                    // Withdrawals are payouts, not commission — exclude
+                    if ($desc === 'wd_partner_payout' || str_starts_with($desc, 'wd_')) {
+                        continue;
+                    }
+
+                    // Only positive earnings count
+                    if ($amount > 0) {
+                        $grossCommission += $amount;
                     }
                 }
 
@@ -86,10 +109,22 @@ class FinanceCommissionExportController extends Controller
                     continue;
                 }
 
-                $tdsAmount     = round($grossCommission * 0.02, 2);
-                $netCommission = round($grossCommission - $tdsAmount, 2);
+                // ---------- TDS rate (GSTIN + PAN check) ----------
+                $profile     = $dist->distributorProfile;
+                $gstIn       = $profile?->gst_in;
+                $panVerified = (bool) ($profile?->pan_verified ?? false);
 
-                $profile = $dist->distributorProfile;
+                $normalizedGst = strtoupper(trim((string) $gstIn));
+
+                $isValidGst = !empty($normalizedGst)
+                    && $normalizedGst !== 'URP'
+                    && preg_match('/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $normalizedGst);
+
+                $tdsRate    = ($isValidGst && $panVerified) ? 0.02 : 0.20;
+                $tdsSection = $isValidGst ? '194-O' : '194J';
+
+                $tdsAmount     = round($grossCommission * $tdsRate, 2);
+                $netCommission = round($grossCommission - $tdsAmount, 2);
 
                 $rows[] = [
                     'ba_id'               => $dist->distributor_id,
@@ -98,18 +133,22 @@ class FinanceCommissionExportController extends Controller
                     'week'                => $week,
                     'year'                => $year,
                     'gross_commission'    => $grossCommission,
+
+                    // TDS fields
+                    'tds_section'         => $tdsSection,
+                    'tds_rate_percent'    => round($tdsRate * 100, 2),
                     'tds_amount'          => $tdsAmount,
                     'net_commission'      => $netCommission,
 
-                    // Bank details from distributor_profiles — complete
+                    'gst_in'              => $this->maskGst($gstIn),
+                    'pan_verified'        => $panVerified,
+
+                    // Bank details
                     'bank_holder_name'    => $profile->bank_holder_name ?? '-',
                     'bank_account_number' => $profile->complete_bank_account ?? '-',
                     'bank_ifsc'           => $profile->bank_ifsc ?? '-',
 
-                    // GST masked from distributor_profiles
-                    'gst_in'              => $this->maskGst($profile->gst_in ?? null),
-
-                    // PAN masked from users
+                    // PAN masked
                     'pan_number'          => $this->maskPan($dist->complete_pan_card ?? null),
                 ];
             } catch (\Throwable $e) {
@@ -123,9 +162,6 @@ class FinanceCommissionExportController extends Controller
                 ]);
             }
         }
-
-        $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
-            ->where('key', 'usd_to_inr')->value('value') ?: 0;
 
         return response()->json([
             'success'  => true,
@@ -149,6 +185,9 @@ class FinanceCommissionExportController extends Controller
                 'total_distributors' => $distributors->count(),
                 'total_eligible'     => count($rows),
                 'failed_count'       => count($failed),
+                'total_gross'        => round(array_sum(array_column($rows, 'gross_commission')), 2),
+                'total_tds'          => round(array_sum(array_column($rows, 'tds_amount')), 2),
+                'total_net'          => round(array_sum(array_column($rows, 'net_commission')), 2),
             ],
             'data'   => $rows,
             'failed' => $failed,
@@ -156,7 +195,7 @@ class FinanceCommissionExportController extends Controller
     }
 
     // ============================================================
-    // REPORT #2: Weekly Commission Report
+    // REPORT #2: Weekly Commission Report (with per-distributor TDS)
     // ============================================================
     /**
      * GET /api/finance/weekly-commission-report?year=2026&weeks=12&ba_id=optional
@@ -189,10 +228,20 @@ class FinanceCommissionExportController extends Controller
             ], 422);
         }
 
-        $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
-            ->where('key', 'usd_to_inr')->value('value') ?: 0;
+        $usdRate = (float) Cache::remember('usd_to_inr_rate', 3600, function () {
+            return \App\Models\Setting::where('group', 'exchange_rate')
+                ->where('key', 'usd_to_inr')->value('value') ?: 0;
+        });
+
+        if ($usdRate <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Exchange rate not configured. Contact admin.'
+            ], 500);
+        }
 
         $query = User::query()
+            ->with(['distributorProfile'])
             ->where('account_type', 'distributor')
             ->whereNotNull('distributor_id')
             ->where('distributor_id', '!=', '')
@@ -214,12 +263,30 @@ class FinanceCommissionExportController extends Controller
 
         $cutoff = $weekWindows[0]['start'];
 
+        // Pre-compute TDS info per distributor
+        $tdsInfoMap = [];
+        foreach ($distributors as $dist) {
+            $profile     = $dist->distributorProfile;
+            $gstIn       = $profile?->gst_in;
+            $panVerified = (bool) ($profile?->pan_verified ?? false);
+
+            $normalizedGst = strtoupper(trim((string) $gstIn));
+            $isValidGst = !empty($normalizedGst)
+                && $normalizedGst !== 'URP'
+                && preg_match('/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $normalizedGst);
+
+            $tdsInfoMap[$dist->distributor_id] = [
+                'tds_rate'    => ($isValidGst && $panVerified) ? 0.02 : 0.20,
+                'tds_section' => $isValidGst ? '194-O' : '194J',
+            ];
+        }
+
         $perDistributor = [];
         $failed         = [];
 
         foreach ($distributors as $dist) {
             try {
-                $transactions = $this->fetchAllPointTxsSince($dist->distributor_id, $cutoff);
+                $transactions = $this->fetchAllPointTxsSince($dist->distributor_id, $cutoff, $usdRate);
                 $buckets      = $this->bucketByWeek($transactions, $weekWindows);
 
                 $perDistributor[$dist->distributor_id] = [
@@ -249,6 +316,8 @@ class FinanceCommissionExportController extends Controller
             $aggBlue     = 0;
             $aggCvLeft   = 0;
             $aggCvRight  = 0;
+            $aggTdsInr   = 0;
+            $aggNetInr   = 0;
             $txCount     = 0;
             $distributorsInWeek = [];
 
@@ -266,12 +335,20 @@ class FinanceCommissionExportController extends Controller
 
                 if ($tc === 0) continue;
 
+                // Per-distributor TDS (on positive commission only)
+                $tdsInfo        = $tdsInfoMap[$distBaId] ?? ['tds_rate' => 0.20, 'tds_section' => '194J'];
+                $grossCommissionInr = (float) ($b['gross_commission_inr'] ?? 0);
+                $tdsAmountInr   = round($grossCommissionInr * $tdsInfo['tds_rate'], 2);
+                $netCommissionInr = round($grossCommissionInr - $tdsAmountInr, 2);
+
                 $aggCashUsd += $cash;
                 $aggGreen   += $green;
                 $aggYellow  += $yellow;
                 $aggBlue    += $blue;
                 $aggCvLeft  += $cvL;
                 $aggCvRight += $cvR;
+                $aggTdsInr  += $tdsAmountInr;
+                $aggNetInr  += $netCommissionInr;
                 $txCount    += $tc;
 
                 $distributorsInWeek[] = [
@@ -285,6 +362,13 @@ class FinanceCommissionExportController extends Controller
                     'cv_left'     => round($cvL, 4),
                     'cv_right'    => round($cvR, 4),
                     'tx_count'    => $tc,
+
+                    // TDS per distributor
+                    'tds_section'      => $tdsInfo['tds_section'],
+                    'tds_rate_percent' => round($tdsInfo['tds_rate'] * 100, 2),
+                    'gross_commission_inr' => $grossCommissionInr,
+                    'tds_amount_inr'   => $tdsAmountInr,
+                    'net_commission_inr' => $netCommissionInr,
                 ];
             }
 
@@ -309,6 +393,10 @@ class FinanceCommissionExportController extends Controller
                 'total_cv_right'     => round($aggCvRight, 4),
                 'total_tx_count'     => $txCount,
                 'distributor_count'  => count($distributorsInWeek),
+
+                // TDS summary for the week
+                'total_tds_inr'      => round($aggTdsInr, 2),
+                'total_net_commission_inr' => round($aggNetInr, 2),
 
                 'distributors'       => $distributorsInWeek,
             ];
@@ -347,10 +435,6 @@ class FinanceCommissionExportController extends Controller
     // MASK HELPERS
     // ============================================================
 
-    /**
-     * Mask GST: first 2 + last 3 visible.
-     * Example: 27AABCU9603R1ZM → 27**********1ZM
-     */
     private function maskGst(?string $gst): string
     {
         if (empty($gst)) {
@@ -369,10 +453,6 @@ class FinanceCommissionExportController extends Controller
             . substr($gst, -3);
     }
 
-    /**
-     * Mask PAN: first 2 + last 3 visible.
-     * Example: ABCDE1234F → AB*****34F
-     */
     private function maskPan(?string $pan): string
     {
         if (empty($pan)) {
@@ -382,7 +462,6 @@ class FinanceCommissionExportController extends Controller
         $pan = strtoupper(trim($pan));
         $len = strlen($pan);
 
-        // PAN is 10 chars (5 letters + 4 digits + 1 letter)
         if ($len !== 10) {
             return str_repeat('*', $len);
         }
@@ -393,12 +472,12 @@ class FinanceCommissionExportController extends Controller
     }
 
     // ============================================================
-    // CALENDAR HELPERS
+    // CALENDAR HELPERS (use start_at / end_at — exact boundaries)
     // ============================================================
 
     /**
      * Exact week boundaries from Ignite Sales Calendar (IST).
-     * Uses start_date + 00:00 UTC+8 → IST (matches dashboard).
+     * Uses start_at / end_at (UTC+8) → IST.
      */
     private function getWeekRange(int $week, int $year): array
     {
@@ -414,13 +493,23 @@ class FinanceCommissionExportController extends Controller
         foreach (($calendar['months'] ?? []) as $month) {
             foreach (($month['weeks'] ?? []) as $w) {
                 if ((int) ($w['week_no'] ?? 0) === $week) {
-                    $startIst = Carbon::parse(($w['start_date'] ?? '') . ' 00:00:00', 'Asia/Hong_Kong')
+                    // Prefer start_at / end_at (exact boundaries); fallback to start_date/end_date
+                    $startRaw = $w['start_at'] ?? ($w['start_date'] ?? '') . ' 00:00:00';
+                    $endRaw   = $w['end_at']   ?? null;
+
+                    $startIst = Carbon::parse($startRaw, 'Asia/Hong_Kong')
                         ->setTimezone('Asia/Kolkata');
 
-                    $endIst = Carbon::parse(($w['end_date'] ?? '') . ' 00:00:00', 'Asia/Hong_Kong')
-                        ->addDay()
-                        ->setTimezone('Asia/Kolkata')
-                        ->subSecond();
+                    if ($endRaw) {
+                        $endIst = Carbon::parse($endRaw, 'Asia/Hong_Kong')
+                            ->setTimezone('Asia/Kolkata')
+                            ->subSecond();
+                    } else {
+                        $endIst = Carbon::parse(($w['end_date'] ?? '') . ' 00:00:00', 'Asia/Hong_Kong')
+                            ->addDay()
+                            ->setTimezone('Asia/Kolkata')
+                            ->subSecond();
+                    }
 
                     return [$startIst, $endIst];
                 }
@@ -430,9 +519,6 @@ class FinanceCommissionExportController extends Controller
         throw new \Exception("Week {$week} not found in Ignite Calendar for year {$year}");
     }
 
-    /**
-     * Raw sales calendar (cached 6h).
-     */
     private function getRawCalendar(int $year): ?array
     {
         return Cache::remember("ignite_calendar_raw_{$year}", 21600, function () use ($year) {
@@ -448,26 +534,34 @@ class FinanceCommissionExportController extends Controller
         });
     }
 
-    /**
-     * Calendar → IST week windows.
-     */
     private function buildWeekWindows(array $calendar): array
     {
         $windows = [];
 
         foreach (($calendar['months'] ?? []) as $month) {
             foreach (($month['weeks'] ?? []) as $w) {
-                if (empty($w['start_date']) || empty($w['end_date'])) {
+                if (empty($w['start_date']) && empty($w['start_at'])) {
                     continue;
                 }
 
-                $startIst = Carbon::parse($w['start_date'] . ' 00:00:00', 'Asia/Hong_Kong')
+                $startRaw = $w['start_at'] ?? ($w['start_date'] ?? '') . ' 00:00:00';
+                $endRaw   = $w['end_at']   ?? null;
+
+                $startIst = Carbon::parse($startRaw, 'Asia/Hong_Kong')
                     ->setTimezone('Asia/Kolkata');
 
-                $endIst = Carbon::parse($w['end_date'] . ' 00:00:00', 'Asia/Hong_Kong')
-                    ->addDay()
-                    ->setTimezone('Asia/Kolkata')
-                    ->subSecond();
+                if ($endRaw) {
+                    $endIst = Carbon::parse($endRaw, 'Asia/Hong_Kong')
+                        ->setTimezone('Asia/Kolkata')
+                        ->subSecond();
+                } elseif (!empty($w['end_date'])) {
+                    $endIst = Carbon::parse($w['end_date'] . ' 00:00:00', 'Asia/Hong_Kong')
+                        ->addDay()
+                        ->setTimezone('Asia/Kolkata')
+                        ->subSecond();
+                } else {
+                    continue;
+                }
 
                 $windows[] = [
                     'week_no'    => (int) $w['week_no'],
@@ -490,7 +584,7 @@ class FinanceCommissionExportController extends Controller
     /**
      * Fetch all pointTxs within a week (IST boundaries).
      */
-    private function fetchHistoryForWeek(string $baId, Carbon $weekStart, Carbon $weekEnd): array
+    private function fetchHistoryForWeek(string $baId, Carbon $weekStart, Carbon $weekEnd, float $usdRate): array
     {
         $afterId   = 0;
         $limit     = 500;
@@ -519,7 +613,7 @@ class FinanceCommissionExportController extends Controller
                     ->setTimezone('Asia/Kolkata');
 
                 if ($dt->gte($weekStart) && $dt->lte($weekEnd)) {
-                    $collected[] = $this->normalizeRow($row);
+                    $collected[] = $this->normalizeRow($row, $usdRate);
                 }
             }
 
@@ -533,7 +627,7 @@ class FinanceCommissionExportController extends Controller
     /**
      * Fetch ALL pointTxs since a cutoff date (early-break optimization).
      */
-    private function fetchAllPointTxsSince(string $baId, Carbon $cutoff, int $maxPages = 200): array
+    private function fetchAllPointTxsSince(string $baId, Carbon $cutoff, float $usdRate, int $maxPages = 200): array
     {
         $all     = [];
         $afterId = 0;
@@ -568,6 +662,7 @@ class FinanceCommissionExportController extends Controller
                     break;
                 }
 
+                $row['_usd_rate'] = $usdRate;
                 $all[] = $row;
             }
 
@@ -583,11 +678,8 @@ class FinanceCommissionExportController extends Controller
     /**
      * Normalize a pointTx row.
      */
-    private function normalizeRow(array $row): array
+    private function normalizeRow(array $row, float $usdRate): array
     {
-        $usdRate = (float) \App\Models\Setting::where('group', 'exchange_rate')
-            ->where('key', 'usd_to_inr')->value('value') ?: 0;
-
         $amount    = (float) ($row['amount'] ?? 0);
         $pointType = $row['point_type'] ?? '';
         $isCash    = $pointType === 'cash_bal';
@@ -603,6 +695,8 @@ class FinanceCommissionExportController extends Controller
         return [
             'id'          => $row['id'],
             'point_type'  => $pointType,
+            'tx_type'     => $row['tx_type'] ?? null,
+            'description' => $row['description'] ?? '',
             'amount_usd'  => $amount,
             'amount_inr'  => $amountInr,
             'created_ist' => $createdIst,
@@ -611,6 +705,7 @@ class FinanceCommissionExportController extends Controller
 
     /**
      * Bucket transactions into weeks.
+     * Also tracks gross commission (positive cash_bal, excluding withdrawals) per week.
      */
     private function bucketByWeek(array $transactions, array $weekWindows): array
     {
@@ -638,7 +733,10 @@ class FinanceCommissionExportController extends Controller
             if ($matchedWeek === null) continue;
 
             if (!isset($buckets[$matchedWeek])) {
-                $buckets[$matchedWeek] = ['tx_count' => 0];
+                $buckets[$matchedWeek] = [
+                    'tx_count'              => 0,
+                    'gross_commission_inr'  => 0,
+                ];
             }
 
             $buckets[$matchedWeek]['tx_count']++;
@@ -648,6 +746,17 @@ class FinanceCommissionExportController extends Controller
 
             if (in_array($point, ['cash_bal','green_bal','yellow_bal','blue_bal','pv1_bal','pv2_bal'], true)) {
                 $buckets[$matchedWeek][$point] = ($buckets[$matchedWeek][$point] ?? 0) + $amt;
+            }
+
+            // Gross commission = positive cash_bal, excluding withdrawals
+            if ($point === 'cash_bal') {
+                $desc = $tx['description'] ?? '';
+                $isWithdrawal = ($desc === 'wd_partner_payout' || str_starts_with($desc, 'wd_'));
+
+                if (!$isWithdrawal && $amt > 0) {
+                    $usdRate = (float) ($tx['_usd_rate'] ?? 0);
+                    $buckets[$matchedWeek]['gross_commission_inr'] += round($amt * $usdRate, 2);
+                }
             }
         }
 
