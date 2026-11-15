@@ -1906,8 +1906,8 @@ class UserDashboardController extends Controller
         }
 
         // ---------- 3. Distributor profile (GSTIN + PAN) ----------
-        $profile = \App\Models\DistributorProfile::where('user_id', $user->id)->first();
-        $gstIn   = $profile?->gst_in;
+        $profile     = \App\Models\DistributorProfile::where('user_id', $user->id)->first();
+        $gstIn       = $profile?->gst_in;
         $panVerified = (bool) ($profile?->pan_verified ?? false);
 
         $normalizedGst = strtoupper(trim((string) $gstIn));
@@ -1917,7 +1917,7 @@ class UserDashboardController extends Controller
             && preg_match('/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $normalizedGst);
 
         // Valid GSTIN + verified PAN => 2%, warna 20%
-        $tdsRate = ($isValidGst && $panVerified) ? 0.02 : 0.20;
+        $tdsRate    = ($isValidGst && $panVerified) ? 0.02 : 0.20;
         $tdsSection = $isValidGst ? '194-O' : '194J';
 
         // ---------- 4. Plan rates ----------
@@ -1984,14 +1984,10 @@ class UserDashboardController extends Controller
             if ($yellowCoin < 0) $yellowValueInr = -$yellowValueInr;
             if ($blueCoin < 0)   $blueValueInr   = -$blueValueInr;
 
-            // ---------- TDS per-transaction (sirf wd par) ----------
-            $isWithdrawal  = ($tx['tx_type'] ?? '') === 'wd';
-            $amountUsdAbs  = $isWithdrawal ? abs($amt) : 0;
-            $grossInr      = $isWithdrawal ? round($amountUsdAbs * $usdRate, 2) : 0;
-            $tdsAmountInr  = $isWithdrawal ? round($grossInr * $tdsRate, 2) : 0;
-            $netPayableInr = $isWithdrawal ? round($grossInr - $tdsAmountInr, 2) : 0;
+            $isWithdrawal = ($tx['tx_type'] ?? '') === 'wd';
 
-            $transactions[] = [
+            // ---------- Base transaction row ----------
+            $txRow = [
                 'id'            => $tx['id'],
                 'date'          => $tx['created_at'],
                 'category'      => $category,
@@ -2010,16 +2006,22 @@ class UserDashboardController extends Controller
                 'yellow_value_inr'=> $yellowValueInr,
                 'blue_value_inr'  => $blueValueInr,
 
-                // TDS fields — withdrawal par value, baaki par 0
-                'tds_rate_percent' => $isWithdrawal ? round($tdsRate * 100, 2) : 0,
-                'tds_amount_inr'   => $tdsAmountInr,
-                'net_payable_inr'  => $netPayableInr,
-
                 'order_id'      => $tx['order_no'] ?? null,
                 'related_member'=> $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
             ];
 
+            // ---------- TDS fields SIRF withdrawal par (Option C) ----------
             if ($isWithdrawal) {
+                $amountUsdAbs  = abs($amt);
+                $grossInr      = round($amountUsdAbs * $usdRate, 2);
+                $tdsAmountInr  = round($grossInr * $tdsRate, 2);
+                $netPayableInr = round($grossInr - $tdsAmountInr, 2);
+
+                $txRow['tds_section']      = $tdsSection;
+                $txRow['tds_rate_percent'] = round($tdsRate * 100, 2);
+                $txRow['tds_amount_inr']   = $tdsAmountInr;
+                $txRow['net_payable_inr']  = $netPayableInr;
+
                 $withdrawals[] = [
                     'id'               => $tx['id'],
                     'date'             => $tx['created_at'],
@@ -2035,6 +2037,8 @@ class UserDashboardController extends Controller
                     'currency'         => 'INR',
                 ];
             }
+
+            $transactions[] = $txRow;
         }
 
         // ---------- 6. Balances ----------
@@ -2075,11 +2079,11 @@ class UserDashboardController extends Controller
                     'retail_profit_lifetime_usd' => round($retailProfitUsd, 2),
                     'retail_profit_lifetime_inr' => round($retailProfitUsd * $usdRate, 2),
 
-                    'green_bal'          => $greenQty,
+                    'green_bal'            => $greenQty,
                     'green_bal_redeemable' => $greenRedeemable,
-                    'green_bal_pending'  => $greenPending,
-                    'yellow_bal'         => $yellowQty,
-                    'blue_bal'           => $blueQty,
+                    'green_bal_pending'    => $greenPending,
+                    'yellow_bal'           => $yellowQty,
+                    'blue_bal'             => $blueQty,
 
                     'green_value_usd'   => round($greenValUsd, 2),
                     'yellow_value_usd'  => round($yellowValUsd, 2),
