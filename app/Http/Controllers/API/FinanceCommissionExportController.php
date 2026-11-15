@@ -145,11 +145,15 @@ class FinanceCommissionExportController extends Controller
 
                     // Bank details
                     'bank_holder_name'    => $profile->bank_holder_name ?? '-',
-                    'bank_account_number' => $profile->complete_bank_account ?? '-',
                     'bank_ifsc'           => $profile->bank_ifsc ?? '-',
 
-                    // PAN masked
-                    'pan_number'          => $this->maskPan($dist->complete_pan_card ?? null),
+                   'pan_number'          => $this->maskPan(
+                            $dist->complete_pan_card 
+                                ?? $this->decryptField($profile?->encrypted_pan)
+                        ),
+                    'bank_account_number' => $profile?->complete_bank_account 
+                                                ?? $this->decryptField($profile?->encrypted_bank_account) 
+                                                ?? '-',
                 ];
             } catch (\Throwable $e) {
                 $failed[] = [
@@ -442,6 +446,12 @@ class FinanceCommissionExportController extends Controller
         }
 
         $gst = strtoupper(trim($gst));
+
+        // URP = Unregistered Person — show as-is, don't mask
+        if ($gst === 'URP') {
+            return 'URP';
+        }
+
         $len = strlen($gst);
 
         if ($len <= 5) {
@@ -451,6 +461,20 @@ class FinanceCommissionExportController extends Controller
         return substr($gst, 0, 2)
             . str_repeat('*', $len - 5)
             . substr($gst, -3);
+    }
+
+    private function decryptField(?string $encrypted): ?string
+    {
+        if (empty($encrypted)) {
+            return null;
+        }
+
+        try {
+            return \Crypt::decryptString($encrypted);
+        } catch (\Throwable $e) {
+            Log::warning('Field decrypt failed', ['error' => $e->getMessage()]);
+            return null;
+        }
     }
 
     private function maskPan(?string $pan): string
