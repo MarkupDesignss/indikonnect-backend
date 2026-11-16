@@ -148,7 +148,7 @@ Route::prefix('admin')->group(function () {
         Route::get('/all-orders', [OrderController::class, 'allOrder'])
             ->middleware(\App\Http\Middleware\AppendIndiaPostOrderTracking::class);
         Route::get('/get-order-details/{id}', [OrderController::class, 'getOrderDetails']);
-        Route::get('/sales-report', [SalesReportExportController::class, 'salesReport']);
+        Route::get('/sales-report', [OrderController::class, 'salesReport']);
 
         // Commission Reconciliation Report
         Route::get('/reconciliation', [ReconciliationController::class, 'index']);
