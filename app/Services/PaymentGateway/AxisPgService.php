@@ -23,26 +23,50 @@ class AxisPgService
     /**
      * Generate signature (Document Page 31-32)
      */
+    // public function generateSignature(array $payload): string
+    // {
+    //     unset($payload['signature']);
+    //     ksort($payload);
+
+    //     $concatenated = '';
+    //     foreach ($payload as $key => $value) {
+    //         if ($value === null || $value === '') {
+    //             continue;
+    //         }
+    //         if (is_array($value)) {
+    //             $value = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    //         }
+    //         $concatenated .= (string) $value;
+    //     }
+
+    //     $concatenated .= $this->merchantKey;
+
+    //     return hash('sha256', $concatenated);
+    // }
+
     public function generateSignature(array $payload): string
-    {
-        unset($payload['signature']);
-        ksort($payload);
-
-        $concatenated = '';
-        foreach ($payload as $key => $value) {
-            if ($value === null || $value === '') {
-                continue;
-            }
-            if (is_array($value)) {
-                $value = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            }
-            $concatenated .= (string) $value;
+{
+    // 1. Signature field ko hata dein
+    unset($payload['signature']);
+    
+    // 2. Keys ko alphabetically sort karein (case-sensitive, kyunki field names lowercase hain)
+    ksort($payload);
+    
+    // 3. Sirf values ko concatenate karein (empty values bhi include karein)
+    $concatenated = '';
+    foreach ($payload as $key => $value) {
+        if (is_array($value)) {
+            $value = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         }
-
-        $concatenated .= $this->merchantKey;
-
-        return hash('sha256', $concatenated);
+        $concatenated .= (string) $value;
     }
+    
+    // 4. Merchant key append karein
+    $concatenated .= $this->merchantKey;
+    
+    // 5. SHA-256 hash
+    return hash('sha256', $concatenated);
+}
 
     /**
      * Create dynamic checkout payload
