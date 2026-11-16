@@ -519,7 +519,7 @@ class ReelController extends Controller
 
         $primaryImage = $product->images->where('is_primary', true)->first()
             ?? $product->images->first();
-        $frontendUrl = env('FRONTEND_URL', 'https://your-frontend-domain.com');
+        $frontendUrl = env('FRONTEND_URL', '');
         return [
             'id' => $product->id,
             'product_code' => $product->product_code,
@@ -527,10 +527,10 @@ class ReelController extends Controller
             'slug' => $product->slug,
             'category_id' => $product->category_id,
             'tax_category_id' => $product->tax_category_id,
-            'retail_mrp' => $product->retail_mrp,
-            'retail_price' => $product->retail_price,
-            'distributor_mrp' => $product->distributor_mrp,
-            'distributor_price' => $product->distributor_price,
+            'retail_mrp' => $product->retail_mrp + $product->shipping_charge,
+            'retail_price' => $product->retail_price + $product->shipping_charge,
+            'distributor_mrp' => $product->distributor_mrp + $product->shipping_charge,
+            'distributor_price' => $product->distributor_price + $product->shipping_charge,
             'product_image' => $product->primaryImage
                 ? array_merge(
                     $product->primaryImage->toArray(),

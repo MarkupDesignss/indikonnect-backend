@@ -140,9 +140,9 @@ class WishlistController extends Controller
 
                     // both prices
                     'retail_price'          => $child->retail_price + $child->shipping_charge,
-                    'retail_mrp'            => $child->retail_mrp,
+                    'retail_mrp'            => $child->retail_mrp  + $child->shipping_charge,
                     'distributor_price'     => $child->distributor_price + $child->shipping_charge,
-                    'distributor_mrp'       => $child->distributor_mrp,
+                    'distributor_mrp'       => $child->distributor_mrp  + $child->shipping_charge,
 
                     // up to 2 images (primary first)
                     'images'                => $images,
