@@ -3,26 +3,18 @@
 namespace App\Services;
 
 use App\Models\Product;
-use App\Models\ProductVariant;
 use Exception;
 
 class StockGuardService
 {
     /**
-     * Resolve the "allowed purchased" flag for a product/variant.
+     * Resolve the "allowed purchased" flag for a product.
      *
      * NOTE: The DB column is spelled `allowed_purchsed` (typo in schema).
      * We check both spellings so this keeps working after a future rename.
      */
-    public function isUnlimited(Product $product, ?ProductVariant $variant = null): bool
+    public function isUnlimited(Product $product): bool
     {
-        if ($variant) {
-            $variantFlag = $this->readFlag($variant);
-            if ($variantFlag !== null) {
-                return $variantFlag;
-            }
-        }
-
         return $this->readFlag($product) ?? false;
     }
 
@@ -58,23 +50,18 @@ class StockGuardService
     }
 
     /**
-     * Resolve effective available stock for a product/variant.
+     * Resolve effective available stock for a product.
      * Returns NULL when allowed_purchased = true (unlimited / bypass).
      * Otherwise returns physical stock - reserved (never negative).
      */
-    public function availableStock(Product $product, ?ProductVariant $variant = null): ?int
+    public function availableStock(Product $product): ?int
     {
-        if ($this->isUnlimited($product, $variant)) {
+        if ($this->isUnlimited($product)) {
             return null;
         }
 
-        if ($variant) {
-            $physical = (int) ($variant->stock_quantity ?? 0);
-            $reserved = (int) ($variant->reserved_inventory ?? 0);
-        } else {
-            $physical = (int) ($product->stock_quantity ?? 0);
-            $reserved = (int) ($product->reserved_inventory ?? 0);
-        }
+        $physical = (int) ($product->stock_quantity ?? 0);
+        $reserved = (int) ($product->reserved_inventory ?? 0);
 
         return max(0, $physical - $reserved);
     }
@@ -89,11 +76,10 @@ class StockGuardService
      */
     public function assertCanAdd(
         Product $product,
-        ?ProductVariant $variant,
         int $requestedQty,
         int $alreadyInCart = 0
     ): void {
-        $available = $this->availableStock($product, $variant);
+        $available = $this->availableStock($product);
 
         if ($available === null) {
             return; // allowed_purchsed = true → no cap
@@ -102,9 +88,8 @@ class StockGuardService
         $totalNeeded = $requestedQty + $alreadyInCart;
 
         if ($totalNeeded > $available) {
-            $name = $product->name . ($variant ? " ({$variant->sku})" : '');
             throw new Exception(
-                "Only {$available} unit(s) of {$name} available in stock."
+                "Only {$available} unit(s) of {$product->name} available in stock."
             );
         }
     }
