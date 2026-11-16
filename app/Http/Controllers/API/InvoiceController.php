@@ -471,7 +471,9 @@ class InvoiceController extends Controller
                 'seller' => [
                     'name'    => $invoice->seller_name,
                     'gstin'   => $invoice->seller_gstin,
-                    'address' => !empty($invoice->seller_address) ? $invoice->seller_address : "punjab",
+                    'address' => !empty(config('app.company_address'))
+                        ? config('app.company_address')
+                        : (!empty($invoice->seller_address) ? $invoice->seller_address : 'punjab'),
                 ],
 
                 // Buyer Details — split into billing & delivery addresses
