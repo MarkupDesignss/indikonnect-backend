@@ -1627,6 +1627,7 @@ class OrderController extends Controller
                         'line_id'           => $line->id,
                         'item_reference_id' => $line->item_reference_id,
                         'product_id'        => $line->product_id,
+                        'service_charge'        => $line->product->service_charge,
                         'product_name'      => $product?->name ?? 'Product Not Found',
                         'product_code'      => $product?->product_code ?? 'N/A',
                         'quantity'          => $line->quantity,

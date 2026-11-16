@@ -2154,6 +2154,449 @@ class CheckoutService
         );
     }
 
+    // public function placeOrder(int $userId, array $data): array
+    // {
+    //     $address = Address::findOrFail($data['address_id']);
+    //     $user    = User::findOrFail($userId);
+
+    //     $summary      = $data['summary_data'] ?? [];
+    //     $checkoutType = $data['checkout_type'] ?? 'cart';
+
+    //     $supplierState = strtolower(config('app.supplier_state', 'Maharashtra'));
+    //     $deliveryState = $address ? strtolower($address->state) : null;
+
+    //     $cartItems = [];
+    //     $isBuyNow  = $checkoutType === 'buy_now';
+
+    //     /** @var StockGuardService $stockGuard */
+    //     $stockGuard = app(StockGuardService::class);
+
+    //     // ---------- Fetch cart / buy-now items ----------
+    //     if ($isBuyNow) {
+    //         if (!isset($summary['items']) || empty($summary['items'])) {
+    //             throw new Exception('No items found for Buy Now');
+    //         }
+
+    //         foreach ($summary['items'] as $itemData) {
+    //             $product = Product::with('taxCategory')->find($itemData['product_id']);
+    //             if (!$product) {
+    //                 throw new Exception("Product not found: {$itemData['product_id']}");
+    //             }
+
+    //             $variant = null;
+    //             if (!empty($itemData['variant_id'])) {
+    //                 $variant = ProductVariant::find($itemData['variant_id']);
+    //                 if (!$variant) {
+    //                     throw new Exception("Variant not found: {$itemData['variant_id']}");
+    //                 }
+    //             }
+
+    //             // $stockGuard->assertCanAdd($product, $variant, (int) $itemData['quantity']);
+    //             $stockGuard->assertCanAdd($product, $itemData['quantity'], 0);
+
+    //             $cartItems[] = (object) [
+    //                 'product_id' => $product->id,
+    //                 'product'    => $product,
+    //                 'variant_id' => $variant?->id,
+    //                 'variant'    => $variant,
+    //                 'quantity'   => $itemData['quantity'],
+    //                 'unit_price' => $itemData['unit_price'] ?? 0,
+    //             ];
+    //         }
+    //     } else {
+    //         $cart = Cart::with(['items.product.taxCategory', 'items.variant'])
+    //             ->where('user_id', $userId)
+    //             ->firstOrFail();
+
+    //         if ($cart->items->isEmpty()) {
+    //             throw new Exception('Cart is empty');
+    //         }
+
+    //         $cartItems = $cart->items;
+
+    //         foreach ($cartItems as $item) {
+    //             $stockGuard->assertCanAdd(
+    //                 $item->product,
+    //                 $item->quantity,
+    //                 0
+    //             );
+    //         }
+    //         // foreach ($cartItems as $item) {
+    //         //     $stockGuard->assertCanAdd(
+    //         //         $item->product,
+    //         //         $item->variant,
+    //         //         (int) $item->quantity
+    //         //     );
+    //         // }
+    //     }
+
+    //     // ---------- Mandatory product rule ----------
+    //     $mandatoryProductId = Product::where('is_mandatory', 1)->value('id');
+
+    //     if ($user->account_type === 'distributor' && $mandatoryProductId > 0) {
+    //         $this->assertMandatoryProductRule($userId, $mandatoryProductId, $cartItems);
+    //     }
+
+    //     // ---------- Coin redemption ----------
+    //     $coinRedemption = null;
+    //     $coinsUsed = 0;
+    //     $coinRedeemedAmount = 0;
+
+    //     if (isset($data['redemption_id'])) {
+    //         $coinRedemption = CoinRedemption::where('id', $data['redemption_id'])
+    //             ->where('user_id', $userId)
+    //             ->where('status', 'pending_payment')
+    //             ->first();
+
+    //         if (!$coinRedemption) {
+    //             throw new Exception('Invalid or expired coin redemption');
+    //         }
+
+    //         $coinsUsed          = $coinRedemption->coins_used ?? 0;
+    //         $coinRedeemedAmount = $coinRedemption->amount_redeemed ?? 0;
+    //     }
+
+    //     $couponDiscount = $summary['coupon_discount'] ?? 0;
+    //     $couponCode     = $summary['coupon_code'] ?? null;
+
+    //     return DB::transaction(function () use (
+    //         $user,
+    //         $address,
+    //         $coinRedemption,
+    //         $coinsUsed,
+    //         $coinRedeemedAmount,
+    //         $data,
+    //         $summary,
+    //         $cartItems,
+    //         $isBuyNow,
+    //         $supplierState,
+    //         $deliveryState,
+    //         $couponDiscount,
+    //         $couponCode
+    //     ) {
+    //         // ============ PASS 1: Subtotal ============
+    //         $itemsWithPrices = [];
+    //         $totalSubtotal = 0;
+
+    //         foreach ($cartItems as $item) {
+    //             $hasVariant = isset($item->variant) && $item->variant !== null;
+
+    //             if ($hasVariant) {
+    //                 $unitPrice = $user->isDistributor()
+    //                     ? ($item->variant->distributor_price ?? $item->variant->retail_price)
+    //                     : $item->variant->retail_price;
+    //             } else {
+    //                 $unitPrice = $user->isDistributor()
+    //                     ? ($item->product->distributor_price ?? $item->product->retail_price)
+    //                     : $item->product->retail_price;
+    //             }
+
+    //             $lineTotal = $unitPrice * $item->quantity;
+    //             $totalSubtotal += $lineTotal;
+
+    //             $itemsWithPrices[] = [
+    //                 'item'        => $item,
+    //                 'has_variant' => $hasVariant,
+    //                 'unitPrice'   => $unitPrice,
+    //                 'lineTotal'   => $lineTotal,
+    //             ];
+    //         }
+
+    //         // ============ PASS 2: Coupon + Tax split ============
+    //         $itemsWithTaxSplit = [];
+    //         $totals = [
+    //             'subtotal'        => 0,
+    //             'coupon_discount' => 0,
+    //             'tax'             => 0,
+    //             'cgst'            => 0,
+    //             'sgst'            => 0,
+    //             'igst'            => 0,
+    //             'shipping'        => 0,
+    //         ];
+
+    //         foreach ($itemsWithPrices as $row) {
+    //             $item       = $row['item'];
+    //             $hasVariant = $row['has_variant'];
+    //             $unitPrice  = $row['unitPrice'];
+    //             $lineTotal  = $row['lineTotal'];
+
+    //             $proportion   = $totalSubtotal > 0 ? $lineTotal / $totalSubtotal : 0;
+    //             $itemDiscount = $couponDiscount * $proportion;
+    //             $discountedLineTotal = $lineTotal - $itemDiscount;
+
+    //             // RECORD ONLY — tax category name & actual DB rate
+    //             $taxCategoryName = $item->product->taxCategory?->name ?? 'Default';
+    //             $taxCategoryRate = $item->product->taxCategory?->rate ?? 0;
+
+    //             // CALCULATION — tax rate is forced to 0 so tax calculation is 0
+    //             $taxRate = 0;
+
+    //             $taxAmount = ($discountedLineTotal * $taxRate) / 100;
+
+    //             $cgstRate = $sgstRate = $igstRate = 0;
+    //             $cgstAmount = $sgstAmount = $igstAmount = 0;
+
+    //             // Supplier state comes from .env → SUPPLIER_STATE (default 'Punjab')
+    //             $supplierStateNorm = strtolower(trim((string) $supplierState));
+    //             $deliveryStateNorm = $deliveryState ? strtolower(trim((string) $deliveryState)) : null;
+
+    //             // Intra-state = same as supplier state (CGST + SGST)
+    //             // Inter-state = different (IGST)
+    //             $isIntraState = $deliveryStateNorm !== null
+    //                 && $deliveryStateNorm === $supplierStateNorm;
+
+    //             if ($deliveryStateNorm !== null) {
+    //                 if ($isIntraState) {
+    //                     // Same state → CGST + SGST split
+    //                     $cgstRate   = $sgstRate = $taxRate / 2;
+    //                     $cgstAmount = $sgstAmount = $taxAmount / 2;
+    //                     $igstRate   = 0;
+    //                     $igstAmount = 0;
+    //                 } else {
+    //                     // Different state → IGST full
+    //                     $igstRate   = $taxRate;
+    //                     $igstAmount = $taxAmount;
+    //                     $cgstRate   = $sgstRate = 0;
+    //                     $cgstAmount = $sgstAmount = 0;
+    //                 }
+    //             } else {
+    //                 // No address → default to IGST
+    //                 $igstRate   = $taxRate;
+    //                 $igstAmount = $taxAmount;
+    //                 $cgstRate   = $sgstRate = 0;
+    //                 $cgstAmount = $sgstAmount = 0;
+    //             }
+
+    //             $productShippingCharge = $item->product->shipping_charge ?? 0;
+    //             $lineShippingCharge    = $productShippingCharge * $item->quantity;
+    //             $finalLineTotal        = $discountedLineTotal + $taxAmount;
+
+    //             $totals['subtotal']        += $lineTotal;
+    //             $totals['coupon_discount'] += $itemDiscount;
+    //             $totals['tax']             += $taxAmount;
+    //             $totals['cgst']            += $cgstAmount;
+    //             $totals['sgst']            += $sgstAmount;
+    //             $totals['igst']            += $igstAmount;
+    //             $totals['shipping']        += $lineShippingCharge;
+
+    //             $itemsWithTaxSplit[] = [
+    //                 'product_id'              => $item->product_id,
+    //                 'product'                 => $item->product,
+    //                 'variant_id'              => $item->variant_id ?? null,
+    //                 'variant'                 => $item->variant ?? null,
+    //                 'quantity'                => $item->quantity,
+    //                 'unit_price'              => $unitPrice,
+    //                 'line_total'              => $lineTotal,
+    //                 'discounted_line_total'   => $discountedLineTotal,
+    //                 'item_discount'           => $itemDiscount,
+    //                 'tax_category'            => $taxCategoryName,   // record only
+    //                 'tax_category_rate'       => $taxCategoryRate,   // record only
+    //                 'tax_rate'                => $taxRate,           // calculation (0)
+    //                 'cgst_rate'               => $cgstRate,
+    //                 'sgst_rate'               => $sgstRate,
+    //                 'igst_rate'               => $igstRate,
+    //                 'cgst_amount'             => $cgstAmount,
+    //                 'sgst_amount'             => $sgstAmount,
+    //                 'igst_amount'             => $igstAmount,
+    //                 'tax_amount'              => $taxAmount,
+    //                 'final_line_total'        => $finalLineTotal,
+    //                 'product_shipping_charge' => $productShippingCharge,
+    //                 'line_shipping_charge'    => $lineShippingCharge,
+    //                 'variant_sku'             => $hasVariant ? $item->variant->sku : null,
+    //                 'variant_attributes'      => $hasVariant ? $item->variant->attributes : null,
+    //             ];
+    //         }
+
+    //         // ============ Grand total ============
+    //         $grandTotal = round(
+    //             $totals['subtotal'] - $totals['coupon_discount'] + $totals['tax'] + $totals['shipping'] - $coinRedeemedAmount,
+    //             2
+    //         );
+
+    //         // ============ Tax breakdown summary ============
+    //         $taxBreakdown = [
+    //             'items' => array_map(function ($row) {
+    //                 return [
+    //                     'product_id'                 => $row['product_id'],
+    //                     'product_name'               => $row['product']->name,
+    //                     'product_code'               => $row['product']->product_code ?? null,
+    //                     'variant_id'                 => $row['variant_id'],
+    //                     'variant_sku'                => $row['variant_sku'],
+    //                     'variant_attributes'         => $row['variant_attributes'],
+    //                     'quantity'                   => $row['quantity'],
+    //                     'unit_price'                 => $row['unit_price'],
+    //                     'line_total_before_discount' => round($row['line_total'], 2),
+    //                     'line_total_after_discount'  => round($row['discounted_line_total'], 2),
+    //                     'tax_category'               => $row['tax_category'],        // record only
+    //                     'tax_rate'                   => $row['tax_category_rate'],   // actual rate for UI
+    //                     'cgst_rate'                  => round($row['cgst_rate'], 2),
+    //                     'sgst_rate'                  => round($row['sgst_rate'], 2),
+    //                     'igst_rate'                  => round($row['igst_rate'], 2),
+    //                     'cgst_amount'                => round($row['cgst_amount'], 2),
+    //                     'sgst_amount'                => round($row['sgst_amount'], 2),
+    //                     'igst_amount'                => round($row['igst_amount'], 2),
+    //                     'tax_amount'                 => round($row['tax_amount'], 2),
+    //                     'line_total_after_tax'       => round($row['discounted_line_total'] + $row['tax_amount'], 2),
+    //                     'shipping_charge'            => round($row['line_shipping_charge'], 2),
+    //                 ];
+    //             }, $itemsWithTaxSplit),
+    //             'summary' => [
+    //                 'subtotal'                => round($totals['subtotal'], 2),
+    //                 'coupon_discount'         => round($totals['coupon_discount'], 2),
+    //                 'subtotal_after_discount' => round($totals['subtotal'] - $totals['coupon_discount'], 2),
+    //                 'total_tax'               => round($totals['tax'], 2),
+    //                 'total_cgst'              => round($totals['cgst'], 2),
+    //                 'total_sgst'              => round($totals['sgst'], 2),
+    //                 'total_igst'              => round($totals['igst'], 2),
+    //                 'shipping_charge'         => round($totals['shipping'], 2),
+    //                 'coin_redeemed'           => $coinsUsed,
+    //                 'coin_redeemed_amount'    => round($coinRedeemedAmount, 2),
+    //                 'grand_total'             => $grandTotal,
+    //             ],
+    //             'tax_by_category' => $this->calculateTaxByCategory(
+    //                 array_map(fn($r) => [
+    //                     'product_name'              => $r['product']->name,
+    //                     'tax_category'              => $r['tax_category'],        // record only
+    //                     'tax_rate'                  => $r['tax_category_rate'],   // actual rate for UI
+    //                     'line_total_after_discount' => $r['discounted_line_total'],
+    //                     'tax_amount'                => $r['tax_amount'],
+    //                     'cgst_amount'               => $r['cgst_amount'],
+    //                     'sgst_amount'               => $r['sgst_amount'],
+    //                     'igst_amount'               => $r['igst_amount'],
+    //                 ], $itemsWithTaxSplit)
+    //             ),
+    //             'delivery_state' => $deliveryState,
+    //             'supplier_state' => $supplierState,
+    //         ];
+
+    //         // ============ CREATE SINGLE ORDER ============
+    //         $order = Order::create([
+    //             'order_reference'      => 'ORD' . strtoupper(uniqid()),
+    //             'user_id'              => $user->id,
+    //             'billing_address_id'   => $data['address_id'],
+    //             'delivery_address_id'  => $data['address_id'],
+    //             'order_type'           => $user->isDistributor() ? 'distributor' : 'retail',
+    //             'subtotal'             => round($totals['subtotal'], 2),
+    //             'total_gst'            => round($totals['tax'], 2),
+    //             'total_cgst'           => round($totals['cgst'], 2),
+    //             'total_sgst'           => round($totals['sgst'], 2),
+    //             'total_igst'           => round($totals['igst'], 2),
+    //             'shipping_charge'      => round($totals['shipping'], 2),
+    //             'shipping_method_id'   => null,
+    //             'coupon_code'          => $couponCode,
+    //             'coupon_discount'      => round($totals['coupon_discount'], 2),
+    //             'coin_redeemed'        => $coinsUsed,
+    //             'coin_redeemed_amount' => round($coinRedeemedAmount, 2),
+    //             'total_payable'        => $grandTotal,
+    //             'amount_paid'          => 0,
+    //             'status'               => 'pending',
+    //             'tax_breakdown'        => json_encode($taxBreakdown),   // ← tax_category yahan already ja raha hai
+    //             'summary_data'         => json_encode($summary),
+    //             'payment_gateway'      => $data['payment_gateway'] ?? null,
+    //             'checkout_type'        => $isBuyNow ? 'buy_now' : 'cart',
+    //         ]);
+
+    //         // ============ CREATE ORDER LINES ============
+    //         foreach ($itemsWithTaxSplit as $row) {
+    //             OrderLine::create([
+    //                 'order_id'              => $order->id,
+    //                 'item_reference_id'     => $this->generateItemReference(),
+    //                 'product_id'            => $row['product_id'],
+    //                 'variant_id'            => $row['variant_id'],
+    //                 'quantity'              => $row['quantity'],
+    //                 'unit_price'            => round($row['unit_price'], 2),
+    //                 'shipping_charge'       => round($row['product_shipping_charge'], 2),
+    //                 'gst_rate'              => $row['tax_category_rate'], // actual rate saved to DB for UI
+    //                 'cgst_rate'             => round($row['cgst_rate'], 2),
+    //                 'sgst_rate'             => round($row['sgst_rate'], 2),
+    //                 'igst_rate'             => round($row['igst_rate'], 2),
+    //                 'gst_amount'            => round($row['tax_amount'], 2),
+    //                 'cgst_amount'           => round($row['cgst_amount'], 2),
+    //                 'sgst_amount'           => round($row['sgst_amount'], 2),
+    //                 'igst_amount'           => round($row['igst_amount'], 2),
+    //                 'line_total'            => round($row['final_line_total'], 2),
+    //                 'commissionable_volume' => $row['product']->commissionable_volume ?? 0,
+    //             ]);
+    //         }
+
+    //     // ============ RESERVE INVENTORY (atomic) ============
+    //         /** @var InventoryReservationService $reservationService */
+    //         $reservationService = app(InventoryReservationService::class);
+
+    //         $reservationItems = [];
+    //         foreach ($order->lines()->get() as $line) {
+    //             $reservationItems[] = [
+    //                 'product_id'        => $line->product_id,
+    //                 'variant_id'        => $line->variant_id,
+    //                 'quantity'          => $line->quantity,
+    //                 'item_reference_id' => $line->item_reference_id,
+    //             ];
+    //         }
+
+    //         $reservation = $reservationService->reserve($order->id, $reservationItems, 1);
+
+    //         $order->update([
+    //             'reservation_token'      => $reservation['token'],
+    //             'reservation_expires_at' => $reservation['expires_at'],
+    //         ]);
+
+    //         // Update coin redemption
+    //         if ($coinRedemption) {
+    //             $coinRedemption->update(['order_id' => $order->id]);
+    //         }
+
+    //         // ---------- Gateway order creation ----------
+    //         $gateway = $data['payment_gateway'] ?? null;
+    //         $gatewayPayload = [];
+
+    //         if ($gateway === 'razorpay') {
+    //             $razorpayService = app(\App\Services\PaymentGateway\RazorpayService::class);
+    //             $razorpayOrder   = $razorpayService->createOrder($order);
+    //             $gatewayPayload  = [
+    //                 'razorpay_order_id' => $razorpayOrder['id'],
+    //                 'razorpay_key'      => config('services.razorpay.key_id'),
+    //             ];
+    //         } elseif (in_array($gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
+    //             $gatewayPayload = [
+    //                 'payment_status'               => 'pending',
+    //                 'hdfc_gateway_key'             => $gateway,
+    //                 'payment_initiation_required'  => true,
+    //             ];
+    //         } elseif ($gateway === 'axispg') {
+    //             $axispg = new \App\Services\PaymentGateway\AxisPgService(
+    //                 config('services.axispg')
+    //             );
+    //             $checkoutData = $axispg->createCheckoutPayload($order);
+
+    //             $gatewayPayload = [
+    //                 'payment_status'               => 'pending',
+    //                 'axispg_gateway_key'           => 'axispg',
+    //                 'payment_initiation_required'  => true,
+    //                 'axispg_checkout'              => $checkoutData,
+    //             ];
+    //         } else {
+    //             throw new \Exception('Unsupported payment gateway: ' . $gateway);
+    //         }
+
+    //         return array_merge([
+    //             'order_id'               => $order->id,
+    //             'order_reference'        => $order->order_reference,
+    //             'total_items'            => count($itemsWithTaxSplit),
+    //             'total_amount'           => $grandTotal,
+    //             'status'                 => 'pending',
+    //             'checkout_type'          => $isBuyNow ? 'buy_now' : 'cart',
+    //             'gateway'                => $gateway,
+    //             'reservation_expires_at' => $reservation['expires_at']->toIso8601String(),
+    //             'tax_split'              => [
+    //                 'delivery_state' => $deliveryState,
+    //                 'supplier_state' => $supplierState,
+    //                 'total_cgst'     => round($totals['cgst'], 2),
+    //                 'total_sgst'     => round($totals['sgst'], 2),
+    //                 'total_igst'     => round($totals['igst'], 2),
+    //             ],
+    //         ], $gatewayPayload);
+    //     });
+    // }
     public function placeOrder(int $userId, array $data): array
     {
         $address = Address::findOrFail($data['address_id']);
@@ -2191,7 +2634,6 @@ class CheckoutService
                     }
                 }
 
-                // $stockGuard->assertCanAdd($product, $variant, (int) $itemData['quantity']);
                 $stockGuard->assertCanAdd($product, $itemData['quantity'], 0);
 
                 $cartItems[] = (object) [
@@ -2215,19 +2657,8 @@ class CheckoutService
             $cartItems = $cart->items;
 
             foreach ($cartItems as $item) {
-                $stockGuard->assertCanAdd(
-                    $item->product,
-                    $item->quantity,
-                    0
-                );
+                $stockGuard->assertCanAdd($item->product, $item->quantity, 0);
             }
-            // foreach ($cartItems as $item) {
-            //     $stockGuard->assertCanAdd(
-            //         $item->product,
-            //         $item->variant,
-            //         (int) $item->quantity
-            //     );
-            // }
         }
 
         // ---------- Mandatory product rule ----------
@@ -2302,7 +2733,7 @@ class CheckoutService
                 ];
             }
 
-            // ============ PASS 2: Coupon + Tax split ============
+            // ============ PASS 2: Coupon + Tax + Shipping + Service split ============
             $itemsWithTaxSplit = [];
             $totals = [
                 'subtotal'        => 0,
@@ -2312,6 +2743,7 @@ class CheckoutService
                 'sgst'            => 0,
                 'igst'            => 0,
                 'shipping'        => 0,
+                'service_charge'  => 0,
             ];
 
             foreach ($itemsWithPrices as $row) {
@@ -2336,31 +2768,25 @@ class CheckoutService
                 $cgstRate = $sgstRate = $igstRate = 0;
                 $cgstAmount = $sgstAmount = $igstAmount = 0;
 
-                // Supplier state comes from .env → SUPPLIER_STATE (default 'Punjab')
                 $supplierStateNorm = strtolower(trim((string) $supplierState));
                 $deliveryStateNorm = $deliveryState ? strtolower(trim((string) $deliveryState)) : null;
 
-                // Intra-state = same as supplier state (CGST + SGST)
-                // Inter-state = different (IGST)
                 $isIntraState = $deliveryStateNorm !== null
                     && $deliveryStateNorm === $supplierStateNorm;
 
                 if ($deliveryStateNorm !== null) {
                     if ($isIntraState) {
-                        // Same state → CGST + SGST split
                         $cgstRate   = $sgstRate = $taxRate / 2;
                         $cgstAmount = $sgstAmount = $taxAmount / 2;
                         $igstRate   = 0;
                         $igstAmount = 0;
                     } else {
-                        // Different state → IGST full
                         $igstRate   = $taxRate;
                         $igstAmount = $taxAmount;
                         $cgstRate   = $sgstRate = 0;
                         $cgstAmount = $sgstAmount = 0;
                     }
                 } else {
-                    // No address → default to IGST
                     $igstRate   = $taxRate;
                     $igstAmount = $taxAmount;
                     $cgstRate   = $sgstRate = 0;
@@ -2369,6 +2795,13 @@ class CheckoutService
 
                 $productShippingCharge = $item->product->shipping_charge ?? 0;
                 $lineShippingCharge    = $productShippingCharge * $item->quantity;
+
+                // Service charge — CALCULATION ONLY (not persisted)
+                $productServiceCharge = $item->product->service_charge ?? null;
+                $lineServiceCharge    = $productServiceCharge !== null
+                    ? ((float) $productServiceCharge * $item->quantity)
+                    : 0;
+
                 $finalLineTotal        = $discountedLineTotal + $taxAmount;
 
                 $totals['subtotal']        += $lineTotal;
@@ -2378,6 +2811,7 @@ class CheckoutService
                 $totals['sgst']            += $sgstAmount;
                 $totals['igst']            += $igstAmount;
                 $totals['shipping']        += $lineShippingCharge;
+                $totals['service_charge']  += $lineServiceCharge;
 
                 $itemsWithTaxSplit[] = [
                     'product_id'              => $item->product_id,
@@ -2402,14 +2836,21 @@ class CheckoutService
                     'final_line_total'        => $finalLineTotal,
                     'product_shipping_charge' => $productShippingCharge,
                     'line_shipping_charge'    => $lineShippingCharge,
+                    'product_service_charge'  => $productServiceCharge, // calculation only
+                    'line_service_charge'     => $lineServiceCharge,    // calculation only
                     'variant_sku'             => $hasVariant ? $item->variant->sku : null,
                     'variant_attributes'      => $hasVariant ? $item->variant->attributes : null,
                 ];
             }
 
-            // ============ Grand total ============
+            // ============ Grand total (includes service charge) ============
             $grandTotal = round(
-                $totals['subtotal'] - $totals['coupon_discount'] + $totals['tax'] + $totals['shipping'] - $coinRedeemedAmount,
+                $totals['subtotal']
+                    - $totals['coupon_discount']
+                    + $totals['tax']
+                    + $totals['shipping']
+                    + $totals['service_charge']
+                    - $coinRedeemedAmount,
                 2
             );
 
@@ -2437,7 +2878,12 @@ class CheckoutService
                         'igst_amount'                => round($row['igst_amount'], 2),
                         'tax_amount'                 => round($row['tax_amount'], 2),
                         'line_total_after_tax'       => round($row['discounted_line_total'] + $row['tax_amount'], 2),
+                        'shipping_charge_per_unit'   => round($row['product_shipping_charge'], 2),
                         'shipping_charge'            => round($row['line_shipping_charge'], 2),
+                        'service_charge_per_unit'    => $row['product_service_charge'] !== null
+                            ? round((float) $row['product_service_charge'], 2) : null,
+                        'total_service_charge'       => $row['product_service_charge'] !== null
+                            ? round($row['line_service_charge'], 2) : null,
                     ];
                 }, $itemsWithTaxSplit),
                 'summary' => [
@@ -2449,6 +2895,7 @@ class CheckoutService
                     'total_sgst'              => round($totals['sgst'], 2),
                     'total_igst'              => round($totals['igst'], 2),
                     'shipping_charge'         => round($totals['shipping'], 2),
+                    'service_charge'          => round($totals['service_charge'], 2),
                     'coin_redeemed'           => $coinsUsed,
                     'coin_redeemed_amount'    => round($coinRedeemedAmount, 2),
                     'grand_total'             => $grandTotal,
@@ -2470,6 +2917,7 @@ class CheckoutService
             ];
 
             // ============ CREATE SINGLE ORDER ============
+            // NOTE: service_charge is NOT written to DB — calculation only.
             $order = Order::create([
                 'order_reference'      => 'ORD' . strtoupper(uniqid()),
                 'user_id'              => $user->id,
@@ -2487,16 +2935,17 @@ class CheckoutService
                 'coupon_discount'      => round($totals['coupon_discount'], 2),
                 'coin_redeemed'        => $coinsUsed,
                 'coin_redeemed_amount' => round($coinRedeemedAmount, 2),
-                'total_payable'        => $grandTotal,
+                'total_payable'        => $grandTotal, // already includes service charge
                 'amount_paid'          => 0,
                 'status'               => 'pending',
-                'tax_breakdown'        => json_encode($taxBreakdown),   // ← tax_category yahan already ja raha hai
+                'tax_breakdown'        => json_encode($taxBreakdown),
                 'summary_data'         => json_encode($summary),
                 'payment_gateway'      => $data['payment_gateway'] ?? null,
                 'checkout_type'        => $isBuyNow ? 'buy_now' : 'cart',
             ]);
 
             // ============ CREATE ORDER LINES ============
+            // NOTE: service_charge is NOT written to DB — calculation only.
             foreach ($itemsWithTaxSplit as $row) {
                 OrderLine::create([
                     'order_id'              => $order->id,
@@ -2506,7 +2955,7 @@ class CheckoutService
                     'quantity'              => $row['quantity'],
                     'unit_price'            => round($row['unit_price'], 2),
                     'shipping_charge'       => round($row['product_shipping_charge'], 2),
-                    'gst_rate'              => $row['tax_category_rate'], // actual rate saved to DB for UI
+                    'gst_rate'              => $row['tax_category_rate'],
                     'cgst_rate'             => round($row['cgst_rate'], 2),
                     'sgst_rate'             => round($row['sgst_rate'], 2),
                     'igst_rate'             => round($row['igst_rate'], 2),
@@ -2587,6 +3036,7 @@ class CheckoutService
                 'checkout_type'          => $isBuyNow ? 'buy_now' : 'cart',
                 'gateway'                => $gateway,
                 'reservation_expires_at' => $reservation['expires_at']->toIso8601String(),
+                'service_charge'         => round($totals['service_charge'], 2),
                 'tax_split'              => [
                     'delivery_state' => $deliveryState,
                     'supplier_state' => $supplierState,
@@ -2597,7 +3047,6 @@ class CheckoutService
             ], $gatewayPayload);
         });
     }
-
     protected function generateItemReference(): string
     {
         return 'ITM-' . strtoupper(bin2hex(random_bytes(4)));
