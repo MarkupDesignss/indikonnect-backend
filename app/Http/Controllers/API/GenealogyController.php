@@ -1574,32 +1574,29 @@ class GenealogyController extends Controller
         $paginated = $referrals->slice(($page - 1) * $perPage, $perPage)->values();
 
         // Enrich only paginated rows
-        // Normalize ba_ids by stripping the -001 / -002 suffix before lookup
-        $baIds = $paginated->pluck('ba_id')->filter()->values()->all();
-        $normalizedBaIds = collect($baIds)
+        // Strip -001 / -002 suffix before DB lookup
+        $baIds = $paginated->pluck('ba_id')->filter()
             ->map(fn ($id) => preg_replace('/-\d{3}$/', '', $id))
-            ->unique()
-            ->values()
-            ->all();
+            ->unique()->values()->all();
 
-        $localUsers = User::whereIn('distributor_id', $normalizedBaIds)
+        $localUsers = User::whereIn('distributor_id', $baIds)
             ->get(['distributor_id', 'full_name', 'email', 'created_at'])
             ->keyBy('distributor_id');
 
         $rankNames = $this->getRankNames();
 
-        // Referrals count map (from full tree)
+        // Referrals count map (from full tree) — also normalize parent ids
         $referralsByParent = collect($rows)
-            ->groupBy('unilevel_parent_ba_id')
+            ->groupBy(fn ($r) => preg_replace('/-\d{3}$/', '', $r['unilevel_parent_ba_id'] ?? ''))
             ->map->count();
 
         $data = $paginated->map(function ($row) use ($localUsers, $rankNames, $referralsByParent) {
-            $baId = $row['ba_id'] ?? null;
-            // Strip the -001 / -002 suffix for local user lookup
-            $baseBaId = $baId ? preg_replace('/-\d{3}$/', '', $baId) : null;
-            $localUser = $baseBaId ? ($localUsers[$baseBaId] ?? null) : null;
+            $rawBaId = $row['ba_id'] ?? null;
+            // Strip -001 / -002 suffix from ba_id
+            $baId = $rawBaId ? preg_replace('/-\d{3}$/', '', $rawBaId) : null;
+            $localUser = $baId ? ($localUsers[$baId] ?? null) : null;
 
-            $member = $baId ? $this->fetchMemberDetails($baId) : [];
+            $member = $rawBaId ? $this->fetchMemberDetails($rawBaId) : [];
 
             $rankNo = $member['rank_no'] ?? 0;
             $cvLeft = (float) ($member['cv_left'] ?? $row['cv_left'] ?? 0);
