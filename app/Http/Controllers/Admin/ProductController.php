@@ -909,7 +909,7 @@ class ProductController extends Controller
                 ] : null,
 
                 // Retail pricing
-                'retail_mrp' => $product->retail_mrp,
+                'retail_mrp' => $product->retail_mrp  + $product->shipping_charge,
                 'retail_price' => $product->retail_price + $product->shipping_charge,
                 'retail_discount_percentage' => $product->retail_mrp > 0
                     ? round(
@@ -919,7 +919,7 @@ class ProductController extends Controller
                     : 0,
 
                 // Distributor pricing
-                'distributor_mrp' => $product->distributor_mrp,
+                'distributor_mrp' => $product->distributor_mrp  + $product->shipping_charge,
                 'distributor_price' => $product->distributor_price + $product->shipping_charge,
 
                 // Effective pricing
@@ -1618,10 +1618,6 @@ class ProductController extends Controller
     |--------------------------------------------------------------------------
     | Shipping charge — resolved once
     |--------------------------------------------------------------------------
-    |
-    | If product has shipping_charge, use it.
-    | If null/0, check variant-level. Otherwise default 0.
-    |
     */
         $shipping = (float) ($product->shipping_charge ?? 0);
 
@@ -1643,16 +1639,21 @@ class ProductController extends Controller
                     ?? $product->images->first();
             }
 
-            // ✅ Base prices from variant
-            $retailMrp        = (float) ($selectedVariant->retail_mrp ?? 0);
+            //  Base prices from variant (without shipping, used for discount math)
+            $retailBaseMrp    = (float) ($selectedVariant->retail_mrp ?? 0);
             $retailBase       = (float) ($selectedVariant->retail_price ?? 0);
-            $distributorMrp   = $selectedVariant->distributor_mrp !== null
+            $distributorBaseMrp = $selectedVariant->distributor_mrp !== null
                 ? (float) $selectedVariant->distributor_mrp : null;
             $distributorBase  = $selectedVariant->distributor_price !== null
                 ? (float) $selectedVariant->distributor_price : null;
 
-            // ✅ Final selling price = base + shipping
+            //  Final prices = base + shipping
+            $retailMrp        = $retailBaseMrp + $shipping;
             $retailPrice      = $retailBase + $shipping;
+
+            $distributorMrp   = $distributorBaseMrp !== null
+                ? $distributorBaseMrp + $shipping
+                : null;
             $distributorPrice = $distributorBase !== null
                 ? $distributorBase + $shipping
                 : null;
@@ -1665,7 +1666,7 @@ class ProductController extends Controller
                 'green_coin' => $product->green_coin ?? 0,
                 'blue_coin' => $product->blue_coin ?? 0,
                 'service_charge' => $product->service_charge,
-                'shipping_charge' => $shipping, // expose so frontend can show it
+                'shipping_charge' => $shipping,
                 'is_best_seller' => $product->is_best_seller,
                 'commission_value' => $product->commission_value,
                 'allowed_purchsed' => $product->allowed_purchsed,
@@ -1711,55 +1712,57 @@ class ProductController extends Controller
                     : null,
 
                 /*
-            |------------------------------------------------------------------
-            | Retail Pricing (with shipping)
-            |------------------------------------------------------------------
-            */
-                'retail_mrp' => $retailMrp,
-                'retail_price' => $retailPrice,   // ✅ base + shipping
+        |------------------------------------------------------------------
+        | Retail Pricing (MRP and Price include shipping)
+        |------------------------------------------------------------------
+        */
+                'retail_mrp' => $retailMrp,       //  MRP + shipping
+                'retail_price' => $retailPrice,   //  Base + shipping
                 'retail_discount_type' => $selectedVariant->retail_discount_type,
                 'retail_discount_value' => $selectedVariant->retail_discount_value,
 
-                'retail_discount_amount' => $retailMrp > 0
-                    ? $retailMrp - $retailBase
+                // Discount amounts use the base prices (no shipping) to keep math accurate
+                'retail_discount_amount' => $retailBaseMrp > 0
+                    ? $retailBaseMrp - $retailBase
                     : 0,
 
-                'retail_discount_percentage' => $retailMrp > 0
-                    ? round((($retailMrp - $retailBase) / $retailMrp) * 100, 2)
+                'retail_discount_percentage' => $retailBaseMrp > 0
+                    ? round((($retailBaseMrp - $retailBase) / $retailBaseMrp) * 100, 2)
                     : 0,
 
                 /*
-            |------------------------------------------------------------------
-            | Distributor Pricing (with shipping) — ✅ BUG FIXED HERE
-            |------------------------------------------------------------------
-            */
-                'distributor_mrp' => $distributorMrp,
-                'distributor_price' => $distributorPrice, // ✅ base + shipping
+        |------------------------------------------------------------------
+        | Distributor Pricing (MRP and Price include shipping)
+        |------------------------------------------------------------------
+        */
+                'distributor_mrp' => $distributorMrp,          //  MRP + shipping
+                'distributor_price' => $distributorPrice,      //  Base + shipping
                 'distributor_discount_type' => $selectedVariant->distributor_discount_type,
                 'distributor_discount_value' => $selectedVariant->distributor_discount_value,
 
-                'distributor_discount_amount' => ($distributorMrp !== null && $distributorBase !== null)
-                    ? $distributorMrp - $distributorBase
+                // Discount amounts use the base prices (no shipping) to keep math accurate
+                'distributor_discount_amount' => ($distributorBaseMrp !== null && $distributorBase !== null)
+                    ? $distributorBaseMrp - $distributorBase
                     : null,
 
-                'distributor_discount_percentage' => ($distributorMrp !== null && $distributorBase !== null && $distributorMrp > 0)
-                    ? round((($distributorMrp - $distributorBase) / $distributorMrp) * 100, 2)
+                'distributor_discount_percentage' => ($distributorBaseMrp !== null && $distributorBase !== null && $distributorBaseMrp > 0)
+                    ? round((($distributorBaseMrp - $distributorBase) / $distributorBaseMrp) * 100, 2)
                     : null,
 
                 /*
-            |------------------------------------------------------------------
-            | Stock
-            |------------------------------------------------------------------
-            */
+        |------------------------------------------------------------------
+        | Stock
+        |------------------------------------------------------------------
+        */
                 'stock_quantity' => (int) $selectedVariant->stock_quantity,
                 'low_stock_threshold' => (int) $selectedVariant->low_stock_threshold,
                 'status' => $this->getVariantStatus($selectedVariant),
 
                 /*
-            |------------------------------------------------------------------
-            | Product Flags
-            |------------------------------------------------------------------
-            */
+        |------------------------------------------------------------------
+        | Product Flags
+        |------------------------------------------------------------------
+        */
                 'is_published' => (bool) $product->is_published,
                 'is_trending' => (bool) $product->is_trending,
                 'trending_sort_order' => (int) $product->trending_sort_order,
@@ -1773,10 +1776,10 @@ class ProductController extends Controller
                 'is_wishlisted' => in_array($product->id, $wishlistIds),
 
                 /*
-            |------------------------------------------------------------------
-            | Images
-            |------------------------------------------------------------------
-            */
+        |------------------------------------------------------------------
+        | Images
+        |------------------------------------------------------------------
+        */
                 'images' => (
                     $selectedVariant->images->isNotEmpty()
                     ? $selectedVariant->images
@@ -1800,10 +1803,10 @@ class ProductController extends Controller
                     : null,
 
                 /*
-            |------------------------------------------------------------------
-            | Selected Variant
-            |------------------------------------------------------------------
-            */
+        |------------------------------------------------------------------
+        | Selected Variant
+        |------------------------------------------------------------------
+        */
                 'selected_variant' => $this->formatSingleVariant($selectedVariant),
                 'selected_variant_id' => $selectedVariant->id,
                 'selected_variant_sku' => $selectedVariant->sku,
@@ -1811,10 +1814,10 @@ class ProductController extends Controller
                 'available_attributes' => $productAttributes,
 
                 /*
-            |------------------------------------------------------------------
-            | Linked Variants / Combo
-            |------------------------------------------------------------------
-            */
+        |------------------------------------------------------------------
+        | Linked Variants / Combo
+        |------------------------------------------------------------------
+        */
                 'variants' => $formattedVariants,
                 'product_type' => $this->isComboProduct($product) ? 'combo' : 'single',
                 'combo_products' => $this->isComboProduct($product)
@@ -1827,44 +1830,51 @@ class ProductController extends Controller
         } else {
 
             /*
-        |----------------------------------------------------------------------
-        | No variant selected → product-level
-        |----------------------------------------------------------------------
-        */
+    |----------------------------------------------------------------------
+    | No variant selected → product-level
+    |----------------------------------------------------------------------
+    */
 
             $formattedProduct = $this->formatProduct($product, $wishlistIds);
             $formattedProduct['available_attributes'] = $productAttributes;
             $formattedProduct['variants'] = $formattedVariants;
 
             /*
-        |----------------------------------------------------------------------
-        | ✅ Enforce shipping charge in product-level prices too
-        |----------------------------------------------------------------------
-        */
-            $retailMrp   = (float) ($product->retail_mrp ?? 0);
-            $retailBase  = (float) ($product->retail_price ?? 0);
+    |----------------------------------------------------------------------
+    |  Enforce shipping charge in product-level prices too
+    |----------------------------------------------------------------------
+    */
+            $retailBaseMrp = (float) ($product->retail_mrp ?? 0);
+            $retailBase    = (float) ($product->retail_price ?? 0);
 
             $formattedProduct['shipping_charge'] = $shipping;
-            $formattedProduct['retail_mrp']      = $retailMrp;
-            $formattedProduct['retail_price']    = $retailBase + $shipping;
 
-            $formattedProduct['retail_discount_amount'] = $retailMrp > 0
-                ? $retailMrp - $retailBase : 0;
-            $formattedProduct['retail_discount_percentage'] = $retailMrp > 0
-                ? round((($retailMrp - $retailBase) / $retailMrp) * 100, 2) : 0;
+            //  Add shipping to both MRP and Price
+            $formattedProduct['retail_mrp']   = $retailBaseMrp + $shipping;
+            $formattedProduct['retail_price'] = $retailBase + $shipping;
+
+            // Discount math stays based on base prices
+            $formattedProduct['retail_discount_amount'] = $retailBaseMrp > 0
+                ? $retailBaseMrp - $retailBase : 0;
+
+            $formattedProduct['retail_discount_percentage'] = $retailBaseMrp > 0
+                ? round((($retailBaseMrp - $retailBase) / $retailBaseMrp) * 100, 2) : 0;
 
             if ($product->distributor_price !== null) {
-                $distMrp  = $product->distributor_mrp !== null ? (float) $product->distributor_mrp : null;
-                $distBase = (float) $product->distributor_price;
+                $distBaseMrp = $product->distributor_mrp !== null ? (float) $product->distributor_mrp : null;
+                $distBase    = (float) $product->distributor_price;
 
-                $formattedProduct['distributor_mrp']   = $distMrp;
+                //  Add shipping to both MRP and Price
+                $formattedProduct['distributor_mrp']   = $distBaseMrp !== null ? $distBaseMrp + $shipping : null;
                 $formattedProduct['distributor_price'] = $distBase + $shipping;
 
+                // Discount math stays based on base prices
                 $formattedProduct['distributor_discount_amount'] =
-                    ($distMrp !== null) ? $distMrp - $distBase : null;
+                    ($distBaseMrp !== null) ? $distBaseMrp - $distBase : null;
+
                 $formattedProduct['distributor_discount_percentage'] =
-                    ($distMrp !== null && $distMrp > 0)
-                    ? round((($distMrp - $distBase) / $distMrp) * 100, 2)
+                    ($distBaseMrp !== null && $distBaseMrp > 0)
+                    ? round((($distBaseMrp - $distBase) / $distBaseMrp) * 100, 2)
                     : null;
             }
         }
@@ -1912,8 +1922,6 @@ class ProductController extends Controller
 
         return response()->json($formattedProduct);
     }
-
-
     protected function formatSingleVariant($variant)
     {
         $primaryImage = $variant->images->where('is_primary', true)->first()
@@ -6094,7 +6102,7 @@ class ProductController extends Controller
     // }
     public function getProductSections(Request $request)
     {
-        // ✅ FIX: Use Auth user's account_type instead of request query
+        //  FIX: Use Auth user's account_type instead of request query
         $user = $request->user();
         $userType = ($user && $user->account_type === 'distributor') ? 'distributor' : 'customer';
 
@@ -6200,10 +6208,10 @@ class ProductController extends Controller
 
                 $isWishlisted = in_array($product->id, $wishlistIds);
 
-                // ✅ FIX: Resolve shipping charge properly
+                //  FIX: Resolve shipping charge properly
                 $shipping = (float) ($product->shipping_charge ?? 0);
 
-                // ✅ FIX: Trust the DB prices directly (no double-discounting)
+                //  FIX: Trust the DB prices directly (no double-discounting)
                 if ($userType === 'distributor') {
                     $originalPrice = (float) ($product->distributor_mrp ?? $product->retail_mrp ?? 0);
                     $basePrice = (float) ($product->distributor_price ?? $product->retail_price ?? 0);
@@ -6215,10 +6223,10 @@ class ProductController extends Controller
                 // Current price includes shipping
                 $currentPrice = $basePrice + $shipping;
 
-                // ✅ FIX: Discounted price matches current price (since retail_price is already discounted in DB).
+                //  FIX: Discounted price matches current price (since retail_price is already discounted in DB).
                 $discountedPrice = $currentPrice;
 
-                // ✅ FIX: Calculate discount % based on MRP vs Base Price (not shipping-inflated price)
+                //  FIX: Calculate discount % based on MRP vs Base Price (not shipping-inflated price)
                 $discountPercentage = 0;
                 if ($originalPrice > $basePrice && $originalPrice > 0) {
                     $discountPercentage = round((($originalPrice - $basePrice) / $originalPrice) * 100);
@@ -6274,7 +6282,7 @@ class ProductController extends Controller
                         'slug' => $product->subcategory->slug,
                     ] : null,
 
-                    // ✅ Prices
+                    //  Prices
                     'original_price' => $originalPrice,
                     'current_price' => $currentPrice,
                     'discounted_price' => $discountedPrice,

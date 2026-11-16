@@ -1274,6 +1274,567 @@ class CartController extends Controller
 
         return $maxRate !== null ? (float) $maxRate : 0.0;
     }
+    // protected function formatCart(
+    //     Cart $cart,
+    //     ?User $user = null,
+    //     array $comboChildren = [],
+    //     $address = null
+    // ): array {
+    //     $isDistributor = $user && $user->account_type === 'distributor';
+
+    //     if (empty($comboChildren)) {
+    //         $comboChildren = $this->buildComboChildrenMap(
+    //             $cart->items->pluck('product')->filter()->unique('id')->values()
+    //         );
+    //     }
+
+    //     $items = $cart->items->map(function ($item) use ($isDistributor, $comboChildren) {
+    //         $product = $item->product;
+    //         $variant = $item->variant;
+
+    //         $currentPrice          = 0;
+    //         $variantAttributes     = null;
+    //         $imageUrl              = null;
+    //         $mrp                   = null;
+    //         $discountType          = null;
+    //         $discountValue         = null;
+    //         $discountAmountPerUnit = 0;
+
+    //         // ---------------- variant path ----------------
+    //         if ($variant) {
+    //             $currentPrice = $isDistributor
+    //                 ? ($variant->distributor_price ?? $variant->retail_price)
+    //                 : $variant->retail_price;
+
+    //             $mrp = $isDistributor
+    //                 ? ($variant->distributor_mrp ?? $variant->retail_mrp ?? null)
+    //                 : ($variant->retail_mrp ?? null);
+
+    //             $discountType  = $isDistributor
+    //                 ? ($variant->distributor_discount_type ?? null)
+    //                 : ($variant->retail_discount_type ?? null);
+
+    //             $discountValue = $isDistributor
+    //                 ? ($variant->distributor_discount_value ?? null)
+    //                 : ($variant->retail_discount_value ?? null);
+
+    //             $variantAttributes = $variant->attributes;
+
+    //             $variantImage = $variant->images->where('is_primary', true)->first()
+    //                 ?? $variant->images->first();
+    //             $imageUrl = $variantImage ? asset('storage/' . $variantImage->image) : null;
+    //         }
+    //         // ---------------- product fallback ----------------
+    //         elseif ($product) {
+    //             $currentPrice = $isDistributor
+    //                 ? ($product->distributor_price ?? $product->retail_price)
+    //                 : $product->retail_price;
+
+    //             $mrp = $isDistributor
+    //                 ? ($product->distributor_mrp ?? $product->retail_mrp ?? null)
+    //                 : ($product->retail_mrp ?? null);
+
+    //             $discountType  = $isDistributor
+    //                 ? ($product->distributor_discount_type ?? null)
+    //                 : ($product->retail_discount_type ?? null);
+
+    //             $discountValue = $isDistributor
+    //                 ? ($product->distributor_discount_value ?? null)
+    //                 : ($product->retail_discount_value ?? null);
+
+    //             $imageUrl = $product->primaryImage
+    //                 ? asset('storage/' . $product->primaryImage->image)
+    //                 : null;
+    //         }
+
+    //         if ($mrp !== null && $mrp > $currentPrice) {
+    //             $discountAmountPerUnit = $mrp - $currentPrice;
+    //         }
+
+    //         $subtotal = $currentPrice * $item->quantity;
+
+    //         $availableStock = null;
+    //         if ($product && $product->stock_quantity !== null) {
+    //             $availableStock = max(0, (int) $product->stock_quantity - (int) $product->reserved_inventory);
+    //         }
+
+    //         // ============================================================
+    //         // GST & PRICING BREAKDOWN
+    //         // NOTE: Admin prices are GST-INCLUSIVE.
+    //         //       We derive EXCL. GST via price / (1 + rate/100).
+    //         // ============================================================
+
+    //         $taxRate = 0;
+    //         if ($product) {
+    //             $taxRate = (float) ($product->taxCategory?->rate ?? 0);
+    //             if ($taxRate === 0 && ($product->product_type ?? 'single') === 'combo') {
+    //                 $taxRate = (float) $this->resolveComboTaxRate($product);
+    //             }
+    //         }
+
+    //         $taxCategoryName = $product?->taxCategory?->name ?? 'No Tax'; // record only
+    //         $qty             = (int) $item->quantity;
+    //         $gstFactor       = 1 + ($taxRate / 100);   // divisor for tax-inclusive prices
+
+    //         // ---------- helper closure: incl → excl ----------
+    //         $splitInclusive = function (float $inclusiveAmount) use ($gstFactor): array {
+    //             if ($gstFactor <= 0) {
+    //                 return ['excl' => $inclusiveAmount, 'gst' => 0.0];
+    //             }
+    //             $excl = round($inclusiveAmount / $gstFactor, 2);
+    //             $gst  = round($inclusiveAmount - $excl, 2);
+    //             return ['excl' => $excl, 'gst' => $gst];
+    //         };
+
+    //         // ---------- SHIPPING (per unit is GST-inclusive) ----------
+    //         $shippingPerUnitIncl = (float) ($product?->shipping_charge ?? 0);
+    //         $shippingTotalIncl   = round($shippingPerUnitIncl * $qty, 2);
+
+    //         $shipSplitPerUnit = $splitInclusive($shippingPerUnitIncl);
+    //         $shipSplitTotal   = $splitInclusive($shippingTotalIncl);
+
+    //         $shippingPerUnitExcl = $shipSplitPerUnit['excl'];
+    //         $shippingGstPerUnit  = $shipSplitPerUnit['gst'];
+    //         $shippingExclTotal   = $shipSplitTotal['excl'];
+    //         $shippingGstTotal    = $shipSplitTotal['gst'];
+
+    //         // ---------- DISTRIBUTOR pricing (GST-inclusive) ----------
+    //         $distPriceIncl        = (float) ($product->distributor_price ?? 0);
+    //         $distMrpIncl          = (float) ($product->distributor_mrp ?? 0);
+    //         $distDiscountType     = $product->distributor_discount_type ?? null;
+    //         $distDiscountValue    = (float) ($product->distributor_discount_value ?? 0);
+
+    //         $distDiscountAmountPerUnit = 0.0;
+    //         if ($distDiscountType === 'percentage' && $distMrpIncl > 0) {
+    //             $distDiscountAmountPerUnit = round(($distMrpIncl * $distDiscountValue) / 100, 2);
+    //         } elseif ($distDiscountType === 'fixed') {
+    //             $distDiscountAmountPerUnit = $distDiscountValue;
+    //         } elseif ($distMrpIncl > 0 && $distMrpIncl > $distPriceIncl) {
+    //             $distDiscountAmountPerUnit = $distMrpIncl - $distPriceIncl;
+    //         }
+
+    //         $distDiscountAmountTotal = round($distDiscountAmountPerUnit * $qty, 2);
+    //         $distDiscountPercent     = ($distMrpIncl > 0 && $distDiscountAmountPerUnit > 0)
+    //             ? round(($distDiscountAmountPerUnit / $distMrpIncl) * 100, 2)
+    //             : 0;
+
+    //         $distPerUnitSplit = $splitInclusive($distPriceIncl);
+    //         $distLineSplit    = $splitInclusive(round($distPriceIncl * $qty, 2));
+
+    //         $distPriceExclPerUnit = $distPerUnitSplit['excl'];
+    //         $distGstPerUnit       = $distPerUnitSplit['gst'];
+    //         $distPriceInclPerUnit = $distPriceIncl;
+
+    //         $distLineExclGst   = $distLineSplit['excl'];
+    //         $distGstAmountLine = $distLineSplit['gst'];
+    //         $distLineInclGst   = round($distPriceIncl * $qty, 2);
+
+    //         // ---------- RETAIL pricing (GST-inclusive) ----------
+    //         $retailPriceIncl        = (float) ($product->retail_price ?? 0);
+    //         $retailMrpIncl          = (float) ($product->retail_mrp ?? 0);
+    //         $retailDiscountType     = $product->retail_discount_type ?? null;
+    //         $retailDiscountValue    = (float) ($product->retail_discount_value ?? 0);
+
+    //         $retailDiscountAmountPerUnit = 0.0;
+    //         if ($retailDiscountType === 'percentage' && $retailMrpIncl > 0) {
+    //             $retailDiscountAmountPerUnit = round(($retailMrpIncl * $retailDiscountValue) / 100, 2);
+    //         } elseif ($retailDiscountType === 'fixed') {
+    //             $retailDiscountAmountPerUnit = $retailDiscountValue;
+    //         } elseif ($retailMrpIncl > 0 && $retailMrpIncl > $retailPriceIncl) {
+    //             $retailDiscountAmountPerUnit = $retailMrpIncl - $retailPriceIncl;
+    //         }
+
+    //         $retailDiscountAmountTotal = round($retailDiscountAmountPerUnit * $qty, 2);
+    //         $retailDiscountPercent     = ($retailMrpIncl > 0 && $retailDiscountAmountPerUnit > 0)
+    //             ? round(($retailDiscountAmountPerUnit / $retailMrpIncl) * 100, 2)
+    //             : 0;
+
+    //         $retailPerUnitSplit = $splitInclusive($retailPriceIncl);
+    //         $retailLineSplit    = $splitInclusive(round($retailPriceIncl * $qty, 2));
+
+    //         $retailPriceExclPerUnit = $retailPerUnitSplit['excl'];
+    //         $retailGstPerUnit       = $retailPerUnitSplit['gst'];
+    //         $retailPriceInclPerUnit = $retailPriceIncl;
+
+    //         $retailLineExclGst   = $retailLineSplit['excl'];
+    //         $retailGstAmountLine = $retailLineSplit['gst'];
+    //         $retailLineInclGst   = round($retailPriceIncl * $qty, 2);
+
+    //         // ---------- TAXABLE AMOUNT (excl. GST) ----------
+    //         $activeLineExclGst   = $isDistributor ? $distLineExclGst : $retailLineExclGst;
+    //         $activeGstAmountLine = $isDistributor ? $distGstAmountLine : $retailGstAmountLine;
+    //         $activeLineInclGst   = $isDistributor ? $distLineInclGst : $retailLineInclGst;
+
+    //         $taxableAmountLine = round($activeLineExclGst + $shippingExclTotal, 2);
+    //         $gstAmountLine     = round($activeGstAmountLine + $shippingGstTotal, 2);
+
+    //         return [
+    //             'id' => $item->id,
+    //             'product_id' => $item->product_id,
+    //             'variant_id' => $item->variant_id,
+
+    //             'product' => $product ? [
+    //                 'id' => $product->id,
+    //                 'name' => $product->name,
+    //                 'allowed_purchsed' => $product->allowed_purchsed,
+    //                 'slug' => $product->slug,
+    //                 'service_charge' => $product->service_charge,
+    //                 'product_code' => $product->product_code,
+    //                 'hsn_code' => $product->hsn_code,
+    //                 'uom' => $product->uom,
+
+    //                 'retail_price' => $product->retail_price,
+    //                 'retail_mrp' => $product->retail_mrp,
+    //                 'retail_discount_type' => $product->retail_discount_type,
+    //                 'retail_discount_value' => $product->retail_discount_value,
+
+    //                 'distributor_price' => $product->distributor_price,
+    //                 'distributor_mrp' => $product->distributor_mrp,
+    //                 'distributor_discount_type' => $product->distributor_discount_type,
+    //                 'distributor_discount_value' => $product->distributor_discount_value,
+
+    //                 'stock_quantity' => $product->stock_quantity,
+    //                 'reserved_inventory' => $product->reserved_inventory,
+    //                 'available_stock' => $availableStock,
+    //                 'low_stock_threshold' => $product->low_stock_threshold,
+    //                 'is_in_stock' => $availableStock !== null ? $availableStock > 0 : null,
+    //                 'is_low_stock' => ($availableStock !== null && $product->low_stock_threshold !== null)
+    //                     ? ($availableStock > 0 && $availableStock <= (int) $product->low_stock_threshold)
+    //                     : false,
+
+    //                 'category' => $product->relationLoaded('category') && $product->category ? [
+    //                     'id' => $product->category->id,
+    //                     'title' => $product->category->title,
+    //                     'slug' => $product->category->slug,
+    //                 ] : null,
+
+    //                 'subcategory' => $product->relationLoaded('subcategory') && $product->subcategory ? [
+    //                     'id' => $product->subcategory->id,
+    //                     'name' => $product->subcategory->name,
+    //                     'slug' => $product->subcategory->slug,
+    //                 ] : null,
+
+    //                 'brand' => $product->relationLoaded('brand') && $product->brand ? [
+    //                     'id' => $product->brand->id,
+    //                     'title' => $product->brand->title,
+    //                     'category_id' => $product->brand->category_id,
+    //                 ] : null,
+
+    //                 'tax_category_id' => $product->tax_category_id,
+    //                 'tax_category' => ($product->relationLoaded('taxCategory') && $product->taxCategory) ? [
+    //                     'id' => $product->taxCategory->id,
+    //                     'name' => $product->taxCategory->name ?? null,
+    //                     'rate' => $product->taxCategory->rate ?? null,
+    //                 ] : null,
+
+    //                 'is_published' => (bool) $product->is_published,
+    //                 'sale_type' => $product->sale_type,
+    //                 'is_trending' => (bool) $product->is_trending,
+    //                 'is_best_seller' => (bool) $product->is_best_seller,
+    //                 'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+    //                 'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toIso8601String(),
+    //                 'deal_of_the_day_ends_at' => $product->deal_of_the_day_ends_at?->toIso8601String(),
+    //                 'is_deal_active_now' => (bool) (
+    //                     $product->is_deal_of_the_day
+    //                     && (!$product->deal_of_the_day_starts_at || $product->deal_of_the_day_starts_at->isPast())
+    //                     && (!$product->deal_of_the_day_ends_at || $product->deal_of_the_day_ends_at->isFuture())
+    //                 ),
+
+    //                 'shipping_charge' => $product->shipping_charge,
+    //                 'commission_value' => $product->commission_value,
+    //                 'parent_combo_id' => $product->parent_combo_id,
+    //                 'ignite_product_id' => $product->ignite_product_id,
+
+    //                 'product_type' => $this->isComboProduct($product) ? 'combo' : 'single',
+    //                 'combo_products' => $this->isComboProduct($product)
+    //                     ? ($comboChildren[$product->id] ?? [])
+    //                     : [],
+    //             ] : null,
+
+    //             'variant' => $variant ? [
+    //                 'id' => $variant->id,
+    //                 'sku' => $variant->sku,
+    //                 'attributes' => $variant->attributes,
+    //                 'attribute_string' => $this->getAttributeString($variant->attributes),
+    //                 'retail_price' => $variant->retail_price,
+    //                 'retail_mrp' => $variant->retail_mrp ?? null,
+    //                 'retail_discount_type' => $variant->retail_discount_type ?? null,
+    //                 'retail_discount_value' => $variant->retail_discount_value ?? null,
+    //                 'distributor_price' => $variant->distributor_price,
+    //                 'distributor_mrp' => $variant->distributor_mrp ?? null,
+    //                 'distributor_discount_type' => $variant->distributor_discount_type ?? null,
+    //                 'distributor_discount_value' => $variant->distributor_discount_value ?? null,
+    //                 'stock_quantity' => $variant->stock_quantity ?? null,
+    //             ] : null,
+
+    //             'variant_attributes' => $variantAttributes,
+    //             'quantity' => $item->quantity,
+
+    //             // ============================================================
+    //             // GST METADATA (record-only)
+    //             // ============================================================
+    //             'tax_category'     => $taxCategoryName,
+    //             'gst_rate_percent' => $taxRate,
+
+    //             // ---------- SHIPPING (incl. → excl. breakdown) ----------
+    //             'shipping_charge_per_unit_incl_gst' => round($shippingPerUnitIncl, 2),
+    //             'shipping_charge_per_unit_excl_gst' => $shippingPerUnitExcl,
+    //             'shipping_gst_per_unit'             => $shippingGstPerUnit,
+    //             'shipping_charge_total_incl_gst'    => $shippingTotalIncl,
+    //             'shipping_charge_total_excl_gst'    => $shippingExclTotal,
+    //             'shipping_gst_total'                => $shippingGstTotal,
+
+    //             // ---------- DISTRIBUTOR (incl. → excl. breakdown) ----------
+    //             'distributor_price_incl_gst'             => round($distPriceIncl, 2),
+    //             'distributor_price_excl_gst_per_unit'    => $distPriceExclPerUnit,
+    //             'distributor_gst_amount_per_unit'        => $distGstPerUnit,
+    //             'distributor_line_incl_gst'              => $distLineInclGst,
+    //             'distributor_line_excl_gst'              => $distLineExclGst,
+    //             'distributor_gst_amount_line'            => $distGstAmountLine,
+
+    //             'distributor_mrp'                        => round($distMrpIncl, 2),
+    //             'distributor_discount_type'              => $distDiscountType,
+    //             'distributor_discount_value'             => $distDiscountValue,
+    //             'distributor_discount_percent'           => $distDiscountPercent,
+    //             'distributor_discount_amount_per_unit'   => $distDiscountAmountPerUnit,
+    //             'distributor_discount_amount_total'      => $distDiscountAmountTotal,
+
+    //             // ---------- RETAIL (incl. → excl. breakdown) ----------
+    //             'retail_price_incl_gst'                  => round($retailPriceIncl, 2),
+    //             'retail_price_excl_gst_per_unit'         => $retailPriceExclPerUnit,
+    //             'retail_gst_amount_per_unit'             => $retailGstPerUnit,
+    //             'retail_line_incl_gst'                   => $retailLineInclGst,
+    //             'retail_line_excl_gst'                   => $retailLineExclGst,
+    //             'retail_gst_amount_line'                 => $retailGstAmountLine,
+
+    //             'retail_mrp'                             => round($retailMrpIncl, 2),
+    //             'retail_discount_type'                   => $retailDiscountType,
+    //             'retail_discount_value'                  => $retailDiscountValue,
+    //             'retail_discount_percent'                => $retailDiscountPercent,
+    //             'retail_discount_amount_per_unit'        => $retailDiscountAmountPerUnit,
+    //             'retail_discount_amount_total'           => $retailDiscountAmountTotal,
+
+    //             // ---------- TAXABLE + GST (line) ----------
+    //             'taxable_amount_line' => $taxableAmountLine,
+    //             'gst_amount_line'     => $gstAmountLine,
+
+    //             // ---------- ACTIVE PRICING (based on user type) ----------
+    //             'active_price_type'                => $isDistributor ? 'distributor' : 'retail',
+    //             'active_price_incl_gst_per_unit'   => $isDistributor ? $distPriceIncl : $retailPriceIncl,
+    //             'active_price_excl_gst_per_unit'   => $isDistributor ? $distPriceExclPerUnit : $retailPriceExclPerUnit,
+    //             'active_gst_amount_per_unit'       => $isDistributor ? $distGstPerUnit : $retailGstPerUnit,
+    //             'active_line_incl_gst'             => $activeLineInclGst,
+    //             'active_line_excl_gst'             => $activeLineExclGst,
+    //             'active_gst_amount_line'           => $activeGstAmountLine,
+
+    //             // ---------- EXISTING FIELDS (kept) ----------
+    //             'current_unit_price' => $currentPrice,
+    //             'current_unit_price_formatted' => number_format($currentPrice, 2),
+
+    //             'mrp' => $mrp,
+    //             'mrp_formatted' => $mrp !== null ? number_format($mrp, 2) : null,
+    //             'discount_type' => $discountType,
+    //             'discount_value' => $discountValue,
+    //             'discount_amount_per_unit' => $discountAmountPerUnit,
+    //             'discount_amount_per_unit_formatted' => number_format($discountAmountPerUnit, 2),
+    //             'discount_total' => $discountAmountPerUnit * $item->quantity,
+    //             'discount_total_formatted' => number_format($discountAmountPerUnit * $item->quantity, 2),
+    //             'discount_percentage' => ($mrp !== null && $mrp > 0 && $discountAmountPerUnit > 0)
+    //                 ? round(($discountAmountPerUnit / $mrp) * 100, 2)
+    //                 : 0,
+
+    //             'subtotal' => $subtotal,
+    //             'subtotal_formatted' => number_format($subtotal, 2),
+
+    //             'image_url' => $imageUrl ?? null,
+    //             'current_price_type' => $isDistributor ? 'distributor' : 'retail',
+    //         ];
+    //     })->values()->toArray();
+
+    //     $total         = collect($items)->sum('subtotal');
+    //     $totalItems    = collect($items)->sum('quantity');
+    //     $totalMrp      = collect($items)->sum(fn($i) => ($i['mrp'] ?? 0) * $i['quantity']);
+    //     $totalDiscount = collect($items)->sum(fn($i) => $i['discount_total'] ?? 0);
+
+    //     // ============================================================
+    //     // CART-LEVEL AGGREGATES
+    //     // ============================================================
+    //     $cartTotals = [
+    //         'active_line_incl_gst'   => collect($items)->sum('active_line_incl_gst'),
+    //         'active_line_excl_gst'   => collect($items)->sum('active_line_excl_gst'),
+    //         'active_gst_amount'      => collect($items)->sum('active_gst_amount_line'),
+
+    //         'shipping_incl_gst'      => collect($items)->sum('shipping_charge_total_incl_gst'),
+    //         'shipping_excl_gst'      => collect($items)->sum('shipping_charge_total_excl_gst'),
+    //         'shipping_gst'           => collect($items)->sum('shipping_gst_total'),
+
+    //         'taxable_amount'         => collect($items)->sum('taxable_amount_line'),
+    //         'gst_amount'             => collect($items)->sum('gst_amount_line'),
+
+    //         'retail_line_incl_gst'   => collect($items)->sum('retail_line_incl_gst'),
+    //         'retail_line_excl_gst'   => collect($items)->sum('retail_line_excl_gst'),
+    //         'retail_gst_amount'      => collect($items)->sum('retail_gst_amount_line'),
+
+    //         'dist_line_incl_gst'     => collect($items)->sum('distributor_line_incl_gst'),
+    //         'dist_line_excl_gst'     => collect($items)->sum('distributor_line_excl_gst'),
+    //         'dist_gst_amount'        => collect($items)->sum('distributor_gst_amount_line'),
+    //     ];
+
+    //     $grandTotalInclShipping = round(
+    //         $cartTotals['active_line_incl_gst'] + $cartTotals['shipping_incl_gst'],
+    //         2
+    //     );
+
+    //     // ============================================================
+    //     // CATEGORY-WISE GST BREAKDOWN
+    //     // Groups items by (tax_category, rate) and aggregates
+    //     // taxable + GST + CGST/SGST/IGST splits.
+    //     // ============================================================
+    //     $deliveryState = $address?->state ?? null;
+    //     $supplierState = strtolower(config('app.supplier_state', 'Punjab'));
+
+    //     $isIntraState = $deliveryState
+    //         && strtolower($deliveryState) === $supplierState;
+
+    //     $gstBreakdownMap = [];
+
+    //     foreach ($items as $row) {
+    //         $catName = $row['tax_category'] ?? 'No Tax';
+    //         $rate    = (float) ($row['gst_rate_percent'] ?? 0);
+
+    //         $lineExcl = (float) ($row['active_line_excl_gst'] ?? 0);
+    //         $lineGst  = (float) ($row['active_gst_amount_line'] ?? 0);
+    //         $shipExcl = (float) ($row['shipping_charge_total_excl_gst'] ?? 0);
+    //         $shipGst  = (float) ($row['shipping_gst_total'] ?? 0);
+
+    //         $taxable = $lineExcl + $shipExcl;
+    //         $gst     = $lineGst + $shipGst;
+
+    //         if ($isIntraState) {
+    //             $cgst = round($gst / 2, 2);
+    //             $sgst = round($gst / 2, 2);
+    //             $igst = 0.0;
+    //         } else {
+    //             $cgst = 0.0;
+    //             $sgst = 0.0;
+    //             $igst = $gst;
+    //         }
+
+    //         $key = $catName . '|' . $rate;
+
+    //         if (!isset($gstBreakdownMap[$key])) {
+    //             $gstBreakdownMap[$key] = [
+    //                 'tax_category'   => $catName,
+    //                 'rate'           => $rate,
+    //                 'rate_percent'   => $rate . '%',
+    //                 'taxable_amount' => 0.0,
+    //                 'gst_amount'     => 0.0,
+    //                 'cgst'           => 0.0,
+    //                 'sgst'           => 0.0,
+    //                 'igst'           => 0.0,
+    //             ];
+    //         }
+
+    //         $gstBreakdownMap[$key]['taxable_amount'] += $taxable;
+    //         $gstBreakdownMap[$key]['gst_amount']     += $gst;
+    //         $gstBreakdownMap[$key]['cgst']           += $cgst;
+    //         $gstBreakdownMap[$key]['sgst']           += $sgst;
+    //         $gstBreakdownMap[$key]['igst']           += $igst;
+    //     }
+
+    //     $gstBreakdown = collect($gstBreakdownMap)
+    //         ->map(function ($row) {
+    //             return [
+    //                 'tax_category'   => $row['tax_category'],
+    //                 'rate'           => $row['rate'],
+    //                 'rate_percent'   => $row['rate_percent'],
+    //                 'taxable_amount' => round($row['taxable_amount'], 2),
+    //                 'gst_amount'     => round($row['gst_amount'], 2),
+    //                 'cgst'           => round($row['cgst'], 2),
+    //                 'sgst'           => round($row['sgst'], 2),
+    //                 'igst'           => round($row['igst'], 2),
+    //             ];
+    //         })
+    //         ->sortBy('rate')
+    //         ->values()
+    //         ->all();
+
+    //     //  NEW: effective weighted rate (single number)
+    //     $effectiveRate = $cartTotals['taxable_amount'] > 0
+    //         ? round(($cartTotals['gst_amount'] / $cartTotals['taxable_amount']) * 100, 2)
+    //         : 0;
+
+    //     //  NEW: category-wise rate detail (consistent with gst_breakdown)
+    //     $taxRateOnLineDetail = collect($gstBreakdown)->map(function ($row) {
+    //         return [
+    //             'tax_category'   => $row['tax_category'],
+    //             'rate'           => $row['rate'],
+    //             'rate_percent'   => $row['rate_percent'],
+    //             'taxable_amount' => $row['taxable_amount'],
+    //             'gst_amount'     => $row['gst_amount'],
+    //         ];
+    //     })->values()->all();
+
+    //     return [
+    //         'id' => $cart->id,
+    //         'items' => $items,
+    //         'total' => $total,
+    //         'total_formatted' => number_format($total, 2),
+    //         'total_mrp' => $totalMrp,
+    //         'total_mrp_formatted' => number_format($totalMrp, 2),
+    //         'total_discount' => $totalDiscount,
+    //         'total_discount_formatted' => number_format($totalDiscount, 2),
+    //         'total_items' => $totalItems,
+    //         'price_type' => $isDistributor ? 'distributor' : 'retail',
+    //         'price_calculation' => 'dynamic_inclusive',
+
+    //         // NEW: tax & pricing aggregates
+    //         'tax_and_pricing' => [
+    //             'pricing_mode'          => 'gst_inclusive',
+    //             'gst_rate_source'       => 'product.taxCategory.rate',
+    //             'tax_category_recorded' => true,
+    //             'active_price_type'     => $isDistributor ? 'distributor' : 'retail',
+
+    //             // Product totals (excl. shipping)
+    //             'active_line_incl_gst' => round($cartTotals['active_line_incl_gst'], 2),
+    //             'active_line_excl_gst' => round($cartTotals['active_line_excl_gst'], 2),
+    //             'active_gst_amount'    => round($cartTotals['active_gst_amount'], 2),
+
+    //             // Shipping
+    //             'shipping_incl_gst' => round($cartTotals['shipping_incl_gst'], 2),
+    //             'shipping_excl_gst' => round($cartTotals['shipping_excl_gst'], 2),
+    //             'shipping_gst'      => round($cartTotals['shipping_gst'], 2),
+
+    //             // Taxable + GST (product + shipping)
+    //             'taxable_amount'    => round($cartTotals['taxable_amount'], 2),
+    //             'gst_amount'        => round($cartTotals['gst_amount'], 2),
+
+    //             //  NEW: effective weighted rate (single number)
+    //             'tax_rate_on_line'        => $effectiveRate,
+
+    //             //  NEW: category-wise rate detail
+    //             'tax_rate_on_line_detail' => $taxRateOnLineDetail,
+
+    //             // Category-wise GST breakdown
+    //             'gst_breakdown'     => $gstBreakdown,
+
+    //             // Grand total
+    //             'grand_total'       => $grandTotalInclShipping,
+
+    //             // Both views
+    //             'retail' => [
+    //                 'line_incl_gst' => round($cartTotals['retail_line_incl_gst'], 2),
+    //                 'line_excl_gst' => round($cartTotals['retail_line_excl_gst'], 2),
+    //                 'gst_amount'    => round($cartTotals['retail_gst_amount'], 2),
+    //             ],
+    //             'distributor' => [
+    //                 'line_incl_gst' => round($cartTotals['dist_line_incl_gst'], 2),
+    //                 'line_excl_gst' => round($cartTotals['dist_line_excl_gst'], 2),
+    //                 'gst_amount'    => round($cartTotals['dist_gst_amount'], 2),
+    //             ],
+    //         ],
+    //     ];
+    // }
     protected function formatCart(
         Cart $cart,
         ?User $user = null,
@@ -1300,15 +1861,23 @@ class CartController extends Controller
             $discountValue         = null;
             $discountAmountPerUnit = 0;
 
+            // ✅ Fetch shipping charge
+            $shipping = (float) ($product?->shipping_charge ?? 0);
+
             // ---------------- variant path ----------------
             if ($variant) {
-                $currentPrice = $isDistributor
+                // Base prices (no shipping)
+                $basePrice = $isDistributor
                     ? ($variant->distributor_price ?? $variant->retail_price)
                     : $variant->retail_price;
 
-                $mrp = $isDistributor
+                $baseMrp = $isDistributor
                     ? ($variant->distributor_mrp ?? $variant->retail_mrp ?? null)
                     : ($variant->retail_mrp ?? null);
+
+                // ✅ Add shipping to both price and MRP
+                $currentPrice = (float) $basePrice + $shipping;
+                $mrp = $baseMrp !== null ? (float) $baseMrp + $shipping : null;
 
                 $discountType  = $isDistributor
                     ? ($variant->distributor_discount_type ?? null)
@@ -1326,13 +1895,18 @@ class CartController extends Controller
             }
             // ---------------- product fallback ----------------
             elseif ($product) {
-                $currentPrice = $isDistributor
+                // Base prices (no shipping)
+                $basePrice = $isDistributor
                     ? ($product->distributor_price ?? $product->retail_price)
                     : $product->retail_price;
 
-                $mrp = $isDistributor
+                $baseMrp = $isDistributor
                     ? ($product->distributor_mrp ?? $product->retail_mrp ?? null)
                     : ($product->retail_mrp ?? null);
+
+                // ✅ Add shipping to both price and MRP
+                $currentPrice = (float) $basePrice + $shipping;
+                $mrp = $baseMrp !== null ? (float) $baseMrp + $shipping : null;
 
                 $discountType  = $isDistributor
                     ? ($product->distributor_discount_type ?? null)
@@ -1360,8 +1934,6 @@ class CartController extends Controller
 
             // ============================================================
             // GST & PRICING BREAKDOWN
-            // NOTE: Admin prices are GST-INCLUSIVE.
-            //       We derive EXCL. GST via price / (1 + rate/100).
             // ============================================================
 
             $taxRate = 0;
@@ -1372,11 +1944,10 @@ class CartController extends Controller
                 }
             }
 
-            $taxCategoryName = $product?->taxCategory?->name ?? 'No Tax'; // record only
+            $taxCategoryName = $product?->taxCategory?->name ?? 'No Tax';
             $qty             = (int) $item->quantity;
-            $gstFactor       = 1 + ($taxRate / 100);   // divisor for tax-inclusive prices
+            $gstFactor       = 1 + ($taxRate / 100);
 
-            // ---------- helper closure: incl → excl ----------
             $splitInclusive = function (float $inclusiveAmount) use ($gstFactor): array {
                 if ($gstFactor <= 0) {
                     return ['excl' => $inclusiveAmount, 'gst' => 0.0];
@@ -1399,8 +1970,9 @@ class CartController extends Controller
             $shippingGstTotal    = $shipSplitTotal['gst'];
 
             // ---------- DISTRIBUTOR pricing (GST-inclusive) ----------
-            $distPriceIncl        = (float) ($product->distributor_price ?? 0);
-            $distMrpIncl          = (float) ($product->distributor_mrp ?? 0);
+            // ✅ Distributor prices used in breakdown now include shipping
+            $distPriceIncl        = (float) ($product->distributor_price ?? 0) + $shipping;
+            $distMrpIncl          = (float) ($product->distributor_mrp ?? 0) + $shipping;
             $distDiscountType     = $product->distributor_discount_type ?? null;
             $distDiscountValue    = (float) ($product->distributor_discount_value ?? 0);
 
@@ -1430,8 +2002,9 @@ class CartController extends Controller
             $distLineInclGst   = round($distPriceIncl * $qty, 2);
 
             // ---------- RETAIL pricing (GST-inclusive) ----------
-            $retailPriceIncl        = (float) ($product->retail_price ?? 0);
-            $retailMrpIncl          = (float) ($product->retail_mrp ?? 0);
+            // ✅ Retail prices used in breakdown now include shipping
+            $retailPriceIncl        = (float) ($product->retail_price ?? 0) + $shipping;
+            $retailMrpIncl          = (float) ($product->retail_mrp ?? 0) + $shipping;
             $retailDiscountType     = $product->retail_discount_type ?? null;
             $retailDiscountValue    = (float) ($product->retail_discount_value ?? 0);
 
@@ -1483,13 +2056,13 @@ class CartController extends Controller
                     'hsn_code' => $product->hsn_code,
                     'uom' => $product->uom,
 
-                    'retail_price' => $product->retail_price,
-                    'retail_mrp' => $product->retail_mrp,
+                    'retail_price' => $product->retail_price + $shipping,
+                    'retail_mrp' => $product->retail_mrp + $shipping,
                     'retail_discount_type' => $product->retail_discount_type,
                     'retail_discount_value' => $product->retail_discount_value,
 
-                    'distributor_price' => $product->distributor_price,
-                    'distributor_mrp' => $product->distributor_mrp,
+                    'distributor_price' => $product->distributor_price + $shipping,
+                    'distributor_mrp' => $product->distributor_mrp + $shipping,
                     'distributor_discount_type' => $product->distributor_discount_type,
                     'distributor_discount_value' => $product->distributor_discount_value,
 
@@ -1556,27 +2129,26 @@ class CartController extends Controller
                     'sku' => $variant->sku,
                     'attributes' => $variant->attributes,
                     'attribute_string' => $this->getAttributeString($variant->attributes),
-                    'retail_price' => $variant->retail_price,
-                    'retail_mrp' => $variant->retail_mrp ?? null,
+
+                    'retail_price' => $variant->retail_price + $shipping,
+                    'retail_mrp' => $variant->retail_mrp !== null ? $variant->retail_mrp + $shipping : null,
                     'retail_discount_type' => $variant->retail_discount_type ?? null,
                     'retail_discount_value' => $variant->retail_discount_value ?? null,
-                    'distributor_price' => $variant->distributor_price,
-                    'distributor_mrp' => $variant->distributor_mrp ?? null,
+
+                    'distributor_price' => $variant->distributor_price !== null ? $variant->distributor_price + $shipping : null,
+                    'distributor_mrp' => $variant->distributor_mrp !== null ? $variant->distributor_mrp + $shipping : null,
                     'distributor_discount_type' => $variant->distributor_discount_type ?? null,
                     'distributor_discount_value' => $variant->distributor_discount_value ?? null,
+
                     'stock_quantity' => $variant->stock_quantity ?? null,
                 ] : null,
 
                 'variant_attributes' => $variantAttributes,
                 'quantity' => $item->quantity,
 
-                // ============================================================
-                // GST METADATA (record-only)
-                // ============================================================
                 'tax_category'     => $taxCategoryName,
                 'gst_rate_percent' => $taxRate,
 
-                // ---------- SHIPPING (incl. → excl. breakdown) ----------
                 'shipping_charge_per_unit_incl_gst' => round($shippingPerUnitIncl, 2),
                 'shipping_charge_per_unit_excl_gst' => $shippingPerUnitExcl,
                 'shipping_gst_per_unit'             => $shippingGstPerUnit,
@@ -1584,7 +2156,6 @@ class CartController extends Controller
                 'shipping_charge_total_excl_gst'    => $shippingExclTotal,
                 'shipping_gst_total'                => $shippingGstTotal,
 
-                // ---------- DISTRIBUTOR (incl. → excl. breakdown) ----------
                 'distributor_price_incl_gst'             => round($distPriceIncl, 2),
                 'distributor_price_excl_gst_per_unit'    => $distPriceExclPerUnit,
                 'distributor_gst_amount_per_unit'        => $distGstPerUnit,
@@ -1599,7 +2170,6 @@ class CartController extends Controller
                 'distributor_discount_amount_per_unit'   => $distDiscountAmountPerUnit,
                 'distributor_discount_amount_total'      => $distDiscountAmountTotal,
 
-                // ---------- RETAIL (incl. → excl. breakdown) ----------
                 'retail_price_incl_gst'                  => round($retailPriceIncl, 2),
                 'retail_price_excl_gst_per_unit'         => $retailPriceExclPerUnit,
                 'retail_gst_amount_per_unit'             => $retailGstPerUnit,
@@ -1614,11 +2184,9 @@ class CartController extends Controller
                 'retail_discount_amount_per_unit'        => $retailDiscountAmountPerUnit,
                 'retail_discount_amount_total'           => $retailDiscountAmountTotal,
 
-                // ---------- TAXABLE + GST (line) ----------
                 'taxable_amount_line' => $taxableAmountLine,
                 'gst_amount_line'     => $gstAmountLine,
 
-                // ---------- ACTIVE PRICING (based on user type) ----------
                 'active_price_type'                => $isDistributor ? 'distributor' : 'retail',
                 'active_price_incl_gst_per_unit'   => $isDistributor ? $distPriceIncl : $retailPriceIncl,
                 'active_price_excl_gst_per_unit'   => $isDistributor ? $distPriceExclPerUnit : $retailPriceExclPerUnit,
@@ -1627,7 +2195,6 @@ class CartController extends Controller
                 'active_line_excl_gst'             => $activeLineExclGst,
                 'active_gst_amount_line'           => $activeGstAmountLine,
 
-                // ---------- EXISTING FIELDS (kept) ----------
                 'current_unit_price' => $currentPrice,
                 'current_unit_price_formatted' => number_format($currentPrice, 2),
 
@@ -1685,11 +2252,6 @@ class CartController extends Controller
             2
         );
 
-        // ============================================================
-        // CATEGORY-WISE GST BREAKDOWN
-        // Groups items by (tax_category, rate) and aggregates
-        // taxable + GST + CGST/SGST/IGST splits.
-        // ============================================================
         $deliveryState = $address?->state ?? null;
         $supplierState = strtolower(config('app.supplier_state', 'Punjab'));
 
@@ -1759,12 +2321,10 @@ class CartController extends Controller
             ->values()
             ->all();
 
-        //  NEW: effective weighted rate (single number)
         $effectiveRate = $cartTotals['taxable_amount'] > 0
             ? round(($cartTotals['gst_amount'] / $cartTotals['taxable_amount']) * 100, 2)
             : 0;
 
-        //  NEW: category-wise rate detail (consistent with gst_breakdown)
         $taxRateOnLineDetail = collect($gstBreakdown)->map(function ($row) {
             return [
                 'tax_category'   => $row['tax_category'],
@@ -1788,40 +2348,30 @@ class CartController extends Controller
             'price_type' => $isDistributor ? 'distributor' : 'retail',
             'price_calculation' => 'dynamic_inclusive',
 
-            // NEW: tax & pricing aggregates
             'tax_and_pricing' => [
                 'pricing_mode'          => 'gst_inclusive',
                 'gst_rate_source'       => 'product.taxCategory.rate',
                 'tax_category_recorded' => true,
                 'active_price_type'     => $isDistributor ? 'distributor' : 'retail',
 
-                // Product totals (excl. shipping)
                 'active_line_incl_gst' => round($cartTotals['active_line_incl_gst'], 2),
                 'active_line_excl_gst' => round($cartTotals['active_line_excl_gst'], 2),
                 'active_gst_amount'    => round($cartTotals['active_gst_amount'], 2),
 
-                // Shipping
                 'shipping_incl_gst' => round($cartTotals['shipping_incl_gst'], 2),
                 'shipping_excl_gst' => round($cartTotals['shipping_excl_gst'], 2),
                 'shipping_gst'      => round($cartTotals['shipping_gst'], 2),
 
-                // Taxable + GST (product + shipping)
                 'taxable_amount'    => round($cartTotals['taxable_amount'], 2),
                 'gst_amount'        => round($cartTotals['gst_amount'], 2),
 
-                //  NEW: effective weighted rate (single number)
                 'tax_rate_on_line'        => $effectiveRate,
-
-                //  NEW: category-wise rate detail
                 'tax_rate_on_line_detail' => $taxRateOnLineDetail,
 
-                // Category-wise GST breakdown
                 'gst_breakdown'     => $gstBreakdown,
 
-                // Grand total
                 'grand_total'       => $grandTotalInclShipping,
 
-                // Both views
                 'retail' => [
                     'line_incl_gst' => round($cartTotals['retail_line_incl_gst'], 2),
                     'line_excl_gst' => round($cartTotals['retail_line_excl_gst'], 2),
