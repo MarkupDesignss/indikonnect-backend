@@ -14,12 +14,11 @@ use Exception;
 class AxisPgWebhookController extends Controller
 {
     protected CheckoutService $checkoutService;
-    protected AxisPgService $axispg;
 
-    public function __construct(CheckoutService $checkoutService, AxisPgService $axispg)
+    // 1. AxisPgService ko constructor se hata diya
+    public function __construct(CheckoutService $checkoutService)
     {
         $this->checkoutService = $checkoutService;
-        $this->axispg = $axispg;
     }
 
     /**
@@ -49,12 +48,14 @@ class AxisPgWebhookController extends Controller
                 return response()->json(['success' => false, 'message' => 'Missing required fields'], 400);
             }
 
-            // 4. Verify Signature (CRITICAL for security)
+            // 4. Manually instantiate AxisPgService here
+            $axispg = new AxisPgService(config('services.axispg'));
+
+            // 5. Verify Signature (CRITICAL for security)
             // We remove the 'signature' key from the payload to generate our own signature
             $dataToVerify = $request->except(['signature']);
             
-            // Assuming your AxisPgService has a method to generate the signature based on the payload
-            $expectedSignature = $this->axispg->generateSignature($dataToVerify);
+            $expectedSignature = $axispg->generateSignature($dataToVerify);
 
             if (!hash_equals($expectedSignature, $signature)) {
                 Log::warning('AxisPG webhook: Signature mismatch', [
@@ -64,7 +65,7 @@ class AxisPgWebhookController extends Controller
                 return response()->json(['success' => false, 'message' => 'Invalid signature'], 400);
             }
 
-            // 5. Handle the Order Status based on statusCode
+            // 6. Handle the Order Status based on statusCode
             if ($statusCode === 'SPG-0000') {
                 // Payment SUCCESS
                 $this->checkoutService->confirmOrder($merchantTxnId, [
@@ -88,7 +89,7 @@ class AxisPgWebhookController extends Controller
                 Log::warning('AxisPG webhook: Unknown status code received', ['statusCode' => $statusCode]);
             }
 
-            // 6. Always return 200 OK to stop the gateway from retrying
+            // 7. Always return 200 OK to stop the gateway from retrying
             return response()->json(['success' => true], 200);
 
         } catch (Exception $e) {
