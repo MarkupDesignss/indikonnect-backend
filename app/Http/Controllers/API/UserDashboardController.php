@@ -1787,6 +1787,20 @@ class UserDashboardController extends Controller
     /**
      * Get full wallet data for the UI (Balances + Transactions + Withdrawals) with INR conversion.
      */
+    /**
+     * Get complete wallet details for the authenticated distributor.
+     *
+     * Returns balances (cash, green/yellow/blue coins), transaction history,
+     * withdrawal records with TDS breakdown, and exchange rate information.
+     *
+     * Amounts in the transaction history are always returned as positive values.
+     * The direction of movement (money in/out) is indicated by the
+     * `direction` field (`credit` or `debit`) instead of a negative sign,
+     * so the UI can render colour/arrows without relying on signed numbers.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function getWalletDetails(Request $request)
     {
         $user = $request->user();
@@ -1834,7 +1848,7 @@ class UserDashboardController extends Controller
             && $normalizedGst !== 'URP'
             && preg_match('/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $normalizedGst);
 
-        // Valid GSTIN + verified PAN => 2%, warna 20%
+        // Valid GSTIN + verified PAN => 2%, otherwise 20%
         $tdsRate    = ($isValidGst && $panVerified) ? 0.02 : 0.20;
         $tdsSection = $isValidGst ? '194-O' : '194J';
 
@@ -1880,27 +1894,23 @@ class UserDashboardController extends Controller
                 default => ucfirst($tx['tx_type'] ?? 'Other'),
             };
 
-            $amt = (float) $tx['amount'];
+            $amt     = (float) $tx['amount'];
+            $isDebit = $amt < 0;
 
-            $walletChangeUsd = ($tx['point_type'] ?? '') === 'cash_bal' ? $amt : 0;
+            // All display values are positive; direction is conveyed via `direction`.
+            $absAmt = abs($amt);
+
+            $walletChangeUsd = ($tx['point_type'] ?? '') === 'cash_bal' ? $absAmt : 0;
             $walletChangeInr = round($walletChangeUsd * $usdRate, 2);
 
-            $greenCoin  = ($tx['point_type'] ?? '') === 'green_bal'  ? $amt : 0;
-            $yellowCoin = ($tx['point_type'] ?? '') === 'yellow_bal' ? $amt : 0;
-            $blueCoin   = ($tx['point_type'] ?? '') === 'blue_bal'   ? $amt : 0;
-            $pvCoin     = in_array($tx['point_type'] ?? '', ['pv1_bal', 'pv2_bal']) ? $amt : 0;
+            $greenCoin  = ($tx['point_type'] ?? '') === 'green_bal'  ? $absAmt : 0;
+            $yellowCoin = ($tx['point_type'] ?? '') === 'yellow_bal' ? $absAmt : 0;
+            $blueCoin   = ($tx['point_type'] ?? '') === 'blue_bal'   ? $absAmt : 0;
+            $pvCoin     = in_array($tx['point_type'] ?? '', ['pv1_bal', 'pv2_bal']) ? $absAmt : 0;
 
-            $greenAbs  = abs($greenCoin);
-            $yellowAbs = abs($yellowCoin);
-            $blueAbs   = abs($blueCoin);
-
-            $greenValueInr  = round((floor($greenAbs / 6) * $greenRate) * $usdRate, 2);
-            $yellowValueInr = round(($yellowAbs * ($yellowAbs >= 3 ? $yellowLargeRate : $yellowSmallRate)) * $usdRate, 2);
-            $blueValueInr   = round(($blueAbs * $blueRate) * $usdRate, 2);
-
-            if ($greenCoin < 0)  $greenValueInr  = -$greenValueInr;
-            if ($yellowCoin < 0) $yellowValueInr = -$yellowValueInr;
-            if ($blueCoin < 0)   $blueValueInr   = -$blueValueInr;
+            $greenValueInr  = round((floor($greenCoin / 6) * $greenRate) * $usdRate, 2);
+            $yellowValueInr = round(($yellowCoin * ($yellowCoin >= 3 ? $yellowLargeRate : $yellowSmallRate)) * $usdRate, 2);
+            $blueValueInr   = round(($blueCoin * $blueRate) * $usdRate, 2);
 
             $isWithdrawal = ($tx['tx_type'] ?? '') === 'wd';
 
@@ -1911,6 +1921,7 @@ class UserDashboardController extends Controller
                 'category'      => $category,
                 'description'   => $tx['description'] ?? '-',
                 'point_type'    => $tx['point_type'] ?? null,
+                'direction'     => $isDebit ? 'debit' : 'credit',
 
                 'wallet_change_usd' => $walletChangeUsd,
                 'wallet_change_inr' => $walletChangeInr,
@@ -1920,18 +1931,17 @@ class UserDashboardController extends Controller
                 'blue_coin'     => $blueCoin,
                 'pv_coin'       => $pvCoin,
 
-                'green_value_inr' => $greenValueInr,
+                'green_value_inr'  => $greenValueInr,
                 'yellow_value_inr' => $yellowValueInr,
-                'blue_value_inr'  => $blueValueInr,
+                'blue_value_inr'   => $blueValueInr,
 
-                'order_id'      => $tx['order_no'] ?? null,
+                'order_id'       => $tx['order_no'] ?? null,
                 'related_member' => $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
             ];
 
-            // ---------- TDS fields SIRF withdrawal par (Option C) ----------
+            // ---------- TDS fields only for withdrawals ----------
             if ($isWithdrawal) {
-                $amountUsdAbs  = abs($amt);
-                $grossInr      = round($amountUsdAbs * $usdRate, 2);
+                $grossInr      = round($absAmt * $usdRate, 2);
                 $tdsAmountInr  = round($grossInr * $tdsRate, 2);
                 $netPayableInr = round($grossInr - $tdsAmountInr, 2);
 
@@ -1943,7 +1953,7 @@ class UserDashboardController extends Controller
                 $withdrawals[] = [
                     'id'               => $tx['id'],
                     'date'             => $tx['created_at'],
-                    'amount_usd'       => round($amountUsdAbs, 4),
+                    'amount_usd'       => round($absAmt, 4),
                     'amount_inr'       => $grossInr,
                     'tds_section'      => $tdsSection,
                     'tds_rate_percent' => round($tdsRate * 100, 2),
