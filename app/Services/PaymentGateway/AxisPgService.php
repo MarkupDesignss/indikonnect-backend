@@ -47,6 +47,29 @@ class AxisPgService
     /**
      * Create dynamic checkout payload
      */
+    //      public function createCheckoutPayload(Order $order): array
+    // {
+    //     $payload = [
+    //         'merchantId'        => $this->merchantId,
+    //         'callbackUrl'       => $this->callbackUrl,
+    //         'merchantTxnId'     => $order->order_reference,
+    //         'merchantTxnAmount' => (float) $order->total_payable,
+    //         'currency'          => 'INR',
+    //         'timestamp'         => now()->timestamp * 1000,
+    //         'customerId'        => (string) $order->user_id,
+    //         'customerName'      => $order->user->full_name ?? 'Unknown',
+    //         'customerEmailId'   => $order->user->email ?? '',
+    //         'customerMobileNo' => preg_replace('/^\+\d{1,2}/', '', $order->user->phone ?? ''),
+    //         'merchantOrderId'   => (string) $order->id,
+    //     ];
+
+    //     $payload['signature'] = $this->generateSignature($payload);
+
+    //     return [
+    //         // 'clientId' => $this->merchantId,
+    //         'payload'  => $payload, // For debugging and sharing with the team
+    //     ];
+    // }
     public function createCheckoutPayload(Order $order): array
     {
         $payload = [
@@ -59,15 +82,12 @@ class AxisPgService
             'customerId'        => (string) $order->user_id,
             'customerName'      => $order->user->full_name ?? 'Unknown',
             'customerEmailId'   => $order->user->email ?? '',
-            'customerMobileNo' => preg_replace('/^\+\d{1,2}/', '', $order->user->phone ?? ''),
+            'customerMobileNo'  => preg_replace('/^\+\d{1,2}/', '', $order->user->phone ?? ''),
             'merchantOrderId'   => (string) $order->id,
         ];
 
         $payload['signature'] = $this->generateSignature($payload);
 
-        return [
-            'clientId' => $this->merchantId,
-            'payload'  => $payload, // For debugging and sharing with the team
-        ];
+        return $payload;
     }
 }

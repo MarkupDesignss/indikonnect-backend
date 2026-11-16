@@ -210,13 +210,12 @@ class InventoryReservationService
             return false;
         }
 
-        if ($this->stockGuard->isUnlimited($product, $variant)) {
+        if ($this->stockGuard->isUnlimited($product)) {
             return true;
         }
 
         $available = $this->stockGuard->availableStock(
             $product,
-            $variant
         );
 
         return $available !== null && $available >= $qty;
