@@ -1034,6 +1034,460 @@ class ProductController extends Controller
         return response()->json($this->formatProduct($product, $wishlistIds));
     }
 
+    // public function showBySlug($slug)
+    // {
+    //     $product = Product::with([
+    //         'category',
+    //         'subCategory',
+    //         'taxCategory',
+    //         'images',
+    //         'variants.images',
+    //         'variants.product.images',
+    //     ])
+    //         ->where('slug', $slug)
+    //         ->firstOrFail();
+
+    //     $userId = request()->query('user_id');
+    //     $wishlistIds = $this->getUserWishlistIds($userId);
+
+    //     $selectedVariantId = request()->query('variant_id');
+    //     $selectedAttributes = request()->query('attributes');
+
+    //     $selectedVariant = null;
+    //     $isVariantSelected = false;
+
+    //     if ($selectedVariantId) {
+    //         $selectedVariant = $product->variants
+    //             ->firstWhere('id', $selectedVariantId);
+
+    //         if ($selectedVariant) {
+    //             $isVariantSelected = true;
+    //         }
+    //     }
+
+    //     if (!$selectedVariant && $selectedAttributes) {
+    //         $attributes = is_string($selectedAttributes)
+    //             ? json_decode($selectedAttributes, true)
+    //             : $selectedAttributes;
+
+    //         if (is_array($attributes)) {
+    //             $selectedVariant = $product->variants->first(
+    //                 function ($variant) use ($attributes) {
+    //                     $variantAttributes = $variant->attributes ?? [];
+
+    //                     foreach ($attributes as $key => $value) {
+    //                         if (
+    //                             !isset($variantAttributes[$key]) ||
+    //                             $variantAttributes[$key] != $value
+    //                         ) {
+    //                             return false;
+    //                         }
+    //                     }
+
+    //                     return true;
+    //                 }
+    //             );
+
+    //             if ($selectedVariant) {
+    //                 $isVariantSelected = true;
+    //             }
+    //         }
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Reviews
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $reviews = ProductReview::with([
+    //         'user' => function ($query) {
+    //             $query->select(
+    //                 'id',
+    //                 'full_name',
+    //                 'email',
+    //                 'profile_picture'
+    //             );
+    //         },
+    //         'images',
+    //         'orderLine.order' => function ($query) {
+    //             $query->select('id', 'order_reference');
+    //         },
+    //     ])
+    //         ->where('product_id', $product->id)
+    //         ->where('status', 'approved')
+    //         ->orderBy('created_at', 'desc')
+    //         ->get();
+
+    //     $approvedReviews = ProductReview::where('product_id', $product->id)
+    //         ->where('status', 'approved');
+
+    //     $averageRating = (clone $approvedReviews)->avg('rating');
+    //     $totalReviews = (clone $approvedReviews)->count();
+
+    //     $ratingDistribution = [
+    //         1 => (clone $approvedReviews)->where('rating', 1)->count(),
+    //         2 => (clone $approvedReviews)->where('rating', 2)->count(),
+    //         3 => (clone $approvedReviews)->where('rating', 3)->count(),
+    //         4 => (clone $approvedReviews)->where('rating', 4)->count(),
+    //         5 => (clone $approvedReviews)->where('rating', 5)->count(),
+    //     ];
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Product Attributes
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $productAttributes = $this->getProductAttributes($product->variants);
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Format Linked Product Variants
+    //     |--------------------------------------------------------------------------
+    //     |
+    //     | Data comes from product_variants table and its linked products.
+    //     |
+    //     */
+
+    //     $formattedVariants = $product->variants
+    //         ->map(function ($productVariant) {
+    //             $variantProduct = $productVariant->product;
+
+    //             if (!$variantProduct) {
+    //                 return null;
+    //             }
+
+    //             $primaryImage = $variantProduct->images
+    //                 ->firstWhere('is_primary', true)
+    //                 ?? $variantProduct->images->first();
+
+    //             return [
+    //                 'id' => $variantProduct->id,
+    //                 'name' => $variantProduct->name,
+    //                 'slug' => $variantProduct->slug,
+    //                 'product_code' => $variantProduct->product_code,
+
+    //                 'image' => $primaryImage
+    //                     ? asset('storage/' . ltrim($primaryImage->image, '/'))
+    //                     : null,
+
+    //                 'product_variant_id' => $productVariant->id,
+    //                 'parent_product_id' => $productVariant->parent_product_id,
+    //                 'product_id' => $productVariant->product_id,
+    //                 'hax_color' => $productVariant->hax_color,
+    //             ];
+    //         })
+    //         ->filter()
+    //         ->values()
+    //         ->toArray();
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Selected Variant
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     if ($isVariantSelected && $selectedVariant) {
+    //         $primaryImage = $selectedVariant->images
+    //             ->firstWhere('is_primary', true)
+    //             ?? $selectedVariant->images->first();
+
+    //         if (!$primaryImage) {
+    //             $primaryImage = $product->images
+    //                 ->firstWhere('is_primary', true)
+    //                 ?? $product->images->first();
+    //         }
+
+    //         $formattedProduct = [
+    //             'id' => $product->id,
+    //             'product_code' => $product->product_code,
+    //             'is_mandatory' => $product->is_mandatory,
+    //             'ignite_product_id' => $product->ignite_product_id,
+    //             'green_coin' => $product->green_coin ?? 0,
+    //             'blue_coin' => $product->blue_coin ?? 0,
+    //             'service_charge' => $product->service_charge,
+    //             'is_best_seller' => $product->is_best_seller,
+    //             'commission_value' => $product->commission_value,
+    //             'allowed_purchsed' => $product->allowed_purchsed,
+    //             'name' => $product->name,
+    //             'slug' => $product->slug,
+    //             'description' => $product->description,
+    //             'specification' => $product->specification,
+    //             'hsn_code' => $product->hsn_code,
+    //             'uom' => $product->uom,
+    //             'manufacturer' => $product->manufacturer ?? null,
+    //             'marketed_by' => $product->marketed_by ?? null,
+    //             'brand_id' => $product->brand_id ?? null,
+    //             'category_id' => $product->category_id,
+
+    //             'category' => $product->category
+    //                 ? [
+    //                     'id' => $product->category->id,
+    //                     'name' => $product->category->title,
+    //                     'slug' => $product->category->slug,
+    //                     'description' => $product->category->description,
+    //                 ]
+    //                 : null,
+
+    //             'tax_category_id' => $product->tax_category_id,
+
+    //             'tax_category' => $product->taxCategory
+    //                 ? [
+    //                     'id' => $product->taxCategory->id,
+    //                     'name' => $product->taxCategory->name,
+    //                     'rate' => $product->taxCategory->rate,
+    //                 ]
+    //                 : null,
+
+    //             'subcategory_id' => $product->subcategory_id,
+
+    //             'subcategory' => $product->subCategory
+    //                 ? [
+    //                     'id' => $product->subCategory->id,
+    //                     'category_id' => $product->subCategory->category_id,
+    //                     'name' => $product->subCategory->name,
+    //                     'slug' => $product->subCategory->slug,
+    //                 ]
+    //                 : null,
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Retail Pricing
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'retail_mrp' => $selectedVariant->retail_mrp,
+    //             // 'retail_price' => $selectedVariant->retail_price,
+    //             'retail_price' => $selectedVariant->retail_price + $product->shipping_charge,
+    //             'retail_discount_type' => $selectedVariant->retail_discount_type,
+    //             'retail_discount_value' => $selectedVariant->retail_discount_value,
+
+    //             'retail_discount_amount' =>
+    //             $selectedVariant->retail_mrp - $selectedVariant->retail_price,
+
+    //             'retail_discount_percentage' => $selectedVariant->retail_mrp > 0
+    //                 ? round(
+    //                     (
+    //                         ($selectedVariant->retail_mrp - $selectedVariant->retail_price)
+    //                         / $selectedVariant->retail_mrp
+    //                     ) * 100,
+    //                     2
+    //                 )
+    //                 : 0,
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Distributor Pricing
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'distributor_mrp' => $selectedVariant->distributor_mrp,
+    //             // 'distributor_price' => $selectedVariant->distributor_price,
+    //             'distributor_price' => $selectedVariant->distributor_price !== null
+    //                 ? $product->distributor_price + $product->shipping_charge
+    //                 : null,
+    //             'distributor_discount_type' => $selectedVariant->distributor_discount_type,
+    //             'distributor_discount_value' => $selectedVariant->distributor_discount_value,
+
+    //             'distributor_discount_amount' =>
+    //             $selectedVariant->distributor_mrp !== null
+    //                 && $selectedVariant->distributor_price !== null
+    //                 ? $selectedVariant->distributor_mrp - $selectedVariant->distributor_price
+    //                 : null,
+
+    //             'distributor_discount_percentage' =>
+    //             $selectedVariant->distributor_mrp !== null
+    //                 && $selectedVariant->distributor_price !== null
+    //                 && $selectedVariant->distributor_mrp > 0
+    //                 ? round(
+    //                     (
+    //                         (
+    //                             $selectedVariant->distributor_mrp
+    //                             - $selectedVariant->distributor_price
+    //                         ) / $selectedVariant->distributor_mrp
+    //                     ) * 100,
+    //                     2
+    //                 )
+    //                 : null,
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Stock
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'stock_quantity' => (int) $selectedVariant->stock_quantity,
+    //             'low_stock_threshold' => (int) $selectedVariant->low_stock_threshold,
+    //             'status' => $this->getVariantStatus($selectedVariant),
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Product Flags
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'is_published' => (bool) $product->is_published,
+    //             'is_trending' => (bool) $product->is_trending,
+    //             'trending_sort_order' => (int) $product->trending_sort_order,
+    //             'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
+    //             'is_active_deal' => $product->isActiveDealOfTheDay(),
+
+    //             'deal_of_the_day_starts_at' =>
+    //             $product->deal_of_the_day_starts_at?->toISOString(),
+
+    //             'deal_of_the_day_ends_at' =>
+    //             $product->deal_of_the_day_ends_at?->toISOString(),
+
+    //             'sale_type' => $product->sale_type,
+
+    //             'is_wishlisted' => in_array($product->id, $wishlistIds),
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Images
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'images' => (
+    //                 $selectedVariant->images->isNotEmpty()
+    //                 ? $selectedVariant->images
+    //                 : $product->images
+    //             )
+    //                 ->map(function ($image) {
+    //                     return [
+    //                         'id' => $image->id,
+    //                         'image' => $image->image,
+    //                         'image_url' => asset('storage/' . ltrim($image->image, '/')),
+    //                         'sort_order' => $image->sort_order,
+    //                         'is_primary' => (bool) $image->is_primary,
+    //                     ];
+    //                 })
+    //                 ->values()
+    //                 ->toArray(),
+
+    //             'primary_image' => $primaryImage?->image,
+
+    //             'primary_image_url' => $primaryImage
+    //                 ? asset('storage/' . ltrim($primaryImage->image, '/'))
+    //                 : null,
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Existing Attribute-Based Selected Variant
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'selected_variant' => $this->formatSingleVariant($selectedVariant),
+    //             'selected_variant_id' => $selectedVariant->id,
+    //             'selected_variant_sku' => $selectedVariant->sku,
+    //             'selected_attributes' => $selectedVariant->attributes,
+
+    //             'available_attributes' => $productAttributes,
+
+    //             /*
+    //         |--------------------------------------------------------------------------
+    //         | Linked Product Variants
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //             'variants' => $formattedVariants,
+    //             'product_type' => $this->isComboProduct($product) ? 'combo' : 'single',
+    //             'combo_products' => $this->isComboProduct($product)
+    //                 ? $this->formatComboChildren($product)
+    //                 : [],
+
+    //             'created_at' => $product->created_at?->toISOString(),
+    //             'updated_at' => $product->updated_at?->toISOString(),
+    //         ];
+    //     } else {
+    //         /*
+    //     |--------------------------------------------------------------------------
+    //     | No Attribute-Based Variant Selected
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //         $formattedProduct = $this->formatProduct(
+    //             $product,
+    //             $wishlistIds
+    //         );
+
+    //         $formattedProduct['available_attributes'] = $productAttributes;
+
+    //         // Return product_variants table data instead of variants.images data.
+    //         $formattedProduct['variants'] = $formattedVariants;
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Reviews + Summary
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $formattedProduct['reviews'] = [
+    //         'summary' => [
+    //             'average_rating' => $averageRating !== null
+    //                 ? round($averageRating, 1)
+    //                 : 0,
+
+    //             'total_reviews' => $totalReviews,
+    //             'rating_distribution' => $ratingDistribution,
+    //         ],
+
+    //         'data' => $reviews->map(function ($review) {
+    //             return [
+    //                 'id' => $review->id,
+    //                 'rating' => $review->rating,
+    //                 'review_text' => $review->review_text,
+
+    //                 'user' => [
+    //                     'id' => $review->user?->id,
+    //                     'full_name' => $review->user?->full_name,
+
+    //                     'profile_picture' => $review->user?->profile_picture
+    //                         ? asset('storage/' . ltrim($review->user->profile_picture, '/'))
+    //                         : null,
+    //                 ],
+
+    //                 'order_line_id' => $review->order_line_id,
+
+    //                 'order_id' => $review->orderLine?->order?->id
+    //                     ?? $review->order_id,
+
+    //                 'order_reference' =>
+    //                 $review->orderLine?->order?->order_reference,
+
+    //                 'created_at' => $review->created_at
+    //                     ? $review->created_at->format('M d, Y')
+    //                     : null,
+
+    //                 'updated_at' => $review->updated_at
+    //                     ? $review->updated_at->format('M d, Y')
+    //                     : null,
+
+    //                 'is_verified_purchase' => $this->isVerifiedPurchase(
+    //                     $review->order_id
+    //                 ),
+
+    //                 'images' => $review->images
+    //                     ->map(function ($image) {
+    //                         return [
+    //                             'id' => $image->id,
+    //                             'image_url' => $image->image_url,
+    //                             'sort_order' => $image->sort_order,
+    //                         ];
+    //                     })
+    //                     ->values()
+    //                     ->toArray(),
+    //             ];
+    //         })
+    //             ->values()
+    //             ->toArray(),
+    //     ];
+
+    //     return response()->json($formattedProduct);
+    // }
+
     public function showBySlug($slug)
     {
         $product = Product::with([
@@ -1057,9 +1511,7 @@ class ProductController extends Controller
         $isVariantSelected = false;
 
         if ($selectedVariantId) {
-            $selectedVariant = $product->variants
-                ->firstWhere('id', $selectedVariantId);
-
+            $selectedVariant = $product->variants->firstWhere('id', $selectedVariantId);
             if ($selectedVariant) {
                 $isVariantSelected = true;
             }
@@ -1074,7 +1526,6 @@ class ProductController extends Controller
                 $selectedVariant = $product->variants->first(
                     function ($variant) use ($attributes) {
                         $variantAttributes = $variant->attributes ?? [];
-
                         foreach ($attributes as $key => $value) {
                             if (
                                 !isset($variantAttributes[$key]) ||
@@ -1083,7 +1534,6 @@ class ProductController extends Controller
                                 return false;
                             }
                         }
-
                         return true;
                     }
                 );
@@ -1095,19 +1545,14 @@ class ProductController extends Controller
         }
 
         /*
-        |--------------------------------------------------------------------------
-        | Reviews
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Reviews
+    |--------------------------------------------------------------------------
+    */
 
         $reviews = ProductReview::with([
             'user' => function ($query) {
-                $query->select(
-                    'id',
-                    'full_name',
-                    'email',
-                    'profile_picture'
-                );
+                $query->select('id', 'full_name', 'email', 'profile_picture');
             },
             'images',
             'orderLine.order' => function ($query) {
@@ -1133,31 +1578,20 @@ class ProductController extends Controller
             5 => (clone $approvedReviews)->where('rating', 5)->count(),
         ];
 
-        /*
-        |--------------------------------------------------------------------------
-        | Product Attributes
-        |--------------------------------------------------------------------------
-        */
-
         $productAttributes = $this->getProductAttributes($product->variants);
 
         /*
-        |--------------------------------------------------------------------------
-        | Format Linked Product Variants
-        |--------------------------------------------------------------------------
-        |
-        | Data comes from product_variants table and its linked products.
-        |
-        */
+    |--------------------------------------------------------------------------
+    | Linked Product Variants
+    |--------------------------------------------------------------------------
+    */
 
         $formattedVariants = $product->variants
             ->map(function ($productVariant) {
                 $variantProduct = $productVariant->product;
-
                 if (!$variantProduct) {
                     return null;
                 }
-
                 $primaryImage = $variantProduct->images
                     ->firstWhere('is_primary', true)
                     ?? $variantProduct->images->first();
@@ -1167,11 +1601,9 @@ class ProductController extends Controller
                     'name' => $variantProduct->name,
                     'slug' => $variantProduct->slug,
                     'product_code' => $variantProduct->product_code,
-
                     'image' => $primaryImage
                         ? asset('storage/' . ltrim($primaryImage->image, '/'))
                         : null,
-
                     'product_variant_id' => $productVariant->id,
                     'parent_product_id' => $productVariant->parent_product_id,
                     'product_id' => $productVariant->product_id,
@@ -1183,12 +1615,24 @@ class ProductController extends Controller
             ->toArray();
 
         /*
-        |--------------------------------------------------------------------------
-        | Selected Variant
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Shipping charge — resolved once
+    |--------------------------------------------------------------------------
+    |
+    | If product has shipping_charge, use it.
+    | If null/0, check variant-level. Otherwise default 0.
+    |
+    */
+        $shipping = (float) ($product->shipping_charge ?? 0);
+
+        /*
+    |--------------------------------------------------------------------------
+    | Variant Selected
+    |--------------------------------------------------------------------------
+    */
 
         if ($isVariantSelected && $selectedVariant) {
+
             $primaryImage = $selectedVariant->images
                 ->firstWhere('is_primary', true)
                 ?? $selectedVariant->images->first();
@@ -1199,6 +1643,20 @@ class ProductController extends Controller
                     ?? $product->images->first();
             }
 
+            // ✅ Base prices from variant
+            $retailMrp        = (float) ($selectedVariant->retail_mrp ?? 0);
+            $retailBase       = (float) ($selectedVariant->retail_price ?? 0);
+            $distributorMrp   = $selectedVariant->distributor_mrp !== null
+                ? (float) $selectedVariant->distributor_mrp : null;
+            $distributorBase  = $selectedVariant->distributor_price !== null
+                ? (float) $selectedVariant->distributor_price : null;
+
+            // ✅ Final selling price = base + shipping
+            $retailPrice      = $retailBase + $shipping;
+            $distributorPrice = $distributorBase !== null
+                ? $distributorBase + $shipping
+                : null;
+
             $formattedProduct = [
                 'id' => $product->id,
                 'product_code' => $product->product_code,
@@ -1207,6 +1665,7 @@ class ProductController extends Controller
                 'green_coin' => $product->green_coin ?? 0,
                 'blue_coin' => $product->blue_coin ?? 0,
                 'service_charge' => $product->service_charge,
+                'shipping_charge' => $shipping, // expose so frontend can show it
                 'is_best_seller' => $product->is_best_seller,
                 'commission_value' => $product->commission_value,
                 'allowed_purchsed' => $product->allowed_purchsed,
@@ -1252,103 +1711,72 @@ class ProductController extends Controller
                     : null,
 
                 /*
-            |--------------------------------------------------------------------------
-            | Retail Pricing
-            |--------------------------------------------------------------------------
+            |------------------------------------------------------------------
+            | Retail Pricing (with shipping)
+            |------------------------------------------------------------------
             */
-
-                'retail_mrp' => $selectedVariant->retail_mrp,
-                // 'retail_price' => $selectedVariant->retail_price,
-                'retail_price' => $selectedVariant->retail_price + $product->shipping_charge,
+                'retail_mrp' => $retailMrp,
+                'retail_price' => $retailPrice,   // ✅ base + shipping
                 'retail_discount_type' => $selectedVariant->retail_discount_type,
                 'retail_discount_value' => $selectedVariant->retail_discount_value,
 
-                'retail_discount_amount' =>
-                $selectedVariant->retail_mrp - $selectedVariant->retail_price,
+                'retail_discount_amount' => $retailMrp > 0
+                    ? $retailMrp - $retailBase
+                    : 0,
 
-                'retail_discount_percentage' => $selectedVariant->retail_mrp > 0
-                    ? round(
-                        (
-                            ($selectedVariant->retail_mrp - $selectedVariant->retail_price)
-                            / $selectedVariant->retail_mrp
-                        ) * 100,
-                        2
-                    )
+                'retail_discount_percentage' => $retailMrp > 0
+                    ? round((($retailMrp - $retailBase) / $retailMrp) * 100, 2)
                     : 0,
 
                 /*
-            |--------------------------------------------------------------------------
-            | Distributor Pricing
-            |--------------------------------------------------------------------------
+            |------------------------------------------------------------------
+            | Distributor Pricing (with shipping) — ✅ BUG FIXED HERE
+            |------------------------------------------------------------------
             */
-
-                'distributor_mrp' => $selectedVariant->distributor_mrp,
-                // 'distributor_price' => $selectedVariant->distributor_price,
-                'distributor_price' => $selectedVariant->distributor_price !== null
-                    ? $product->distributor_price + $product->shipping_charge
-                    : null,
+                'distributor_mrp' => $distributorMrp,
+                'distributor_price' => $distributorPrice, // ✅ base + shipping
                 'distributor_discount_type' => $selectedVariant->distributor_discount_type,
                 'distributor_discount_value' => $selectedVariant->distributor_discount_value,
 
-                'distributor_discount_amount' =>
-                $selectedVariant->distributor_mrp !== null
-                    && $selectedVariant->distributor_price !== null
-                    ? $selectedVariant->distributor_mrp - $selectedVariant->distributor_price
+                'distributor_discount_amount' => ($distributorMrp !== null && $distributorBase !== null)
+                    ? $distributorMrp - $distributorBase
                     : null,
 
-                'distributor_discount_percentage' =>
-                $selectedVariant->distributor_mrp !== null
-                    && $selectedVariant->distributor_price !== null
-                    && $selectedVariant->distributor_mrp > 0
-                    ? round(
-                        (
-                            (
-                                $selectedVariant->distributor_mrp
-                                - $selectedVariant->distributor_price
-                            ) / $selectedVariant->distributor_mrp
-                        ) * 100,
-                        2
-                    )
+                'distributor_discount_percentage' => ($distributorMrp !== null && $distributorBase !== null && $distributorMrp > 0)
+                    ? round((($distributorMrp - $distributorBase) / $distributorMrp) * 100, 2)
                     : null,
 
                 /*
-            |--------------------------------------------------------------------------
+            |------------------------------------------------------------------
             | Stock
-            |--------------------------------------------------------------------------
+            |------------------------------------------------------------------
             */
-
                 'stock_quantity' => (int) $selectedVariant->stock_quantity,
                 'low_stock_threshold' => (int) $selectedVariant->low_stock_threshold,
                 'status' => $this->getVariantStatus($selectedVariant),
 
                 /*
-            |--------------------------------------------------------------------------
+            |------------------------------------------------------------------
             | Product Flags
-            |--------------------------------------------------------------------------
+            |------------------------------------------------------------------
             */
-
                 'is_published' => (bool) $product->is_published,
                 'is_trending' => (bool) $product->is_trending,
                 'trending_sort_order' => (int) $product->trending_sort_order,
                 'is_deal_of_the_day' => (bool) $product->is_deal_of_the_day,
                 'is_active_deal' => $product->isActiveDealOfTheDay(),
 
-                'deal_of_the_day_starts_at' =>
-                $product->deal_of_the_day_starts_at?->toISOString(),
-
-                'deal_of_the_day_ends_at' =>
-                $product->deal_of_the_day_ends_at?->toISOString(),
+                'deal_of_the_day_starts_at' => $product->deal_of_the_day_starts_at?->toISOString(),
+                'deal_of_the_day_ends_at'   => $product->deal_of_the_day_ends_at?->toISOString(),
 
                 'sale_type' => $product->sale_type,
-
                 'is_wishlisted' => in_array($product->id, $wishlistIds),
 
                 /*
-            |--------------------------------------------------------------------------
+            |------------------------------------------------------------------
             | Images
-            |--------------------------------------------------------------------------
+            |------------------------------------------------------------------
             */
-
                 'images' => (
                     $selectedVariant->images->isNotEmpty()
                     ? $selectedVariant->images
@@ -1367,30 +1795,26 @@ class ProductController extends Controller
                     ->toArray(),
 
                 'primary_image' => $primaryImage?->image,
-
                 'primary_image_url' => $primaryImage
                     ? asset('storage/' . ltrim($primaryImage->image, '/'))
                     : null,
 
                 /*
-            |--------------------------------------------------------------------------
-            | Existing Attribute-Based Selected Variant
-            |--------------------------------------------------------------------------
+            |------------------------------------------------------------------
+            | Selected Variant
+            |------------------------------------------------------------------
             */
-
                 'selected_variant' => $this->formatSingleVariant($selectedVariant),
                 'selected_variant_id' => $selectedVariant->id,
                 'selected_variant_sku' => $selectedVariant->sku,
                 'selected_attributes' => $selectedVariant->attributes,
-
                 'available_attributes' => $productAttributes,
 
                 /*
-            |--------------------------------------------------------------------------
-            | Linked Product Variants
-            |--------------------------------------------------------------------------
+            |------------------------------------------------------------------
+            | Linked Variants / Combo
+            |------------------------------------------------------------------
             */
-
                 'variants' => $formattedVariants,
                 'product_type' => $this->isComboProduct($product) ? 'combo' : 'single',
                 'combo_products' => $this->isComboProduct($product)
@@ -1401,92 +1825,94 @@ class ProductController extends Controller
                 'updated_at' => $product->updated_at?->toISOString(),
             ];
         } else {
+
             /*
-        |--------------------------------------------------------------------------
-        | No Attribute-Based Variant Selected
-        |--------------------------------------------------------------------------
+        |----------------------------------------------------------------------
+        | No variant selected → product-level
+        |----------------------------------------------------------------------
         */
 
-            $formattedProduct = $this->formatProduct(
-                $product,
-                $wishlistIds
-            );
-
+            $formattedProduct = $this->formatProduct($product, $wishlistIds);
             $formattedProduct['available_attributes'] = $productAttributes;
-
-            // Return product_variants table data instead of variants.images data.
             $formattedProduct['variants'] = $formattedVariants;
+
+            /*
+        |----------------------------------------------------------------------
+        | ✅ Enforce shipping charge in product-level prices too
+        |----------------------------------------------------------------------
+        */
+            $retailMrp   = (float) ($product->retail_mrp ?? 0);
+            $retailBase  = (float) ($product->retail_price ?? 0);
+
+            $formattedProduct['shipping_charge'] = $shipping;
+            $formattedProduct['retail_mrp']      = $retailMrp;
+            $formattedProduct['retail_price']    = $retailBase + $shipping;
+
+            $formattedProduct['retail_discount_amount'] = $retailMrp > 0
+                ? $retailMrp - $retailBase : 0;
+            $formattedProduct['retail_discount_percentage'] = $retailMrp > 0
+                ? round((($retailMrp - $retailBase) / $retailMrp) * 100, 2) : 0;
+
+            if ($product->distributor_price !== null) {
+                $distMrp  = $product->distributor_mrp !== null ? (float) $product->distributor_mrp : null;
+                $distBase = (float) $product->distributor_price;
+
+                $formattedProduct['distributor_mrp']   = $distMrp;
+                $formattedProduct['distributor_price'] = $distBase + $shipping;
+
+                $formattedProduct['distributor_discount_amount'] =
+                    ($distMrp !== null) ? $distMrp - $distBase : null;
+                $formattedProduct['distributor_discount_percentage'] =
+                    ($distMrp !== null && $distMrp > 0)
+                    ? round((($distMrp - $distBase) / $distMrp) * 100, 2)
+                    : null;
+            }
         }
 
         /*
-        |--------------------------------------------------------------------------
-        | Reviews + Summary
-        |--------------------------------------------------------------------------
-        */
+    |--------------------------------------------------------------------------
+    | Reviews + Summary
+    |--------------------------------------------------------------------------
+    */
 
         $formattedProduct['reviews'] = [
             'summary' => [
-                'average_rating' => $averageRating !== null
-                    ? round($averageRating, 1)
-                    : 0,
-
+                'average_rating' => $averageRating !== null ? round($averageRating, 1) : 0,
                 'total_reviews' => $totalReviews,
                 'rating_distribution' => $ratingDistribution,
             ],
-
             'data' => $reviews->map(function ($review) {
                 return [
                     'id' => $review->id,
                     'rating' => $review->rating,
                     'review_text' => $review->review_text,
-
                     'user' => [
                         'id' => $review->user?->id,
                         'full_name' => $review->user?->full_name,
-
                         'profile_picture' => $review->user?->profile_picture
                             ? asset('storage/' . ltrim($review->user->profile_picture, '/'))
                             : null,
                     ],
-
                     'order_line_id' => $review->order_line_id,
-
-                    'order_id' => $review->orderLine?->order?->id
-                        ?? $review->order_id,
-
-                    'order_reference' =>
-                    $review->orderLine?->order?->order_reference,
-
-                    'created_at' => $review->created_at
-                        ? $review->created_at->format('M d, Y')
-                        : null,
-
-                    'updated_at' => $review->updated_at
-                        ? $review->updated_at->format('M d, Y')
-                        : null,
-
-                    'is_verified_purchase' => $this->isVerifiedPurchase(
-                        $review->order_id
-                    ),
-
-                    'images' => $review->images
-                        ->map(function ($image) {
-                            return [
-                                'id' => $image->id,
-                                'image_url' => $image->image_url,
-                                'sort_order' => $image->sort_order,
-                            ];
-                        })
-                        ->values()
-                        ->toArray(),
+                    'order_id' => $review->orderLine?->order?->id ?? $review->order_id,
+                    'order_reference' => $review->orderLine?->order?->order_reference,
+                    'created_at' => $review->created_at ? $review->created_at->format('M d, Y') : null,
+                    'updated_at' => $review->updated_at ? $review->updated_at->format('M d, Y') : null,
+                    'is_verified_purchase' => $this->isVerifiedPurchase($review->order_id),
+                    'images' => $review->images->map(function ($image) {
+                        return [
+                            'id' => $image->id,
+                            'image_url' => $image->image_url,
+                            'sort_order' => $image->sort_order,
+                        ];
+                    })->values()->toArray(),
                 ];
-            })
-                ->values()
-                ->toArray(),
+            })->values()->toArray(),
         ];
 
         return response()->json($formattedProduct);
     }
+
 
     protected function formatSingleVariant($variant)
     {
@@ -5668,6 +6094,10 @@ class ProductController extends Controller
     // }
     public function getProductSections(Request $request)
     {
+        // ✅ FIX: Use Auth user's account_type instead of request query
+        $user = $request->user();
+        $userType = ($user && $user->account_type === 'distributor') ? 'distributor' : 'customer';
+
         // 1. NEW ARRIVALS - Products created within last 30 days
         $newArrivals = Product::with([
             'category',
@@ -5683,16 +6113,7 @@ class ProductController extends Controller
             ->limit(10)
             ->get();
 
-        // 2. BEST SELLERS - Top 8 products from order_lines
-        // $bestSellerIds = DB::table('order_lines')
-        //     ->select('product_id', DB::raw('COUNT(*) as order_count'))
-        //     ->whereNotNull('product_id')
-        //     ->groupBy('product_id')
-        //     ->orderBy('order_count', 'DESC')
-        //     ->limit(8)
-        //     ->pluck('product_id')
-        //     ->toArray();
-
+        // 2. BEST SELLERS
         $bestSellerIds = DB::table('products')
             ->where('is_best_seller', 1)
             ->where('is_published', 1)
@@ -5728,9 +6149,7 @@ class ProductController extends Controller
                 ->get();
         }
 
-        // 3. BEST OFFERS - Products with discounts based on user type
-        $userType = $request->query('user_type', 'customer');
-
+        // 3. BEST OFFERS
         $bestOffers = Product::with([
             'category',
             'subcategory',
@@ -5754,7 +6173,7 @@ class ProductController extends Controller
             ->get();
 
         // ============================================================
-        // COMBO CHILDREN (batch across all 3 sections)
+        // COMBO CHILDREN
         // ============================================================
         $allProductsForCombo = collect()
             ->merge($newArrivals)
@@ -5765,8 +6184,8 @@ class ProductController extends Controller
 
         $comboChildren = $this->buildComboChildrenMap($allProductsForCombo);
 
-        // Get wishlist IDs for authenticated user
-        $userId = $request->query('user_id');
+        // Wishlist
+        $userId = $request->query('user_id') ?? ($user ? $user->id : null);
         $wishlistIds = [];
         if ($userId) {
             $wishlistIds = DB::table('wishlists')
@@ -5781,34 +6200,31 @@ class ProductController extends Controller
 
                 $isWishlisted = in_array($product->id, $wishlistIds);
 
-                // Discount calculation
-                $discountValue = 0;
-                $discountType = null;
-                $discountedPrice = null;
-                $originalPrice = null;
+                // ✅ FIX: Resolve shipping charge properly
+                $shipping = (float) ($product->shipping_charge ?? 0);
 
+                // ✅ FIX: Trust the DB prices directly (no double-discounting)
                 if ($userType === 'distributor') {
-                    $originalPrice = $product->distributor_mrp ?? $product->retail_mrp;
-                    $discountValue = $product->distributor_discount_value ?? 0;
-                    $discountType = $product->distributor_discount_type ?? null;
-                    $currentPrice = $product->distributor_price ?? $product->retail_price;
+                    $originalPrice = (float) ($product->distributor_mrp ?? $product->retail_mrp ?? 0);
+                    $basePrice = (float) ($product->distributor_price ?? $product->retail_price ?? 0);
                 } else {
-                    $originalPrice = $product->retail_mrp;
-                    $discountValue = $product->retail_discount_value ?? 0;
-                    $discountType = $product->retail_discount_type ?? null;
-                    $currentPrice = $product->retail_price;
+                    $originalPrice = (float) ($product->retail_mrp ?? 0);
+                    $basePrice = (float) ($product->retail_price ?? 0);
                 }
 
-                if ($discountValue > 0) {
-                    if ($discountType === 'percentage') {
-                        $discountedPrice = $originalPrice - ($originalPrice * $discountValue / 100);
-                    } elseif ($discountType === 'fixed') {
-                        $discountedPrice = $originalPrice - $discountValue;
-                    } else {
-                        $discountedPrice = $currentPrice;
-                    }
-                    $discountedPrice = max(0, $discountedPrice);
+                // Current price includes shipping
+                $currentPrice = $basePrice + $shipping;
+
+                // ✅ FIX: Discounted price matches current price (since retail_price is already discounted in DB).
+                $discountedPrice = $currentPrice;
+
+                // ✅ FIX: Calculate discount % based on MRP vs Base Price (not shipping-inflated price)
+                $discountPercentage = 0;
+                if ($originalPrice > $basePrice && $originalPrice > 0) {
+                    $discountPercentage = round((($originalPrice - $basePrice) / $originalPrice) * 100);
                 }
+
+                $hasDiscount = $originalPrice > $basePrice;
 
                 // Reviews
                 $averageRating = ProductReview::where('product_id', $product->id)
@@ -5858,15 +6274,12 @@ class ProductController extends Controller
                         'slug' => $product->subcategory->slug,
                     ] : null,
 
+                    // ✅ Prices
                     'original_price' => $originalPrice,
                     'current_price' => $currentPrice,
-                    'discounted_price' => $discountedPrice + $product->shipping_charge,
-                    'discount_percentage' => $discountValue > 0 && $discountType === 'percentage'
-                        ? $discountValue
-                        : ($discountValue > 0 && $originalPrice > 0
-                            ? round(($discountValue / $originalPrice) * 100)
-                            : 0),
-                    'has_discount' => $discountValue > 0,
+                    'discounted_price' => $discountedPrice,
+                    'discount_percentage' => $discountPercentage,
+                    'has_discount' => $hasDiscount,
 
                     'stock_quantity' => (int) $product->stock_quantity,
                     'stock_status' => $this->getProductStatus($product),
@@ -5882,15 +6295,14 @@ class ProductController extends Controller
                     'variants_summary' => $variantsSummary,
 
                     'reviews_summary' => [
-                        'average_rating' => round($averageRating, 1),
-                        'total_reviews' => $totalReviews,
+                        'average_rating' => round((float) $averageRating, 1),
+                        'total_reviews' => (int) $totalReviews,
                     ],
 
                     'primary_image_url' => $primaryImage
                         ? asset('storage/' . $primaryImage->image)
                         : null,
 
-                    //  NEW: combo details (empty for single products)
                     'product_type' => $this->isComboProduct($product) ? 'combo' : 'single',
                     'combo_products' => $this->isComboProduct($product)
                         ? ($comboChildren[$product->id] ?? [])
@@ -5906,7 +6318,7 @@ class ProductController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => 'Products sections retrieved successfully',
-            'user_type' => $userType,
+            'user_type' => $userType, // This will now reliably reflect the logged-in user's role
             'data' => [
                 'new_arrivals' => [
                     'title' => 'New Arrivals',

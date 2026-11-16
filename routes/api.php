@@ -139,7 +139,7 @@ Route::prefix('admin')->group(function () {
         // Ignite exports
         Route::get('/ignite/exports',          [IgniteExportController::class, 'list']);
         Route::get('/ignite/exports/download', [IgniteExportController::class, 'download']);
-            // Finance: Consolidated Commission Export (all distributors, Excel)
+        // Finance: Consolidated Commission Export (all distributors, Excel)
         Route::get('/finance/commission-export', [FinanceCommissionExportController::class, 'download']);
         Route::get('/finance/sales-report', [SalesReportExportController::class, 'download']);
         Route::get('/weekly-commission-report', [FinanceCommissionExportController::class, 'weeklyCommissionReport']);
@@ -285,10 +285,13 @@ Route::post('/stock/update', [ProductController::class, 'updateStock']);
 Route::post('/global-search', [ProductController::class, 'globalSearch']);
 Route::get('/products-deal-of-the-day', [ProductController::class, 'getDealOfTheDayProducts']);
 Route::get('/products-top-discounted', [ProductController::class, 'getTopDiscountedProducts']);
-Route::get('/product-sections', [ProductController::class, 'getProductSections']);
 Route::get('/product-link/{id}', [ProductController::class, 'generateProductLink']);
 Route::get('/product/{slug}', [ProductController::class, 'getProductBySlug']);
 
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/product-sections', [ProductController::class, 'getProductSections']);
+});
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::post('/products-deal-of-the-day/{id}', [ProductController::class, 'markAsDealOfTheDay']);
     Route::delete('/products-deal-of-the-day/{id}', [ProductController::class, 'removeDealOfTheDay']);
