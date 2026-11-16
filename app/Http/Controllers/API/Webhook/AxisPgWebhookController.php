@@ -103,90 +103,90 @@ class AxisPgWebhookController extends Controller
     // }
 
     public function handle(Request $request): JsonResponse
-{
-    // 1. Log the incoming request for debugging
-    Log::info('AxisPG webhook received (Plain Text)', $request->all());
+    {
+        // 1. Log the incoming request for debugging
+        Log::info('AxisPG webhook received (Plain Text)', $request->all());
 
-    try {
-        // 2. Extract required fields from the plain text payload
-        $merchantTxnId  = $request->input('merchantTxnId');
-        $statusCode     = $request->input('statusCode');
-        $signature      = $request->input('signature');
-        $txnReferenceId = $request->input('txnReferenceId');
-        $amount         = $request->input('amount');
+        try {
+            // 2. Extract required fields from the plain text payload
+            $merchantTxnId  = $request->input('merchantTxnId');
+            $statusCode     = $request->input('statusCode');
+            $signature      = $request->input('signature');
+            $txnReferenceId = $request->input('txnReferenceId');
+            $amount         = $request->input('amount');
 
-        // 3. Basic Validation: Ensure required fields are present
-        if (empty($merchantTxnId) || empty($statusCode) || empty($signature)) {
-            Log::warning('AxisPG webhook: Missing required fields', [
-                'merchantTxnId' => $merchantTxnId,
-                'statusCode'    => $statusCode,
-                'signature'     => $signature
+            // 3. Basic Validation: Ensure required fields are present
+            if (empty($merchantTxnId) || empty($statusCode) || empty($signature)) {
+                Log::warning('AxisPG webhook: Missing required fields', [
+                    'merchantTxnId' => $merchantTxnId,
+                    'statusCode'    => $statusCode,
+                    'signature'     => $signature
+                ]);
+                return response()->json(['success' => false, 'message' => 'Missing required fields'], 400);
+            }
+
+            // 4. Manually instantiate AxisPgService here
+            $axispg = new AxisPgService(config('services.axispg'));
+
+            // 5. Verify Signature (CRITICAL for security)
+            // Explicitly define the fields used for signature generation
+            $dataToVerify = [
+                'amount'         => $request->input('amount'),
+                'currency'       => $request->input('currency'),
+                'handlingFee'    => $request->input('handlingFee'),
+                'merchantTxnId'  => $request->input('merchantTxnId'),
+                'mode'           => $request->input('mode'),
+                'statusCode'     => $request->input('statusCode'),
+                'statusMessage'  => $request->input('statusMessage'),
+                'subMode'        => $request->input('subMode'),
+                'taxAmount'      => $request->input('taxAmount'),
+                'txnReferenceId' => $request->input('txnReferenceId'),
+            ];
+
+            $expectedSignature = $axispg->generateSignature($dataToVerify);
+
+            if (!hash_equals($expectedSignature, $signature)) {
+                Log::warning('AxisPG webhook: Signature mismatch', [
+                    'received_signature' => $signature,
+                    'expected_signature' => $expectedSignature,
+                    'data_used'          => $dataToVerify // Debugging ke liye
+                ]);
+                return response()->json(['success' => false, 'message' => 'Invalid signature'], 400);
+            }
+
+            // 6. Handle the Order Status based on statusCode
+            if ($statusCode === 'SPG-0000') {
+                // Payment SUCCESS
+                $this->checkoutService->confirmOrder($merchantTxnId, [
+                    'gateway'        => 'axispg',
+                    'transaction_id' => $txnReferenceId,
+                    'amount'         => $amount
+                ]);
+                Log::info('AxisPG webhook: Order confirmed successfully', ['merchantTxnId' => $merchantTxnId]);
+
+            } elseif ($statusCode === 'SPG-0001') {
+                // Payment FAILED
+                Order::where('order_reference', $merchantTxnId)->update(['status' => 'failed']);
+                Log::info('AxisPG webhook: Order marked as failed', ['merchantTxnId' => $merchantTxnId]);
+
+            } elseif ($statusCode === 'SPG-0002') {
+                // Payment PENDING
+                Log::info('AxisPG webhook: Payment pending', ['merchantTxnId' => $merchantTxnId]);
+            } else {
+                // Unknown status
+                Log::warning('AxisPG webhook: Unknown status code received', ['statusCode' => $statusCode]);
+            }
+
+            // 7. Always return 200 OK to stop the gateway from retrying
+            return response()->json(['success' => true], 200);
+
+        } catch (Exception $e) {
+            Log::error('AxisPG webhook processing error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
-            return response()->json(['success' => false, 'message' => 'Missing required fields'], 400);
+            return response()->json(['success' => false, 'message' => 'Internal Server Error'], 500);
         }
-
-        // 4. Manually instantiate AxisPgService here
-        $axispg = new AxisPgService(config('services.axispg'));
-
-        // 5. Verify Signature (CRITICAL for security)
-        // Explicitly define the fields used for signature generation
-        $dataToVerify = [
-            'amount'         => $request->input('amount'),
-            'currency'       => $request->input('currency'),
-            'handlingFee'    => $request->input('handlingFee'),
-            'merchantTxnId'  => $request->input('merchantTxnId'),
-            'mode'           => $request->input('mode'),
-            'statusCode'     => $request->input('statusCode'),
-            'statusMessage'  => $request->input('statusMessage'),
-            'subMode'        => $request->input('subMode'),
-            'taxAmount'      => $request->input('taxAmount'),
-            'txnReferenceId' => $request->input('txnReferenceId'),
-        ];
-
-        $expectedSignature = $axispg->generateSignature($dataToVerify);
-
-        if (!hash_equals($expectedSignature, $signature)) {
-            Log::warning('AxisPG webhook: Signature mismatch', [
-                'received_signature' => $signature,
-                'expected_signature' => $expectedSignature,
-                'data_used'          => $dataToVerify // Debugging ke liye
-            ]);
-            return response()->json(['success' => false, 'message' => 'Invalid signature'], 400);
-        }
-
-        // 6. Handle the Order Status based on statusCode
-        if ($statusCode === 'SPG-0000') {
-            // Payment SUCCESS
-            $this->checkoutService->confirmOrder($merchantTxnId, [
-                'gateway'        => 'axispg',
-                'transaction_id' => $txnReferenceId,
-                'amount'         => $amount
-            ]);
-            Log::info('AxisPG webhook: Order confirmed successfully', ['merchantTxnId' => $merchantTxnId]);
-
-        } elseif ($statusCode === 'SPG-0001') {
-            // Payment FAILED
-            Order::where('order_reference', $merchantTxnId)->update(['status' => 'failed']);
-            Log::info('AxisPG webhook: Order marked as failed', ['merchantTxnId' => $merchantTxnId]);
-
-        } elseif ($statusCode === 'SPG-0002') {
-            // Payment PENDING
-            Log::info('AxisPG webhook: Payment pending', ['merchantTxnId' => $merchantTxnId]);
-        } else {
-            // Unknown status
-            Log::warning('AxisPG webhook: Unknown status code received', ['statusCode' => $statusCode]);
-        }
-
-        // 7. Always return 200 OK to stop the gateway from retrying
-        return response()->json(['success' => true], 200);
-
-    } catch (Exception $e) {
-        Log::error('AxisPG webhook processing error', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ]);
-        return response()->json(['success' => false, 'message' => 'Internal Server Error'], 500);
     }
-}
 
 }
