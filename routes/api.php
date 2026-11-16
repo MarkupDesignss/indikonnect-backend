@@ -1064,3 +1064,9 @@ Route::get('/distributor/{distributor_id}', [AuthController::class, 'show']);
             ]
         );
     });
+
+
+Route::post(
+    '/warehouse-receive-product/{orderReference}',
+    [CancellationApprovalController::class, 'WarehouseReceiveCancel']
+);
