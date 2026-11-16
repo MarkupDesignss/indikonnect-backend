@@ -106,7 +106,7 @@ class OrderLine extends Model
         return $this->belongsTo(Order::class);
     }
 
-    public function product()
+    public function product()_
     {
         return $this->belongsTo(Product::class);
     }
