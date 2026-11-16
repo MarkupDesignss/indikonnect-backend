@@ -332,9 +332,9 @@ class GenealogyController extends Controller
             $memberDetails = $baId ? $this->fetchMemberDetails($baId) : [];
 
             // Try Local DB Name -> Ignite Pending Name -> Fallback
-            $name = $localUser?->full_name 
-                 ?? ($igniteNames[$baId] ?? null) 
-                 ?? 'Unknown Member';
+            $name = $localUser?->full_name
+                ?? ($igniteNames[$baId] ?? null)
+                ?? 'Unknown Member';
 
             return [
                 'member_id'       => $row['member_id'] ?? null,
@@ -349,8 +349,8 @@ class GenealogyController extends Controller
                 'binary_side'     => $row['binary_side'] ?? null,
                 'cv_left'         => $row['cv_left'] ?? '0.0000',
                 'cv_right'        => $row['cv_right'] ?? '0.0000',
-                'floating_cv_left'=> $row['floating_cv_left'] ?? '0.0000',
-                'floating_cv_right'=> $row['floating_cv_right'] ?? '0.0000',
+                'floating_cv_left' => $row['floating_cv_left'] ?? '0.0000',
+                'floating_cv_right' => $row['floating_cv_right'] ?? '0.0000',
             ];
         })->filter()->values();
 
@@ -453,7 +453,7 @@ class GenealogyController extends Controller
         $side     = (int) $request->side;
 
         $member = $this->fetchMemberDetails($mainBaId);
-        
+
         $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
         $slotId  = $member[$slotKey] ?? null;
 
@@ -466,9 +466,9 @@ class GenealogyController extends Controller
 
         try {
             $response = $this->ignite->setPlacement(
-                baId:            $request->ba_id,
+                baId: $request->ba_id,
                 placementParent: (int) $slotId,
-                side:            $side,
+                side: $side,
             );
         } catch (\Throwable $e) {
             Log::error('Ignite setPlacement threw', [
@@ -714,11 +714,9 @@ class GenealogyController extends Controller
             }
 
             $placementParent = $placementBaId; // string -> placement_ba_id
-        }
-        elseif ($request->filled('placement_member_id')) {
+        } elseif ($request->filled('placement_member_id')) {
             $placementParent = (int) $request->placement_member_id; // int -> placement_member_id
-        }
-        else {
+        } else {
             // No parent chosen: auto far-end of the user's main account on the chosen side
             $member  = $this->fetchMemberDetails($mainBaId);
             $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
@@ -735,9 +733,9 @@ class GenealogyController extends Controller
 
         try {
             $response = $this->ignite->placeBankedTc(
-                baId:            $mainBaId,        // always AIAxxxxxxx-001
+                baId: $mainBaId,        // always AIAxxxxxxx-001
                 placementParent: $placementParent, // BA ID (string) or member_id (int)
-                side:            $side,
+                side: $side,
             );
         } catch (\Throwable $e) {
             Log::error('Ignite placeBankedTc threw', [
@@ -1069,7 +1067,7 @@ class GenealogyController extends Controller
                 'member_id'  => $memberId ?? ($acc['member_id'] ?? null),
                 'rank'       => $rankMap[$rankNo] ?? 'Unranked',
                 'status'     => ($status === 'active') ? 'Activated' : ucfirst($status),
-                'type'       => $type,   // ✅ "base" ya "extra_tc"
+                'type'       => $type,   //  "base" ya "extra_tc"
             ];
         };
 
@@ -1118,10 +1116,10 @@ class GenealogyController extends Controller
             'success'    => true,
             'account_id' => $baseId,
             'total'      => count($accounts),
-            'accounts'   => $accounts,   // ✅ sirf flat list
+            'accounts'   => $accounts,   //  sirf flat list
         ]);
     }
-    
+
     /**
      * Get complete TC Bank dashboard data for the UI.
      * Includes balances, qualification status, accounts, available placements, and transactions.
@@ -1405,11 +1403,11 @@ class GenealogyController extends Controller
                 ];
             }
 
-            // ✅ NEW: Collect every base ID and resolve owner name for EACH group
+            //  NEW: Collect every base ID and resolve owner name for EACH group
             $allBaseIds = array_keys($groups);
             $baseNameMap = $this->resolveBaseOwnerNames($allBaseIds, $mainBaId);
 
-            // ✅ NEW: Enrich each group + its slots with the owner's name
+            //  NEW: Enrich each group + its slots with the owner's name
             foreach ($groups as $baseKey => &$group) {
                 $ownerName = $baseNameMap[$baseKey] ?? 'Unknown Member';
 
@@ -1434,7 +1432,7 @@ class GenealogyController extends Controller
 
             // sort slots inside each group by suffix numerically
             foreach ($groups as &$g) {
-                usort($g['slots'], fn ($a, $b) => ((int) $a['tc_suffix']) <=> ((int) $b['tc_suffix']));
+                usort($g['slots'], fn($a, $b) => ((int) $a['tc_suffix']) <=> ((int) $b['tc_suffix']));
                 $g['tc_count'] = count($g['slots']);
             }
             unset($g);
@@ -1442,7 +1440,6 @@ class GenealogyController extends Controller
             // sort groups by base id
             ksort($groups);
             $groups = array_values($groups);
-
         } catch (\Throwable $e) {
             $groups = [];
         }
@@ -1786,9 +1783,9 @@ class GenealogyController extends Controller
         // 1) Local users lookup by base ID (both full BA and base might be stored)
         //    Try full BA IDs first, then base IDs as fallback
         $localUsers = User::where(function ($q) use ($baIds, $baseIds) {
-                $q->whereIn('distributor_id', $baIds)
+            $q->whereIn('distributor_id', $baIds)
                 ->orWhereIn('distributor_id', $baseIds);
-            })
+        })
             ->get(['distributor_id', 'full_name'])
             ->keyBy('distributor_id')
             ->all();
@@ -1895,7 +1892,7 @@ class GenealogyController extends Controller
         }
 
         // 2) Ignite pendingPlacements — only for missing ones
-        $missing = array_keys(array_filter($result, fn ($v) => $v === null));
+        $missing = array_keys(array_filter($result, fn($v) => $v === null));
 
         if (!empty($missing)) {
             try {
@@ -1923,5 +1920,4 @@ class GenealogyController extends Controller
 
         return $result;
     }
-
 }

@@ -64,7 +64,7 @@ class UserDashboard1Controller extends Controller
         if ($user->isDistributor() && $user->distributor_id) {
             $salesCalendar = $this->getSalesCalendar((int) now()->year);
         }
-        
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -80,7 +80,7 @@ class UserDashboard1Controller extends Controller
                 'wishlist' => $wishlistItems,
                 'cart' => $cartItems,
                 'ignite' => $igniteData,
-                'sales_calendar' => $salesCalendar, 
+                'sales_calendar' => $salesCalendar,
             ]
         ]);
     }
@@ -202,7 +202,7 @@ class UserDashboard1Controller extends Controller
     //         return null;
     //     }
     // }
-        private function getIgniteMemberDetails(string $baId): ?array
+    private function getIgniteMemberDetails(string $baId): ?array
     {
         try {
             $response = $this->ignite->memberDetails($baId);
@@ -251,7 +251,7 @@ class UserDashboard1Controller extends Controller
             // ============================================================
             $cvLeft  = (float) ($data['total_cv_left'] ?? 0);
             $cvRight = (float) ($data['total_cv_right'] ?? 0);
-            
+
             $strongLeg = 'Equal';
             if ($cvLeft > $cvRight) $strongLeg = 'Left';
             if ($cvRight > $cvLeft) $strongLeg = 'Right';
@@ -259,14 +259,14 @@ class UserDashboard1Controller extends Controller
             // ============================================================
             // 2. Fetch Commissions History & Calculate Widgets
             // ============================================================
-            $history = $this->getCommissionHistory($baId, 0, 100); 
-            
+            $history = $this->getCommissionHistory($baId, 0, 100);
+
             $retailProfitUsd = 0;
             $weeklyPairingUsd = 0;
             $unilevelGreenCoin = 0;
 
             foreach ($history as $tx) {
-                // ✅ FIX: Yahan 'category' use karo, 'point_type' nahi
+                //  FIX: Yahan 'category' use karo, 'point_type' nahi
                 // Retail Profit
                 if ($tx['description'] === 'comm_retail' && $tx['category'] === 'cash_bal') {
                     $retailProfitUsd += (float) $tx['amount'];
@@ -287,7 +287,7 @@ class UserDashboard1Controller extends Controller
                 'rank_no'           => $data['rank_no'] ?? 0,
                 'base_rank_no'      => $data['base_rank_no'] ?? 0,
                 'eligible_rank_no'  => $data['eligible_rank_no'] ?? 0,
-                
+
                 // CV Volumes
                 'cv_left'           => $data['cv_left'] ?? '0.0000',
                 'cv_right'          => $data['cv_right'] ?? '0.0000',
@@ -344,10 +344,10 @@ class UserDashboard1Controller extends Controller
         }
     }
 
-        /**
+    /**
      * Fetch the member's commission history (Ledger) from Ignite.
      */
-        private function getCommissionHistory(string $baId, int $afterId = 0, int $limit = 50): array
+    private function getCommissionHistory(string $baId, int $afterId = 0, int $limit = 50): array
     {
         try {
             $response = $this->ignite->pointTxs($baId, $afterId, $limit);
@@ -362,23 +362,22 @@ class UserDashboard1Controller extends Controller
             return array_map(function ($row) {
                 return [
                     'id'            => $row['id'],
-                    'category'      => $row['point_type'] ?? null, // ✅ Mapped correctly
+                    'category'      => $row['point_type'] ?? null, //  Mapped correctly
                     'tx_type'       => $row['tx_type'] ?? null,
-                    'date_created'  => $row['created_at'] ?? null, 
+                    'date_created'  => $row['created_at'] ?? null,
                     'description'   => $row['description'] ?? null,
                     'amount'        => $row['amount'] ?? '0.0000',
                     'order_id'      => $row['order_no'] ?? null,
-                    'related_member'=> $row['rel_ba_id'] ?? $row['rel_member_id'] ?? null,
+                    'related_member' => $row['rel_ba_id'] ?? $row['rel_member_id'] ?? null,
                 ];
             }, $rows);
-
         } catch (\Exception $e) {
             \Log::warning('Ignite pointTxs failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
             return [];
         }
     }
 
-        /**
+    /**
      * API Endpoint for infinite scroll / pagination on the Commissions History table.
      */
     public function commissionHistory(Request $request)
@@ -392,7 +391,7 @@ class UserDashboard1Controller extends Controller
         $limit   = min(max((int) $request->input('limit', 50), 1), 500);
 
         $history = $this->getCommissionHistory($user->distributor_id, $afterId, $limit);
-        
+
         // Check if there are more rows for pagination
         try {
             $rawResponse = $this->ignite->pointTxs($user->distributor_id, $afterId, $limit);
@@ -404,7 +403,7 @@ class UserDashboard1Controller extends Controller
         return response()->json([
             'success' => true,
             'data'    => $history,
-            'has_more'=> $hasMore,
+            'has_more' => $hasMore,
         ]);
     }
 
@@ -462,70 +461,70 @@ class UserDashboard1Controller extends Controller
     //         return null;
     //     }
     // }
-        /**
+    /**
      * Get sales calendar for one year, cached for 6 hours.
      *
      * Ignite returns dates in UTC+8. We convert them to IST (Asia/Kolkata)
      * for display purposes only — the underlying data is unchanged.
      */
     private function getSalesCalendar(int $year): ?array
-{
-    try {
-        $resp = Cache::remember("ignite_sales_calendar_{$year}", 21600, function () use ($year) {
-            return $this->ignite->salesCalendar($year);
-        });
+    {
+        try {
+            $resp = Cache::remember("ignite_sales_calendar_{$year}", 21600, function () use ($year) {
+                return $this->ignite->salesCalendar($year);
+            });
 
-        if (($resp['code'] ?? null) !== ResultCode::OK->value) {
-            return null;
-        }
+            if (($resp['code'] ?? null) !== ResultCode::OK->value) {
+                return null;
+            }
 
-        $data = $resp['data'] ?? [];
+            $data = $resp['data'] ?? [];
 
-        $utc8 = new \DateTimeZone('Asia/Singapore');
-        $ist  = new \DateTimeZone('Asia/Kolkata');
+            $utc8 = new \DateTimeZone('Asia/Singapore');
+            $ist  = new \DateTimeZone('Asia/Kolkata');
 
-        $toIst = function (?string $date, string $time = '00:00:00') use ($utc8, $ist): ?string {
-            if (!$date) return null;
-            $dt = new \DateTime("{$date} {$time}", $utc8);
-            $dt->setTimezone($ist);
-            return $dt->format('Y-m-d H:i:s'); // ✅ Ab time bhi aayega
-        };
+            $toIst = function (?string $date, string $time = '00:00:00') use ($utc8, $ist): ?string {
+                if (!$date) return null;
+                $dt = new \DateTime("{$date} {$time}", $utc8);
+                $dt->setTimezone($ist);
+                return $dt->format('Y-m-d H:i:s'); //  Ab time bhi aayega
+            };
 
-        $allMonths = [];
+            $allMonths = [];
 
-        foreach (($data['months'] ?? []) as $month) {
-            $weeksData = [];
-            foreach (($month['weeks'] ?? []) as $week) {
-                // Payout date nikaalne ke liye end_date ko 00:00:00 UTC+8 se shift karke +1 day karenge
-                $endDateTime = $week['end_date'] ? (new \DateTime("{$week['end_date']} 00:00:00", $utc8))->modify('+1 day') : null;
+            foreach (($data['months'] ?? []) as $month) {
+                $weeksData = [];
+                foreach (($month['weeks'] ?? []) as $week) {
+                    // Payout date nikaalne ke liye end_date ko 00:00:00 UTC+8 se shift karke +1 day karenge
+                    $endDateTime = $week['end_date'] ? (new \DateTime("{$week['end_date']} 00:00:00", $utc8))->modify('+1 day') : null;
 
-                $weeksData[] = [
-                    'week_no'    => $week['week_no'] ?? null,
-                    'start'      => $toIst($week['start_date'] ?? null, '00:00:00'),
-                    'end'        => $toIst($week['end_date'] ?? null, '23:59:59'), // ✅ Week end me 23:59:59 dikhega
-                    'payout_date' => $endDateTime ? $toIst($endDateTime->format('Y-m-d'), '00:00:00') : null,
-                    'is_current' => (bool) ($week['is_current'] ?? false),
-                    'is_settled' => (bool) ($week['is_settled'] ?? false),
+                    $weeksData[] = [
+                        'week_no'    => $week['week_no'] ?? null,
+                        'start'      => $toIst($week['start_date'] ?? null, '00:00:00'),
+                        'end'        => $toIst($week['end_date'] ?? null, '23:59:59'), //  Week end me 23:59:59 dikhega
+                        'payout_date' => $endDateTime ? $toIst($endDateTime->format('Y-m-d'), '00:00:00') : null,
+                        'is_current' => (bool) ($week['is_current'] ?? false),
+                        'is_settled' => (bool) ($week['is_settled'] ?? false),
+                    ];
+                }
+
+                $allMonths[] = [
+                    'month_no'   => $month['month_no'] ?? null,
+                    'label'      => $month['label'] ?? null,
+                    'is_current' => (bool) ($month['is_current'] ?? false),
+                    'weeks'      => $weeksData,
                 ];
             }
 
-            $allMonths[] = [
-                'month_no'   => $month['month_no'] ?? null,
-                'label'      => $month['label'] ?? null,
-                'is_current' => (bool) ($month['is_current'] ?? false),
-                'weeks'      => $weeksData,
+            return [
+                'year'       => $data['year'] ?? $year,
+                'all_months' => $allMonths,
             ];
+        } catch (\Throwable $e) {
+            Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
+            return null;
         }
-
-        return [
-            'year'       => $data['year'] ?? $year,
-            'all_months' => $allMonths, 
-        ];
-    } catch (\Throwable $e) {
-        Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
-        return null;
     }
-}
 
     /**
      * Calculate general user statistics.
@@ -1071,13 +1070,13 @@ class UserDashboard1Controller extends Controller
         $minBand = $pointType === 'yellow_bal' ? 1 : 4;
         if ($coins < $minBand) {
             return response()->json([
-                'success' => false, 
+                'success' => false,
                 'message' => "Minimum {$minBand} coins required for {$pointType}"
             ], 422);
         }
 
         $ignite = app(\App\Sdks\Partner\IgniteClient::class);
-        
+
         // Idempotency ref (taaki double click pe double deduct na ho)
         $ref = 'DASH-' . $user->distributor_id . '-' . $pointType . '-' . $coins . '-' . time();
 
@@ -1151,7 +1150,7 @@ class UserDashboard1Controller extends Controller
 
         if (!$user || empty($user->distributor_id)) {
             return response()->json([
-                'success' => false, 
+                'success' => false,
                 'message' => 'Not registered on Ignite'
             ], 422);
         }
@@ -1162,7 +1161,7 @@ class UserDashboard1Controller extends Controller
         $memberResp = $this->ignite->memberDetails($baId);
         if (($memberResp['code'] ?? null) !== ResultCode::OK->value) {
             return response()->json([
-                'success' => false, 
+                'success' => false,
                 'message' => 'Failed to fetch wallet balances from Ignite'
             ], 422);
         }
@@ -1219,7 +1218,7 @@ class UserDashboard1Controller extends Controller
 
             // Amount (USD)
             $amt = (float) $tx['amount'];
-            
+
             // Wallet Change (Cash)
             $walletChangeUsd = $tx['point_type'] === 'cash_bal' ? $amt : 0;
             $walletChangeInr = round($walletChangeUsd * $usdRate, 2);
@@ -1248,11 +1247,11 @@ class UserDashboard1Controller extends Controller
                 'date'          => $tx['created_at'],
                 'category'      => $category,
                 'description'   => $tx['description'] ?? '-',
-                
+
                 // Wallet Change (USD & INR)
                 'wallet_change_usd' => $walletChangeUsd,
                 'wallet_change_inr' => $walletChangeInr,
-                
+
                 // Coins Quantity
                 'green_coin'    => $greenCoin,
                 'yellow_coin'   => $yellowCoin,
@@ -1260,11 +1259,11 @@ class UserDashboard1Controller extends Controller
 
                 // Coins Value in INR
                 'green_value_inr' => $greenValueInr,
-                'yellow_value_inr'=> $yellowValueInr,
+                'yellow_value_inr' => $yellowValueInr,
                 'blue_value_inr'  => $blueValueInr,
 
                 'order_id'      => $tx['order_no'] ?? null,
-                'related_member'=> $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
+                'related_member' => $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
             ];
 
             // Transactions tab ke liye sab
@@ -1302,7 +1301,7 @@ class UserDashboard1Controller extends Controller
                     // Cash Balance
                     'cash_bal_usd'      => round($cashUsd, 2),
                     'cash_bal_inr'      => round($cashUsd * $usdRate, 2),
-                    
+
                     // Retail Profit
                     'retail_profit_usd' => round($retailProfitUsd, 2),
                     'retail_profit_inr' => round($retailProfitUsd * $usdRate, 2),
@@ -1330,5 +1329,4 @@ class UserDashboard1Controller extends Controller
             ]
         ]);
     }
-
 }

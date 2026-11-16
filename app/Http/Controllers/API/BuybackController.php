@@ -74,7 +74,7 @@ class BuybackController extends Controller
 
         foreach ($orders as $order) {
             foreach ($order->lines as $line) {
-                // ✅ FIX: Check if line is eligible for buyback
+                //  FIX: Check if line is eligible for buyback
                 if (!$this->isLineEligibleForBuyback($line, $order, $buybackWindow)) {
                     continue;
                 }
@@ -83,7 +83,7 @@ class BuybackController extends Controller
                 $returnedQty = (int) ($line->returned_quantity ?? 0);
                 $availableQty = $purchasedQty - $returnedQty;
 
-                // ✅ FIX: Skip if no available quantity
+                //  FIX: Skip if no available quantity
                 if ($availableQty <= 0) {
                     continue;
                 }
@@ -94,7 +94,7 @@ class BuybackController extends Controller
                 $deductionAmount = round($itemTotal * ($deductionPercent / 100), 2);
                 $estimatedRefund = round($itemTotal - $deductionAmount, 2);
 
-                // ✅ FIX: Safe product name with fallback
+                //  FIX: Safe product name with fallback
                 $productName = $line->product ? $line->product->name : 'Unknown Product (ID: ' . $line->product_id . ')';
                 $productCode = $line->product ? $line->product->product_code : '';
 

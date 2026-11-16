@@ -44,7 +44,7 @@ class AxisPgWebhookController extends Controller
             }
 
             // 2. Decrypt encData (JWS verify + JWE decrypt)
-            // ⚠️ NOT YET IMPLEMENTED — needs FCPG Public Key + merchant private key.
+            //  NOT YET IMPLEMENTED — needs FCPG Public Key + merchant private key.
             // Replace the pseudo-code below with real decryption.
             $axispg = new AxisPgService(config('services.axispg'));
             // $payload = $axispg->decryptEncData($encData);
@@ -86,7 +86,6 @@ class AxisPgWebhookController extends Controller
 
             // 5. Always return 200 so AxisPG does not retry
             return response()->json(['success' => true], 200);
-
         } catch (Exception $e) {
             Log::error('AxisPG webhook error', ['error' => $e->getMessage()]);
             // Return 500 so AxisPG retries

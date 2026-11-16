@@ -83,7 +83,7 @@ class Genealogy1Controller extends Controller
                 'cv_settled_left'  => $member['cv_left']           ?? '0.0000',
                 'cv_settled_right' => $member['cv_right']          ?? '0.0000',
                 'cv_floating_left' => $member['floating_cv_left']  ?? '0.0000',
-                'cv_floating_right'=> $member['floating_cv_right'] ?? '0.0000',
+                'cv_floating_right' => $member['floating_cv_right'] ?? '0.0000',
             ],
         ]);
     }
@@ -355,7 +355,7 @@ class Genealogy1Controller extends Controller
 
         // Read memberDetails instead of binaryTree for slot discovery
         $member = $this->fetchMemberDetails($mainBaId);
-        
+
         $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
         $slotId  = $member[$slotKey] ?? null;
 
@@ -368,9 +368,9 @@ class Genealogy1Controller extends Controller
 
         try {
             $response = $this->ignite->setPlacement(
-                baId:            $request->ba_id,
+                baId: $request->ba_id,
                 placementParent: (int) $slotId,   // int → placement_member_id
-                side:            $side,
+                side: $side,
             );
         } catch (\Throwable $e) {
             Log::error('Ignite setPlacement threw', [
@@ -487,9 +487,9 @@ class Genealogy1Controller extends Controller
         // 2) Call Ignite placeBankedTc with the slot as member_id
         try {
             $response = $this->ignite->placeBankedTc(
-                baId:            $request->ba_id,
+                baId: $request->ba_id,
                 placementParent: (int) $slotId,   // int → placement_member_id
-                side:            $side,
+                side: $side,
             );
         } catch (\Throwable $e) {
             Log::error('Ignite placeBankedTc threw', [
@@ -657,7 +657,7 @@ class Genealogy1Controller extends Controller
         return 'equal';
     }
 
-        /**
+    /**
      * Fetch rank names from planRanks (cached 1 hour).
      * Returns array: [rank_no => name].
      */
@@ -678,7 +678,7 @@ class Genealogy1Controller extends Controller
         });
     }
 
-        /**
+    /**
      * Get the authenticated distributor's direct referrals (level 1).
      *
      * Fetches the unilevel tree at depth 1 from Ignite (which includes the
@@ -737,7 +737,7 @@ class Genealogy1Controller extends Controller
             $baId = $row['ba_id'] ?? null;
             $localUser = $baId ? ($localUsers[$baId] ?? null) : null;
 
-            // ✅ Cached memberDetails
+            //  Cached memberDetails
             $member = $baId ? $this->fetchMemberDetails($baId) : [];
 
             $rankNo = $member['rank_no'] ?? 0;
@@ -772,7 +772,7 @@ class Genealogy1Controller extends Controller
         ]);
     }
 
-        /**
+    /**
      * Get all of the user's accounts.
      *
      * Returns the base accounts (-001, -002, -003) and any extra TCs
@@ -782,7 +782,7 @@ class Genealogy1Controller extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
-        /**
+    /**
      * Get all of the user's accounts.
      *
      * Returns the base accounts (-001, -002, -003) and any extra TCs
@@ -827,10 +827,10 @@ class Genealogy1Controller extends Controller
         foreach (['-001', '-002', '-003'] as $suffix) {
             $baId = $baseId . $suffix;
             $acc  = $this->fetchMemberDetails($baId);
-            
+
             $rankNo = (int) ($acc['rank_no'] ?? 0);
             $status = strtolower($acc['membership_status'] ?? 'inactive');
-            
+
             $accounts[] = [
                 'account_id' => $baId,
                 'member_id'  => $acc['member_id'] ?? null,
@@ -862,7 +862,7 @@ class Genealogy1Controller extends Controller
                     continue;
                 }
 
-                // ✅ FIX: Only keep nodes that share this user's base ID (e.g., AIA1675197)
+                //  FIX: Only keep nodes that share this user's base ID (e.g., AIA1675197)
                 // This filters out referrals' base accounts (e.g., AIA2325349-001)
                 if (!str_starts_with($baId, $baseId . '-')) {
                     continue;
@@ -886,7 +886,7 @@ class Genealogy1Controller extends Controller
                 ];
             }
 
-            // 3. ✅ FALLBACK: Safety net for extra TCs (-004 to -006) 
+            // 3.  FALLBACK: Safety net for extra TCs (-004 to -006) 
             // Just in case they are not returned in the binary tree rows (e.g., deeper than level 5)
             foreach (['-004', '-005', '-006'] as $suffix) {
                 $baId = $baseId . $suffix;
@@ -897,7 +897,7 @@ class Genealogy1Controller extends Controller
                 }
 
                 $acc = $this->fetchMemberDetails($baId);
-                
+
                 // If data exists, this extra TC belongs to the user
                 if (!empty($acc) && isset($acc['member_id'])) {
                     $rankNo = (int) ($acc['rank_no'] ?? 0);
@@ -925,64 +925,63 @@ class Genealogy1Controller extends Controller
     }
 
     /**
- * CV Counter — kis week, kis TC account ka CV dikhana hai.
- * GET /distributor/genealogy/cv-counter?ba_id=...&year=...&week_no=...
- */
-public function cvCounter(Request $request)
-{
-    $user = Auth::user();
+     * CV Counter — kis week, kis TC account ka CV dikhana hai.
+     * GET /distributor/genealogy/cv-counter?ba_id=...&year=...&week_no=...
+     */
+    public function cvCounter(Request $request)
+    {
+        $user = Auth::user();
 
-    if (!$user->distributor_id) {
-        return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);
-    }
-
-    $validator = Validator::make($request->all(), [
-        'ba_id'   => 'required|string|max:50',
-        'year'    => 'required|integer|min:2020|max:2100',
-        'week_no' => 'required|integer|min:1|max:53',
-    ]);
-
-    if ($validator->fails()) {
-        return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
-    }
-
-    $baId   = trim($request->ba_id);
-    $year   = (int) $request->year;
-    $weekNo = (int) $request->week_no;
-
-    // 1) Live CV from memberDetails
-    $member = $this->fetchMemberDetails($baId);
-
-    // 2) Week's pairing result
-    $pairingRow = null;
-    try {
-        $resp = $this->ignite->pairings($year, $weekNo, $baId);
-        if (($resp['code'] ?? null) === ResultCode::OK->value) {
-            $pairingRow = $resp['data']['rows'][0] ?? null;
+        if (!$user->distributor_id) {
+            return response()->json(['success' => false, 'message' => 'Not registered on Ignite'], 422);
         }
-    } catch (\Throwable $e) {
-        Log::warning('pairings failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
-    }
 
-    return response()->json([
-        'success' => true,
-        'data' => [
-            'ba_id' => $baId,
-            'week'  => ['year' => $year, 'week_no' => $weekNo],
-            'current' => [
-                'cv_left'           => $member['cv_left']           ?? '0.0000',
-                'cv_right'          => $member['cv_right']          ?? '0.0000',
-                'floating_cv_left'  => $member['floating_cv_left']  ?? '0.0000',
-                'floating_cv_right' => $member['floating_cv_right'] ?? '0.0000',
-                'total_cv_left'     => $member['total_cv_left']     ?? '0.0000',
-                'total_cv_right'    => $member['total_cv_right']    ?? '0.0000',
-                'rank_no'           => $member['rank_no']           ?? 0,
-                'total_steps'       => $member['total_steps']       ?? 0,
+        $validator = Validator::make($request->all(), [
+            'ba_id'   => 'required|string|max:50',
+            'year'    => 'required|integer|min:2020|max:2100',
+            'week_no' => 'required|integer|min:1|max:53',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $baId   = trim($request->ba_id);
+        $year   = (int) $request->year;
+        $weekNo = (int) $request->week_no;
+
+        // 1) Live CV from memberDetails
+        $member = $this->fetchMemberDetails($baId);
+
+        // 2) Week's pairing result
+        $pairingRow = null;
+        try {
+            $resp = $this->ignite->pairings($year, $weekNo, $baId);
+            if (($resp['code'] ?? null) === ResultCode::OK->value) {
+                $pairingRow = $resp['data']['rows'][0] ?? null;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('pairings failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'ba_id' => $baId,
+                'week'  => ['year' => $year, 'week_no' => $weekNo],
+                'current' => [
+                    'cv_left'           => $member['cv_left']           ?? '0.0000',
+                    'cv_right'          => $member['cv_right']          ?? '0.0000',
+                    'floating_cv_left'  => $member['floating_cv_left']  ?? '0.0000',
+                    'floating_cv_right' => $member['floating_cv_right'] ?? '0.0000',
+                    'total_cv_left'     => $member['total_cv_left']     ?? '0.0000',
+                    'total_cv_right'    => $member['total_cv_right']    ?? '0.0000',
+                    'rank_no'           => $member['rank_no']           ?? 0,
+                    'total_steps'       => $member['total_steps']       ?? 0,
+                ],
+                'week_result' => $pairingRow,
+                'is_settled'  => $pairingRow !== null,
             ],
-            'week_result' => $pairingRow,
-            'is_settled'  => $pairingRow !== null,
-        ],
-    ]);
-}
-
+        ]);
+    }
 }

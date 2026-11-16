@@ -32,7 +32,7 @@ class ProformaInvoiceMail extends Mailable
             ->with([
                 'invoice'        => $this->invoice,
                 'orderReference' => $this->invoice->summary_snapshot['order_reference'] ?? 'N/A',
-                'amountInWords'  => $amountInWords,   // ✅ ab blade me milega
+                'amountInWords'  => $amountInWords,   //  ab blade me milega
             ])
             ->attachData($this->pdfContent, $cleanName . '.pdf', [
                 'mime' => 'application/pdf',

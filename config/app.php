@@ -17,6 +17,8 @@ return [
     'company_name' => env('COMPANY_NAME', 'IndieKonnect'),
     'company_gstin' => env('COMPANY_GSTIN', ''),
     'company_address' => env('COMPANY_ADDRESS', 'punjab'),
+    'seller_city' => env('SUPPLIER_CITY', 'Ludhiyana'),
+    'seller_pincode' => env('SUPPLIER_PINCODE', '141001'),
     'supplier_state' => env('SUPPLIER_STATE', ''),
     'company_email'   => env('COMPANY_EMAIL', 'care@indiekonnect.com'),
     'company_phone'   => env('COMPANY_PHONE', '+91 98765 43210'),
