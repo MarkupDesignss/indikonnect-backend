@@ -1574,8 +1574,15 @@ class GenealogyController extends Controller
         $paginated = $referrals->slice(($page - 1) * $perPage, $perPage)->values();
 
         // Enrich only paginated rows
+        // Normalize ba_ids by stripping the -001 / -002 suffix before lookup
         $baIds = $paginated->pluck('ba_id')->filter()->values()->all();
-        $localUsers = User::whereIn('distributor_id', $baIds)
+        $normalizedBaIds = collect($baIds)
+            ->map(fn ($id) => preg_replace('/-\d{3}$/', '', $id))
+            ->unique()
+            ->values()
+            ->all();
+
+        $localUsers = User::whereIn('distributor_id', $normalizedBaIds)
             ->get(['distributor_id', 'full_name', 'email', 'created_at'])
             ->keyBy('distributor_id');
 
@@ -1588,7 +1595,9 @@ class GenealogyController extends Controller
 
         $data = $paginated->map(function ($row) use ($localUsers, $rankNames, $referralsByParent) {
             $baId = $row['ba_id'] ?? null;
-            $localUser = $baId ? ($localUsers[$baId] ?? null) : null;
+            // Strip the -001 / -002 suffix for local user lookup
+            $baseBaId = $baId ? preg_replace('/-\d{3}$/', '', $baId) : null;
+            $localUser = $baseBaId ? ($localUsers[$baseBaId] ?? null) : null;
 
             $member = $baId ? $this->fetchMemberDetails($baId) : [];
 
@@ -1599,7 +1608,7 @@ class GenealogyController extends Controller
             return [
                 'member_id'   => $row['member_id'] ?? null,
                 'ba_id'       => $baId,
-                'full_name'   => $localUser?->full_name,
+                'full_name'   => $localUser?->full_name ?? 'Unknown Member',
                 'email'       => $localUser?->email,
                 'rank_no'     => $rankNo,
                 'rank_name'   => $rankNames[$rankNo] ?? '—',
