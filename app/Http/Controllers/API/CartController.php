@@ -510,7 +510,7 @@ class CartController extends Controller
                 ->where('variant_id', $variantId)
                 ->value('quantity') ?? 0);
 
-            $this->stockGuard->assertCanAdd($product, $variant, (int) $quantity, $existingQty);
+            $this->stockGuard->assertCanAdd($product, $quantity, $existingQty);
 
             // ---------- Add / update cart item ----------
             $shippingCharge = $product->shipping_charge ?? 0;
@@ -764,8 +764,8 @@ class CartController extends Controller
                 // only check when increasing
                 $this->stockGuard->assertCanAdd(
                     $cartItem->product,
-                    $cartItem->variant,
-                    $proposedQty
+                    $proposedQty,
+                    $cartItem->quantity
                 );
             }
 
