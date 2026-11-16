@@ -23,50 +23,26 @@ class AxisPgService
     /**
      * Generate signature (Document Page 31-32)
      */
-    // public function generateSignature(array $payload): string
-    // {
-    //     unset($payload['signature']);
-    //     ksort($payload);
-
-    //     $concatenated = '';
-    //     foreach ($payload as $key => $value) {
-    //         if ($value === null || $value === '') {
-    //             continue;
-    //         }
-    //         if (is_array($value)) {
-    //             $value = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    //         }
-    //         $concatenated .= (string) $value;
-    //     }
-
-    //     $concatenated .= $this->merchantKey;
-
-    //     return hash('sha256', $concatenated);
-    // }
-
     public function generateSignature(array $payload): string
-{
-    // 1. Signature field ko hata dein
-    unset($payload['signature']);
-    
-    // 2. Keys ko alphabetically sort karein
-    ksort($payload);
-    
-    // 3. Sirf VALUES ko concatenate karein (field names NAHI)
-    $concatenated = '';
-    foreach ($payload as $key => $value) {
-        if (is_array($value)) {
-            $value = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    {
+        unset($payload['signature']);
+        ksort($payload);
+
+        $concatenated = '';
+        foreach ($payload as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            if (is_array($value)) {
+                $value = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            }
+            $concatenated .= (string) $value;
         }
-        $concatenated .= (string) $value;
+
+        $concatenated .= $this->merchantKey;
+
+        return hash('sha256', $concatenated);
     }
-    
-    // 4. Merchant Key append karein
-    $concatenated .= $this->merchantKey;
-    
-    // 5. SHA-256 hash return karein
-    return hash('sha256', $concatenated);
-}
 
     /**
      * Create dynamic checkout payload
