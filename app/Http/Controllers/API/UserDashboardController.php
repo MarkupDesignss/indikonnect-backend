@@ -74,11 +74,11 @@ class UserDashboardController extends Controller
                 'section'      => $tdsSection,
                 'applied_rate' => round($tdsRate * 100, 2),
                 'reason'       => $isValidGst
-                                    ? ($panVerified ? 'Valid GSTIN + verified PAN' : 'Valid GSTIN but PAN not verified')
-                                    : 'GSTIN missing, invalid or URP',
+                    ? ($panVerified ? 'Valid GSTIN + verified PAN' : 'Valid GSTIN but PAN not verified')
+                    : 'GSTIN missing, invalid or URP',
                 'action_hint'  => $isValidGst
-                                    ? null
-                                    : 'Update your GSTIN to reduce TDS from 20% to 2%',
+                    ? null
+                    : 'Update your GSTIN to reduce TDS from 20% to 2%',
             ];
         }
 
@@ -187,7 +187,7 @@ class UserDashboardController extends Controller
             // ---------- 🆕 history me TDS fields add karo (sirf withdrawal par) ----------
             $history = array_map(function ($tx) use ($usdRate, $tdsRate, $tdsSection, $data) {
                 $isWithdrawal = (($tx['category'] ?? '') === 'Withdrawal')
-                            || (($tx['description'] ?? '') === 'wd_partner_payout');
+                    || (($tx['description'] ?? '') === 'wd_partner_payout');
 
                 if ($isWithdrawal) {
                     $grossInr      = round(abs((float) ($tx['amount_usd'] ?? 0)) * $usdRate, 2);
@@ -247,8 +247,8 @@ class UserDashboardController extends Controller
                 'weekly_pairing_inr'      => round($weeklyPairingUsd * $usdRate, 2),
 
                 'unilevel_green_coin'     => round($unilevelGreenCoin, 2),
-                'unilevel_green_value_usd'=> round($unilevelGreenValueUsd, 2),
-                'unilevel_green_value_inr'=> round($unilevelGreenValueUsd * $usdRate, 2),
+                'unilevel_green_value_usd' => round($unilevelGreenValueUsd, 2),
+                'unilevel_green_value_inr' => round($unilevelGreenValueUsd * $usdRate, 2),
 
                 // Cash balance
                 'cash_bal'          => $cashBal,
@@ -260,10 +260,10 @@ class UserDashboardController extends Controller
                 'green_value_usd'   => round($greenValueUsd, 2),
                 'green_value_inr'   => round($greenValueUsd * $usdRate, 2),
                 'green_note' => $greenBal >= 6
-                            ? floor($greenBal / 6) . " redemption(s) ready = \$" . number_format(floor($greenBal / 6) * $greenRate, 2)
-                            : ($greenBal > 0
-                                ? "Need " . (6 - (int) $greenBal) . " more Green Coins to redeem \$" . number_format($greenRate, 2)
-                                : "Every 6 Green Coins = \$" . number_format($greenRate, 2)),
+                    ? floor($greenBal / 6) . " redemption(s) ready = \$" . number_format(floor($greenBal / 6) * $greenRate, 2)
+                    : ($greenBal > 0
+                        ? "Need " . (6 - (int) $greenBal) . " more Green Coins to redeem \$" . number_format($greenRate, 2)
+                        : "Every 6 Green Coins = \$" . number_format($greenRate, 2)),
                 'yellow_bal'        => $yellowBal,
                 'yellow_value_usd'  => round($yellowValueUsd, 2),
                 'yellow_value_inr'  => round($yellowValueUsd * $usdRate, 2),
@@ -294,11 +294,11 @@ class UserDashboardController extends Controller
                     'section'      => $tdsSection,
                     'applied_rate' => round($tdsRate * 100, 2),
                     'reason'       => $isValidGst
-                                        ? ($panVerified ? 'Valid GSTIN + verified PAN' : 'Valid GSTIN but PAN not verified')
-                                        : 'GSTIN missing, invalid or URP',
+                        ? ($panVerified ? 'Valid GSTIN + verified PAN' : 'Valid GSTIN but PAN not verified')
+                        : 'GSTIN missing, invalid or URP',
                     'action_hint'  => $isValidGst
-                                        ? null
-                                        : 'Update your GSTIN to reduce TDS from 20% to 2%',
+                        ? null
+                        : 'Update your GSTIN to reduce TDS from 20% to 2%',
                 ],
 
                 'commission_breakdown' => [
@@ -360,8 +360,8 @@ class UserDashboardController extends Controller
 
                 // Display string — currency-correct
                 if ($isCashRow) {
-                   $sign = $amount < 0 ? '-' : ($amount > 0 ? '+' : '');
-                   $amountDisplay = $sign . '₹' . number_format(abs($amount * $usdRate), 2);
+                    $sign = $amount < 0 ? '-' : ($amount > 0 ? '+' : '');
+                    $amountDisplay = $sign . '₹' . number_format(abs($amount * $usdRate), 2);
                 } elseif ($isCoinRow) {
                     $unit = match ($pointType) {
                         'green_bal'  => 'GC',
@@ -396,11 +396,10 @@ class UserDashboardController extends Controller
                     // Ready-to-render string
                     'amount'        => $amountDisplay,
 
-                    'related_orderid'=> $row['order_no'] ?: 'N/A',
+                    'related_orderid' => $row['order_no'] ?: 'N/A',
                     'related_member' => $row['rel_ba_id'] ?? $row['rel_member_id'] ?? 'N/A',
                 ];
             }, $rows);
-
         } catch (\Exception $e) {
             \Log::warning('Ignite pointTxs failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
             return [];
@@ -795,11 +794,15 @@ class UserDashboardController extends Controller
                     'quantity' => $cartItem->quantity,
                     'unit_price' => number_format(
                         (float) ($cartItem->unit_price > 0 ? $cartItem->unit_price : $product->distributor_price),
-                        2, '.', ''
+                        2,
+                        '.',
+                        ''
                     ),
                     'line_total' => number_format(
                         (float) ($cartItem->unit_price > 0 ? $cartItem->unit_price : $product->distributor_price) * $cartItem->quantity,
-                        2, '.', ''
+                        2,
+                        '.',
+                        ''
                     ),
                     'currency' => 'INR',
                     'images' => $product->images->map(function ($image) {
@@ -909,7 +912,7 @@ class UserDashboardController extends Controller
     /**
      * Get distributor-specific statistics including Ignite rank progress.
      */
-        /**
+    /**
      * Get distributor-specific statistics including Ignite rank progress.
      *
      * This method retrieves local order statistics and combines them with 
@@ -921,760 +924,758 @@ class UserDashboardController extends Controller
      * @return \Illuminate\Http\JsonResponse
      */
 
-//    public function getDistributorStats(Request $request)
-//     {
-//         try {
-//             $authUser = Auth::user();
+    //    public function getDistributorStats(Request $request)
+    //     {
+    //         try {
+    //             $authUser = Auth::user();
 
-//             if (!$authUser) {
-//                 return response()->json([
-//                     'success' => false,
-//                     'message' => 'Unauthenticated. Please login first.',
-//                     'data'    => [],
-//                 ], 401);
-//             }
+    //             if (!$authUser) {
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => 'Unauthenticated. Please login first.',
+    //                     'data'    => [],
+    //                 ], 401);
+    //             }
 
-//             if ($authUser->account_type !== 'distributor') {
-//                 return response()->json([
-//                     'success' => false,
-//                     'message' => 'Access denied. Only distributors can access this data.',
-//                     'data'    => [],
-//                 ], 403);
-//             }
+    //             if ($authUser->account_type !== 'distributor') {
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => 'Access denied. Only distributors can access this data.',
+    //                     'data'    => [],
+    //                 ], 403);
+    //             }
 
-//             $userId = $authUser->id;
+    //             $userId = $authUser->id;
 
-//             $user = User::where('account_type', 'distributor')
-//                 ->where('id', $userId)
-//                 ->first();
+    //             $user = User::where('account_type', 'distributor')
+    //                 ->where('id', $userId)
+    //                 ->first();
 
-//             if (!$user) {
-//                 return response()->json([
-//                     'success' => false,
-//                     'message' => 'Distributor not found',
-//                     'data'    => [],
-//                 ], 404);
-//             }
+    //             if (!$user) {
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => 'Distributor not found',
+    //                     'data'    => [],
+    //                 ], 404);
+    //             }
 
-//             // Clean distributor_id for response (strip "-001" style suffix)
-//             $cleanDistributorId = null;
-//             if (!empty($user->distributor_id)) {
-//                 $cleanDistributorId = preg_replace('/-\d+$/', '', $user->distributor_id);
-//             }
+    //             // Clean distributor_id for response (strip "-001" style suffix)
+    //             $cleanDistributorId = null;
+    //             if (!empty($user->distributor_id)) {
+    //                 $cleanDistributorId = preg_replace('/-\d+$/', '', $user->distributor_id);
+    //             }
 
-//             // ---------------------------------------------------------------
-//             // Local order stats (NULL-safe COALESCE, cancelled excluded)
-//             // ---------------------------------------------------------------
-//             $stats = DB::table('orders as o')
-//                 ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
-//                 ->join('products as p', 'ol.product_id', '=', 'p.id')
-//                 ->where('o.user_id', $userId)
-//                 ->where('o.status', '!=', 'cancelled')
-//                 ->select([
-//                     DB::raw('COUNT(DISTINCT o.id) as total_orders'),
-//                     DB::raw('COALESCE(SUM(COALESCE(p.distributor_mrp, 0) * ol.quantity), 0) as total_amount_mrp'),
-//                     DB::raw('COALESCE(SUM((COALESCE(p.distributor_mrp, 0) - COALESCE(p.distributor_price, 0)) * ol.quantity), 0) as total_savings'),
-//                 ])
-//                 ->first();
+    //             // ---------------------------------------------------------------
+    //             // Local order stats (NULL-safe COALESCE, cancelled excluded)
+    //             // ---------------------------------------------------------------
+    //             $stats = DB::table('orders as o')
+    //                 ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
+    //                 ->join('products as p', 'ol.product_id', '=', 'p.id')
+    //                 ->where('o.user_id', $userId)
+    //                 ->where('o.status', '!=', 'cancelled')
+    //                 ->select([
+    //                     DB::raw('COUNT(DISTINCT o.id) as total_orders'),
+    //                     DB::raw('COALESCE(SUM(COALESCE(p.distributor_mrp, 0) * ol.quantity), 0) as total_amount_mrp'),
+    //                     DB::raw('COALESCE(SUM((COALESCE(p.distributor_mrp, 0) - COALESCE(p.distributor_price, 0)) * ol.quantity), 0) as total_savings'),
+    //                 ])
+    //                 ->first();
 
-//             // ---------------------------------------------------------------
-//             // Ignite: rank progress, CV, coins redeemed
-//             // ---------------------------------------------------------------
-//             $rankProgress           = null;
-//             $totalCoinsRedeemed     = 0;
-//             $igniteCv               = 0;
-//             $currentRankName        = 'Unranked';
-//             $nextRankName           = 'N/A';
-//             $rankProgressPercentage = 0;
-//             $blockingConditions     = [];
+    //             // ---------------------------------------------------------------
+    //             // Ignite: rank progress, CV, coins redeemed
+    //             // ---------------------------------------------------------------
+    //             $rankProgress           = null;
+    //             $totalCoinsRedeemed     = 0;
+    //             $igniteCv               = 0;
+    //             $currentRankName        = 'Unranked';
+    //             $nextRankName           = 'N/A';
+    //             $rankProgressPercentage = 0;
+    //             $blockingConditions     = [];
 
-//             if ($user->distributor_id) {
-//                 $baId = $user->distributor_id;
+    //             if ($user->distributor_id) {
+    //                 $baId = $user->distributor_id;
 
-//                 // ---------- 1. Rank progress ----------
-//                 try {
-//                     $response = $this->ignite->rankProgress($baId);
+    //                 // ---------- 1. Rank progress ----------
+    //                 try {
+    //                     $response = $this->ignite->rankProgress($baId);
 
-//                     if (($response['code'] ?? null) === ResultCode::OK->value) {
-//                         $rankProgress  = $response['data'] ?? [];
-//                         $ranks         = $rankProgress['ranks'] ?? [];
-//                         $currentRankNo = (int) ($rankProgress['current']['rank_no'] ?? 0);
+    //                     if (($response['code'] ?? null) === ResultCode::OK->value) {
+    //                         $rankProgress  = $response['data'] ?? [];
+    //                         $ranks         = $rankProgress['ranks'] ?? [];
+    //                         $currentRankNo = (int) ($rankProgress['current']['rank_no'] ?? 0);
 
-//                         // 1a. Current rank name — match by rank_no (NOT array index)
-//                         foreach ($ranks as $rank) {
-//                             if ((int) ($rank['rank_no'] ?? 0) === $currentRankNo) {
-//                                 $currentRankName = $rank['name'] ?? $currentRankName;
-//                                 break;
-//                             }
-//                         }
+    //                         // 1a. Current rank name — match by rank_no (NOT array index)
+    //                         foreach ($ranks as $rank) {
+    //                             if ((int) ($rank['rank_no'] ?? 0) === $currentRankNo) {
+    //                                 $currentRankName = $rank['name'] ?? $currentRankName;
+    //                                 break;
+    //                             }
+    //                         }
 
-//                         // 1b. Direct CV — first available rank's direct_cv.current
-//                         foreach ($ranks as $rank) {
-//                             if (isset($rank['conditions']['direct_cv']['current'])) {
-//                                 $igniteCv = (float) $rank['conditions']['direct_cv']['current'];
-//                                 break;
-//                             }
-//                         }
+    //                         // 1b. Direct CV — first available rank's direct_cv.current
+    //                         foreach ($ranks as $rank) {
+    //                             if (isset($rank['conditions']['direct_cv']['current'])) {
+    //                                 $igniteCv = (float) $rank['conditions']['direct_cv']['current'];
+    //                                 break;
+    //                             }
+    //                         }
 
-//                         // 1c. Next rank — first rank with rank_no > currentRankNo
-//                         $sorted = $ranks;
-//                         usort($sorted, fn($a, $b) => (int)($a['rank_no'] ?? 0) <=> (int)($b['rank_no'] ?? 0));
+    //                         // 1c. Next rank — first rank with rank_no > currentRankNo
+    //                         $sorted = $ranks;
+    //                         usort($sorted, fn($a, $b) => (int)($a['rank_no'] ?? 0) <=> (int)($b['rank_no'] ?? 0));
 
-//                         $nextRankData = null;
-//                         foreach ($sorted as $rank) {
-//                             if ((int) ($rank['rank_no'] ?? 0) > $currentRankNo) {
-//                                 $nextRankData = $rank;
-//                                 break;
-//                             }
-//                         }
+    //                         $nextRankData = null;
+    //                         foreach ($sorted as $rank) {
+    //                             if ((int) ($rank['rank_no'] ?? 0) > $currentRankNo) {
+    //                                 $nextRankData = $rank;
+    //                                 break;
+    //                             }
+    //                         }
 
-//                         if ($nextRankData !== null) {
-//                             $nextRankName = $nextRankData['name'] ?? 'N/A';
+    //                         if ($nextRankData !== null) {
+    //                             $nextRankName = $nextRankData['name'] ?? 'N/A';
 
-//                             $metCount   = 0;
-//                             $totalCount = 0;
+    //                             $metCount   = 0;
+    //                             $totalCount = 0;
 
-//                             $conditionLabels = [
-//                                 'steps'               => 'Pairing Steps',
-//                                 'direct_cv'           => 'Direct CV',
-//                                 'downlines_one_below' => 'Downlines (1 below)',
-//                                 'downlines_two_below' => 'Downlines (2 below)',
-//                                 'tenure'              => 'Tenure (months)',
-//                             ];
+    //                             $conditionLabels = [
+    //                                 'steps'               => 'Pairing Steps',
+    //                                 'direct_cv'           => 'Direct CV',
+    //                                 'downlines_one_below' => 'Downlines (1 below)',
+    //                                 'downlines_two_below' => 'Downlines (2 below)',
+    //                                 'tenure'              => 'Tenure (months)',
+    //                             ];
 
-//                             foreach ($conditionLabels as $key => $label) {
-//                                 if (!isset($nextRankData['conditions'][$key])) {
-//                                     continue;
-//                                 }
+    //                             foreach ($conditionLabels as $key => $label) {
+    //                                 if (!isset($nextRankData['conditions'][$key])) {
+    //                                     continue;
+    //                                 }
 
-//                                 $totalCount++;
-//                                 $cond = $nextRankData['conditions'][$key];
+    //                                 $totalCount++;
+    //                                 $cond = $nextRankData['conditions'][$key];
 
-//                                 if (!empty($cond['met'])) {
-//                                     $metCount++;
-//                                 } else {
-//                                     $blockingConditions[] = [
-//                                         'key'      => $key,
-//                                         'label'    => $label,
-//                                         'current'  => $cond['current']  ?? 0,
-//                                         'required' => $cond['required'] ?? 0,
-//                                     ];
-//                                 }
-//                             }
+    //                                 if (!empty($cond['met'])) {
+    //                                     $metCount++;
+    //                                 } else {
+    //                                     $blockingConditions[] = [
+    //                                         'key'      => $key,
+    //                                         'label'    => $label,
+    //                                         'current'  => $cond['current']  ?? 0,
+    //                                         'required' => $cond['required'] ?? 0,
+    //                                     ];
+    //                                 }
+    //                             }
 
-//                             $rankProgressPercentage = $totalCount > 0
-//                                 ? (int) round(($metCount / $totalCount) * 100)
-//                                 : 0;
-//                         } else {
-//                             $nextRankName = 'Max Rank Achieved';
-//                             $rankProgressPercentage = 100;
-//                         }
-//                     }
-//                 } catch (\Throwable $e) {
-//                     Log::warning('Ignite rankProgress failed', [
-//                         'ba_id' => $baId,
-//                         'error' => $e->getMessage(),
-//                     ]);
-//                 }
+    //                             $rankProgressPercentage = $totalCount > 0
+    //                                 ? (int) round(($metCount / $totalCount) * 100)
+    //                                 : 0;
+    //                         } else {
+    //                             $nextRankName = 'Max Rank Achieved';
+    //                             $rankProgressPercentage = 100;
+    //                         }
+    //                     }
+    //                 } catch (\Throwable $e) {
+    //                     Log::warning('Ignite rankProgress failed', [
+    //                         'ba_id' => $baId,
+    //                         'error' => $e->getMessage(),
+    //                     ]);
+    //                 }
 
-//                 // ---------- 2. Coins redeemed (paginated) ----------
-//                 try {
-//                     $afterId = 0;
-//                     $guard   = 0; // safety against infinite loop
+    //                 // ---------- 2. Coins redeemed (paginated) ----------
+    //                 try {
+    //                     $afterId = 0;
+    //                     $guard   = 0; // safety against infinite loop
 
-//                     do {
-//                         $txResp = $this->ignite->pointTxs($baId, $afterId, 500);
-//                         $rows   = $txResp['data']['rows'] ?? [];
+    //                     do {
+    //                         $txResp = $this->ignite->pointTxs($baId, $afterId, 500);
+    //                         $rows   = $txResp['data']['rows'] ?? [];
 
-//                         foreach ($rows as $tx) {
-//                             $txType    = $tx['tx_type']    ?? null;
-//                             $pointType = $tx['point_type'] ?? null;
+    //                         foreach ($rows as $tx) {
+    //                             $txType    = $tx['tx_type']    ?? null;
+    //                             $pointType = $tx['point_type'] ?? null;
 
-//                             // Coin redemption: tx_type 'cr' on a coin balance
-//                             // (yellow_bal, blue_bal, green_bal). Cash side is 'cr_in' on cash_bal.
-//                             if (
-//                                 $txType === 'cr' &&
-//                                 in_array($pointType, ['yellow_bal', 'blue_bal', 'green_bal'], true)
-//                             ) {
-//                                 $totalCoinsRedeemed += abs((float) ($tx['amount'] ?? 0));
-//                             }
-//                         }
+    //                             // Coin redemption: tx_type 'cr' on a coin balance
+    //                             // (yellow_bal, blue_bal, green_bal). Cash side is 'cr_in' on cash_bal.
+    //                             if (
+    //                                 $txType === 'cr' &&
+    //                                 in_array($pointType, ['yellow_bal', 'blue_bal', 'green_bal'], true)
+    //                             ) {
+    //                                 $totalCoinsRedeemed += abs((float) ($tx['amount'] ?? 0));
+    //                             }
+    //                         }
 
-//                         if (empty($rows) || !($txResp['data']['has_more'] ?? false)) {
-//                             break;
-//                         }
+    //                         if (empty($rows) || !($txResp['data']['has_more'] ?? false)) {
+    //                             break;
+    //                         }
 
-//                         $afterId = (int) end($rows)['id'];
-//                         $guard++;
-//                     } while ($guard < 100); // max 50,000 rows to be safe
-//                 } catch (\Throwable $e) {
-//                     Log::warning('Ignite pointTxs failed', [
-//                         'ba_id' => $baId,
-//                         'error' => $e->getMessage(),
-//                     ]);
-//                 }
-//             }
+    //                         $afterId = (int) end($rows)['id'];
+    //                         $guard++;
+    //                     } while ($guard < 100); // max 50,000 rows to be safe
+    //                 } catch (\Throwable $e) {
+    //                     Log::warning('Ignite pointTxs failed', [
+    //                         'ba_id' => $baId,
+    //                         'error' => $e->getMessage(),
+    //                     ]);
+    //                 }
+    //             }
 
-//             // ---------------------------------------------------------------
-//             // Response
-//             // ---------------------------------------------------------------
-//             $result = [
-//                 'user_id'        => $user->id,
-//                 'full_name'      => $user->full_name,
-//                 'email'          => $user->email,
-//                 'phone'          => $user->phone,
-//                 'distributor_id' => $cleanDistributorId,
+    //             // ---------------------------------------------------------------
+    //             // Response
+    //             // ---------------------------------------------------------------
+    //             $result = [
+    //                 'user_id'        => $user->id,
+    //                 'full_name'      => $user->full_name,
+    //                 'email'          => $user->email,
+    //                 'phone'          => $user->phone,
+    //                 'distributor_id' => $cleanDistributorId,
 
-//                 // Orders
-//                 'total_orders'              => (int) $stats->total_orders,
-//                 'total_amount_mrp'          => (float) $stats->total_amount_mrp,
-//                 'total_amount_mrp_currency' => 'INR',
-//                 'total_savings'             => (float) $stats->total_savings,
-//                 'total_savings_currency'    => 'INR',
+    //                 // Orders
+    //                 'total_orders'              => (int) $stats->total_orders,
+    //                 'total_amount_mrp'          => (float) $stats->total_amount_mrp,
+    //                 'total_amount_mrp_currency' => 'INR',
+    //                 'total_savings'             => (float) $stats->total_savings,
+    //                 'total_savings_currency'    => 'INR',
 
-//                 // CV & Coins
-//                 'total_cv'              => number_format($igniteCv, 2, '.', ''),
-//                 'total_cv_unit'         => 'CV',
-//                 'total_coins_redeemed'  => (int) $totalCoinsRedeemed,
+    //                 // CV & Coins
+    //                 'total_cv'              => number_format($igniteCv, 2, '.', ''),
+    //                 'total_cv_unit'         => 'CV',
+    //                 'total_coins_redeemed'  => (int) $totalCoinsRedeemed,
 
-//                 // Rank
-//                 'current_rank_name'     => $currentRankName,
-//                 'next_rank_name'        => $nextRankName,
-//                 'rank_progress_percent' => $rankProgressPercentage,
-//                 'next_rank_blocking'    => $blockingConditions,   // ✅ NEW
+    //                 // Rank
+    //                 'current_rank_name'     => $currentRankName,
+    //                 'next_rank_name'        => $nextRankName,
+    //                 'rank_progress_percent' => $rankProgressPercentage,
+    //                 'next_rank_blocking'    => $blockingConditions,   //  NEW
 
-//                 'account_type' => $user->account_type,
-//                 'joined_at'    => $user->created_at?->toDateTimeString(),
-//                 'rank_progress'=> $rankProgress,
-//             ];
+    //                 'account_type' => $user->account_type,
+    //                 'joined_at'    => $user->created_at?->toDateTimeString(),
+    //                 'rank_progress'=> $rankProgress,
+    //             ];
 
-//             return response()->json([
-//                 'success' => true,
-//                 'data'    => $result,
-//                 'message' => 'Distributor stats retrieved successfully',
-//             ]);
-//         } catch (\Throwable $e) {
-//             Log::error('getDistributorStats failed', [
-//                 'user_id' => Auth::id(),
-//                 'error'   => $e->getMessage(),
-//                 'trace'   => $e->getTraceAsString(),
-//             ]);
+    //             return response()->json([
+    //                 'success' => true,
+    //                 'data'    => $result,
+    //                 'message' => 'Distributor stats retrieved successfully',
+    //             ]);
+    //         } catch (\Throwable $e) {
+    //             Log::error('getDistributorStats failed', [
+    //                 'user_id' => Auth::id(),
+    //                 'error'   => $e->getMessage(),
+    //                 'trace'   => $e->getTraceAsString(),
+    //             ]);
 
-//             return response()->json([
-//                 'success' => false,
-//                 'message' => 'Failed to retrieve distributor stats',
-//                 'error'   => $e->getMessage(),
-//             ], 500);
-//         }
-//     }
-      
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Failed to retrieve distributor stats',
+    //                 'error'   => $e->getMessage(),
+    //             ], 500);
+    //         }
+    //     }
+
     public function getDistributorStats(Request $request)
-{
-    try {
-        $authUser = Auth::user();
-
-        if (!$authUser) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthenticated. Please login first.',
-                'data'    => [],
-            ], 401);
-        }
-
-        if ($authUser->account_type !== 'distributor') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Access denied. Only distributors can access this data.',
-                'data'    => [],
-            ], 403);
-        }
-
-        $userId = $authUser->id;
-
-        $user = User::where('account_type', 'distributor')
-            ->where('id', $userId)
-            ->first();
-
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Distributor not found',
-                'data'    => [],
-            ], 404);
-        }
-
-        // Clean distributor_id for response (strip "-001" style suffix)
-        $cleanDistributorId = null;
-        if (!empty($user->distributor_id)) {
-            $cleanDistributorId = preg_replace('/-\d+$/', '', $user->distributor_id);
-        }
-
-        // ---------------------------------------------------------------
-        // Local order stats
-        // ---------------------------------------------------------------
-        $stats = DB::table('orders as o')
-            ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
-            ->join('products as p', 'ol.product_id', '=', 'p.id')
-            ->where('o.user_id', $userId)
-            ->where('o.status', '!=', 'cancelled')
-            ->select([
-                DB::raw('COUNT(DISTINCT o.id) as total_orders'),
-                DB::raw('COALESCE(SUM(COALESCE(p.distributor_mrp, 0) * ol.quantity), 0) as total_amount_mrp'),
-                DB::raw('COALESCE(SUM((COALESCE(p.distributor_mrp, 0) - COALESCE(p.distributor_price, 0)) * ol.quantity), 0) as total_savings'),
-            ])
-            ->first();
-
-        // ---------------------------------------------------------------
-        // Ignite: rank progress, CV, coins redeemed
-        // ---------------------------------------------------------------
-        $rankProgress           = null;
-        $totalCoinsRedeemed     = 0;
-        $igniteCv               = 0;
-        $currentRankName        = 'Unranked';
-        $nextRankName           = 'N/A';
-        $rankProgressPercentage = 0;
-        $blockingConditions     = [];
-
-        if ($user->distributor_id) {
-            $baId = $user->distributor_id;
-
-            // 1. Rank progress
-            try {
-                $response = $this->ignite->rankProgress($baId);
-
-                if (($response['code'] ?? null) === ResultCode::OK->value) {
-                    $rankProgress  = $response['data'] ?? [];
-                    $ranks         = $rankProgress['ranks'] ?? [];
-                    $currentRankNo = (int) ($rankProgress['current']['rank_no'] ?? 0);
-
-                    foreach ($ranks as $rank) {
-                        if ((int) ($rank['rank_no'] ?? 0) === $currentRankNo) {
-                            $currentRankName = $rank['name'] ?? $currentRankName;
-                            break;
-                        }
-                    }
-
-                    foreach ($ranks as $rank) {
-                        if (isset($rank['conditions']['direct_cv']['current'])) {
-                            $igniteCv = (float) $rank['conditions']['direct_cv']['current'];
-                            break;
-                        }
-                    }
-
-                    $sorted = $ranks;
-                    usort($sorted, fn($a, $b) => (int)($a['rank_no'] ?? 0) <=> (int)($b['rank_no'] ?? 0));
-
-                    $nextRankData = null;
-                    foreach ($sorted as $rank) {
-                        if ((int) ($rank['rank_no'] ?? 0) > $currentRankNo) {
-                            $nextRankData = $rank;
-                            break;
-                        }
-                    }
-
-                    if ($nextRankData !== null) {
-                        $nextRankName = $nextRankData['name'] ?? 'N/A';
-
-                        $metCount   = 0;
-                        $totalCount = 0;
-
-                        $conditionLabels = [
-                            'steps'               => 'Pairing Steps',
-                            'direct_cv'           => 'Direct CV',
-                            'downlines_one_below' => 'Downlines (1 below)',
-                            'downlines_two_below' => 'Downlines (2 below)',
-                            'tenure'              => 'Tenure (months)',
-                        ];
-
-                        foreach ($conditionLabels as $key => $label) {
-                            if (!isset($nextRankData['conditions'][$key])) {
-                                continue;
-                            }
-
-                            $totalCount++;
-                            $cond = $nextRankData['conditions'][$key];
-
-                            if (!empty($cond['met'])) {
-                                $metCount++;
-                            } else {
-                                $blockingConditions[] = [
-                                    'key'      => $key,
-                                    'label'    => $label,
-                                    'current'  => $cond['current']  ?? 0,
-                                    'required' => $cond['required'] ?? 0,
-                                ];
-                            }
-                        }
-
-                        $rankProgressPercentage = $totalCount > 0
-                            ? (int) round(($metCount / $totalCount) * 100)
-                            : 0;
-                    } else {
-                        $nextRankName = 'Max Rank Achieved';
-                        $rankProgressPercentage = 100;
-                    }
-                }
-            } catch (\Throwable $e) {
-                Log::warning('Ignite rankProgress failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
-            }
-
-            // 2. Coins redeemed (paginated)
-            try {
-                $afterId = 0;
-                $guard   = 0;
-
-                do {
-                    $txResp = $this->ignite->pointTxs($baId, $afterId, 500);
-                    $rows   = $txResp['data']['rows'] ?? [];
-
-                    foreach ($rows as $tx) {
-                        $txType    = $tx['tx_type']    ?? null;
-                        $pointType = $tx['point_type'] ?? null;
-
-                        if ($txType === 'cr' && in_array($pointType, ['yellow_bal', 'blue_bal', 'green_bal'], true)) {
-                            $totalCoinsRedeemed += abs((float) ($tx['amount'] ?? 0));
-                        }
-                    }
-
-                    if (empty($rows) || !($txResp['data']['has_more'] ?? false)) {
-                        break;
-                    }
-
-                    $afterId = (int) end($rows)['id'];
-                    $guard++;
-                } while ($guard < 100);
-            } catch (\Throwable $e) {
-                Log::warning('Ignite pointTxs failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
-            }
-        }
-
-        // ---------------------------------------------------------------
-        // Sales Period + Calendar History (with actual sales data)
-        // ---------------------------------------------------------------
-        $salesPeriod          = null;
-        $salesCalendarHistory = [];
-
+    {
         try {
-            $currentYear = (int) now()->year;
-            $calendar    = $this->getSalesCalendar($currentYear);
+            $authUser = Auth::user();
 
-            // Year boundary fallback
-            if (!$calendar || !$this->calendarHasCurrentWeek($calendar)) {
-                $prevCalendar = $this->getSalesCalendar($currentYear - 1);
-                if ($prevCalendar && $this->calendarHasCurrentWeek($prevCalendar)) {
-                    $calendar = $prevCalendar;
+            if (!$authUser) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthenticated. Please login first.',
+                    'data'    => [],
+                ], 401);
+            }
+
+            if ($authUser->account_type !== 'distributor') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Access denied. Only distributors can access this data.',
+                    'data'    => [],
+                ], 403);
+            }
+
+            $userId = $authUser->id;
+
+            $user = User::where('account_type', 'distributor')
+                ->where('id', $userId)
+                ->first();
+
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Distributor not found',
+                    'data'    => [],
+                ], 404);
+            }
+
+            // Clean distributor_id for response (strip "-001" style suffix)
+            $cleanDistributorId = null;
+            if (!empty($user->distributor_id)) {
+                $cleanDistributorId = preg_replace('/-\d+$/', '', $user->distributor_id);
+            }
+
+            // ---------------------------------------------------------------
+            // Local order stats
+            // ---------------------------------------------------------------
+            $stats = DB::table('orders as o')
+                ->join('order_lines as ol', 'o.id', '=', 'ol.order_id')
+                ->join('products as p', 'ol.product_id', '=', 'p.id')
+                ->where('o.user_id', $userId)
+                ->where('o.status', '!=', 'cancelled')
+                ->select([
+                    DB::raw('COUNT(DISTINCT o.id) as total_orders'),
+                    DB::raw('COALESCE(SUM(COALESCE(p.distributor_mrp, 0) * ol.quantity), 0) as total_amount_mrp'),
+                    DB::raw('COALESCE(SUM((COALESCE(p.distributor_mrp, 0) - COALESCE(p.distributor_price, 0)) * ol.quantity), 0) as total_savings'),
+                ])
+                ->first();
+
+            // ---------------------------------------------------------------
+            // Ignite: rank progress, CV, coins redeemed
+            // ---------------------------------------------------------------
+            $rankProgress           = null;
+            $totalCoinsRedeemed     = 0;
+            $igniteCv               = 0;
+            $currentRankName        = 'Unranked';
+            $nextRankName           = 'N/A';
+            $rankProgressPercentage = 0;
+            $blockingConditions     = [];
+
+            if ($user->distributor_id) {
+                $baId = $user->distributor_id;
+
+                // 1. Rank progress
+                try {
+                    $response = $this->ignite->rankProgress($baId);
+
+                    if (($response['code'] ?? null) === ResultCode::OK->value) {
+                        $rankProgress  = $response['data'] ?? [];
+                        $ranks         = $rankProgress['ranks'] ?? [];
+                        $currentRankNo = (int) ($rankProgress['current']['rank_no'] ?? 0);
+
+                        foreach ($ranks as $rank) {
+                            if ((int) ($rank['rank_no'] ?? 0) === $currentRankNo) {
+                                $currentRankName = $rank['name'] ?? $currentRankName;
+                                break;
+                            }
+                        }
+
+                        foreach ($ranks as $rank) {
+                            if (isset($rank['conditions']['direct_cv']['current'])) {
+                                $igniteCv = (float) $rank['conditions']['direct_cv']['current'];
+                                break;
+                            }
+                        }
+
+                        $sorted = $ranks;
+                        usort($sorted, fn($a, $b) => (int)($a['rank_no'] ?? 0) <=> (int)($b['rank_no'] ?? 0));
+
+                        $nextRankData = null;
+                        foreach ($sorted as $rank) {
+                            if ((int) ($rank['rank_no'] ?? 0) > $currentRankNo) {
+                                $nextRankData = $rank;
+                                break;
+                            }
+                        }
+
+                        if ($nextRankData !== null) {
+                            $nextRankName = $nextRankData['name'] ?? 'N/A';
+
+                            $metCount   = 0;
+                            $totalCount = 0;
+
+                            $conditionLabels = [
+                                'steps'               => 'Pairing Steps',
+                                'direct_cv'           => 'Direct CV',
+                                'downlines_one_below' => 'Downlines (1 below)',
+                                'downlines_two_below' => 'Downlines (2 below)',
+                                'tenure'              => 'Tenure (months)',
+                            ];
+
+                            foreach ($conditionLabels as $key => $label) {
+                                if (!isset($nextRankData['conditions'][$key])) {
+                                    continue;
+                                }
+
+                                $totalCount++;
+                                $cond = $nextRankData['conditions'][$key];
+
+                                if (!empty($cond['met'])) {
+                                    $metCount++;
+                                } else {
+                                    $blockingConditions[] = [
+                                        'key'      => $key,
+                                        'label'    => $label,
+                                        'current'  => $cond['current']  ?? 0,
+                                        'required' => $cond['required'] ?? 0,
+                                    ];
+                                }
+                            }
+
+                            $rankProgressPercentage = $totalCount > 0
+                                ? (int) round(($metCount / $totalCount) * 100)
+                                : 0;
+                        } else {
+                            $nextRankName = 'Max Rank Achieved';
+                            $rankProgressPercentage = 100;
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('Ignite rankProgress failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
+                }
+
+                // 2. Coins redeemed (paginated)
+                try {
+                    $afterId = 0;
+                    $guard   = 0;
+
+                    do {
+                        $txResp = $this->ignite->pointTxs($baId, $afterId, 500);
+                        $rows   = $txResp['data']['rows'] ?? [];
+
+                        foreach ($rows as $tx) {
+                            $txType    = $tx['tx_type']    ?? null;
+                            $pointType = $tx['point_type'] ?? null;
+
+                            if ($txType === 'cr' && in_array($pointType, ['yellow_bal', 'blue_bal', 'green_bal'], true)) {
+                                $totalCoinsRedeemed += abs((float) ($tx['amount'] ?? 0));
+                            }
+                        }
+
+                        if (empty($rows) || !($txResp['data']['has_more'] ?? false)) {
+                            break;
+                        }
+
+                        $afterId = (int) end($rows)['id'];
+                        $guard++;
+                    } while ($guard < 100);
+                } catch (\Throwable $e) {
+                    Log::warning('Ignite pointTxs failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
                 }
             }
 
-            if ($calendar) {
-                // Flatten weeks
-                $allWeeks = [];
-                foreach (($calendar['all_months'] ?? []) as $month) {
-                    foreach (($month['weeks'] ?? []) as $w) {
-                        $allWeeks[] = $w;
+            // ---------------------------------------------------------------
+            // Sales Period + Calendar History (with actual sales data)
+            // ---------------------------------------------------------------
+            $salesPeriod          = null;
+            $salesCalendarHistory = [];
+
+            try {
+                $currentYear = (int) now()->year;
+                $calendar    = $this->getSalesCalendar($currentYear);
+
+                // Year boundary fallback
+                if (!$calendar || !$this->calendarHasCurrentWeek($calendar)) {
+                    $prevCalendar = $this->getSalesCalendar($currentYear - 1);
+                    if ($prevCalendar && $this->calendarHasCurrentWeek($prevCalendar)) {
+                        $calendar = $prevCalendar;
                     }
                 }
 
-                usort($allWeeks, fn($a, $b) => strcmp($a['start'] ?? '', $b['start'] ?? ''));
-
-                // Find current week
-                $now         = \Carbon\Carbon::now('Asia/Kolkata');
-                $currentWeek = null;
-
-                foreach ($allWeeks as $w) {
-                    if (!empty($w['is_current'])) {
-                        $currentWeek = $w;
-                        break;
+                if ($calendar) {
+                    // Flatten weeks
+                    $allWeeks = [];
+                    foreach (($calendar['all_months'] ?? []) as $month) {
+                        foreach (($month['weeks'] ?? []) as $w) {
+                            $allWeeks[] = $w;
+                        }
                     }
-                }
 
-                if (!$currentWeek) {
+                    usort($allWeeks, fn($a, $b) => strcmp($a['start'] ?? '', $b['start'] ?? ''));
+
+                    // Find current week
+                    $now         = \Carbon\Carbon::now('Asia/Kolkata');
+                    $currentWeek = null;
+
                     foreach ($allWeeks as $w) {
-                        $s = !empty($w['start']) ? \Carbon\Carbon::parse($w['start'], 'Asia/Kolkata') : null;
-                        $e = !empty($w['end'])   ? \Carbon\Carbon::parse($w['end'],   'Asia/Kolkata') : null;
-
-                        if ($s && $e && $now->gte($s) && $now->lte($e)) {
+                        if (!empty($w['is_current'])) {
                             $currentWeek = $w;
                             break;
                         }
                     }
-                }
 
-                // Build sales_period
-                if ($currentWeek) {
-                    $startAt = !empty($currentWeek['start']) ? \Carbon\Carbon::parse($currentWeek['start'], 'Asia/Kolkata') : null;
-                    $endAt   = !empty($currentWeek['end'])   ? \Carbon\Carbon::parse($currentWeek['end'],   'Asia/Kolkata') : null;
+                    if (!$currentWeek) {
+                        foreach ($allWeeks as $w) {
+                            $s = !empty($w['start']) ? \Carbon\Carbon::parse($w['start'], 'Asia/Kolkata') : null;
+                            $e = !empty($w['end'])   ? \Carbon\Carbon::parse($w['end'],   'Asia/Kolkata') : null;
 
-                    $daysRemaining = $hoursRemaining = $minutesRemaining = $secondsRemaining = 0;
-                    $countdownText    = '—';
-                    $progressPercent  = 0;
-
-                    if ($endAt) {
-                        $diff = $now->diffInSeconds($endAt, false);
-
-                        if ($diff > 0) {
-                            $daysRemaining    = intdiv($diff, 86400);
-                            $hoursRemaining   = intdiv($diff % 86400, 3600);
-                            $minutesRemaining = intdiv($diff % 3600, 60);
-                            $secondsRemaining = $diff % 60;
-                            $countdownText    = ($daysRemaining > 0)
-                                ? "{$daysRemaining}d {$hoursRemaining}h {$minutesRemaining}m"
-                                : "{$hoursRemaining}h {$minutesRemaining}m {$secondsRemaining}s";
-                        } elseif ($startAt && $now->between($startAt, $endAt)) {
-                            $countdownText = 'Settles Today';
-                        } else {
-                            $countdownText = 'Settled';
+                            if ($s && $e && $now->gte($s) && $now->lte($e)) {
+                                $currentWeek = $w;
+                                break;
+                            }
                         }
                     }
 
-                    if ($startAt && $endAt && $startAt->lt($endAt)) {
-                        $total   = $endAt->timestamp - $startAt->timestamp;
-                        $elapsed = $now->timestamp - $startAt->timestamp;
-                        $progressPercent = $total > 0 ? round(min(100, max(0, ($elapsed / $total) * 100)), 1) : 0;
-                    }
+                    // Build sales_period
+                    if ($currentWeek) {
+                        $startAt = !empty($currentWeek['start']) ? \Carbon\Carbon::parse($currentWeek['start'], 'Asia/Kolkata') : null;
+                        $endAt   = !empty($currentWeek['end'])   ? \Carbon\Carbon::parse($currentWeek['end'],   'Asia/Kolkata') : null;
 
-                    $yearForWeek = (int) ($calendar['year'] ?? now()->year);
-                    $weekNo      = (int) ($currentWeek['week_no'] ?? 0);
+                        $daysRemaining = $hoursRemaining = $minutesRemaining = $secondsRemaining = 0;
+                        $countdownText    = '—';
+                        $progressPercent  = 0;
 
-                    $salesPeriod = [
-                        'year'              => $yearForWeek,
-                        'week_no'           => $weekNo,
-                        'week_label'        => sprintf('%d-W%02d', $yearForWeek, $weekNo),
-                        'start'             => $currentWeek['start']       ?? null,
-                        'end'               => $currentWeek['end']         ?? null,
-                        'payout_date'       => $currentWeek['payout_date'] ?? null,
-                        'is_current'        => (bool) ($currentWeek['is_current'] ?? false),
-                        'is_settled'        => (bool) ($currentWeek['is_settled'] ?? false),
-                        'days_remaining'    => $daysRemaining,
-                        'hours_remaining'   => $hoursRemaining,
-                        'minutes_remaining' => $minutesRemaining,
-                        'seconds_remaining' => $secondsRemaining,
-                        'countdown_text'    => $countdownText,
-                        'progress_percent'  => $progressPercent,
-                    ];
-                }
+                        if ($endAt) {
+                            $diff = $now->diffInSeconds($endAt, false);
 
-                // Build sales_calendar_history (current + previous 8 weeks)
-                if (!empty($allWeeks)) {
-                    $currentWeekStart = $currentWeek['start'] ?? null;
+                            if ($diff > 0) {
+                                $daysRemaining    = intdiv($diff, 86400);
+                                $hoursRemaining   = intdiv($diff % 86400, 3600);
+                                $minutesRemaining = intdiv($diff % 3600, 60);
+                                $secondsRemaining = $diff % 60;
+                                $countdownText    = ($daysRemaining > 0)
+                                    ? "{$daysRemaining}d {$hoursRemaining}h {$minutesRemaining}m"
+                                    : "{$hoursRemaining}h {$minutesRemaining}m {$secondsRemaining}s";
+                            } elseif ($startAt && $now->between($startAt, $endAt)) {
+                                $countdownText = 'Settles Today';
+                            } else {
+                                $countdownText = 'Settled';
+                            }
+                        }
 
-                    $filteredWeeks = array_filter($allWeeks, function ($w) use ($currentWeekStart) {
-                        if (!$currentWeekStart) return true;
-                        return strcmp($w['start'] ?? '', $currentWeekStart) <= 0;
-                    });
+                        if ($startAt && $endAt && $startAt->lt($endAt)) {
+                            $total   = $endAt->timestamp - $startAt->timestamp;
+                            $elapsed = $now->timestamp - $startAt->timestamp;
+                            $progressPercent = $total > 0 ? round(min(100, max(0, ($elapsed / $total) * 100)), 1) : 0;
+                        }
 
-                    usort($filteredWeeks, fn($a, $b) => strcmp($b['start'] ?? '', $a['start'] ?? ''));
-
-                    $historySlice = array_slice($filteredWeeks, 0, 9);
-
-                    foreach ($historySlice as $w) {
                         $yearForWeek = (int) ($calendar['year'] ?? now()->year);
-                        $weekNo      = (int) ($w['week_no'] ?? 0);
+                        $weekNo      = (int) ($currentWeek['week_no'] ?? 0);
 
-                        $salesCalendarHistory[] = [
-                            'year'        => $yearForWeek,
-                            'week_no'     => $weekNo,
-                            'week_label'  => sprintf('%d-W%02d', $yearForWeek, $weekNo),
-                            'start'       => $w['start']       ?? null,
-                            'end'         => $w['end']         ?? null,
-                            'payout_date' => $w['payout_date'] ?? null,
-                            'is_current'  => (bool) ($w['is_current'] ?? false),
-                            'is_settled'  => (bool) ($w['is_settled'] ?? false),
+                        $salesPeriod = [
+                            'year'              => $yearForWeek,
+                            'week_no'           => $weekNo,
+                            'week_label'        => sprintf('%d-W%02d', $yearForWeek, $weekNo),
+                            'start'             => $currentWeek['start']       ?? null,
+                            'end'               => $currentWeek['end']         ?? null,
+                            'payout_date'       => $currentWeek['payout_date'] ?? null,
+                            'is_current'        => (bool) ($currentWeek['is_current'] ?? false),
+                            'is_settled'        => (bool) ($currentWeek['is_settled'] ?? false),
+                            'days_remaining'    => $daysRemaining,
+                            'hours_remaining'   => $hoursRemaining,
+                            'minutes_remaining' => $minutesRemaining,
+                            'seconds_remaining' => $secondsRemaining,
+                            'countdown_text'    => $countdownText,
+                            'progress_percent'  => $progressPercent,
                         ];
                     }
-                }
 
-                // ✅ NEW: Enrich with actual sales data from pointTxs
-                if (!empty($salesCalendarHistory) && !empty($user->distributor_id)) {
-                    try {
-                        $baIdForHistory = $user->distributor_id;
+                    // Build sales_calendar_history (current + previous 8 weeks)
+                    if (!empty($allWeeks)) {
+                        $currentWeekStart = $currentWeek['start'] ?? null;
 
-                        $oldestWeekStart = \Carbon\Carbon::parse(
-                            end($salesCalendarHistory)['start'],
-                            'Asia/Kolkata'
-                        );
+                        $filteredWeeks = array_filter($allWeeks, function ($w) use ($currentWeekStart) {
+                            if (!$currentWeekStart) return true;
+                            return strcmp($w['start'] ?? '', $currentWeekStart) <= 0;
+                        });
 
-                        $allTxs  = [];
-                        $afterId = 0;
-                        $guard   = 0;
+                        usort($filteredWeeks, fn($a, $b) => strcmp($b['start'] ?? '', $a['start'] ?? ''));
 
-                        do {
-                            try {
-                                $resp = $this->ignite->pointTxs($baIdForHistory, $afterId, 500);
-                            } catch (\Throwable $e) {
-                                Log::warning('pointTxs fetch failed in sales history', [
-                                    'ba_id' => $baIdForHistory,
-                                    'error' => $e->getMessage(),
-                                ]);
-                                break;
+                        $historySlice = array_slice($filteredWeeks, 0, 9);
+
+                        foreach ($historySlice as $w) {
+                            $yearForWeek = (int) ($calendar['year'] ?? now()->year);
+                            $weekNo      = (int) ($w['week_no'] ?? 0);
+
+                            $salesCalendarHistory[] = [
+                                'year'        => $yearForWeek,
+                                'week_no'     => $weekNo,
+                                'week_label'  => sprintf('%d-W%02d', $yearForWeek, $weekNo),
+                                'start'       => $w['start']       ?? null,
+                                'end'         => $w['end']         ?? null,
+                                'payout_date' => $w['payout_date'] ?? null,
+                                'is_current'  => (bool) ($w['is_current'] ?? false),
+                                'is_settled'  => (bool) ($w['is_settled'] ?? false),
+                            ];
+                        }
+                    }
+
+                    //  NEW: Enrich with actual sales data from pointTxs
+                    if (!empty($salesCalendarHistory) && !empty($user->distributor_id)) {
+                        try {
+                            $baIdForHistory = $user->distributor_id;
+
+                            $oldestWeekStart = \Carbon\Carbon::parse(
+                                end($salesCalendarHistory)['start'],
+                                'Asia/Kolkata'
+                            );
+
+                            $allTxs  = [];
+                            $afterId = 0;
+                            $guard   = 0;
+
+                            do {
+                                try {
+                                    $resp = $this->ignite->pointTxs($baIdForHistory, $afterId, 500);
+                                } catch (\Throwable $e) {
+                                    Log::warning('pointTxs fetch failed in sales history', [
+                                        'ba_id' => $baIdForHistory,
+                                        'error' => $e->getMessage(),
+                                    ]);
+                                    break;
+                                }
+
+                                if (($resp['code'] ?? null) !== ResultCode::OK->value) break;
+
+                                $batch = $resp['data']['rows'] ?? [];
+                                if (empty($batch)) break;
+
+                                $shouldBreak = false;
+                                foreach ($batch as $row) {
+                                    $created = $row['created_at'] ?? null;
+                                    if (!$created) continue;
+
+                                    $dt = \Carbon\Carbon::parse($created, 'Asia/Hong_Kong')
+                                        ->setTimezone('Asia/Kolkata');
+
+                                    if ($dt->lt($oldestWeekStart)) {
+                                        $shouldBreak = true;
+                                        break;
+                                    }
+
+                                    $allTxs[] = $row;
+                                }
+
+                                if ($shouldBreak) break;
+
+                                $afterId = (int) end($batch)['id'];
+                                $guard++;
+                            } while (!empty($resp['data']['has_more']) && $guard < 200);
+
+                            // Bucket transactions by week
+                            $weekBuckets = [];
+                            foreach ($salesCalendarHistory as $w) {
+                                $weekBuckets[$w['week_no']] = [
+                                    'cash_bal'   => 0,
+                                    'green_bal'  => 0,
+                                    'yellow_bal' => 0,
+                                    'blue_bal'   => 0,
+                                    'pv1_bal'    => 0,
+                                    'pv2_bal'    => 0,
+                                    'tx_count'   => 0,
+                                ];
                             }
 
-                            if (($resp['code'] ?? null) !== ResultCode::OK->value) break;
-
-                            $batch = $resp['data']['rows'] ?? [];
-                            if (empty($batch)) break;
-
-                            $shouldBreak = false;
-                            foreach ($batch as $row) {
-                                $created = $row['created_at'] ?? null;
+                            foreach ($allTxs as $tx) {
+                                $created = $tx['created_at'] ?? null;
                                 if (!$created) continue;
 
                                 $dt = \Carbon\Carbon::parse($created, 'Asia/Hong_Kong')
                                     ->setTimezone('Asia/Kolkata');
 
-                                if ($dt->lt($oldestWeekStart)) {
-                                    $shouldBreak = true;
-                                    break;
+                                $matchedWeekNo = null;
+                                foreach ($salesCalendarHistory as $w) {
+                                    if (empty($w['start']) || empty($w['end'])) continue;
+
+                                    $ws = \Carbon\Carbon::parse($w['start'], 'Asia/Kolkata');
+                                    $we = \Carbon\Carbon::parse($w['end'],   'Asia/Kolkata');
+
+                                    if ($dt->gte($ws) && $dt->lte($we)) {
+                                        $matchedWeekNo = $w['week_no'];
+                                        break;
+                                    }
                                 }
 
-                                $allTxs[] = $row;
-                            }
+                                if ($matchedWeekNo === null) continue;
 
-                            if ($shouldBreak) break;
+                                $weekBuckets[$matchedWeekNo]['tx_count']++;
 
-                            $afterId = (int) end($batch)['id'];
-                            $guard++;
-                        } while (!empty($resp['data']['has_more']) && $guard < 200);
+                                $point = $tx['point_type'] ?? '';
+                                $amt   = (float) ($tx['amount'] ?? 0);
 
-                        // Bucket transactions by week
-                        $weekBuckets = [];
-                        foreach ($salesCalendarHistory as $w) {
-                            $weekBuckets[$w['week_no']] = [
-                                'cash_bal'   => 0,
-                                'green_bal'  => 0,
-                                'yellow_bal' => 0,
-                                'blue_bal'   => 0,
-                                'pv1_bal'    => 0,
-                                'pv2_bal'    => 0,
-                                'tx_count'   => 0,
-                            ];
-                        }
-
-                        foreach ($allTxs as $tx) {
-                            $created = $tx['created_at'] ?? null;
-                            if (!$created) continue;
-
-                            $dt = \Carbon\Carbon::parse($created, 'Asia/Hong_Kong')
-                                ->setTimezone('Asia/Kolkata');
-
-                            $matchedWeekNo = null;
-                            foreach ($salesCalendarHistory as $w) {
-                                if (empty($w['start']) || empty($w['end'])) continue;
-
-                                $ws = \Carbon\Carbon::parse($w['start'], 'Asia/Kolkata');
-                                $we = \Carbon\Carbon::parse($w['end'],   'Asia/Kolkata');
-
-                                if ($dt->gte($ws) && $dt->lte($we)) {
-                                    $matchedWeekNo = $w['week_no'];
-                                    break;
+                                if (isset($weekBuckets[$matchedWeekNo][$point])) {
+                                    $weekBuckets[$matchedWeekNo][$point] += $amt;
                                 }
                             }
 
-                            if ($matchedWeekNo === null) continue;
+                            // Enrich sales_calendar_history
+                            $usdRateForHistory = (float) \App\Models\Setting::where('group', 'exchange_rate')
+                                ->where('key', 'usd_to_inr')->value('value') ?: 0;
 
-                            $weekBuckets[$matchedWeekNo]['tx_count']++;
+                            foreach ($salesCalendarHistory as &$week) {
+                                $weekNo = $week['week_no'];
+                                $b      = $weekBuckets[$weekNo] ?? [];
+                                $cash   = (float) ($b['cash_bal'] ?? 0);
 
-                            $point = $tx['point_type'] ?? '';
-                            $amt   = (float) ($tx['amount'] ?? 0);
-
-                            if (isset($weekBuckets[$matchedWeekNo][$point])) {
-                                $weekBuckets[$matchedWeekNo][$point] += $amt;
+                                $week['cash_commission_usd'] = round($cash, 4);
+                                $week['cash_commission_inr'] = round($cash * $usdRateForHistory, 2);
+                                $week['green_coin']          = round((float) ($b['green_bal']  ?? 0), 4);
+                                $week['yellow_coin']         = round((float) ($b['yellow_bal'] ?? 0), 4);
+                                $week['blue_coin']           = round((float) ($b['blue_bal']   ?? 0), 4);
+                                $week['cv_left']             = round((float) ($b['pv1_bal']    ?? 0), 4);
+                                $week['cv_right']            = round((float) ($b['pv2_bal']    ?? 0), 4);
+                                $week['tx_count']            = (int) ($b['tx_count'] ?? 0);
                             }
+                            unset($week);
+                        } catch (\Throwable $e) {
+                            Log::warning('sales history enrichment failed', [
+                                'ba_id' => $user->distributor_id ?? null,
+                                'error' => $e->getMessage(),
+                            ]);
                         }
-
-                        // Enrich sales_calendar_history
-                        $usdRateForHistory = (float) \App\Models\Setting::where('group', 'exchange_rate')
-                            ->where('key', 'usd_to_inr')->value('value') ?: 0;
-
-                        foreach ($salesCalendarHistory as &$week) {
-                            $weekNo = $week['week_no'];
-                            $b      = $weekBuckets[$weekNo] ?? [];
-                            $cash   = (float) ($b['cash_bal'] ?? 0);
-
-                            $week['cash_commission_usd'] = round($cash, 4);
-                            $week['cash_commission_inr'] = round($cash * $usdRateForHistory, 2);
-                            $week['green_coin']          = round((float) ($b['green_bal']  ?? 0), 4);
-                            $week['yellow_coin']         = round((float) ($b['yellow_bal'] ?? 0), 4);
-                            $week['blue_coin']           = round((float) ($b['blue_bal']   ?? 0), 4);
-                            $week['cv_left']             = round((float) ($b['pv1_bal']    ?? 0), 4);
-                            $week['cv_right']            = round((float) ($b['pv2_bal']    ?? 0), 4);
-                            $week['tx_count']            = (int) ($b['tx_count'] ?? 0);
-                        }
-                        unset($week);
-
-                    } catch (\Throwable $e) {
-                        Log::warning('sales history enrichment failed', [
-                            'ba_id' => $user->distributor_id ?? null,
-                            'error' => $e->getMessage(),
-                        ]);
                     }
                 }
+            } catch (\Throwable $e) {
+                Log::warning('sales_period / sales_calendar_history build failed', [
+                    'error' => $e->getMessage(),
+                ]);
             }
-        } catch (\Throwable $e) {
-            Log::warning('sales_period / sales_calendar_history build failed', [
-                'error' => $e->getMessage(),
+
+            // ---------------------------------------------------------------
+            // Response
+            // ---------------------------------------------------------------
+            $result = [
+                'user_id'        => $user->id,
+                'full_name'      => $user->full_name,
+                'email'          => $user->email,
+                'phone'          => $user->phone,
+                'distributor_id' => $cleanDistributorId,
+
+                // Orders
+                'total_orders'              => (int) $stats->total_orders,
+                'total_amount_mrp'          => (float) $stats->total_amount_mrp,
+                'total_amount_mrp_currency' => 'INR',
+                'total_savings'             => (float) $stats->total_savings,
+                'total_savings_currency'    => 'INR',
+
+                // CV & Coins
+                'total_cv'              => number_format($igniteCv, 2, '.', ''),
+                'total_cv_unit'         => 'CV',
+                'total_coins_redeemed'  => (int) $totalCoinsRedeemed,
+
+                // Rank
+                'current_rank_name'     => $currentRankName,
+                'next_rank_name'        => $nextRankName,
+                'rank_progress_percent' => $rankProgressPercentage,
+                'next_rank_blocking'    => $blockingConditions,
+
+                // Sales Period
+                'sales_period'           => $salesPeriod,
+
+                // Sales Calendar History (with actual CV/commission/coins)
+                'sales_calendar_history' => $salesCalendarHistory,
+
+                'account_type' => $user->account_type,
+                'joined_at'    => $user->created_at?->toDateTimeString(),
+                'rank_progress' => $rankProgress,
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data'    => $result,
+                'message' => 'Distributor stats retrieved successfully',
             ]);
+        } catch (\Throwable $e) {
+            Log::error('getDistributorStats failed', [
+                'user_id' => Auth::id(),
+                'error'   => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve distributor stats',
+                'error'   => $e->getMessage(),
+            ], 500);
         }
-
-        // ---------------------------------------------------------------
-        // Response
-        // ---------------------------------------------------------------
-        $result = [
-            'user_id'        => $user->id,
-            'full_name'      => $user->full_name,
-            'email'          => $user->email,
-            'phone'          => $user->phone,
-            'distributor_id' => $cleanDistributorId,
-
-            // Orders
-            'total_orders'              => (int) $stats->total_orders,
-            'total_amount_mrp'          => (float) $stats->total_amount_mrp,
-            'total_amount_mrp_currency' => 'INR',
-            'total_savings'             => (float) $stats->total_savings,
-            'total_savings_currency'    => 'INR',
-
-            // CV & Coins
-            'total_cv'              => number_format($igniteCv, 2, '.', ''),
-            'total_cv_unit'         => 'CV',
-            'total_coins_redeemed'  => (int) $totalCoinsRedeemed,
-
-            // Rank
-            'current_rank_name'     => $currentRankName,
-            'next_rank_name'        => $nextRankName,
-            'rank_progress_percent' => $rankProgressPercentage,
-            'next_rank_blocking'    => $blockingConditions,
-
-            // Sales Period
-            'sales_period'           => $salesPeriod,
-
-            // Sales Calendar History (with actual CV/commission/coins)
-            'sales_calendar_history' => $salesCalendarHistory,
-
-            'account_type' => $user->account_type,
-            'joined_at'    => $user->created_at?->toDateTimeString(),
-            'rank_progress'=> $rankProgress,
-        ];
-
-        return response()->json([
-            'success' => true,
-            'data'    => $result,
-            'message' => 'Distributor stats retrieved successfully',
-        ]);
-
-    } catch (\Throwable $e) {
-        Log::error('getDistributorStats failed', [
-            'user_id' => Auth::id(),
-            'error'   => $e->getMessage(),
-            'trace'   => $e->getTraceAsString(),
-        ]);
-
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to retrieve distributor stats',
-            'error'   => $e->getMessage(),
-        ], 500);
     }
-}
 
     /**
      * Check if a sales calendar has at least one week marked is_current.
@@ -1775,8 +1776,8 @@ class UserDashboardController extends Controller
             'currency'        => ['base' => 'USD', 'display' => 'INR', 'exchange_rate' => $usdRate],
             'data' => [
                 'coins_used'         => $coins,
-                'amount_redeemed_usd'=> round($cashAmountUsd, 2),
-                'amount_redeemed_inr'=> $actualInr,
+                'amount_redeemed_usd' => round($cashAmountUsd, 2),
+                'amount_redeemed_inr' => $actualInr,
                 'amount_redeemed'    => $actualInr,   // backward-compat
                 'redemption_id'      => $localRedemption->id,
             ]
@@ -1920,11 +1921,11 @@ class UserDashboardController extends Controller
                 'pv_coin'       => $pvCoin,
 
                 'green_value_inr' => $greenValueInr,
-                'yellow_value_inr'=> $yellowValueInr,
+                'yellow_value_inr' => $yellowValueInr,
                 'blue_value_inr'  => $blueValueInr,
 
                 'order_id'      => $tx['order_no'] ?? null,
-                'related_member'=> $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
+                'related_member' => $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
             ];
 
             // ---------- TDS fields SIRF withdrawal par (Option C) ----------
@@ -1984,8 +1985,8 @@ class UserDashboardController extends Controller
                 'section'        => $tdsSection,
                 'applied_rate'   => round($tdsRate * 100, 2),
                 'reason'         => $isValidGst
-                                        ? ($panVerified ? 'Valid GSTIN + verified PAN' : 'Valid GSTIN but PAN not verified')
-                                        : 'GSTIN missing, invalid or URP',
+                    ? ($panVerified ? 'Valid GSTIN + verified PAN' : 'Valid GSTIN but PAN not verified')
+                    : 'GSTIN missing, invalid or URP',
             ],
             'data' => [
                 'balances' => [

@@ -1129,7 +1129,7 @@ class WarehouseStockController extends Controller
     //                 }
 
     //                 // ================================================
-    //                 // ✅ TOTAL_ADDED_QUANTITY LOGIC (VARIANT)
+    //                 //  TOTAL_ADDED_QUANTITY LOGIC (VARIANT)
     //                 // ================================================
     //                 $totalAddedDelta = $this->calculateTotalAddedDelta(
     //                     $oldVariantQty,
@@ -1758,7 +1758,7 @@ class WarehouseStockController extends Controller
             $product->initial_stock        = $oldSnapshot['initial_stock'] - $qty;
             $product->total_added_quantity = $oldSnapshot['total_added_quantity'] - $qty;
 
-            // ✅ FIXED: subtract → manual_stock_adjustment bhi minus
+            //  FIXED: subtract → manual_stock_adjustment bhi minus
             $product->manual_stock_adjustment =
                 (int) ($product->manual_stock_adjustment ?? 0) - $qty;
         } elseif ($operation === 'add') {
@@ -1767,7 +1767,7 @@ class WarehouseStockController extends Controller
             $product->initial_stock        = $oldSnapshot['initial_stock'] + $qty;
             $product->total_added_quantity = $oldSnapshot['total_added_quantity'] + $qty;
 
-            // ✅ FIXED: add → manual_stock_adjustment bhi plus
+            //  FIXED: add → manual_stock_adjustment bhi plus
             $product->manual_stock_adjustment =
                 (int) ($product->manual_stock_adjustment ?? 0) + $qty;
         } else {

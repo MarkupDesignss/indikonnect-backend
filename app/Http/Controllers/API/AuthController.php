@@ -1628,7 +1628,7 @@ class AuthController extends Controller
 
     //         // ================= PHONE OTP =================
     //         if ($request->type === 'phone') {
-    //             // ✅ Sirf REGISTERED users ko block karo (partial users nahi)
+    //             //  Sirf REGISTERED users ko block karo (partial users nahi)
     //             $registeredUser = User::where('phone', $request->phone)
     //                 ->where('is_registered', 1)
     //                 ->first();
@@ -1640,7 +1640,7 @@ class AuthController extends Controller
     //                 ], 422);
     //             }
 
-    //             // ✅ Verified flag check — agar flag hai to matlab abhi kisi flow mein use ho raha hai
+    //             //  Verified flag check — agar flag hai to matlab abhi kisi flow mein use ho raha hai
     //             // TTL 3 min hai, isliye stale nahi rahega
     //             $verifiedKey = 'phone_verified_' . $request->phone;
     //             if (Cache::has($verifiedKey)) {
@@ -1650,7 +1650,7 @@ class AuthController extends Controller
     //                 Cache::forget($verifiedKey);
     //             }
 
-    //             // ✅ Purana OTP cache clear karo (re-send allow)
+    //             //  Purana OTP cache clear karo (re-send allow)
     //             $otpKey = 'otp_phone_' . $request->phone;
     //             Cache::forget($otpKey);
 
@@ -1679,7 +1679,7 @@ class AuthController extends Controller
 
     //         // ================= EMAIL OTP =================
     //         else {
-    //             // ✅ Sirf REGISTERED users ko block karo
+    //             //  Sirf REGISTERED users ko block karo
     //             $registeredUser = User::where('email', $request->email)
     //                 ->where('is_registered', 1)
     //                 ->first();
@@ -1691,13 +1691,13 @@ class AuthController extends Controller
     //                 ], 422);
     //             }
 
-    //             // ✅ Verified flag clear (stale na rahe)
+    //             //  Verified flag clear (stale na rahe)
     //             $verifiedKey = 'email_verified_' . $request->email;
     //             if (Cache::has($verifiedKey)) {
     //                 Cache::forget($verifiedKey);
     //             }
 
-    //             // ✅ Purana OTP cache clear karo
+    //             //  Purana OTP cache clear karo
     //             $otpKey = 'otp_email_' . $request->email;
     //             Cache::forget($otpKey);
 
@@ -1905,7 +1905,7 @@ class AuthController extends Controller
     //         // OTP cache clear karo
     //         Cache::forget($cacheKey);
 
-    //         // ✅ Verified flag sirf 3 minute ke liye (step1 complete karne ke liye kaafi)
+    //         //  Verified flag sirf 3 minute ke liye (step1 complete karne ke liye kaafi)
     //         Cache::put('phone_verified_' . $request->phone, true, now()->addMinutes(3));
 
     //         return response()->json([
@@ -2056,7 +2056,7 @@ class AuthController extends Controller
     // public function distributorStep1Personal(Request $request)
     // {
     //     try {
-    //         // ✅ Agar request mein phone/email aaye to verified flags turant utha lo
+    //         //  Agar request mein phone/email aaye to verified flags turant utha lo
     //         // taaki error case mein bhi cache stale na rahe
     //         $phoneCacheKey = $request->phone ? 'phone_verified_' . $request->phone : null;
     //         $emailCacheKey = $request->email ? 'email_verified_' . $request->email : null;
@@ -2104,7 +2104,7 @@ class AuthController extends Controller
     //             ], 422);
     //         }
 
-    //         // ✅ Flags turant clear karo — ab inki zaroorat nahi
+    //         //  Flags turant clear karo — ab inki zaroorat nahi
     //         Cache::forget($phoneCacheKey);
     //         Cache::forget($emailCacheKey);
 
@@ -2168,7 +2168,7 @@ class AuthController extends Controller
     //             'temp_token' => $user->temp_token,
     //         ]);
     //     } catch (\Exception $e) {
-    //         // ✅ Exception case mein bhi flags clear
+    //         //  Exception case mein bhi flags clear
     //         if (isset($phoneCacheKey) && $phoneCacheKey) Cache::forget($phoneCacheKey);
     //         if (isset($emailCacheKey) && $emailCacheKey) Cache::forget($emailCacheKey);
 
@@ -4892,7 +4892,7 @@ class AuthController extends Controller
             $buybackActivate = $buybackActivate ?? false;
 
             // ─────────────────────────────────────────────
-            // 👇 user ko array me convert karo aur
+            //  user ko array me convert karo aur
             // latest_correction_request ko OVERRIDE karo
             // (dono pending requests yahi key me bhejo)
             // ─────────────────────────────────────────────

@@ -34,7 +34,7 @@ class Admin extends Authenticatable
     {
         return $this->belongsToMany(
             AdminRole::class,
-            'admin_admin_role',   // pivot table
+            'admin_admin_role',
             'admin_id',
             'admin_role_id'
         );
@@ -46,7 +46,7 @@ class Admin extends Authenticatable
 
     /**
      * All warehouses assigned to this admin.
-     * ✅ pivot me role_id bhi include kiya
+     *  pivot me role_id bhi include kiya
      */
     public function warehouses()
     {

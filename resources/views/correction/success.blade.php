@@ -12,7 +12,7 @@
         <div style="background:#065f46;color:#fff;padding:18px 24px;">
             <img src="https://www.markupdesigns.net/indikonnect/storage/logos/MmVFOudCiVU3Y8C0sf2gEEXna5jSKroCDj8xYMo0.png"
                 alt="Logo" style="max-height:44px;display:block;margin:0 auto 10px;">
-            <h3 style="margin:0;font-size:18px;">✅ Details Updated Successfully</h3>
+            <h3 style="margin:0;font-size:18px;"> Details Updated Successfully</h3>
         </div>
         <div style="padding:24px;color:#333;font-size:14px;">
             <p>You may close this window.</p>

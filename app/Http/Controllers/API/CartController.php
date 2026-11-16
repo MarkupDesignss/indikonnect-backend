@@ -151,7 +151,7 @@ class CartController extends Controller
         $cart = $this->getCart($request);
         $user = auth('sanctum')->user();
 
-        // ✅ ADD: mandatory products sync karo (add/remove)
+        //  ADD: mandatory products sync karo (add/remove)
         $this->ensureMandatoryProductsInCart($cart);
 
         // Reload items (kyunki ensure ne add/remove kiya ho sakta hai)
@@ -259,7 +259,7 @@ class CartController extends Controller
             return;
         }
 
-        // ✅ Check cart_items for existing mandatory product
+        //  Check cart_items for existing mandatory product
         $existingMandatoryIds = CartItem::where('cart_id', $cart->id)
             ->whereIn('product_id', $mandatoryProducts->pluck('id')->toArray())
             ->whereNull('variant_id')
@@ -1759,12 +1759,12 @@ class CartController extends Controller
             ->values()
             ->all();
 
-        // ✅ NEW: effective weighted rate (single number)
+        //  NEW: effective weighted rate (single number)
         $effectiveRate = $cartTotals['taxable_amount'] > 0
             ? round(($cartTotals['gst_amount'] / $cartTotals['taxable_amount']) * 100, 2)
             : 0;
 
-        // ✅ NEW: category-wise rate detail (consistent with gst_breakdown)
+        //  NEW: category-wise rate detail (consistent with gst_breakdown)
         $taxRateOnLineDetail = collect($gstBreakdown)->map(function ($row) {
             return [
                 'tax_category'   => $row['tax_category'],
@@ -1809,10 +1809,10 @@ class CartController extends Controller
                 'taxable_amount'    => round($cartTotals['taxable_amount'], 2),
                 'gst_amount'        => round($cartTotals['gst_amount'], 2),
 
-                // ✅ NEW: effective weighted rate (single number)
+                //  NEW: effective weighted rate (single number)
                 'tax_rate_on_line'        => $effectiveRate,
 
-                // ✅ NEW: category-wise rate detail
+                //  NEW: category-wise rate detail
                 'tax_rate_on_line_detail' => $taxRateOnLineDetail,
 
                 // Category-wise GST breakdown

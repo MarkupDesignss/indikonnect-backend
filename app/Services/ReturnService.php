@@ -4033,15 +4033,15 @@ class ReturnService
             $totalShipping = round($totalShipping, 2);
 
             // ============================================================
-            // ✅ ORDER VALUE = SUM OF LINE TOTALS (base + tax) + shipping
+            //  ORDER VALUE = SUM OF LINE TOTALS (base + tax) + shipping
             //    total_payable  = actual order value (line_total sum + shipping)
             //    amount_paid    = same (free replacement — fully settled)
             // ============================================================
             $lineTotalsSum    = round($subtotal + $totalGst, 2);          // sum of line_total
             $actualOrderValue = round($lineTotalsSum + $totalShipping, 2); // + shipping
 
-            $totalPayable = $actualOrderValue;   // ✅ actual value, not 0
-            $amountPaid   = $actualOrderValue;   // ✅ actual value, not 0
+            $totalPayable = $actualOrderValue;   //  actual value, not 0
+            $amountPaid   = $actualOrderValue;   //  actual value, not 0
 
             // ============================================================
             // 2. Create the replacement order
@@ -4071,9 +4071,9 @@ class ReturnService
                 'shipping_charge'         => $totalShipping,
                 'coin_redeemed'           => 0,
                 'coin_redeemed_amount'    => 0,
-                'total_payable'           => $totalPayable,   // ✅ actual order value
+                'total_payable'           => $totalPayable,   //  actual order value
                 'commissionable_volume'   => 0,               // no commission on free replacement
-                'amount_paid'             => $amountPaid,     // ✅ actual order value
+                'amount_paid'             => $amountPaid,     //  actual order value
                 'coupon_discount'         => 0,
                 'coupon_code'             => null,
 
@@ -4148,7 +4148,7 @@ class ReturnService
                 $sgstAmount = round(($baseLineTotal * $sgstRate) / 100, 2);
                 $igstAmount = round(($baseLineTotal * $igstRate) / 100, 2);
 
-                // ✅ line_total = base + tax
+                //  line_total = base + tax
                 $lineTotal = round($baseLineTotal + $gstAmount, 2);
 
                 // Shipping (actual, proportional to qty)
@@ -4172,7 +4172,7 @@ class ReturnService
                     // ── Money ─────────────────────────────────────────
                     'unit_price'         => round($unitPrice, 2),   // tax-exclusive base
                     'shipping_charge'    => $shippingCharge,
-                    'line_total'         => $lineTotal,             // ✅ base + tax
+                    'line_total'         => $lineTotal,             //  base + tax
 
                     // ── Tax ───────────────────────────────────────────
                     'gst_rate'           => $gstRate,

@@ -46,7 +46,7 @@
 
                 @if ($req->needsDobUpdate())
                     <label style="font-weight:bold;">Date of Birth</label><br>
-                    <!-- ✅ Yahan max date add ki hai (18 saal pehle ki) -->
+                    <!--  Yahan max date add ki hai (18 saal pehle ki) -->
                     <input type="date" name="date_of_birth" id="date_of_birth"
                         value="{{ old('date_of_birth', optional($req->date_of_birth ?? $req->user->date_of_birth)->format('Y-m-d')) }}"
                         max="{{ now()->subYears(18)->format('Y-m-d') }}" required
@@ -70,7 +70,7 @@
         <div
             style="background:#fff;border-radius:8px;max-width:420px;width:100%;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.2);">
             <div style="background:#7c3aed;color:#fff;padding:16px 20px;">
-                <h4 style="margin:0;font-size:16px;">⚠️ Confirm Your Update</h4>
+                <h4 style="margin:0;font-size:16px;"> Confirm Your Update</h4>
             </div>
             <div style="padding:20px;color:#333;font-size:14px;line-height:1.6;">
                 <p style="margin-top:0;">Please review the changes before saving. Once submitted, <strong>this link

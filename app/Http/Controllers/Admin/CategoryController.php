@@ -388,11 +388,11 @@ class CategoryController extends Controller
                         'distributor_price' => $maxPriceProduct->distributor_price,
                     ] : null,
 
-                    // ✅ Brands first
+                    //  Brands first
                     'brands' => $brands,
                     'brands_count' => $brands->count(),
 
-                    // ✅ Then subcategories
+                    //  Then subcategories
                     'subcategories' => $subcategories,
                     'subcategories_count' => $subcategories->count(),
                 ];

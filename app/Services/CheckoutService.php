@@ -3411,7 +3411,7 @@ class CheckoutService
                 'message' => $message,
                 'reference_type' => $type === 'variant' ? 'variant' : 'product',
                 'reference_id' => $type === 'variant' ? $line->variant_id : $line->product_id,
-                'priority' => 'critical',
+                'priority' => 'medium',
                 'extra_data' => json_encode([
                     'product_code' => $product->product_code,
                     'product_name' => $product->name,

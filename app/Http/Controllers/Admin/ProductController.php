@@ -2917,7 +2917,7 @@ class ProductController extends Controller
                 continue;
             }
 
-            // ✅ Sahi file path — variant index + image count
+            //  Sahi file path — variant index + image count
             $imageFile = $request->file("variants.{$variantIndex}.images.{$imageCount}.image");
 
             // -------- URL-based image fallback --------
@@ -3953,7 +3953,7 @@ class ProductController extends Controller
                 ->toArray();
 
             // ============================================================
-            // 🔥 FIX: Backfill partner_product_ref if missing (legacy products)
+            //  FIX: Backfill partner_product_ref if missing (legacy products)
             // SDK comment #1: partner_product_ref is the primary mapping key.
             // It's always derived from product_code (immutable after sync).
             // ============================================================
@@ -4192,7 +4192,7 @@ class ProductController extends Controller
             Log::info('[ignite][update] starting sync', [
                 'product_id'         => $product->id,
                 'product_code'       => $product->product_code,
-                'partner_product_ref'=> $product->partner_product_ref,
+                'partner_product_ref' => $product->partner_product_ref,
                 'ignite_product_id'  => $product->ignite_product_id,
             ]);
 
@@ -10240,7 +10240,7 @@ class ProductController extends Controller
                     ? asset('storage/' . ltrim($row->product->images->first()->image, '/'))
                     : null,
                 'total_qty'     => (int) $row->total_qty,
-                // 'total_revenue' => round($row->total_revenue, 2),
+                'total_revenue' => round((float) $row->total_revenue, 2),
             ])
             ->toArray();
     }
