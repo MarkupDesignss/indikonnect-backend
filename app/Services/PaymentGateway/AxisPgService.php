@@ -49,10 +49,10 @@ class AxisPgService
     // 1. Signature field ko hata dein
     unset($payload['signature']);
     
-    // 2. Keys ko alphabetically sort karein (case-sensitive, kyunki field names lowercase hain)
+    // 2. Keys ko alphabetically sort karein
     ksort($payload);
     
-    // 3. Sirf values ko concatenate karein (empty values bhi include karein)
+    // 3. Sirf VALUES ko concatenate karein (field names NAHI)
     $concatenated = '';
     foreach ($payload as $key => $value) {
         if (is_array($value)) {
@@ -61,10 +61,10 @@ class AxisPgService
         $concatenated .= (string) $value;
     }
     
-    // 4. Merchant key append karein
+    // 4. Merchant Key append karein
     $concatenated .= $this->merchantKey;
     
-    // 5. SHA-256 hash
+    // 5. SHA-256 hash return karein
     return hash('sha256', $concatenated);
 }
 
