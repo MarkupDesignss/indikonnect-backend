@@ -1474,7 +1474,7 @@ class OrderController extends Controller
             ])
                 ->where('status', '!=', 'pending')
                 // Match the real orders.order_reference, not the numeric order ID.
-                ->when($orderReference !== '', fn ($q) => $q->where('order_reference', $orderReference))
+                ->when($orderReference !== '', fn($q) => $q->where('order_reference', $orderReference))
                 // ── Filter orders that have at least one matching line ──
                 ->when($categoryId || $brandId, function ($q) use ($categoryId, $brandId) {
                     $q->whereHas('lines.product', function ($p) use ($categoryId, $brandId) {
@@ -2145,12 +2145,12 @@ class OrderController extends Controller
     {
         try {
             $orderResult = DB::select("
-                SHOW COLUMNS FROM orders WHERE Field = 'status'
-            ");
+            SHOW COLUMNS FROM orders WHERE Field = 'status'
+        ");
 
             $orderLineResult = DB::select("
-                SHOW COLUMNS FROM order_lines WHERE Field = 'delivery_status'
-            ");
+            SHOW COLUMNS FROM order_lines WHERE Field = 'delivery_status'
+        ");
 
             if (empty($orderResult) || empty($orderLineResult)) {
                 return response()->json([
@@ -2173,14 +2173,25 @@ class OrderController extends Controller
                 ? str_getcsv($orderLineMatches[1], ',', "'")
                 : [];
 
-            // Merge both into the same key and remove duplicates
+            // Excluded statuses
+            $excludedStatuses = [
+                'processing',
+                'failed',
+                'n/a',
+                '',
+                'return initiated',
+                'undefined',
+            ];
+
+            // Merge both statuses, remove duplicates and excluded statuses
             $statuses = array_values(array_filter(
                 array_unique([
                     ...$orderStatuses,
                     ...$orderLineStatuses,
                 ]),
-                function ($status) {
-                    return stripos($status, 'partial') === false;
+                function ($status) use ($excludedStatuses) {
+                    return stripos($status, 'partial') === false
+                        && !in_array(strtolower(trim($status)), $excludedStatuses, true);
                 }
             ));
 
@@ -2195,6 +2206,7 @@ class OrderController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Dispatch order items or entire order
