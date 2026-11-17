@@ -22,7 +22,7 @@ class SalesReportExportController extends Controller
     private const LOCAL_TZ  = 'Asia/Kolkata';
 
     private const SALE_STATUSES = [
-        'confirmed', 'dispatched', 'shipped', 'delivered', 'partial_delivered',
+        'confirmed', 'processing', 'dispatched', 'shipped', 'delivered', 'partial_delivered',
     ];
 
     public function __construct(IgniteClient $ignite)
@@ -92,7 +92,7 @@ class SalesReportExportController extends Controller
     }
 
     // =================================================================
-    // ENDPOINT 1 — Sales & OS Report (Category matrix)
+    // ENDPOINT 1 — Sales & OS Report
     // GET /api/admin/finance/sales-report/category?year=2026&week=0&weeks_back=5
     // =================================================================
     public function categoryReport(Request $request)
@@ -117,7 +117,7 @@ class SalesReportExportController extends Controller
             if ($week === null) {
                 return response()->json([
                     'status'  => false,
-                    'message' => "No week found in Ignite calendar for year {$year}. Try year-1 or pass explicit week.",
+                    'message' => "No week found in Ignite calendar for year {$year}.",
                 ], 503);
             }
         }
@@ -380,7 +380,7 @@ class SalesReportExportController extends Controller
     }
 
     // =================================================================
-    // BULK QUERIES — using COALESCE(confirmed_at, created_at)
+    // BULK QUERIES
     // =================================================================
     private function categoryWeekly(string $mode, array $weekRanges): array
     {
@@ -393,8 +393,7 @@ class SalesReportExportController extends Controller
             ->join('products as p', 'p.id', '=', 'ol.product_id')
             ->whereRaw("{$dateExpr} >= ?", [$start])
             ->whereRaw("{$dateExpr} <  ?", [$end])
-            ->whereNull('o.deleted_at')
-            ->whereNull('ol.deleted_at');
+            ->whereNull('o.deleted_at');
 
         if ($mode === 'sales') {
             $q->whereIn('o.status', self::SALE_STATUSES)
@@ -426,7 +425,6 @@ class SalesReportExportController extends Controller
             ->whereRaw("{$dateExpr} >= ?", [$start])
             ->whereRaw("{$dateExpr} <  ?", [$end])
             ->whereNull('o.deleted_at')
-            ->whereNull('ol.deleted_at')
             ->whereIn('o.status', self::SALE_STATUSES);
 
         if ($mode === 'sales') {
