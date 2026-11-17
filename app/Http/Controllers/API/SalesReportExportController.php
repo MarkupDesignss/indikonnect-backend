@@ -39,8 +39,8 @@ class SalesReportExportController extends Controller
     public function categoryReport(Request $request)
     {
         $request->validate([
-            'year'       => 'required|integer|min:2020|max:2100',
-            'week'       => 'required|integer|min:1|max:53',
+            'year'       => 'nullable|integer|min:2020|max:2100',
+            'week'       => 'nullable|integer|min:1|max:53',
             'weeks_back' => 'nullable|integer|min:1|max:52',
             'include'    => 'nullable|string',
         ]);
