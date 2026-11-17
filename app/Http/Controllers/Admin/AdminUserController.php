@@ -447,10 +447,9 @@ class AdminUserController extends Controller
     //         ],
     //     ]);
     // }
-    public function updateCancelReturnAllowed(
-        Request $request,
-        Order $order
-    ) {
+
+    public function updateCancelReturnAllowed(Request $request, string $orderrefrence)
+    {
         $validator = Validator::make($request->all(), [
             'is_cancel_return_allowed' => 'required|boolean',
         ]);
@@ -459,13 +458,23 @@ class AdminUserController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed.',
-                'errors'  => $validator->errors(),
+                'errors' => $validator->errors(),
             ], 422);
+        }
+
+        $order = Order::where('order_reference', $orderrefrence)->first();
+
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found.',
+            ], 404);
         }
 
         $value = $request->boolean('is_cancel_return_allowed');
 
         DB::transaction(function () use ($order, $value) {
+
             // Update order
             $order->update([
                 'is_cancel_return_allowed' => $value,
@@ -477,6 +486,8 @@ class AdminUserController extends Controller
             ]);
         });
 
+        $order->refresh();
+
         return response()->json([
             'success' => true,
             'message' => $value
@@ -484,7 +495,7 @@ class AdminUserController extends Controller
                 : 'Cancel/return option deactivated successfully.',
             'data' => [
                 'order_id' => $order->id,
-                'is_cancel_return_allowed' => (bool) $order->fresh()->is_cancel_return_allowed,
+                'is_cancel_return_allowed' => (bool) $order->is_cancel_return_allowed,
                 'order_lines_updated' => $order->orderLines()->count(),
             ],
         ]);
