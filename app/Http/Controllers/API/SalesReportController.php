@@ -136,8 +136,8 @@ class SalesReportController extends Controller
                 DB::raw('0 AS refunded_items'),
                 DB::raw('refund_sum.last_refunded_at AS last_refund_date'),
             ])
-            ->orderBy('orders.created_at', 'desc')
-            ->orderBy('order_lines.id', 'asc');
+                ->orderBy('orders.created_at', 'desc')
+                ->orderBy('order_lines.id', 'asc');
 
             $paginated = $query->paginate($perPage);
 
