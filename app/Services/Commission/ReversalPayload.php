@@ -2,7 +2,7 @@
 
 namespace App\Services\Commission;
 
-class ReversalPayload
+class order_ReversalPayload
 {
     public function __construct(
     public readonly string $eventId,
