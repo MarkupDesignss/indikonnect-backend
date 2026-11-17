@@ -1075,3 +1075,52 @@ Route::post(
 Route::get('/delivery-report', [SalesReportController::class, 'deliveryeportsr']);
 Route::get('/returns-report', [SalesReportController::class, 'returnreports']);
 Route::get('/returns-article-report', [SalesReportController::class, 'returnArticlereport']);
+
+// ============================
+// INDIA POST ORDER LINE ROUTES
+// ============================
+
+Route::middleware(['auth:sanctum', 'throttle:10,1'])->get(
+    '/orders/{orderReference}/lines/{orderLineId}/indiapost/tracking',
+    [\App\Http\Controllers\Api\IndiaPostOrderTrackingController::class, 'showByLine']
+)->whereNumber('orderLineId');
+
+Route::middleware(['auth:sanctum', 'admin'])
+    ->prefix('orders/{orderReference}/lines/{orderLineId}/indiapost')
+    ->group(function () {
+
+        Route::post('/parcel-links', [
+            \App\Http\Controllers\Api\IndiaPostShippingFlowController::class,
+            'linkExistingParcel'
+        ])->whereNumber('orderLineId')->middleware('throttle:5,1');
+
+        Route::get('/readiness', [
+            \App\Http\Controllers\Api\IndiaPostDispatchReadinessController::class,
+            'showByLine'
+        ])->whereNumber('orderLineId')->middleware('throttle:10,1');
+
+        Route::post('/allocate-awb', [
+            \App\Http\Controllers\Api\IndiaPostShippingFlowController::class,
+            'allocateLine'
+        ])->whereNumber('orderLineId')->middleware('throttle:5,1');
+
+        Route::post('/booking/preview', [
+            \App\Http\Controllers\Api\IndiaPostShippingFlowController::class,
+            'previewLine'
+        ])->whereNumber('orderLineId')->middleware('throttle:10,1');
+
+        Route::post('/booking/submit', [
+            \App\Http\Controllers\Api\IndiaPostShippingFlowController::class,
+            'bookLine'
+        ])->whereNumber('orderLineId')->middleware('throttle:3,1');
+
+        Route::get('/shipments', [
+            \App\Http\Controllers\Api\IndiaPostShippingFlowController::class,
+            'shipmentsLine'
+        ])->whereNumber('orderLineId')->middleware('throttle:15,1');
+
+        Route::post('/sync', [
+            \App\Http\Controllers\Api\IndiaPostShippingFlowController::class,
+            'syncLine'
+        ])->whereNumber('orderLineId')->middleware('throttle:5,1');
+    });
