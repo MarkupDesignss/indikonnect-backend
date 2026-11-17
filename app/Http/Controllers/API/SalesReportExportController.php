@@ -21,6 +21,20 @@ class SalesReportExportController extends Controller
     private const IGNITE_TZ = 'Asia/Hong_Kong';
     private const LOCAL_TZ  = 'Asia/Kolkata';
 
+    /**
+     * Client-confirmed sales calendar:
+     *   Week runs Friday 21:30:00 IST → Friday 21:29:59 IST.
+     *
+     * Ignite's raw start_at is Saturday 02:00:00 HKST
+     *   = Friday 23:30:00 IST.
+     *
+     * To match the client's calendar, shift every Ignite boundary
+     * backwards by 2 hours:
+     *   Friday 23:30 IST  →  Friday 21:30 IST  ✅
+     *   Friday 23:30 IST  →  Friday 21:30 IST  ✅ (next week end)
+     */
+    private const WEEK_SHIFT_HOURS = 2;
+
     private const SALE_STATUSES = [
         'confirmed', 'processing', 'dispatched', 'shipped', 'delivered', 'partial_delivered',
     ];
@@ -80,20 +94,23 @@ class SalesReportExportController extends Controller
                 'total_weeks'          => $weeks->count(),
                 'settled_weeks'        => $settled,
                 'max_weeks_back'       => $settled > 0 ? $settled : min($weeks->count(), 52),
-                'available_weeks'      => $weeks->map(fn ($w) => [
-                    'week_no'    => (int) $w['week_no'],
-                    'start_at'   => $w['start_at'],
-                    'end_at'     => $w['end_at'],
-                    'is_current' => (bool) ($w['is_current'] ?? false),
-                    'is_settled' => (bool) ($w['is_settled'] ?? false),
-                ])->values(),
+                'calendar_rule'        => 'Friday 21:30:00 IST → Friday 21:29:59 IST',
+                'available_weeks'      => $weeks->map(function ($w) {
+                    [$start, $end] = $this->shiftedWeekBounds($w);
+                    return [
+                        'week_no'    => (int) $w['week_no'],
+                        'start_at'   => $start->copy()->setTimezone(self::LOCAL_TZ)->toDateTimeString(),
+                        'end_at'     => $end->copy()->setTimezone(self::LOCAL_TZ)->toDateTimeString(),
+                        'is_current' => (bool) ($w['is_current'] ?? false),
+                        'is_settled' => (bool) ($w['is_settled'] ?? false),
+                    ];
+                })->values(),
             ],
         ]);
     }
 
     // =================================================================
     // ENDPOINT 1 — Sales & OS Report
-    // GET /api/admin/finance/sales-report/category?year=2026&week=0&weeks_back=5
     // =================================================================
     public function categoryReport(Request $request)
     {
@@ -154,14 +171,22 @@ class SalesReportExportController extends Controller
         $returnsTotals = $this->columnTotals($returnsRows, $weekNos);
         $osTotals      = $this->columnTotals($osRows,      $weekNos, 4);
 
+        // Fill gross_sales_retail with all weeks (consistent shape)
+        $grossFilled = [];
+        foreach ($weekNos as $w) {
+            $grossFilled[$w] = round($grossByWeek[$w] ?? 0, 2);
+        }
+        $grossFilled['total'] = round(array_sum($grossFilled), 2);
+
         return response()->json([
             'status'  => true,
             'message' => 'Sales & OS report fetched successfully',
             'data'    => [
-                'year'        => $year,
-                'anchor_week' => $week,
-                'weeks'       => $weekNos,
-                'week_ranges' => $this->formatWeekRanges($weekRanges),
+                'year'         => $year,
+                'anchor_week'  => $week,
+                'weeks'        => $weekNos,
+                'calendar_rule'=> 'Friday 21:30:00 IST → Friday 21:29:59 IST',
+                'week_ranges'  => $this->formatWeekRanges($weekRanges),
 
                 'sales_by_category'        => $want('sales')       ? $salesRows     : null,
                 'total_sales'              => $want('sales')       ? $salesTotals   : null,
@@ -171,7 +196,7 @@ class SalesReportExportController extends Controller
 
                 'net_sales'                => $want('net')         ? $netByWeek + ['total' => round(array_sum($netByWeek), 2)] : null,
 
-                'gross_sales_retail'       => $want('gross')       ? $grossByWeek + ['total' => round(array_sum($grossByWeek), 2)] : null,
+                'gross_sales_retail'       => $want('gross')       ? $grossFilled : null,
                 'net_sales_ba_price'       => $want('ba_price')    ? $netByWeek + ['total' => round(array_sum($netByWeek), 2)] : null,
 
                 'cv'                       => $want('cv')          ? $cvByWeek + ['total' => round(array_sum($cvByWeek), 4)] : null,
@@ -186,7 +211,6 @@ class SalesReportExportController extends Controller
 
     // =================================================================
     // ENDPOINT 2 — Product by Product Report
-    // GET /api/admin/finance/sales-report/products?year=2026&week=0&weeks_back=5
     // =================================================================
     public function productReport(Request $request)
     {
@@ -246,9 +270,10 @@ class SalesReportExportController extends Controller
             'status'  => true,
             'message' => 'Product report fetched successfully',
             'data'    => [
-                'year'        => $year,
-                'anchor_week' => $week,
-                'weeks'       => $weekNos,
+                'year'          => $year,
+                'anchor_week'   => $week,
+                'weeks'         => $weekNos,
+                'calendar_rule' => 'Friday 21:30:00 IST → Friday 21:29:59 IST',
 
                 'category_summary' => [
                     'rows'          => $categoryRows,
@@ -262,8 +287,24 @@ class SalesReportExportController extends Controller
     }
 
     // =================================================================
-    // WEEK RESOLUTION
+    // WEEK RESOLUTION — with client's 2-hour shift
     // =================================================================
+
+    /**
+     * Shift an Ignite week row's raw start_at/end_at by WEEK_SHIFT_HOURS backwards.
+     * Returns [Carbon $start, Carbon $end] in Ignite timezone.
+     */
+    private function shiftedWeekBounds(array $weekRow): array
+    {
+        $start = Carbon::createFromFormat('Y-m-d H:i:s', $weekRow['start_at'], self::IGNITE_TZ)
+            ->subHours(self::WEEK_SHIFT_HOURS);
+
+        $end = Carbon::createFromFormat('Y-m-d H:i:s', $weekRow['end_at'], self::IGNITE_TZ)
+            ->subHours(self::WEEK_SHIFT_HOURS);
+
+        return [$start, $end];
+    }
+
     private function currentWeekFromCalendar(int $year): ?int
     {
         $calendar = $this->getCalendar($year);
@@ -286,6 +327,9 @@ class SalesReportExportController extends Controller
         return (int) $weeks->max('week_no');
     }
 
+    /**
+     * Returns [week_no => [Carbon start, Carbon end]] with client's 2h shift applied.
+     */
     private function resolveWeekRanges(int $year, int $currentWeek, int $weeksBack): array
     {
         $ranges = [];
@@ -312,10 +356,7 @@ class SalesReportExportController extends Controller
                 if (!isset($weeks[$w])) break;
             }
 
-            $wk    = $weeks[$w];
-            $start = Carbon::createFromFormat('Y-m-d H:i:s', $wk['start_at'], self::IGNITE_TZ);
-            $end   = Carbon::createFromFormat('Y-m-d H:i:s', $wk['end_at'],   self::IGNITE_TZ);
-
+            [$start, $end] = $this->shiftedWeekBounds($weeks[$w]);
             $ranges[$w] = [$start, $end];
             $w--;
         }
@@ -342,7 +383,7 @@ class SalesReportExportController extends Controller
         foreach ($weekRanges as $w => [$start, $end]) {
             $out[$w] = [
                 'start_at' => $start->copy()->setTimezone(self::LOCAL_TZ)->toDateTimeString(),
-                'end_at'   => $end->copy()->setTimezone(self::LOCAL_TZ)->toDateTimeString(),
+                'end_at'   => $end->copy()->setTimezone(self::LOCAL_TZ)->subSecond()->toDateTimeString(),
                 'settled'  => $this->isWeekSettled($start->year, $w),
             ];
         }
@@ -362,6 +403,10 @@ class SalesReportExportController extends Controller
         return false;
     }
 
+    /**
+     * Map an order's confirmed_at/created_at back to its Ignite week_no
+     * using the *shifted* week boundaries (client's Friday 21:30 IST rule).
+     */
     private function weekNoFor(Carbon $orderedAt): ?int
     {
         $utc8 = $orderedAt->copy()->setTimezone(self::IGNITE_TZ);
@@ -369,8 +414,7 @@ class SalesReportExportController extends Controller
 
         foreach ($calendar['months'] ?? [] as $month) {
             foreach ($month['weeks'] ?? [] as $w) {
-                $start = Carbon::createFromFormat('Y-m-d H:i:s', $w['start_at'], self::IGNITE_TZ);
-                $end   = Carbon::createFromFormat('Y-m-d H:i:s', $w['end_at'],   self::IGNITE_TZ);
+                [$start, $end] = $this->shiftedWeekBounds($w);
                 if ($utc8->greaterThanOrEqualTo($start) && $utc8->lessThan($end)) {
                     return (int) $w['week_no'];
                 }
@@ -380,12 +424,11 @@ class SalesReportExportController extends Controller
     }
 
     // =================================================================
-    // BULK QUERIES
+    // BULK QUERIES (unchanged, except weekNoFor now uses shifted bounds)
     // =================================================================
     private function categoryWeekly(string $mode, array $weekRanges): array
     {
         [$start, $end] = $this->window($weekRanges);
-
         $dateExpr = 'COALESCE(o.confirmed_at, o.created_at)';
 
         $q = DB::table('order_lines as ol')
@@ -417,7 +460,6 @@ class SalesReportExportController extends Controller
     private function productWeekly(string $mode, array $weekRanges): array
     {
         [$start, $end] = $this->window($weekRanges);
-
         $dateExpr = 'COALESCE(o.confirmed_at, o.created_at)';
 
         $q = DB::table('order_lines as ol')
@@ -449,7 +491,6 @@ class SalesReportExportController extends Controller
     private function grossRetailWeekly(array $weekRanges): array
     {
         [$start, $end] = $this->window($weekRanges);
-
         $dateExpr = 'COALESCE(o.confirmed_at, o.created_at)';
 
         $rows = DB::table('orders as o')
