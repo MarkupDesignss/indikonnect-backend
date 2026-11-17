@@ -47,6 +47,7 @@ class SalesReportController extends Controller
 
             $perPage = (int) $request->input('per_page', 100);
 
+            // 1. Refund subquery
             $refundSub = DB::table('refunds')
                 ->select('order_id')
                 ->selectRaw('SUM(amount) AS total_refunded')
@@ -54,12 +55,14 @@ class SalesReportController extends Controller
                 ->where('status', 'completed')
                 ->groupBy('order_id');
 
+            // 2. GSTIN subquery
             $gstinSub = DB::table('distributor_profiles')
                 ->select('user_id')
                 ->selectRaw('MAX(gst_in) AS gst_in')
                 ->whereNotNull('gst_in')
                 ->groupBy('user_id');
 
+            // 3. LINE AGGREGATE SUBQUERY — fan-out fix + CV + Tax (shipping included)
             $lineAggSub = DB::table('order_lines')
                 ->join('products', 'products.id', '=', 'order_lines.product_id')
                 ->join('orders', 'orders.id', '=', 'order_lines.order_id')
@@ -99,8 +102,7 @@ class SalesReportController extends Controller
                 ")
                 ->selectRaw("
                     CASE
-                        WHEN orders.status = 'delivered' THEN 'delivered'
-                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) > 0 THEN 'delivered'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
                         WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0 THEN 'shipped'
                         WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
                         ELSE 'confirmed'
@@ -108,6 +110,7 @@ class SalesReportController extends Controller
                 ")
                 ->groupBy('order_lines.order_id');
 
+            // 4. BASE QUERY — Order level
             $query = Order::query()
                 ->join('users', 'users.id', '=', 'orders.user_id')
                 ->leftJoinSub($refundSub, 'refund_sum', function ($join) {
@@ -129,6 +132,7 @@ class SalesReportController extends Controller
                 $query->where('orders.created_at', '<=', $request->to . ' 23:59:59');
             }
 
+            // 5. SELECT
             $query->select([
                 'orders.order_reference                    AS bill_id',
                 'orders.created_at                         AS order_date',
@@ -152,7 +156,7 @@ class SalesReportController extends Controller
                 'line_agg.max_shipped_at                   AS shipping_date',
                 'line_agg.shipping_state                   AS customer_shipping_state',
                 DB::raw('COALESCE(line_agg.total_shipping_charge, 0) AS shipping_charge'),
-                'line_agg.overall_delivery_status          AS delivery_status',
+                DB::raw("CASE WHEN orders.status = 'delivered' THEN 'delivered' ELSE COALESCE(line_agg.overall_delivery_status, 'confirmed') END AS delivery_status"),
                 DB::raw("CASE WHEN COALESCE(refund_sum.total_refunded, 0) > 0 THEN 'TRUE' ELSE 'FALSE' END AS is_refunded"),
                 'orders.refund_status                      AS refund_status',
                 DB::raw('0 AS refunded_items'),
@@ -162,6 +166,7 @@ class SalesReportController extends Controller
 
             $paginated = $query->paginate($perPage);
 
+            // 6. FORMAT
             $stateNormalize = [
                 'RAJISTHAN' => 'Rajasthan', 'MAADHYA PRADESH' => 'Madhya Pradesh',
                 'HIMANCHAL PRADESH' => 'Himachal Pradesh', 'WEST BANGAL' => 'West Bengal',
