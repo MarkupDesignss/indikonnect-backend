@@ -109,19 +109,16 @@ class FinanceCommissionExportController extends Controller
                     continue;
                 }
 
-                // ---------- TDS rate (GSTIN + PAN check) ----------
+                // ---------- TDS rate (based on complete_pan_card presence) ----------
                 $profile     = $dist->distributorProfile;
                 $gstIn       = $profile?->gst_in;
                 $panVerified = (bool) ($profile?->pan_verified ?? false);
 
-                $normalizedGst = strtoupper(trim((string) $gstIn));
+                $hasPanCard = !empty(trim((string) $dist->complete_pan_card))
+                           && $dist->complete_pan_card !== '-';
 
-                $isValidGst = !empty($normalizedGst)
-                    && $normalizedGst !== 'URP'
-                    && preg_match('/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $normalizedGst);
-
-                $tdsRate    = ($isValidGst && $panVerified) ? 0.02 : 0.20;
-                $tdsSection = $isValidGst ? '194-O' : '194J';
+                $tdsRate    = $hasPanCard ? 0.02 : 0.20;
+                $tdsSection = $hasPanCard ? '194-O' : '194J';
 
                 $tdsAmount     = round($grossCommission * $tdsRate, 2);
                 $netCommission = round($grossCommission - $tdsAmount, 2);
@@ -140,19 +137,19 @@ class FinanceCommissionExportController extends Controller
                     'tds_amount'          => $tdsAmount,
                     'net_commission'      => $netCommission,
 
-                    'gst_in'              => $this->maskGst($gstIn),
+                    // No masking — plain values
+                    'gst_in'              => $gstIn ?: '-',
                     'pan_verified'        => $panVerified,
 
                     // Bank details
                     'bank_holder_name'    => $profile->bank_holder_name ?? '-',
                     'bank_ifsc'           => $profile->bank_ifsc ?? '-',
 
-                    'pan_number'          => $this->maskPan(
-                            $dist->complete_pan_card 
-                                ?: $this->decryptField($profile?->encrypted_pan)
-                        ),
-                    'bank_account_number' => $profile?->complete_bank_account 
-                                                ?: $this->decryptField($profile?->encrypted_bank_account) 
+                    'pan_number'          => $dist->complete_pan_card
+                                                ?: $this->decryptField($profile?->encrypted_pan)
+                                                ?: '-',
+                    'bank_account_number' => $profile?->complete_bank_account
+                                                ?: $this->decryptField($profile?->encrypted_bank_account)
                                                 ?: '-',
                 ];
             } catch (\Throwable $e) {
@@ -249,7 +246,7 @@ class FinanceCommissionExportController extends Controller
             ->where('account_type', 'distributor')
             ->whereNotNull('distributor_id')
             ->where('distributor_id', '!=', '')
-            ->select('id', 'full_name', 'email', 'distributor_id')
+            ->select('id', 'full_name', 'email', 'distributor_id', 'complete_pan_card')
             ->orderBy('id');
 
         if ($baId) {
@@ -267,21 +264,15 @@ class FinanceCommissionExportController extends Controller
 
         $cutoff = $weekWindows[0]['start'];
 
-        // Pre-compute TDS info per distributor
+        // Pre-compute TDS info per distributor (based on complete_pan_card)
         $tdsInfoMap = [];
         foreach ($distributors as $dist) {
-            $profile     = $dist->distributorProfile;
-            $gstIn       = $profile?->gst_in;
-            $panVerified = (bool) ($profile?->pan_verified ?? false);
-
-            $normalizedGst = strtoupper(trim((string) $gstIn));
-            $isValidGst = !empty($normalizedGst)
-                && $normalizedGst !== 'URP'
-                && preg_match('/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $normalizedGst);
+            $hasPanCard = !empty(trim((string) $dist->complete_pan_card))
+                       && $dist->complete_pan_card !== '-';
 
             $tdsInfoMap[$dist->distributor_id] = [
-                'tds_rate'    => ($isValidGst && $panVerified) ? 0.02 : 0.20,
-                'tds_section' => $isValidGst ? '194-O' : '194J',
+                'tds_rate'    => $hasPanCard ? 0.02 : 0.20,
+                'tds_section' => $hasPanCard ? '194-O' : '194J',
             ];
         }
 
@@ -436,32 +427,8 @@ class FinanceCommissionExportController extends Controller
     }
 
     // ============================================================
-    // MASK HELPERS
+    // DECRYPT HELPER (masking removed)
     // ============================================================
-
-    private function maskGst(?string $gst): string
-    {
-        if (empty($gst)) {
-            return '-';
-        }
-
-        $gst = strtoupper(trim($gst));
-
-        // URP = Unregistered Person — show as-is, don't mask
-        if ($gst === 'URP') {
-            return 'URP';
-        }
-
-        $len = strlen($gst);
-
-        if ($len <= 5) {
-            return str_repeat('*', $len);
-        }
-
-        return substr($gst, 0, 2)
-            . str_repeat('*', $len - 5)
-            . substr($gst, -3);
-    }
 
     private function decryptField(?string $encrypted): ?string
     {
@@ -488,28 +455,6 @@ class FinanceCommissionExportController extends Controller
             // Layer 3: Plain value (already decrypted / not encrypted)
             return $encrypted;
         }
-    }
-
-    private function maskPan(?string $pan): string
-    {
-        if (empty($pan)) {
-            return '-';
-        }
-
-        if (preg_match('/^s:\d+:"(.*)";$/s', $pan, $m)) {
-            $pan = $m[1];
-        }
-
-        $pan = strtoupper(trim($pan));
-        $len = strlen($pan);
-
-        if ($len !== 10) {
-            return str_repeat('*', $len);
-        }
-
-        return substr($pan, 0, 2)
-            . str_repeat('*', 5)
-            . substr($pan, -3);
     }
 
     // ============================================================
