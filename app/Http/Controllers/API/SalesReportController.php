@@ -47,13 +47,34 @@ class SalesReportController extends Controller
             $perPage = (int) $request->input('per_page', 100);
 
             // ============================================================
+            // Subqueries: refunds aur GSTIN
+            // ============================================================
+            $refundSub = DB::table('refunds')
+                ->select('order_id')
+                ->selectRaw('SUM(amount) AS total_refunded')
+                ->selectRaw('MAX(completed_at) AS last_refunded_at')
+                ->where('status', 'completed')
+                ->groupBy('order_id');
+
+            $gstinSub = DB::table('distributor_profiles')
+                ->select('user_id')
+                ->selectRaw('MAX(gst_in) AS gst_in')
+                ->whereNotNull('gst_in')
+                ->groupBy('user_id');
+
+            // ============================================================
             // BASE QUERY
             // ============================================================
             $query = OrderLine::query()
                 ->join('orders', 'orders.id', '=', 'order_lines.order_id')
                 ->leftJoin('users', 'users.id', '=', 'orders.user_id')
                 ->leftJoin('products', 'products.id', '=', 'order_lines.product_id')
-                ->leftJoin('order_shipping_details', 'order_shipping_details.order_line_id', '=', 'order_lines.id')
+                ->leftJoinSub($refundSub, 'refund_sum', function ($join) {
+                    $join->on('refund_sum.order_id', '=', 'orders.id');
+                })
+                ->leftJoinSub($gstinSub, 'gstin_data', function ($join) {
+                    $join->on('gstin_data.user_id', '=', 'users.id');
+                })
                 ->leftJoin('addresses as delivery_addr', function ($join) {
                     $join->on('delivery_addr.user_id', '=', 'orders.user_id')
                         ->where('delivery_addr.is_delivery', '=', 1);
@@ -69,7 +90,9 @@ class SalesReportController extends Controller
                 $query->where('orders.created_at', '<=', $request->to . ' 23:59:59');
             }
 
+            // ============================================================
             // SELECT
+            // ============================================================
             $query->select([
                 'orders.order_reference                                    AS bill_id',
                 'orders.created_at                                         AS order_date',
@@ -77,8 +100,13 @@ class SalesReportController extends Controller
                 'users.phone                                                AS customer_mobile',
                 'orders.subtotal                                            AS gross_total',
                 'orders.total_payable                                       AS order_amount',
-                'orders.refunded_amount                                     AS refunded_amount',
-                'orders.total_payable                                       AS net_order_amount',
+
+                // Refunded amount — refunds table se
+                DB::raw('COALESCE(refund_sum.total_refunded, 0) AS refunded_amount'),
+
+                // Net = order amount - refunded
+                DB::raw('(orders.total_payable - COALESCE(refund_sum.total_refunded, 0)) AS net_order_amount'),
+
                 'orders.status                                              AS order_status',
                 DB::raw('COUNT(order_lines.id) OVER (PARTITION BY orders.id) AS total_items'),
                 'orders.total_gst                                           AS total_tax',
@@ -89,22 +117,33 @@ class SalesReportController extends Controller
                 'orders.coupon_discount                                     AS discount_amount',
                 'order_lines.commissionable_volume                          AS cv',
                 'users.distributor_id                                       AS user_name',
-                'users.gstin                                                AS customer_gstin',
-                'order_shipping_details.shipped_at                          AS shipping_date',
+
+                // GSTIN — distributor_profiles se
+                'gstin_data.gst_in                                          AS customer_gstin',
+
+                // Shipping date — order_lines.shipped_at se
+                'order_lines.shipped_at                                     AS shipping_date',
+
+                // Shipping state — addresses se
                 'delivery_addr.state                                        AS customer_shipping_state',
+
                 'order_lines.shipping_charge                                AS shipping_charge',
                 'order_lines.delivery_status                                AS delivery_status',
-                DB::raw("CASE WHEN COALESCE(orders.refunded_amount,0) > 0 THEN 'TRUE' ELSE 'FALSE' END AS is_refunded"),
+
+                // Refund flags
+                DB::raw("CASE WHEN COALESCE(refund_sum.total_refunded, 0) > 0 THEN 'TRUE' ELSE 'FALSE' END AS is_refunded"),
                 'orders.refund_status                                       AS refund_status',
                 DB::raw('0 AS refunded_items'),
-                'orders.last_refund_date                                    AS last_refund_date',
+                DB::raw('refund_sum.last_refunded_at AS last_refund_date'),
             ])
             ->orderBy('orders.created_at', 'desc')
             ->orderBy('order_lines.id', 'asc');
 
             $paginated = $query->paginate($perPage);
 
-            // FORMAT
+            // ============================================================
+            // FORMAT — CSV jaisa hi JSON
+            // ============================================================
             $data = $paginated->getCollection()->map(function ($row) {
                 return [
                     'Bill Id'                 => (string) $row->bill_id,
@@ -151,7 +190,9 @@ class SalesReportController extends Controller
                 ],
             ]);
         } catch (\Exception $e) {
-            Log::error('Sales report failed: ' . $e->getMessage());
+            Log::error('Sales report failed: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
 
             return response()->json([
                 'success' => false,
