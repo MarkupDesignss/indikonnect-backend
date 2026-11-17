@@ -12,17 +12,15 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class SalesReportExportController extends Controller
 {
     protected IgniteClient $ignite;
 
-    /** Ignite sends every timestamp in UTC+8. */
     private const IGNITE_TZ = 'Asia/Hong_Kong';
-    /** Business timezone used for date display in the response. */
-    private const LOCAL_TZ = 'Asia/Kolkata';
+    private const LOCAL_TZ  = 'Asia/Kolkata';
 
-    /** Order statuses that count as a sale. */
     private const SALE_STATUSES = [
         'confirmed', 'dispatched', 'shipped', 'delivered', 'partial_delivered',
     ];
@@ -33,101 +31,133 @@ class SalesReportExportController extends Controller
     }
 
     // =================================================================
-    // ENDPOINT 1 — Sales & OS Report (Category matrix)
-    // GET /api/finance/sales-report/category?year=2026&week=38&weeks_back=23
+    // ENDPOINT 0 — Report metadata (available weeks, current week)
+    // GET /api/admin/finance/sales-report/meta?year=2026
+    // =================================================================
+    public function meta(Request $request)
+    {
+        $request->validate([
+            'year' => 'nullable|integer|min:2020|max:2100',
+        ]);
+
+        $year     = (int) ($request->year ?? now()->year);
+        $calendar = $this->getCalendar($year);
+
+        $weeks = collect($calendar['months'] ?? [])
+            ->flatMap(fn ($m) => $m['weeks'] ?? [])
+            ->sortBy('week_no')
+            ->values();
+
+        // Fallback to previous sales year
+        if ($weeks->isEmpty()) {
+            $prev   = $this->getCalendar($year - 1);
+            $weeks  = collect($prev['months'] ?? [])
+                ->flatMap(fn ($m) => $m['weeks'] ?? [])
+                ->sortBy('week_no')
+                ->values();
+        }
+
+        if ($weeks->isEmpty()) {
+            return response()->json([
+                'status'  => false,
+                'message' => "No sales calendar found for year {$year} or " . ($year - 1),
+            ], 503);
+        }
+
+        $current = $weeks->firstWhere('is_current', true)
+            ?? $weeks->where('is_settled', true)->sortByDesc('week_no')->first()
+            ?? $weeks->last();
+
+        $settled = $weeks->where('is_settled', true)->count();
+
+        return response()->json([
+            'status' => true,
+            'data'   => [
+                'year'                 => $year,
+                'current_week'         => $current ? (int) $current['week_no'] : null,
+                'current_week_settled' => (bool) ($current['is_settled'] ?? false),
+                'first_week_no'        => $weeks->first()['week_no'] ?? null,
+                'last_week_no'         => $weeks->last()['week_no'] ?? null,
+                'total_weeks'          => $weeks->count(),
+                'settled_weeks'        => $settled,
+                'max_weeks_back'       => $settled > 0 ? $settled : min($weeks->count(), 52),
+                'available_weeks'      => $weeks->map(fn ($w) => [
+                    'week_no'    => (int) $w['week_no'],
+                    'start_at'   => $w['start_at'],
+                    'end_at'     => $w['end_at'],
+                    'is_current' => (bool) ($w['is_current'] ?? false),
+                    'is_settled' => (bool) ($w['is_settled'] ?? false),
+                ])->values(),
+            ],
+        ]);
+    }
+
+    // =================================================================
+    // ENDPOINT 1 — Sales & OS Report
+    // GET /api/admin/finance/sales-report/category?year=2026&week=0&weeks_back=10
     // =================================================================
     public function categoryReport(Request $request)
     {
         $request->validate([
-            'year'       => 'required|integer|min:2020|max:2100',
-            'week'       => 'required|integer|min:1|max:53',
+            'year'       => 'nullable|integer|min:2020|max:2100',
+            'week'       => 'nullable|integer|min:0|max:53',
             'weeks_back' => 'nullable|integer|min:1|max:52',
             'include'    => 'nullable|string',
         ]);
 
-        $year      = (int) $request->year;
-        $week      = (int) $request->week;
+        $year      = (int) ($request->year ?? now()->year);
+        $week      = (int) ($request->week ?? 0);
         $weeksBack = (int) ($request->weeks_back ?? 23);
+        $include   = $request->filled('include')
+            ? array_map('trim', explode(',', $request->include))
+            : null;
+        $want = fn (string $s) => $include === null || in_array($s, $include, true);
+
+        // week=0 → auto-detect current week
+        if ($week === 0) {
+            $week = $this->currentWeekFromCalendar($year);
+            if ($week === null) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => "No week found in Ignite calendar for year {$year}. Try year-1 or pass explicit week.",
+                ], 503);
+            }
+        }
 
         $weekRanges = $this->resolveWeekRanges($year, $week, $weeksBack);
         if (empty($weekRanges)) {
             return response()->json([
                 'status'  => false,
                 'message' => 'No sales weeks found in Ignite calendar for the requested range',
+                'debug'   => ['year' => $year, 'week' => $week, 'weeks_back' => $weeksBack],
             ], 503);
         }
 
-        $weekNos = array_keys($weekRanges); // newest → oldest
+        $weekNos = array_keys($weekRanges);
 
-        // Pre-fetch all four data sets in bulk
-        $salesByCat   = $this->categoryWeekly('sales',     $weekRanges);
-        $returnsByCat = $this->categoryWeekly('returns',   $weekRanges);
+        // Bulk fetch
+        $salesByCat   = $this->categoryWeekly('sales',   $weekRanges);
+        $returnsByCat = $this->categoryWeekly('returns', $weekRanges);
         $grossByWeek  = $this->grossRetailWeekly($weekRanges);
         $cvByWeek     = $this->cvByWeek($year, $weekNos);
         $osByCat      = $this->outstandingByCategory($year, $weekRanges);
-        $osByWeek     = $this->sumByWeek($osByCat, $weekNos);
 
-        // Net sales = sales + returns (returns already negative)
+        // Net = sales + returns
         $netByWeek = [];
         foreach ($weekNos as $w) {
-            $sales   = array_sum(array_map(fn ($row) => $row[$w] ?? 0, $salesByCat));
-            $returns = array_sum(array_map(fn ($row) => $row[$w] ?? 0, $returnsByCat));
-            $netByWeek[$w] = round($sales + $returns, 2);
+            $s = array_sum(array_map(fn ($row) => $row[$w] ?? 0, $salesByCat));
+            $r = array_sum(array_map(fn ($row) => $row[$w] ?? 0, $returnsByCat));
+            $netByWeek[$w] = round($s + $r, 2);
         }
 
-        // Sales-by-category block (rows 4–7 of the sheet)
-        $salesRows = [];
-        $salesTotals = array_fill_keys($weekNos, 0);
-        foreach ($salesByCat as $catId => $weekly) {
-            $row = [];
-            foreach ($weekNos as $w) {
-                $row[$w] = round($weekly[$w] ?? 0, 2);
-                $salesTotals[$w] += $row[$w];
-            }
-            $salesRows[] = [
-                'category_id' => $catId,
-                'category'    => $this->categoryName($catId),
-                'weekly'      => $row,
-                'total'       => round(array_sum($row), 2),
-            ];
-        }
-        $totalSales = array_map(fn ($v) => round($v, 2), $salesTotals) + ['total' => round(array_sum($salesTotals), 2)];
+        // All categories — zero-filled
+        $salesRows   = $this->allCategoryRows($salesByCat,   $weekNos);
+        $returnsRows = $this->allCategoryRows($returnsByCat, $weekNos);
+        $osRows      = $this->allCategoryRows($osByCat,      $weekNos, 4);
 
-        // Returns-by-category block (rows 9–12)
-        $returnsRows = [];
-        $returnsTotals = array_fill_keys($weekNos, 0);
-        foreach ($returnsByCat as $catId => $weekly) {
-            $row = [];
-            foreach ($weekNos as $w) {
-                $row[$w] = round($weekly[$w] ?? 0, 2);
-                $returnsTotals[$w] += $row[$w];
-            }
-            $returnsRows[] = [
-                'category_id' => $catId,
-                'category'    => $this->categoryName($catId),
-                'weekly'      => $row,
-                'total'       => round(array_sum($row), 2),
-            ];
-        }
-        $totalReturns = array_map(fn ($v) => round($v, 2), $returnsTotals) + ['total' => round(array_sum($returnsTotals), 2)];
-
-        // Outstanding-by-category block (rows 25–28)
-        $osRows = [];
-        $osTotals = array_fill_keys($weekNos, 0);
-        foreach ($osByCat as $catId => $weekly) {
-            $row = [];
-            foreach ($weekNos as $w) {
-                $row[$w] = round($weekly[$w] ?? 0, 4);
-                $osTotals[$w] += $row[$w];
-            }
-            $osRows[] = [
-                'category_id' => $catId,
-                'category'    => $this->categoryName($catId),
-                'weekly'      => $row,
-                'total'       => round(array_sum($row), 4),
-            ];
-        }
-        $totalOs = array_map(fn ($v) => round($v, 4), $osTotals) + ['total' => round(array_sum($osTotals), 4)];
+        $salesTotals   = $this->columnTotals($salesRows,   $weekNos);
+        $returnsTotals = $this->columnTotals($returnsRows, $weekNos);
+        $osTotals      = $this->columnTotals($osRows,      $weekNos, 4);
 
         return response()->json([
             'status'  => true,
@@ -138,50 +168,55 @@ class SalesReportExportController extends Controller
                 'weeks'       => $weekNos,
                 'week_ranges' => $this->formatWeekRanges($weekRanges),
 
-                // Sales block
-                'sales_by_category' => $salesRows,
-                'total_sales'       => $totalSales,
+                'sales_by_category'        => $want('sales')       ? $salesRows     : null,
+                'total_sales'              => $want('sales')       ? $salesTotals   : null,
 
-                // Returns block
-                'sales_return_by_category' => $returnsRows,
-                'total_sales_return'       => $totalReturns,
+                'sales_return_by_category' => $want('returns')     ? $returnsRows   : null,
+                'total_sales_return'       => $want('returns')     ? $returnsTotals : null,
 
-                // Net sales
-                'net_sales' => $netByWeek + ['total' => round(array_sum($netByWeek), 2)],
+                'net_sales'                => $want('net')         ? $netByWeek + ['total' => round(array_sum($netByWeek), 2)] : null,
 
-                // Gross / BA price
-                'gross_sales_retail' => $grossByWeek + ['total' => round(array_sum($grossByWeek), 2)],
-                'net_sales_ba_price' => $netByWeek + ['total' => round(array_sum($netByWeek), 2)],
+                'gross_sales_retail'       => $want('gross')       ? $grossByWeek + ['total' => round(array_sum($grossByWeek), 2)] : null,
+                'net_sales_ba_price'       => $want('ba_price')    ? $netByWeek + ['total' => round(array_sum($netByWeek), 2)] : null,
 
-                // CV block
-                'cv'          => $cvByWeek + ['total' => round(array_sum($cvByWeek), 4)],
-                'cv_over_net' => $this->ratioWeek($cvByWeek, $netByWeek),
+                'cv'                       => $want('cv')          ? $cvByWeek + ['total' => round(array_sum($cvByWeek), 4)] : null,
+                'cv_over_net'              => $want('cv')          ? $this->ratioWeek($cvByWeek, $netByWeek) : null,
 
-                // Outstanding block
-                'outstanding_by_category' => $osRows,
-                'total_outstanding'       => $totalOs,
-                'os_over_net'             => $this->ratioWeek($totalOs, $netByWeek),
+                'outstanding_by_category'  => $want('outstanding') ? $osRows       : null,
+                'total_outstanding'        => $want('outstanding') ? $osTotals     : null,
+                'os_over_net'              => $want('outstanding') ? $this->ratioWeek($osTotals, $netByWeek) : null,
             ],
         ]);
     }
 
     // =================================================================
     // ENDPOINT 2 — Product by Product Report
-    // GET /api/finance/sales-report/products?year=2026&week=40&weeks_back=5
+    // GET /api/admin/finance/sales-report/products?year=2026&week=0&weeks_back=5
     // =================================================================
     public function productReport(Request $request)
     {
         $request->validate([
-            'year'        => 'required|integer|min:2020|max:2100',
-            'week'        => 'required|integer|min:1|max:53',
+            'year'        => 'nullable|integer|min:2020|max:2100',
+            'week'        => 'nullable|integer|min:0|max:53',
             'weeks_back'  => 'nullable|integer|min:1|max:26',
             'category_id' => 'nullable|integer|exists:categories,id',
             'product_ids' => 'nullable|string',
         ]);
 
-        $year      = (int) $request->year;
-        $week      = (int) $request->week;
+        $year      = (int) ($request->year ?? now()->year);
+        $week      = (int) ($request->week ?? 0);
         $weeksBack = (int) ($request->weeks_back ?? 5);
+
+        // week=0 → auto-detect
+        if ($week === 0) {
+            $week = $this->currentWeekFromCalendar($year);
+            if ($week === null) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => "No week found in Ignite calendar for year {$year}.",
+                ], 503);
+            }
+        }
 
         $weekRanges = $this->resolveWeekRanges($year, $week, $weeksBack);
         if (empty($weekRanges)) {
@@ -193,7 +228,7 @@ class SalesReportExportController extends Controller
 
         $weekNos = array_keys($weekRanges);
 
-        // Product list (filtered)
+        // Product list
         $productQuery = Product::select('id', 'name', 'category_id')
             ->whereNull('deleted_at')
             ->orderBy('name');
@@ -205,30 +240,16 @@ class SalesReportExportController extends Controller
             $ids = array_filter(array_map('intval', explode(',', $request->product_ids)));
             if ($ids) $productQuery->whereIn('id', $ids);
         }
-
         $products = $productQuery->get();
 
-        // Bulk weekly data
+        // Bulk data
         $salesByProduct  = $this->productWeekly('sales',  $weekRanges);
         $ordersByProduct = $this->productWeekly('orders', $weekRanges);
         $salesByCat      = $this->categoryWeekly('sales', $weekRanges);
 
-        // Category summary block (rows 7–9 of sheet 2)
-        $categoryRows = [];
-        $catTotals = array_fill_keys($weekNos, 0);
-        foreach ($salesByCat as $catId => $weekly) {
-            $row = [];
-            foreach ($weekNos as $w) {
-                $row[$w] = round($weekly[$w] ?? 0, 2);
-                $catTotals[$w] += $row[$w];
-            }
-            $categoryRows[] = [
-                'category_id' => $catId,
-                'category'    => $this->categoryName($catId),
-                'weekly'      => $row,
-                'total'       => round(array_sum($row), 2),
-            ];
-        }
+        // Category summary — all categories, zero-filled
+        $categoryRows = $this->allCategoryRows($salesByCat, $weekNos);
+        $catTotals    = $this->columnTotals($categoryRows, $weekNos);
 
         return response()->json([
             'status'  => true,
@@ -240,23 +261,42 @@ class SalesReportExportController extends Controller
 
                 'category_summary' => [
                     'rows'          => $categoryRows,
-                    'weekly_totals' => array_map(fn ($v) => round($v, 2), $catTotals)
-                        + ['total' => round(array_sum($catTotals), 2)],
+                    'weekly_totals' => $catTotals,
                 ],
 
-                'product_sales' => $this->productBlock($products, $salesByProduct, $weekNos, 'money'),
-
+                'product_sales' => $this->productBlock($products, $salesByProduct,  $weekNos, 'money'),
                 'order_counts'  => $this->productBlock($products, $ordersByProduct, $weekNos, 'int'),
             ],
         ]);
     }
 
     // =================================================================
-    // WEEK RANGE RESOLUTION (Ignite calendar, Saturday 02:00 UTC+8)
+    // WEEK RESOLUTION
     // =================================================================
+    private function currentWeekFromCalendar(int $year): ?int
+    {
+        $calendar = $this->getCalendar($year);
+        $weeks = collect($calendar['months'] ?? [])
+            ->flatMap(fn ($m) => $m['weeks'] ?? []);
+
+        if ($weeks->isEmpty()) {
+            $prev = $this->getCalendar($year - 1);
+            $weeks = collect($prev['months'] ?? [])
+                ->flatMap(fn ($m) => $m['weeks'] ?? []);
+            if ($weeks->isEmpty()) return null;
+        }
+
+        $current = $weeks->firstWhere('is_current', true);
+        if ($current) return (int) $current['week_no'];
+
+        $settled = $weeks->where('is_settled', true)->sortByDesc('week_no')->first();
+        if ($settled) return (int) $settled['week_no'];
+
+        return (int) $weeks->max('week_no');
+    }
+
     /**
-     * Returns [week_no => [Carbon $start, Carbon $end]]
-     * Start inclusive, end EXCLUSIVE (matches Ignite ledger).
+     * [week_no => [Carbon start, Carbon end]]  — start inclusive, end exclusive.
      */
     private function resolveWeekRanges(int $year, int $currentWeek, int $weeksBack): array
     {
@@ -271,25 +311,20 @@ class SalesReportExportController extends Controller
                 ->keyBy('week_no');
 
             if (!isset($weeks[$w])) {
-                // Rollover into the previous sales year
                 $y--;
                 $prev = $this->getCalendar($y);
                 $prevWeeks = collect($prev['months'] ?? [])
                     ->flatMap(fn ($m) => $m['weeks'] ?? [])
                     ->keyBy('week_no');
 
-                if ($prevWeeks->isEmpty()) {
-                    break;
-                }
+                if ($prevWeeks->isEmpty()) break;
 
-                // Map the requested week into the previous year's numbering
-                $maxPrev = (int) $prevWeeks->keys()->max();
-                $w = $maxPrev;
+                $w = (int) $prevWeeks->keys()->max();
                 $weeks = $prevWeeks;
                 if (!isset($weeks[$w])) break;
             }
 
-            $wk = $weeks[$w];
+            $wk    = $weeks[$w];
             $start = Carbon::createFromFormat('Y-m-d H:i:s', $wk['start_at'], self::IGNITE_TZ);
             $end   = Carbon::createFromFormat('Y-m-d H:i:s', $wk['end_at'],   self::IGNITE_TZ);
 
@@ -320,16 +355,25 @@ class SalesReportExportController extends Controller
             $out[$w] = [
                 'start_at' => $start->copy()->setTimezone(self::LOCAL_TZ)->toDateTimeString(),
                 'end_at'   => $end->copy()->setTimezone(self::LOCAL_TZ)->toDateTimeString(),
-                'settled'  => null, // filled by callers that need it
+                'settled'  => $this->isWeekSettled($start->year, $w),
             ];
         }
         return $out;
     }
 
-    /**
-     * Map a DB `ordered_at` back to its Ignite week_no.
-     * Uses the cached calendar for the timestamp's UTC+8 year.
-     */
+    private function isWeekSettled(int $year, int $weekNo): bool
+    {
+        $cal = $this->getCalendar($year);
+        foreach ($cal['months'] ?? [] as $m) {
+            foreach ($m['weeks'] ?? [] as $wk) {
+                if ((int) $wk['week_no'] === $weekNo) {
+                    return (bool) ($wk['is_settled'] ?? false);
+                }
+            }
+        }
+        return false;
+    }
+
     private function weekNoFor(Carbon $orderedAt): ?int
     {
         $utc8 = $orderedAt->copy()->setTimezone(self::IGNITE_TZ);
@@ -350,9 +394,6 @@ class SalesReportExportController extends Controller
     // =================================================================
     // BULK QUERIES
     // =================================================================
-    /**
-     * [category_id => [week_no => amount]] for sales OR returns.
-     */
     private function categoryWeekly(string $mode, array $weekRanges): array
     {
         [$start, $end] = $this->window($weekRanges);
@@ -384,9 +425,6 @@ class SalesReportExportController extends Controller
         return $out;
     }
 
-    /**
-     * [product_id => [week_no => value]] for sales (money) OR orders (count).
-     */
     private function productWeekly(string $mode, array $weekRanges): array
     {
         [$start, $end] = $this->window($weekRanges);
@@ -418,7 +456,6 @@ class SalesReportExportController extends Controller
         return $out;
     }
 
-    /** Gross / retail weekly totals (orders.total or line_total sum depending on schema). */
     private function grossRetailWeekly(array $weekRanges): array
     {
         [$start, $end] = $this->window($weekRanges);
@@ -441,7 +478,6 @@ class SalesReportExportController extends Controller
         return $out;
     }
 
-    /** CV from Ignite pairings, per week. */
     private function cvByWeek(int $year, array $weekNos): array
     {
         $out = [];
@@ -461,14 +497,9 @@ class SalesReportExportController extends Controller
         return $out;
     }
 
-    /**
-     * Outstanding shipment per category.
-     * Assumes a local `ignite_outstanding_shipments` mirror populated from
-     * floatingCvTxs() / open order lines. Falls back to zero when the table is missing.
-     */
     private function outstandingByCategory(int $year, array $weekRanges): array
     {
-        if (!\Schema::hasTable('ignite_outstanding_shipments')) {
+        if (!Schema::hasTable('ignite_outstanding_shipments')) {
             return [];
         }
 
@@ -493,8 +524,39 @@ class SalesReportExportController extends Controller
     }
 
     // =================================================================
-    // BUILDERS / HELPERS
+    // BUILDERS
     // =================================================================
+    private function allCategoryRows(array $byCat, array $weekNos, int $precision = 2): array
+    {
+        $cats = Category::select('id', 'title')->orderBy('title')->get();
+        $rows = [];
+        foreach ($cats as $cat) {
+            $weekly = [];
+            foreach ($weekNos as $w) {
+                $weekly[$w] = round($byCat[$cat->id][$w] ?? 0, $precision);
+            }
+            $rows[] = [
+                'category_id' => $cat->id,
+                'category'    => $cat->title,
+                'weekly'      => $weekly,
+                'total'       => round(array_sum($weekly), $precision),
+            ];
+        }
+        return $rows;
+    }
+
+    private function columnTotals(array $rows, array $weekNos, int $precision = 2): array
+    {
+        $totals = array_fill_keys($weekNos, 0);
+        foreach ($rows as $row) {
+            foreach ($weekNos as $w) {
+                $totals[$w] += $row['weekly'][$w] ?? 0;
+            }
+        }
+        return array_map(fn ($v) => round($v, $precision), $totals)
+            + ['total' => round(array_sum($totals), $precision)];
+    }
+
     private function productBlock($products, array $weeklyData, array $weekNos, string $cast): array
     {
         $rows = [];
@@ -511,9 +573,7 @@ class SalesReportExportController extends Controller
                 'product_id'   => $p->id,
                 'product_name' => $p->name,
                 'weekly'       => $row,
-                'total'        => $cast === 'money'
-                    ? round(array_sum($row), 2)
-                    : array_sum($row),
+                'total'        => $cast === 'money' ? round(array_sum($row), 2) : array_sum($row),
             ];
         }
 
@@ -540,27 +600,10 @@ class SalesReportExportController extends Controller
         return $out;
     }
 
-    private function sumByWeek(array $byCategory, array $weekNos): array
-    {
-        $out = array_fill_keys($weekNos, 0.0);
-        foreach ($byCategory as $weekly) {
-            foreach ($weekNos as $w) {
-                $out[$w] += $weekly[$w] ?? 0;
-            }
-        }
-        return $out;
-    }
-
     private function window(array $weekRanges): array
     {
         $starts = array_map(fn ($r) => $r[0], $weekRanges);
         $ends   = array_map(fn ($r) => $r[1], $weekRanges);
         return [min($starts), max($ends)];
-    }
-
-    private function categoryName(int $categoryId): string
-    {
-        static $cache = [];
-        return $cache[$categoryId] ??= (Category::where('id', $categoryId)->value('title') ?? "Category #{$categoryId}");
     }
 }

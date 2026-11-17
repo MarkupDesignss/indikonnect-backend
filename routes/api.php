@@ -142,6 +142,7 @@ Route::prefix('admin')->group(function () {
         Route::get('/ignite/exports/download', [IgniteExportController::class, 'download']);
         // Finance: Consolidated Commission Export (all distributors, Excel)
         Route::get('/finance/commission-export', [FinanceCommissionExportController::class, 'download']);
+        Route::get('/finance/sales-report/meta',     [SalesReportExportController::class, 'meta']);
         Route::get('/finance/sales-report/category', [SalesReportExportController::class, 'categoryReport']);
         Route::get('/finance/sales-report/products', [SalesReportExportController::class, 'productReport']);
         Route::get('/weekly-commission-report', [FinanceCommissionExportController::class, 'weeklyCommissionReport']);
