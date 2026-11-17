@@ -47,7 +47,7 @@ class SalesReportController extends Controller
             $perPage = (int) $request->input('per_page', 100);
 
             // ============================================================
-            // Subqueries: refunds aur GSTIN
+            // 1. Refund subquery (order-level)
             // ============================================================
             $refundSub = DB::table('refunds')
                 ->select('order_id')
@@ -56,6 +56,9 @@ class SalesReportController extends Controller
                 ->where('status', 'completed')
                 ->groupBy('order_id');
 
+            // ============================================================
+            // 2. GSTIN subquery (user-level)
+            // ============================================================
             $gstinSub = DB::table('distributor_profiles')
                 ->select('user_id')
                 ->selectRaw('MAX(gst_in) AS gst_in')
@@ -63,26 +66,84 @@ class SalesReportController extends Controller
                 ->groupBy('user_id');
 
             // ============================================================
-            // BASE QUERY
+            // 3. Order-lines aggregate subquery
+            //    - total_items  = SUM(quantity)
+            //    - total_cv     = SUM(quantity × products.commission_value)
+            //    - total_tax    = per-line derive from tax-inclusive line_total
+            //                     using order_lines.gst_rate
+            //    - tax_inclusive_total = SUM(line_total)  (for reconciliation)
             // ============================================================
-            $query = OrderLine::query()
-                ->join('orders', 'orders.id', '=', 'order_lines.order_id')
-                ->leftJoin('users', 'users.id', '=', 'orders.user_id')
-                ->leftJoin('products', 'products.id', '=', 'order_lines.product_id')
+            $lineAggSub = DB::table('order_lines')
+                ->join('products', 'products.id', '=', 'order_lines.product_id')
+                ->select('order_lines.order_id')
+                ->selectRaw('SUM(order_lines.quantity) AS total_items')
+                ->selectRaw('SUM(order_lines.quantity * COALESCE(products.commission_value, 0)) AS total_cv')
+                ->selectRaw('SUM(COALESCE(order_lines.shipping_charge, 0)) AS total_shipping_charge')
+                ->selectRaw('MAX(order_lines.shipped_at) AS max_shipped_at')
+
+                // Per-line tax derive (tax-inclusive → tax component)
+                // tax = line_amount − (line_amount / (1 + gst_rate/100))
+                ->selectRaw('
+                    SUM(
+                        order_lines.line_total
+                        - (order_lines.line_total / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
+                    ) AS derived_total_tax
+                ')
+                // Intra-state tax (Punjab) — CGST+SGST combined
+                ->selectRaw("
+                    SUM(
+                        CASE
+                            WHEN UPPER(TRIM(order_lines.shipping_state)) IN ('PUNJAB','PB')
+                            THEN order_lines.line_total
+                                - (order_lines.line_total / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
+                            ELSE 0
+                        END
+                    ) AS derived_intra_tax
+                ")
+                // Inter-state tax (non-Punjab) — IGST
+                ->selectRaw("
+                    SUM(
+                        CASE
+                            WHEN UPPER(TRIM(order_lines.shipping_state)) NOT IN ('PUNJAB','PB')
+                                OR order_lines.shipping_state IS NULL
+                            THEN order_lines.line_total
+                                - (order_lines.line_total / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
+                            ELSE 0
+                        END
+                    ) AS derived_inter_tax
+                ")
+
+                ->selectRaw("
+                    CASE
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*)
+                            THEN 'delivered'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0
+                            THEN 'shipped'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0
+                            THEN 'dispatched'
+                        ELSE 'confirmed'
+                    END AS overall_delivery_status
+                ")
+                ->groupBy('order_lines.order_id');
+
+            // ============================================================
+            // 4. BASE QUERY — Order level
+            // ============================================================
+            $query = Order::query()
+                ->join('users', 'users.id', '=', 'orders.user_id')
                 ->leftJoinSub($refundSub, 'refund_sum', function ($join) {
                     $join->on('refund_sum.order_id', '=', 'orders.id');
                 })
                 ->leftJoinSub($gstinSub, 'gstin_data', function ($join) {
                     $join->on('gstin_data.user_id', '=', 'users.id');
                 })
-                ->leftJoin('addresses as delivery_addr', function ($join) {
-                    $join->on('delivery_addr.user_id', '=', 'orders.user_id')
-                        ->where('delivery_addr.is_delivery', '=', 1);
+                ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
+                    $join->on('line_agg.order_id', '=', 'orders.id');
                 })
+                ->leftJoin('addresses as delivery_addr', 'delivery_addr.id', '=', 'orders.shipping_address_id')
                 ->whereIn('orders.status', $allowedStatuses)
                 ->whereNull('orders.deleted_at');
 
-            // Date filters
             if ($request->filled('from')) {
                 $query->where('orders.created_at', '>=', $request->from . ' 00:00:00');
             }
@@ -91,60 +152,80 @@ class SalesReportController extends Controller
             }
 
             // ============================================================
-            // SELECT
+            // 5. SELECT
             // ============================================================
             $query->select([
-                'orders.order_reference                                    AS bill_id',
-                'orders.created_at                                         AS order_date',
-                'users.full_name                                            AS customer_name',
-                'users.phone                                                AS customer_mobile',
-                'orders.subtotal                                            AS gross_total',
-                'orders.total_payable                                       AS order_amount',
+                'orders.order_reference                    AS bill_id',
+                'orders.created_at                         AS order_date',
+                'users.full_name                           AS customer_name',
+                'users.phone                               AS customer_mobile',
+                'orders.subtotal                           AS gross_total',
+                'orders.total_payable                      AS order_amount',
 
-                // Refunded amount — refunds table se
+                // Refund
                 DB::raw('COALESCE(refund_sum.total_refunded, 0) AS refunded_amount'),
-
-                // Net = order amount - refunded
                 DB::raw('(orders.total_payable - COALESCE(refund_sum.total_refunded, 0)) AS net_order_amount'),
 
-                'orders.status                                              AS order_status',
-                DB::raw('COUNT(order_lines.id) OVER (PARTITION BY orders.id) AS total_items'),
-                'orders.total_gst                                           AS total_tax',
-                'orders.total_cgst                                          AS cgst',
-                'orders.total_sgst                                          AS sgst',
-                'orders.total_igst                                          AS igst',
-                'orders.subtotal                                            AS total_list_price',
-                'orders.coupon_discount                                     AS discount_amount',
-                'order_lines.commissionable_volume                          AS cv',
-                'users.distributor_id                                       AS user_name',
+                'orders.status                             AS order_status',
 
-                // GSTIN — distributor_profiles se
-                'gstin_data.gst_in                                          AS customer_gstin',
+                // Items (order-level aggregate)
+                DB::raw('COALESCE(line_agg.total_items, 0) AS total_items'),
 
-                // Shipping date — order_lines.shipped_at se
-                'order_lines.shipped_at                                     AS shipping_date',
+                // Tax — per-line derived from order_lines.gst_rate
+                DB::raw('COALESCE(line_agg.derived_total_tax, 0) AS total_tax'),
 
-                // Shipping state — addresses se
-                'delivery_addr.state                                        AS customer_shipping_state',
+                // CGST = half of intra-state tax
+                DB::raw('ROUND(COALESCE(line_agg.derived_intra_tax, 0) / 2, 2) AS cgst'),
+                // SGST = half of intra-state tax
+                DB::raw('ROUND(COALESCE(line_agg.derived_intra_tax, 0) / 2, 2) AS sgst'),
+                // IGST = full inter-state tax
+                DB::raw('ROUND(COALESCE(line_agg.derived_inter_tax, 0), 2) AS igst'),
 
-                'order_lines.shipping_charge                                AS shipping_charge',
-                'order_lines.delivery_status                                AS delivery_status',
+                'orders.subtotal                           AS total_list_price',
+                'orders.coupon_discount                    AS discount_amount',
+
+                // CV — products.commission_value × qty
+                DB::raw('COALESCE(line_agg.total_cv, 0) AS cv'),
+
+                'users.distributor_id                      AS user_name',
+                'gstin_data.gst_in                         AS customer_gstin',
+
+                // Shipping
+                'line_agg.max_shipped_at                   AS shipping_date',
+                'delivery_addr.state                       AS customer_shipping_state',
+                DB::raw('COALESCE(line_agg.total_shipping_charge, 0) AS shipping_charge'),
+                'line_agg.overall_delivery_status          AS delivery_status',
 
                 // Refund flags
                 DB::raw("CASE WHEN COALESCE(refund_sum.total_refunded, 0) > 0 THEN 'TRUE' ELSE 'FALSE' END AS is_refunded"),
-                'orders.refund_status                                       AS refund_status',
+                'orders.refund_status                      AS refund_status',
                 DB::raw('0 AS refunded_items'),
-                DB::raw('refund_sum.last_refunded_at AS last_refund_date'),
+                'refund_sum.last_refunded_at               AS last_refund_date',
             ])
-                ->orderBy('orders.created_at', 'desc')
-                ->orderBy('order_lines.id', 'asc');
+                ->orderBy('orders.created_at', 'desc');
 
             $paginated = $query->paginate($perPage);
 
             // ============================================================
-            // FORMAT — CSV jaisa hi JSON
+            // 6. FORMAT — client ke exact format
             // ============================================================
-            $data = $paginated->getCollection()->map(function ($row) {
+            $stateNormalize = [
+                'RAJISTHAN'         => 'Rajasthan',
+                'MAADHYA PRADESH'   => 'Madhya Pradesh',
+                'HIMANCHAL PRADESH' => 'Himachal Pradesh',
+                'WEST BANGAL'       => 'West Bengal',
+                'KARNATKA'          => 'Karnataka',
+                'KARANATAKA'        => 'Karnataka',
+                'CHHATISGRAH'       => 'Chhattisgarh',
+                'CHHATTSGARH'       => 'Chhattisgarh',
+                'GUJRAT'            => 'Gujarat',
+                'HARIYANA'          => 'Haryana',
+            ];
+
+            $data = $paginated->getCollection()->map(function ($row) use ($stateNormalize) {
+                $rawState = strtoupper(trim((string) ($row->customer_shipping_state ?? '')));
+                $state = $stateNormalize[$rawState] ?? ($row->customer_shipping_state ?? '');
+
                 return [
                     'Bill Id'                 => (string) $row->bill_id,
                     'Order Date'              => $row->order_date
@@ -168,7 +249,7 @@ class SalesReportController extends Controller
                     'Customer GSTIN'          => $row->customer_gstin ?? '',
                     'Shipping Date'           => $row->shipping_date
                         ? Carbon::parse($row->shipping_date)->format('d-m-Y H:i') : '',
-                    'Customer Shipping State' => $row->customer_shipping_state ?? '',
+                    'Customer Shipping State' => $state,
                     'Shipping Charge'         => round((float) $row->shipping_charge, 2),
                     'Delivery Status'         => $row->delivery_status ?? '',
                     'Is Refunded'             => $row->is_refunded,
