@@ -1072,3 +1072,4 @@ Route::post(
     '/warehouse-receive-product/{orderReference}',
     [CancellationApprovalController::class, 'WarehouseReceiveCancel']
 );
+Route::get('/delivery-report', [SalesReportController::class, 'index']);
