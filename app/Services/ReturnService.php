@@ -2492,6 +2492,7 @@ class ReturnService
 
                         $linesTimeline[] = [
                             'line_id'         => $line->id,
+                            'is_inventory_back' => $line->is_inventory_back,
                             'item_reference'  => $line->item_reference_id,
                             'product_id'      => $line->product_id,
                             'variant_id'      => $line->variant_id,
