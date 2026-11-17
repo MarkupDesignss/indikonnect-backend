@@ -1072,19 +1072,5 @@ Route::post(
     '/warehouse-receive-product/{orderReference}',
     [CancellationApprovalController::class, 'WarehouseReceiveCancel']
 );
-Route::get('/delivery-report', [SalesReportController::class, 'index']);
-
-// ============================
-// INDIA POST ORDER LINE ROUTES
-// ============================
-// Customer tracking for a verified order line.
-Route::middleware(['auth:sanctum', 'throttle:10,1'])->get(
-    '/orders/{orderReference}/lines/{orderLineId}/indiapost/tracking',
-    [\App\Http\Controllers\Api\IndiaPostOrderTrackingController::class, 'showByLine']
-)->whereNumber('orderLineId');
-
-// Admin-only mapping of an existing parcel to an order line.
-Route::middleware(['auth:sanctum', 'admin', 'throttle:5,1'])->post(
-    '/orders/{orderReference}/lines/{orderLineId}/indiapost/parcel-links',
-    [\App\Http\Controllers\Api\IndiaPostShippingFlowController::class, 'linkExistingParcel']
-)->whereNumber('orderLineId');
+Route::get('/delivery-report', [SalesReportController::class, 'deliveryeportsr']);
+Route::get('/returns-report', [SalesReportController::class, 'returnreports']);
