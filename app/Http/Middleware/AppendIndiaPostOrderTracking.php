@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
-/** Local, read-only, dedicated order-line tracking enrichment. */
+/** Read-only, local, dedicated order-line AWB summary for the admin orders list. */
 final class AppendIndiaPostOrderTracking
 {
     public function handle(Request $request, Closure $next): Response
@@ -21,11 +21,12 @@ final class AppendIndiaPostOrderTracking
         $body = $response->getData(true);
         if (!is_array($body) || ($body['success'] ?? false) !== true || !is_array($body['data'] ?? null)) return $response;
 
+        // Supports both the list and the optional single-order details route.
+        $single = isset($body['data']['id'], $body['data']['items']);
+        $entries = $single ? [$body['data']] : $body['data'];
         $ids = [];
-        // Fail closed: never forward a parent AWB or an unverified India Post line summary.
-        foreach ($body['data'] as &$entry) {
+        foreach ($entries as &$entry) {
             if (!is_array($entry)) continue;
-            // allOrder() now returns {id, order_reference, items}; also tolerate the older wrapper.
             $wrapped = is_array($entry['order'] ?? null);
             $parent = $wrapped ? $entry['order'] : $entry;
             $id = (int) ($parent['id'] ?? 0);
@@ -38,7 +39,7 @@ final class AppendIndiaPostOrderTracking
                 $item['indiapost'] = null;
                 $details = $item['shipping_details'] ?? null;
                 $company = is_array($details) ? (string) ($details['courier_company'] ?? '') : '';
-                // Hide unverified manual India Post details from this response, not the database.
+                // Do not expose unverified manual India Post AWBs; leave other couriers untouched.
                 if (preg_match('/india\s*post|speed\s*post|department\s+of\s+posts/i', $company)) {
                     $item['courier_tracking_number'] = null;
                     $item['shipping_details']['courier_tracking_number'] = null;
@@ -47,118 +48,109 @@ final class AppendIndiaPostOrderTracking
             unset($item);
         }
         unset($entry);
+        $body['data'] = $single ? $entries[0] : $entries;
         $response->setData($body);
         $response->headers->set('Cache-Control', 'private, no-store');
         if (!$ids) return $response;
 
+        $stage = 'orders';
         try {
-            // Dedicated allocations only. Never guess ownership of NULL-reference legacy parcels.
-            // Exact reference is also compared in PHP below (SQL collation may be case insensitive).
-            $rows = DB::table('indiapost_awb_allocations as a')
-                ->join('orders as o', function ($j) {
-                    $j->on('o.id', '=', 'a.order_id')->on('o.order_reference', '=', 'a.order_reference');
-                })
-                ->join('order_lines as li', function ($j) {
-                    $j->on('li.id', '=', 'a.order_line_id')->on('li.order_id', '=', 'o.id');
-                })
-                ->join('indiapost_order_line_links as l', function ($j) {
-                    $j->on('l.order_id', '=', 'a.order_id')->on('l.order_line_id', '=', 'a.order_line_id')
-                      ->on('l.order_reference', '=', 'a.order_reference')->on('l.barcode_no', '=', 'a.barcode_no');
-                })
-                ->leftJoin('indiapost_shipments as n', 'n.barcode_no', '=', 'a.barcode_no')
-                ->leftJoin('indiapost_order_shipments as s', 's.barcode_no', '=', 'a.barcode_no')
-                ->whereIn('a.order_id', array_values(array_unique($ids)))
-                ->whereNull('o.deleted_at')
-                ->whereNotNull('a.order_line_id')->whereNotNull('a.order_reference')
-                ->whereNotExists(function ($q) {
-                    $q->selectRaw('1')->from('indiapost_order_line_links as other')
-                      ->whereColumn('other.barcode_no', 'a.barcode_no')
-                      ->where(function ($conflict) {
-                          $conflict->whereColumn('other.order_id', '<>', 'a.order_id')
-                              ->orWhereColumn('other.order_line_id', '<>', 'a.order_line_id')
-                              ->orWhereColumn('other.order_reference', '<>', 'a.order_reference');
-                      });
-                })
-                ->whereNotExists(function ($q) {
-                    $q->selectRaw('1')->from('indiapost_order_line_links as other')
-                      ->whereColumn('other.order_id', 'a.order_id')
-                      ->whereColumn('other.order_line_id', 'a.order_line_id')
-                      ->where(function ($conflict) {
-                          $conflict->whereColumn('other.barcode_no', '<>', 'a.barcode_no')
-                              ->orWhereColumn('other.order_reference', '<>', 'a.order_reference');
-                      });
-                })
-                ->get(['a.order_id', 'a.order_line_id', 'a.order_reference', 'a.barcode_no',
-                    'o.order_reference as current_reference', 'l.order_reference as linked_reference',
-                    'n.id as node_id', 'n.order_id as node_order_id', 'n.order_reference as node_reference',
-                    'n.booking_status as node_status', 'n.latest_event as node_event', 'n.latest_event_at as node_event_at',
-                    'n.provider_batch_id as node_batch',
-                    's.id as local_id', 's.order_id as local_order_id', 's.order_line_id as local_line_id',
-                    's.booking_status as local_status', 's.provider_accepted', 's.provider_batch_id as local_batch',
-                    's.latest_event as local_event', 's.latest_event_at as local_event_at', 's.updated_at']);
-            $groups = [];
-            foreach ($rows as $r) {
-                $key = (int)$r->order_id . ':' . (int)$r->order_line_id;
-                $groups[$key][] = $r;
-            }
-            foreach ($body['data'] as &$entry) {
+            // Separate bulk reads avoid comparing string columns with different DB collations.
+            // A read transaction provides a consistent snapshot on InnoDB under REPEATABLE READ.
+            $summary = DB::transaction(function () use ($ids, &$stage) {
+                $result = [];
+                foreach (array_chunk(array_values(array_unique($ids)), 500) as $batch) {
+                    $stage = 'orders';
+                    $orders = DB::table('orders')->whereIn('id', $batch)->whereNull('deleted_at')
+                        ->get(['id', 'order_reference'])->keyBy('id');
+                    $stage = 'order_lines';
+                    $lines = DB::table('order_lines')->whereIn('order_id', $batch)->get(['id','order_id'])->keyBy('id');
+                    $stage = 'allocations';
+                    $allocations = DB::table('indiapost_awb_allocations')->whereIn('order_id', $batch)
+                        ->whereNotNull('order_line_id')->get(['order_id','order_line_id','order_reference','barcode_no']);
+                    $awbs = $allocations->pluck('barcode_no')->filter(fn ($v) => is_string($v) && preg_match('/^[A-Z]{2}[0-9]{9}IN$/D', $v) === 1)->unique()->values()->all();
+                    if (!$awbs) continue;
+                    $stage = 'links';
+                    // Read both by order scope and by barcode to detect conflicting links, even across orders.
+                    $scopeLinks = DB::table('indiapost_order_line_links')->whereIn('order_id', $batch)
+                        ->get(['order_id','order_line_id','order_reference','barcode_no']);
+                    $scopeGroups = $scopeLinks->groupBy(fn ($r) => $r->order_id.':'.$r->order_line_id);
+                    $linksByAwb = collect(); $nodes = collect(); $locals = collect();
+                    foreach (array_chunk($awbs, 500) as $awbBatch) {
+                        $stage = 'links_by_barcode';
+                        $linksByAwb = $linksByAwb->concat(DB::table('indiapost_order_line_links')->whereIn('barcode_no', $awbBatch)
+                            ->get(['order_id','order_line_id','order_reference','barcode_no']));
+                        $stage = 'node_shipments';
+                        $nodes = $nodes->concat(DB::table('indiapost_shipments')->whereIn('barcode_no', $awbBatch)
+                            ->get(['id','order_id','order_reference','barcode_no','booking_status','latest_event','latest_event_at','provider_batch_id']));
+                        $stage = 'local_shipments';
+                        $locals = $locals->concat(DB::table('indiapost_order_shipments')->whereIn('barcode_no', $awbBatch)
+                            ->get(['id','order_id','order_line_id','barcode_no','booking_status','provider_accepted','provider_batch_id','latest_event','latest_event_at','updated_at']));
+                    }
+                    $linksByAwb = $linksByAwb->groupBy('barcode_no');
+                    $nodes = $nodes->groupBy('barcode_no');
+                    $locals = $locals->groupBy('barcode_no');
+                    $stage = 'verify_scope';
+                    foreach ($allocations->groupBy(fn ($r) => $r->order_id.':'.$r->order_line_id) as $key => $group) {
+                        if ($group->count() !== 1) continue;
+                        $a = $group->first();
+                        $oid = (int)$a->order_id; $lid = (int)$a->order_line_id;
+                        $ref = $a->order_reference; $awb = $a->barcode_no;
+                        if ($oid < 1 || $lid < 1 || !is_string($ref) || $ref === '' || !in_array($awb, $awbs, true)) continue;
+                        if (($orders->get($oid)->order_reference ?? null) !== $ref || (int)($lines->get($lid)->order_id ?? 0) !== $oid) continue;
+                        $scope = $scopeGroups->get($key, collect());
+                        $byAwb = $linksByAwb->get($awb, collect());
+                        if ($scope->count() !== 1 || $byAwb->count() !== 1) continue;
+                        $link = $scope->first(); $reverse = $byAwb->first();
+                        foreach ([$link, $reverse] as $l) {
+                            if ((int)$l->order_id !== $oid || (int)$l->order_line_id !== $lid || $l->order_reference !== $ref || $l->barcode_no !== $awb) continue 2;
+                        }
+                        $ns = $nodes->get($awb, collect()); $ls = $locals->get($awb, collect());
+                        if ($ns->count() > 1 || $ls->count() > 1) continue;
+                        $n = $ns->first(); $s = $ls->first();
+                        if ($n && ((int)$n->order_id !== $oid || $n->order_reference !== $ref || $n->barcode_no !== $awb)) continue;
+                        if ($s && ((int)$s->order_id !== $oid || (int)$s->order_line_id !== $lid || $s->barcode_no !== $awb)) continue;
+                        $status = $n ? (string)$n->booking_status : ($s ? 'needs_reconciliation' : 'allocated');
+                        if ($s && in_array((string)$s->booking_status, ['unknown','submitting','needs_reconciliation'], true)) $status = 'needs_reconciliation';
+                        $result[$key] = [
+                            'order_id'=>$oid, 'order_reference'=>$ref, 'order_line_id'=>$lid,
+                            'shipment_id'=>$s ? (int)$s->id : null, 'courier'=>'India Post', 'awb'=>$awb,
+                            'booking_status'=>$status, 'tracking_status'=>$status,
+                            'provider_accepted'=>$n && $s && (bool)$s->provider_accepted && !in_array($status,['allocated','unknown','submitting','rejected','needs_reconciliation'],true),
+                            'provider_batch_id'=>$n->provider_batch_id ?? $s->provider_batch_id ?? null,
+                            'latest_event'=>$n->latest_event ?? $s->latest_event ?? null,
+                            'latest_event_at'=>$n->latest_event_at ?? $s->latest_event_at ?? null,
+                            'latest_event_code'=>null, 'tracking_source'=>($n || $s) ? 'stored_tracking' : 'allocation',
+                            'local_record_updated_at'=>$s->updated_at ?? null,
+                        ];
+                    }
+                }
+                return $result;
+            });
+            $stage = 'attach';
+            foreach ($entries as &$entry) {
                 if (!is_array($entry) || !is_array($entry['items'] ?? null)) continue;
                 $parent = is_array($entry['order'] ?? null) ? $entry['order'] : $entry;
-                $oid = (int) ($parent['id'] ?? 0);
-                $ref = (string) ($parent['order_reference'] ?? '');
+                $oid = (int)($parent['id'] ?? 0); $ref = $parent['order_reference'] ?? null;
                 foreach ($entry['items'] as &$item) {
                     if (!is_array($item)) continue;
-                    $lid = (int) ($item['line_id'] ?? 0);
-                    if ($oid < 1 || $lid < 1 || $ref === '') continue;
-                    // Nested items inherit their parent's identity. If redundant IDs are present, reject conflicts.
-                    if (array_key_exists('order_id', $item) && (int) $item['order_id'] !== $oid) continue;
-                    if (array_key_exists('order_reference', $item) && $item['order_reference'] !== $ref) continue;
-                    $matches = $groups[$oid . ':' . $lid] ?? [];
-                    if (count($matches) !== 1) continue;
-                    $r = $matches[0];
-                    if (!$this->verified($r, $ref, $oid, $lid)) continue;
-                    $awb = (string) $r->barcode_no;
-                    $status = $r->node_id ? (string) $r->node_status : ($r->local_id ? (string) $r->local_status : 'allocated');
-                    // A local attempt is not evidence of remote acceptance.
-                    if (!$r->node_id && $r->local_id) $status = 'needs_reconciliation';
-                    if ($r->node_id && $r->local_id && in_array((string)$r->local_status, ['unknown', 'submitting', 'needs_reconciliation'], true)) $status = 'needs_reconciliation';
-                    $event = $r->node_event ?? $r->local_event;
-                    $eventAt = $r->node_event_at ?? $r->local_event_at;
-                    $item['indiapost'] = [
-                        'order_id' => $oid, 'order_reference' => $ref, 'order_line_id' => $lid,
-                        'shipment_id' => $r->local_id ? (int)$r->local_id : null,
-                        'courier' => 'India Post', 'awb' => $awb,
-                        'booking_status' => $status, 'tracking_status' => $status,
-                        'provider_accepted' => $r->node_id && $r->local_id && (bool)$r->provider_accepted && !in_array($status, ['allocated','unknown','submitting','rejected','needs_reconciliation'], true),
-                        'provider_batch_id' => $r->node_batch ?? $r->local_batch,
-                        'latest_event' => $event, 'latest_event_code' => null, 'latest_event_at' => $eventAt,
-                        'tracking_source' => $r->node_id || $r->local_id ? 'stored_tracking' : 'allocation',
-                        'local_record_updated_at' => $r->updated_at,
-                    ];
-                    // Compatibility for the existing tracking-number column. Do not overwrite another courier's number.
-                    if (empty($item['courier_tracking_number'])) {
-                        $item['courier_tracking_number'] = $awb;
-                    }
-                    // The authoritative managed shipment data remains item.indiapost.
-                    // No shipping_details row, delivery status or booking is created by this middleware.
+                    $lid = (int)($item['line_id'] ?? 0);
+                    if (isset($item['order_id']) && (int)$item['order_id'] !== $oid) continue;
+                    if (isset($item['order_reference']) && $item['order_reference'] !== $ref) continue;
+                    $data = $summary[$oid.':'.$lid] ?? null;
+                    if (!$data || $data['order_reference'] !== $ref) continue;
+                    $item['indiapost'] = $data;
+                    if (empty($item['courier_tracking_number'])) $item['courier_tracking_number'] = $data['awb'];
                 }
                 unset($item);
             }
             unset($entry);
+            $body['data'] = $single ? $entries[0] : $entries;
             $response->setData($body);
         } catch (\Throwable $e) {
-            Log::error('India Post line enrichment failed', ['exception_type' => get_class($e)]);
-            // Retain the sanitized response built above.
+            // No query bindings, credentials or customer information in logs.
+            Log::error('India Post line enrichment failed', ['stage'=>$stage, 'exception_type'=>get_class($e), 'code'=>(string)$e->getCode()]);
         }
         return $response;
-    }
-
-    private function verified(object $r, string $ref, int $oid, int $lid): bool
-    {
-        return $r->order_reference === $ref && $r->current_reference === $ref && $r->linked_reference === $ref
-            && (int)$r->order_id === $oid && (int)$r->order_line_id === $lid
-            && preg_match('/^[A-Z]{2}[0-9]{9}IN$/D', (string)$r->barcode_no) === 1
-            && (!$r->node_id || ((int)$r->node_order_id === $oid && $r->node_reference === $ref))
-            && (!$r->local_id || ((int)$r->local_order_id === $oid && (int)$r->local_line_id === $lid));
     }
 }
