@@ -145,12 +145,9 @@ class FinanceCommissionExportController extends Controller
                     'bank_holder_name'    => $profile->bank_holder_name ?? '-',
                     'bank_ifsc'           => $profile->bank_ifsc ?? '-',
 
-                    'pan_number'          => $dist->complete_pan_card
-                                                ?: $this->decryptField($profile?->encrypted_pan)
-                                                ?: '-',
-                    'bank_account_number' => $profile?->complete_bank_account
-                                                ?: $this->decryptField($profile?->encrypted_bank_account)
-                                                ?: '-',
+                    'pan_number'          => $dist->complete_pan_card ?? '-',
+                    'bank_account_number' => $profile?->complete_bank_account ?? '-',                           
+                                                
                 ];
             } catch (\Throwable $e) {
                 $failed[] = [
