@@ -965,7 +965,7 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
 // ============================
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::post('/order-lines/{orderLine}/undelivered', [OrderController::class, 'markUndelivered']);
-    Route::post('/order-lines/{order-refrence}/cancel-return', [AdminUserController::class, 'updateCancelReturnAllowed']);
+    Route::post('/order-lines/{order}/cancel-return', [AdminUserController::class, 'updateCancelReturnAllowed']);
 });
 
 // ============================
