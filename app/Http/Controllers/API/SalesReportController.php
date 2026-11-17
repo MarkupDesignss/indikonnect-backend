@@ -580,7 +580,7 @@ class SalesReportController extends Controller
         $data = collect($rows->items())->map(function ($row) {
             return [
                 // Mapping your CSV headers with requested corrections:
-                'Refund Bill Id'         => $row->refund_bill_id,           // refunds.id
+                // 'Refund Bill Id'         => $row->refund_bill_id,           // refunds.id
                 'Original Bill Id'       => $row->original_bill_id,         // order_reference
                 'Refund Amount'          => $row->refund_amount ?? $row->total_refund_amount,
                 'Reason'                 => $row->return_reason,
@@ -603,7 +603,7 @@ class SalesReportController extends Controller
 
                 'Item Name'              => $row->item_name,
                 'SKU'                    => $row->sku,
-                'QTY'                    => $row->qty,
+                // 'QTY'                    => $row->qty,
                 // 'Unit Price'             => $row->unit_price,
                 // 'Line Total'             => $row->line_total,
 
@@ -770,7 +770,7 @@ class SalesReportController extends Controller
         $data = collect($rows->items())->map(function ($row) {
             return [
                 // Mapping your CSV headers with requested corrections:
-                'Refund Bill Id'         => $row->refund_bill_id,           // refunds.id
+                // 'Refund Bill Id'         => $row->refund_bill_id,           // refunds.id
                 'Original Bill Id'       => $row->original_bill_id,         // order_reference
                 'Refund Amount'          => $row->refund_amount ?? $row->total_refund_amount,
                 'Reason'                 => $row->return_reason,
