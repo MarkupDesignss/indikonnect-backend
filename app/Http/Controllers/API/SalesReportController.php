@@ -200,4 +200,162 @@ class SalesReportController extends Controller
             ], 500);
         }
     }
+
+    public function index(Request $request)
+    {
+        // Only these 4 statuses are allowed as per requirement
+        $allowedStatuses = ['confirmed', 'dispatched', 'shipped', 'delivered'];
+
+        $query = DB::table('order_lines as ol')
+            ->join('orders as o', 'o.id', '=', 'ol.order_id')
+            ->join('products as p', 'p.id', '=', 'ol.product_id')
+            ->leftJoin('users as u', 'u.id', '=', 'o.user_id')
+            ->select([
+                // Order / Bill info
+                'o.id                    as bill_id',
+                'o.order_reference        as invoice_number',
+                'o.ignite_order_no        as ignite_order_no',
+                'o.created_at             as order_date',
+
+                // Item info
+                'p.name                   as item_name',
+                'p.product_code           as sku',
+                'p.hsn_code               as hsn_code',
+                'ol.quantity              as qty',
+                'ol.unit_price            as unit_price',
+                'ol.line_total            as line_total',
+
+                // Delivery info
+                'ol.delivery_status       as delivery_status',
+                'ol.dispatched_at         as dispatched_at',
+                'ol.shipped_at            as shipped_at',
+                'ol.delivered_at          as delivered_at',
+                'ol.delivery_notes        as delivery_notes',
+
+                // Courier / shipment
+                'o.courier_company        as carrier',
+                'o.courier_tracking_number as shipment_number',
+                'o.courier_delivery_date  as shipment_date',
+                'o.courier_status         as courier_status',
+
+                // Recipient
+                'u.full_name              as recipient_name',
+                'u.phone                  as recipient_phone',
+                'u.email                  as recipient_email',
+            ])
+            ->whereNull('ol.deleted_at')
+            ->whereNull('o.deleted_at')
+            ->whereIn(DB::raw('LOWER(ol.delivery_status)'), $allowedStatuses);
+
+        // ---------- Optional filters ----------
+
+        // Date range filter (on order created_at)
+        if ($request->filled('from_date')) {
+            $query->whereDate('o.created_at', '>=', $request->from_date);
+        }
+        if ($request->filled('to_date')) {
+            $query->whereDate('o.created_at', '<=', $request->to_date);
+        }
+
+        // Filter by a specific delivery status
+        if ($request->filled('delivery_status')) {
+            $status = strtolower($request->delivery_status);
+            if (in_array($status, $allowedStatuses)) {
+                $query->where(DB::raw('LOWER(ol.delivery_status)'), $status);
+            }
+        }
+
+        // Filter by SKU / product code
+        if ($request->filled('sku')) {
+            $query->where('p.product_code', $request->sku);
+        }
+
+        // Filter by order id
+        if ($request->filled('order_id')) {
+            $query->where('o.id', $request->order_id);
+        }
+
+        // Search by recipient name / phone
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('u.full_name', 'like', "%{$search}%")
+                    ->orWhere('u.phone', 'like', "%{$search}%");
+            });
+        }
+
+        // ---------- Sorting ----------
+        $sortBy  = $request->get('sort_by', 'o.created_at');
+        $sortDir = strtolower($request->get('sort_dir', 'desc')) === 'asc' ? 'asc' : 'desc';
+
+        $allowedSortColumns = [
+            'bill_id',
+            'invoice_number',
+            'order_date',
+            'item_name',
+            'sku',
+            'qty',
+            'delivery_status',
+            'shipment_date',
+            'recipient_name',
+            'carrier',
+        ];
+
+        if (in_array($sortBy, $allowedSortColumns)) {
+            $query->orderBy($sortBy, $sortDir);
+        } else {
+            $query->orderBy('o.created_at', 'desc');
+        }
+
+        // ---------- Pagination (Excel-like but safe) ----------
+        $perPage = (int) $request->get('per_page', 500);
+        $perPage = min(max($perPage, 1), 5000); // clamp between 1 and 5000
+
+        $rows = $query->paginate($perPage);
+
+        // ---------- Format response ----------
+        $data = collect($rows->items())->map(function ($row) {
+            return [
+                'Bill Id'          => $row->bill_id,
+                'Invoice Number'   => $row->invoice_number,
+                'Ignite Order No'  => $row->ignite_order_no,
+                'Order Date'       => $row->order_date,
+                'Item Name'        => $row->item_name,
+                'SKU'              => $row->sku,
+                'HSN Code'         => $row->hsn_code,
+                'QTY'              => $row->qty,
+                'Unit Price'       => $row->unit_price,
+                'Line Total'       => $row->line_total,
+                'Delivery Status'  => ucfirst($row->delivery_status),
+                'Dispatched At'    => $row->dispatched_at,
+                'Shipped At'       => $row->shipped_at,
+                'Delivered At'     => $row->delivered_at,
+                'Shipment Number'  => $row->shipment_number,
+                'Shipment Date'    => $row->shipment_date,
+                'Carrier'          => $row->carrier,
+                'Courier Status'   => $row->courier_status,
+                'Recipient Name'   => $row->recipient_name,
+                'Recipient Phone'  => $row->recipient_phone,
+                'Recipient Email'  => $row->recipient_email,
+                'Delivery Notes'   => $row->delivery_notes,
+            ];
+        });
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Delivery report fetched successfully',
+            'filters' => [
+                'allowed_statuses' => $allowedStatuses,
+                'from_date' => $request->from_date,
+                'to_date'   => $request->to_date,
+            ],
+            'pagination' => [
+                'current_page' => $rows->currentPage(),
+                'per_page'     => $rows->perPage(),
+                'total'        => $rows->total(),
+                'last_page'    => $rows->lastPage(),
+            ],
+            'data' => $data,
+        ]);
+    }
 }
