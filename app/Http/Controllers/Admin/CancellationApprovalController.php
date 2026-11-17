@@ -156,6 +156,7 @@ class CancellationApprovalController extends Controller
 
             // Refund amount from refunds table; null if no refund exists
             $orderLine->refund_amount = $orderLine->refunds->first()?->amount;
+            // $orderLine->is_inventory_back = $orderLine->is_inventory_back;
 
             $orderLine->timeline = [
                 'created_at'                => optional($orderLine->created_at)->toDateTimeString(),
@@ -768,6 +769,89 @@ class CancellationApprovalController extends Controller
         }
     }
 
+    // public function WarehouseReceiveCancel(Request $request, string $orderReference)
+    // {
+    //     $warehouseId = $request->input('warehouse_id')
+    //         ?? optional($request->user())->warehouse_id;
+
+    //     if (!$warehouseId) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'No warehouse resolved. Pass warehouse_id or set admin warehouse_id.',
+    //         ], 422);
+    //     }
+
+    //     try {
+    //         $result = DB::transaction(function () use ($orderReference, $warehouseId) {
+
+    //             $order = Order::where('order_reference', $orderReference)
+    //                 ->lockForUpdate()
+    //                 ->firstOrFail();
+
+    //             $order->load('lines');
+
+    //             if ($order->lines->isEmpty()) {
+    //                 throw new \Exception('Order has no lines.');
+    //             }
+
+    //             $processed = [];
+
+    //             foreach ($order->lines as $line) {
+
+    //                 // products.stock_quantity +
+    //                 Product::where('id', $line->product_id)
+    //                     ->lockForUpdate()
+    //                     ->increment('stock_quantity', $line->quantity);
+
+    //                 // warehousestocks.quantity +
+    //                 $ws = WarehouseStock::where('warehouse_id', $warehouseId)
+    //                     ->where('product_id', $line->product_id)
+    //                     ->where('variant_id', $line->variant_id)
+    //                     ->lockForUpdate()
+    //                     ->first();
+
+    //                 if ($ws) {
+    //                     $ws->increment('quantity', $line->quantity);
+    //                 } else {
+    //                     WarehouseStock::create([
+    //                         'warehouse_id' => $warehouseId,
+    //                         'product_id'   => $line->product_id,
+    //                         'variant_id'   => $line->variant_id,
+    //                         'quantity'     => $line->quantity,
+    //                     ]);
+    //                 }
+
+    //                 $processed[] = [
+    //                     'order_line_id' => $line->id,
+    //                     'product_id'    => $line->product_id,
+    //                     'quantity'      => $line->quantity,
+    //                 ];
+    //             }
+
+    //             return [
+    //                 'order_reference' => $order->order_reference,
+    //                 'warehouse_id'    => $warehouseId,
+    //                 'processed_lines' => $processed,
+    //                 'processed_count' => count($processed),
+    //             ];
+    //         });
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Stock restored successfully.',
+    //             'data'    => $result,
+    //         ], 200);
+    //     } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+    //         return response()->json(['success' => false, 'message' => 'Order not found.'], 404);
+    //     } catch (\Exception $e) {
+    //         Log::error('Approve cancel failed', [
+    //             'order_reference' => $orderReference,
+    //             'error'           => $e->getMessage(),
+    //         ]);
+    //         return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
+    //     }
+    // }
+
     public function WarehouseReceiveCancel(Request $request, string $orderReference)
     {
         $warehouseId = $request->input('warehouse_id')
@@ -787,6 +871,11 @@ class CancellationApprovalController extends Controller
                     ->lockForUpdate()
                     ->firstOrFail();
 
+                // Prevent duplicate inventory restoration
+                if ($order->is_inventory_back) {
+                    throw new \Exception('Inventory has already been restored for this order.');
+                }
+
                 $order->load('lines');
 
                 if ($order->lines->isEmpty()) {
@@ -796,6 +885,11 @@ class CancellationApprovalController extends Controller
                 $processed = [];
 
                 foreach ($order->lines as $line) {
+
+                    // Prevent duplicate inventory restoration for individual lines
+                    if ($line->is_inventory_back) {
+                        continue;
+                    }
 
                     // products.stock_quantity +
                     Product::where('id', $line->product_id)
@@ -820,6 +914,11 @@ class CancellationApprovalController extends Controller
                         ]);
                     }
 
+                    // Mark order line inventory as restored
+                    $line->update([
+                        'is_inventory_back' => true,
+                    ]);
+
                     $processed[] = [
                         'order_line_id' => $line->id,
                         'product_id'    => $line->product_id,
@@ -827,8 +926,15 @@ class CancellationApprovalController extends Controller
                     ];
                 }
 
+                // Mark order inventory as restored
+                $order->update([
+                    'is_inventory_back' => true,
+                ]);
+
                 return [
                     'order_reference' => $order->order_reference,
+                    'order_status'    => $order->status,
+                    'is_inventory_back' => $order->is_inventory_back,
                     'warehouse_id'    => $warehouseId,
                     'processed_lines' => $processed,
                     'processed_count' => count($processed),
@@ -841,13 +947,22 @@ class CancellationApprovalController extends Controller
                 'data'    => $result,
             ], 200);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json(['success' => false, 'message' => 'Order not found.'], 404);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found.',
+            ], 404);
         } catch (\Exception $e) {
+
             Log::error('Approve cancel failed', [
                 'order_reference' => $orderReference,
                 'error'           => $e->getMessage(),
             ]);
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
         }
     }
 }
