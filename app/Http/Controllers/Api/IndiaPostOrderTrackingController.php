@@ -152,8 +152,8 @@ class IndiaPostOrderTrackingController extends Controller
                 is_array($data['shipments'] ?? null) ? $data['shipments'] : [],
                 fn ($s) => is_array($s)
                     && (int) ($s['order_id'] ?? 0) === (int) $order->id
-                    && ($lineId === null || (($s['order_reference'] ?? null) === (string) $order->order_reference
-                        && !in_array(strtolower((string) ($s['booking_status'] ?? '')), ['needs_reconciliation'], true)))
+                    && ($s['order_reference'] ?? null) === (string) $order->order_reference
+                    && !in_array(strtolower((string) ($s['booking_status'] ?? '')), ['needs_reconciliation'], true)
                     && preg_match('/^[A-Z]{2}[0-9]{9}IN$/D', strtoupper((string) ($s['barcode_no'] ?? ''))) === 1
                     && !in_array(strtolower((string) ($s['booking_status'] ?? '')), ['rejected', 'unknown', 'submitting'], true)
             ));
@@ -192,32 +192,18 @@ class IndiaPostOrderTrackingController extends Controller
                     $allocatedAt = $allocations[0]['allocated_at'];
                 }
             } elseif (count($barcodes) === 0) {
-                try {
-                    $allocationResponse = $client->get($base . '/api/indiapost/orders/' . $order->id . '/awb');
-                    $allocationData = $allocationResponse->json();
-
-                    if ($allocationResponse->successful()
-                        && is_array($allocationData)
-                        && ($allocationData['success'] ?? false) === true
-                        && (int) ($allocationData['orderId'] ?? 0) === (int) $order->id
-                    ) {
-                        $allocation = $allocationData['allocation'] ?? null;
-                        if (is_array($allocation)) {
-                            $candidate = strtoupper((string) ($allocation['barcode_no'] ?? ''));
-                            if (preg_match('/^[A-Z]{2}[0-9]{9}IN$/D', $candidate) === 1) {
-                                $allocatedAwb = $candidate;
-                                $allocatedAt = $this->safeText($allocation['allocated_at'] ?? null, 60);
-                            }
-                        }
-                    } else {
-                        $warning = 'Allocated tracking number is temporarily unavailable.';
+                // The legacy Node AWB endpoint accepts only numeric order ID.
+                // Never expose an old allocation on recycled IDs. Only a current,
+                // explicitly reference-bound order-scoped allocation may be returned.
+                $allocation = DB::table('indiapost_awb_allocations')
+                    ->where('order_id', $order->id)
+                    ->where('order_reference', (string) $order->order_reference)
+                    ->whereNull('order_line_id')->first();
+                if ($allocation && $allocation->order_reference === (string) $order->order_reference) {
+                    $candidate = (string) $allocation->barcode_no;
+                    if (preg_match('/^[A-Z]{2}[0-9]{9}IN$/D', $candidate) === 1) {
+                        $allocatedAwb = $candidate;
                     }
-                } catch (Throwable $e) {
-                    Log::warning('India Post AWB allocation lookup failed', [
-                        'order_id' => $order->id,
-                        'exception_type' => get_class($e),
-                    ]);
-                    $warning = 'Allocated tracking number is temporarily unavailable.';
                 }
             }
 
