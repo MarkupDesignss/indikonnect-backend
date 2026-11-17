@@ -156,7 +156,7 @@ class CancellationApprovalController extends Controller
 
             // Refund amount from refunds table; null if no refund exists
             $orderLine->refund_amount = $orderLine->refunds->first()?->amount;
-            // $orderLine->is_inventory_back = $orderLine->is_inventory_back;
+            $orderLine->is_inventory_back = $orderLine->is_inventory_back;
 
             $orderLine->timeline = [
                 'created_at'                => optional($orderLine->created_at)->toDateTimeString(),

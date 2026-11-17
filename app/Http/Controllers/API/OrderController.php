@@ -974,6 +974,7 @@ class OrderController extends Controller
             ], 500);
         }
     }
+
     protected function buildComboChildrenMap($products): array
     {
         // 1) Collect all unique child IDs across every combo product on this page

@@ -5,7 +5,6 @@ namespace App\Http\Controllers\API\Webhook;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Services\CheckoutService;
-use App\Services\PaymentGateway\AxisPgService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
@@ -15,95 +14,130 @@ class AxisPgWebhookController extends Controller
 {
     protected CheckoutService $checkoutService;
 
-    // 1. AxisPgService ko constructor se hata diya
     public function __construct(CheckoutService $checkoutService)
     {
         $this->checkoutService = $checkoutService;
     }
 
-    /**
-     * Handle AxisPG server-to-server callback / webhook.
-     * Handles PLAIN TEXT form-data payload (Sandbox Mode).
-     */
-    public function handle(Request $request): JsonResponse
+    public function handle(Request $request)
     {
-        // 1. Log the incoming request for debugging
-        Log::info('AxisPG webhook received (Plain Text)', $request->all());
+        Log::info('AxisPG webhook received', $request->all());
 
         try {
-            // 2. Extract required fields from the plain text payload
             $merchantTxnId  = $request->input('merchantTxnId');
             $statusCode     = $request->input('statusCode');
             $signature      = $request->input('signature');
             $txnReferenceId = $request->input('txnReferenceId');
             $amount         = $request->input('amount');
 
-            // 3. Basic Validation: Ensure required fields are present
             if (empty($merchantTxnId) || empty($statusCode) || empty($signature)) {
-                Log::warning('AxisPG webhook: Missing required fields', [
-                    'merchantTxnId' => $merchantTxnId,
-                    'statusCode'    => $statusCode,
-                    'signature'     => $signature
-                ]);
-                return response()->json(['success' => false, 'message' => 'Missing required fields'], 400);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Missing required fields'
+                ], 400);
             }
 
-            // 4. Manually instantiate AxisPgService here
-            $axispg = new AxisPgService(config('services.axispg'));
+            // Find order with user
+            $order = Order::with('user')
+                ->where('order_reference', $merchantTxnId)
+                ->first();
 
-            // 5. Verify Signature (CRITICAL for security)
-            // We remove the 'signature' key from the payload to generate our own signature
-            $dataToVerify = $request->except(['signature']);
-            
-            // $expectedSignature = $axispg->generateSignature($dataToVerify);
+            if (!$order) {
+                Log::warning('AxisPG webhook: Order not found', [
+                    'merchantTxnId' => $merchantTxnId
+                ]);
 
-            // if (!hash_equals($expectedSignature, $signature)) {
-            //     Log::warning('AxisPG webhook: Signature mismatch', [
-            //         'received_signature' => $signature,
-            //         'expected_signature' => $expectedSignature
-            //     ]);
-            //     return response()->json(['success' => false, 'message' => 'Invalid signature'], 400);
-            // }
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found'
+                ], 404);
+            }
 
-            Log::info('AxisPG webhook: Signature verification BYPASSED temporarily', [
-                'merchantTxnId' => $merchantTxnId
+            $user          = $order->user;
+            $isDistributor = $user && $user->account_type === 'distributor';
+
+            // Base URLs from config
+            $distributorBase = config('services.frontend.distributor_url', 'https://www.markupdesigns.net/indiekonnect-distributor');
+            $customerBase    = config('services.frontend.customer_url', 'https://www.markupdesigns.net/indiekonnect-web');
+
+            // History / profile URL (post-payment view)
+            $historyUrl = $isDistributor
+                ? $distributorBase . '/distributor/order-history/'
+                : $customerBase . '/profile/?tab=orders';
+
+            // Checkout retry URL (for failed / cancelled payments)
+            $checkoutBase = $isDistributor
+                ? $distributorBase . '/checkout/'
+                : $customerBase . '/checkout/';
+
+            $retryUrl = $checkoutBase . '?' . http_build_query([
+                'checkout_type'   => 'cart',
+                'address_id'      => $order->address_id,
+                'order_reference' => $merchantTxnId,
+                'gateway'         => $order->payment_gateway,
+                'payment_status'  => 'pending',
+                'cancelled'       => 'true',
+                'show_repay'      => 'true',
             ]);
 
-            // 6. Handle the Order Status based on statusCode
             if ($statusCode === 'SPG-0000') {
+
                 // Payment SUCCESS
                 $this->checkoutService->confirmOrder($merchantTxnId, [
                     'gateway'        => 'axispg',
                     'transaction_id' => $txnReferenceId,
                     'amount'         => $amount
                 ]);
-                Log::info('AxisPG webhook: Order confirmed successfully', ['merchantTxnId' => $merchantTxnId]);
 
-            } elseif ($statusCode === 'SPG-0001') {
-                // Payment FAILED
-                Order::where('order_reference', $merchantTxnId)->update(['status' => 'failed']);
-                Log::info('AxisPG webhook: Order marked as failed', ['merchantTxnId' => $merchantTxnId]);
+                Log::info('AxisPG webhook: Order confirmed', [
+                    'merchantTxnId' => $merchantTxnId
+                ]);
 
+                // Redirect to history/profile after success
+                return redirect()->away($historyUrl);
+            } elseif (in_array($statusCode, ['SPG-0001', 'SPG-0003'])) {
+
+                // Payment FAILED / CANCELLED
+                $order->update([
+                    'status' => 'payment_failed'
+                ]);
+
+                Log::info('AxisPG webhook: Payment failed/cancelled', [
+                    'merchantTxnId' => $merchantTxnId,
+                    'retry_url'     => $retryUrl,
+                    'history_url'   => $historyUrl,
+                ]);
+
+                // Redirect user back to checkout with show_repay=true
+                return redirect()->away($retryUrl);
             } elseif ($statusCode === 'SPG-0002') {
+
                 // Payment PENDING
-                Log::info('AxisPG webhook: Payment pending', ['merchantTxnId' => $merchantTxnId]);
-                // You might want to leave the order as pending and rely on a status API poll later.
+                Log::info('AxisPG webhook: Payment pending', [
+                    'merchantTxnId' => $merchantTxnId
+                ]);
+
+                // Optionally redirect to history (or keep as JSON if S2S only)
+                return redirect()->away($historyUrl);
             } else {
-                // Unknown status
-                Log::warning('AxisPG webhook: Unknown status code received', ['statusCode' => $statusCode]);
+
+                Log::warning('AxisPG webhook: Unknown status code', [
+                    'statusCode' => $statusCode
+                ]);
+
+                return redirect()->away($historyUrl);
             }
-
-            // 7. Always return 200 OK to stop the gateway from retrying
-            return response()->json(['success' => true], 200);
-
         } catch (Exception $e) {
+
             Log::error('AxisPG webhook processing error', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
-            // Return 500 so the gateway knows something went wrong internally
-            return response()->json(['success' => false, 'message' => 'Internal Server Error'], 500);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Internal Server Error'
+            ], 500);
         }
     }
-
 }
