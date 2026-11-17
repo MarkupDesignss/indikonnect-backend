@@ -201,113 +201,86 @@ class SalesReportController extends Controller
         }
     }
 
-  public function index(Request $request)
+    public function index(Request $request)
     {
-        // Only these 4 statuses allowed
+        // Only these 4 statuses are allowed as per requirement
         $allowedStatuses = ['confirmed', 'dispatched', 'shipped', 'delivered'];
 
         $query = DB::table('order_lines as ol')
             ->join('orders as o', 'o.id', '=', 'ol.order_id')
             ->join('products as p', 'p.id', '=', 'ol.product_id')
             ->leftJoin('users as u', 'u.id', '=', 'o.user_id')
-            ->leftJoin('invoices as inv', 'inv.order_line_id', '=', 'ol.id')
-            // Shipping details (one row per order_line ideally)
-            ->leftJoin('order_shipping_details as osd', 'osd.order_line_id', '=', 'ol.id')
             ->select([
-                // ----- Shipping details -----
-                'osd.courier_tracking_number   as shipment_number',
-                'osd.courier_company           as carrier',
-                'osd.courier_delivery_date     as shipment_date',
-                'osd.status                    as courier_status',
-                'osd.delivery_notes            as shipping_delivery_notes',
+                // Order / Bill info
+                'o.id                    as bill_id',
+                'o.order_reference        as invoice_number',
+                'o.ignite_order_no        as ignite_order_no',
+                'o.created_at             as order_date',
 
-                // ----- Invoice info -----
-                'inv.invoice_number            as invoice_number',
-                'inv.issued_at                 as invoice_issued_at',
-                'inv.seller_name               as seller_name',
-                'inv.seller_gstin              as seller_gstin',
-                'inv.buyer_name                as buyer_name',
-                'inv.buyer_gstin               as buyer_gstin',
-                'inv.delivery_state            as delivery_state',
-                'inv.total_taxable             as total_taxable',
-                'inv.total_tax                 as total_tax',
-                'inv.total                     as invoice_total',
-                'inv.total_payable             as invoice_total_payable',
-                'inv.coupon_code               as coupon_code',
-                'inv.coupon_discount           as coupon_discount',
-                'inv.shipping_charge           as invoice_shipping_charge',
-                'inv.pdf_path                  as invoice_pdf_path',
-                'inv.eway_bill_no              as eway_bill_no',
-                'inv.eway_bill_date            as eway_bill_date',
-                'inv.eway_bill_status          as eway_bill_status',
+                // Item info
+                'p.name                   as item_name',
+                'p.product_code           as sku',
+                'p.hsn_code               as hsn_code',
+                'ol.quantity              as qty',
+                'ol.unit_price            as unit_price',
+                'ol.line_total            as line_total',
 
-                // ----- Order / Bill info -----
-                'o.id                          as bill_id',
-                'o.order_reference             as order_reference',
-                'o.ignite_order_no             as ignite_order_no',
-                'o.created_at                  as order_date',
+                // Delivery info
+                'ol.delivery_status       as delivery_status',
+                'ol.dispatched_at         as dispatched_at',
+                'ol.shipped_at            as shipped_at',
+                'ol.delivered_at          as delivered_at',
+                'ol.delivery_notes        as delivery_notes',
 
-                // ----- Item info -----
-                'p.name                        as item_name',
-                'p.product_code                as sku',
-                'p.hsn_code                    as hsn_code',
-                'ol.quantity                   as qty',
-                'ol.unit_price                 as unit_price',
-                'ol.line_total                 as line_total',
-                'ol.gst_rate                   as gst_rate',
-                'ol.gst_amount                 as gst_amount',
+                // Courier / shipment
+                'o.courier_company        as carrier',
+                'o.courier_tracking_number as shipment_number',
+                'o.courier_delivery_date  as shipment_date',
+                'o.courier_status         as courier_status',
 
-                // ----- Delivery info (from order_lines) -----
-                'ol.delivery_status            as delivery_status',
-                'ol.created_at              as created_at',
-                'ol.dispatched_at              as dispatched_at',
-                'ol.shipped_at                 as shipped_at',
-                'ol.delivered_at               as delivered_at',
-                'ol.delivery_notes             as line_delivery_notes',
-
-                // ----- Recipient -----
-                'u.full_name                   as recipient_name',
-                'u.phone                       as recipient_phone',
-                'u.email                       as recipient_email',
+                // Recipient
+                'u.full_name              as recipient_name',
+                'u.phone                  as recipient_phone',
+                'u.email                  as recipient_email',
             ])
+            ->whereNull('ol.deleted_at')
+            ->whereNull('o.deleted_at')
             ->whereIn(DB::raw('LOWER(ol.delivery_status)'), $allowedStatuses);
 
         // ---------- Optional filters ----------
 
+        // Date range filter (on order created_at)
         if ($request->filled('from_date')) {
             $query->whereDate('o.created_at', '>=', $request->from_date);
         }
         if ($request->filled('to_date')) {
             $query->whereDate('o.created_at', '<=', $request->to_date);
         }
+
+        // Filter by a specific delivery status
         if ($request->filled('delivery_status')) {
             $status = strtolower($request->delivery_status);
             if (in_array($status, $allowedStatuses)) {
                 $query->where(DB::raw('LOWER(ol.delivery_status)'), $status);
             }
         }
+
+        // Filter by SKU / product code
         if ($request->filled('sku')) {
             $query->where('p.product_code', $request->sku);
         }
+
+        // Filter by order id
         if ($request->filled('order_id')) {
             $query->where('o.id', $request->order_id);
         }
-        if ($request->filled('invoice_number')) {
-            $query->where('inv.invoice_number', $request->invoice_number);
-        }
-        if ($request->filled('courier_tracking_number')) {
-            $query->where('osd.courier_tracking_number', $request->courier_tracking_number);
-        }
-        if ($request->filled('courier_company')) {
-            $query->where('osd.courier_company', $request->courier_company);
-        }
+
+        // Search by recipient name / phone
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('u.full_name', 'like', "%{$search}%")
-                  ->orWhere('u.phone', 'like', "%{$search}%")
-                  ->orWhere('inv.invoice_number', 'like', "%{$search}%")
-                  ->orWhere('osd.courier_tracking_number', 'like', "%{$search}%");
+                    ->orWhere('u.phone', 'like', "%{$search}%");
             });
         }
 
@@ -316,9 +289,16 @@ class SalesReportController extends Controller
         $sortDir = strtolower($request->get('sort_dir', 'desc')) === 'asc' ? 'asc' : 'desc';
 
         $allowedSortColumns = [
-            'bill_id', 'invoice_number', 'order_date', 'item_name',
-            'sku', 'qty', 'delivery_status', 'shipment_date',
-            'recipient_name', 'carrier', 'invoice_issued_at',
+            'bill_id',
+            'invoice_number',
+            'order_date',
+            'item_name',
+            'sku',
+            'qty',
+            'delivery_status',
+            'shipment_date',
+            'recipient_name',
+            'carrier',
         ];
 
         if (in_array($sortBy, $allowedSortColumns)) {
@@ -327,74 +307,42 @@ class SalesReportController extends Controller
             $query->orderBy('o.created_at', 'desc');
         }
 
-        // ---------- Pagination ----------
+        // ---------- Pagination (Excel-like but safe) ----------
         $perPage = (int) $request->get('per_page', 500);
-        $perPage = min(max($perPage, 1), 5000);
+        $perPage = min(max($perPage, 1), 5000); // clamp between 1 and 5000
 
         $rows = $query->paginate($perPage);
 
         // ---------- Format response ----------
         $data = collect($rows->items())->map(function ($row) {
             return [
-                // Invoice
-                'Invoice Number'          => $row->invoice_number,
-                // 'Invoice Issued At'       => $row->invoice_issued_at,
-                // 'Seller Name'             => $row->seller_name,
-                // 'Seller GSTIN'            => $row->seller_gstin,
-                // 'Buyer Name'              => $row->buyer_name,
-                // 'Buyer GSTIN'             => $row->buyer_gstin,
-                // 'Delivery State'          => $row->delivery_state,
-                // 'Total Taxable'           => $row->total_taxable,
-                // 'Total Tax'               => $row->total_tax,
-                // 'Invoice Total'           => $row->invoice_total,
-                // 'Invoice Total Payable'   => $row->invoice_total_payable,
-                // 'Coupon Code'             => $row->coupon_code,
-                // 'Coupon Discount'         => $row->coupon_discount,
-                // 'Invoice Shipping Charge' => $row->invoice_shipping_charge,
-                // 'Invoice PDF Path'        => $row->invoice_pdf_path,
-                // 'E-Way Bill No'           => $row->eway_bill_no,
-                // 'E-Way Bill Date'         => $row->eway_bill_date,
-                // 'E-Way Bill Status'       => $row->eway_bill_status,
-
-                // Order
-                // 'Bill Id'                 => $row->bill_id,
-                'Order Reference'         => $row->order_reference,
-                // 'Ignite Order No'         => $row->ignite_order_no,
-                // 'Order Date'              => $row->order_date,
-
-                // Item
-                'Item Name'               => $row->item_name,
-                'SKU'                     => $row->sku,
-                // 'HSN Code'                => $row->hsn_code,
-                'QTY'                     => $row->qty,
-                // 'Unit Price'              => $row->unit_price,
-                // 'Line Total'              => $row->line_total,
-                // 'GST Rate'                => $row->gst_rate,
-                // 'GST Amount'              => $row->gst_amount,
-
-                // Delivery
-                'Delivery Status'         => ucfirst($row->delivery_status),
-                'Placed At'               => $row->created_at,
-                'Dispatched At'           => $row->dispatched_at,
-                'Shipped At'              => $row->shipped_at,
-                'Delivered At'            => $row->delivered_at,
-                // 'Delivery Notes'          => $row->shipping_delivery_notes ?: $row->line_delivery_notes,
-
-                // Courier / Shipment (now from order_shipping_details)
-                'Shipment Number'         => $row->shipment_number,
-                'Shipment Date'           => $row->shipment_date,
-                'Carrier'                 => $row->carrier,
-                // 'Courier Status'          => $row->courier_status,
-
-                // Recipient
-                'Recipient Name'          => $row->recipient_name,
-                'Recipient Phone'         => $row->recipient_phone,
-                'Recipient Email'         => $row->recipient_email,
+                'Bill Id'          => $row->bill_id,
+                'Invoice Number'   => $row->invoice_number,
+                'Ignite Order No'  => $row->ignite_order_no,
+                'Order Date'       => $row->order_date,
+                'Item Name'        => $row->item_name,
+                'SKU'              => $row->sku,
+                'HSN Code'         => $row->hsn_code,
+                'QTY'              => $row->qty,
+                'Unit Price'       => $row->unit_price,
+                'Line Total'       => $row->line_total,
+                'Delivery Status'  => ucfirst($row->delivery_status),
+                'Dispatched At'    => $row->dispatched_at,
+                'Shipped At'       => $row->shipped_at,
+                'Delivered At'     => $row->delivered_at,
+                'Shipment Number'  => $row->shipment_number,
+                'Shipment Date'    => $row->shipment_date,
+                'Carrier'          => $row->carrier,
+                'Courier Status'   => $row->courier_status,
+                'Recipient Name'   => $row->recipient_name,
+                'Recipient Phone'  => $row->recipient_phone,
+                'Recipient Email'  => $row->recipient_email,
+                'Delivery Notes'   => $row->delivery_notes,
             ];
         });
 
         return response()->json([
-            'status'  => true,
+            'status' => true,
             'message' => 'Delivery report fetched successfully',
             'filters' => [
                 'allowed_statuses' => $allowedStatuses,
