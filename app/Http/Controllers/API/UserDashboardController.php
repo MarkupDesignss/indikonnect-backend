@@ -470,25 +470,17 @@ class UserDashboardController extends Controller
             $allMonths = [];
 
             foreach (($data['months'] ?? []) as $month) {
-               $weeksData = [];
+                $weeksData = [];
                 foreach (($month['weeks'] ?? []) as $week) {
                     $endDateTime = $week['end_date'] ? (new \DateTime("{$week['end_date']} 00:00:00", $utc8))->modify('+1 day') : null;
 
-                    // 02:00 SGT = 23:30 IST (previous day)
-                    $startIst = $toIst($week['start_date'] ?? null, '02:00:00');
-
-                    // End = start + 7 days - 1 second  => next Friday 23:29:59 IST
-                    $endIst = $startIst
-                        ? (new \DateTime($startIst, $ist))->modify('+7 days')->modify('-1 second')->format('Y-m-d H:i:s')
-                        : null;
-
                     $weeksData[] = [
-                        'week_no'     => $week['week_no'] ?? null,
-                        'start'       => $startIst,
-                        'end'         => $endIst,
-                        'payout_date' => $endDateTime ? $toIst($endDateTime->format('Y-m-d'), '02:00:00') : null,
-                        'is_current'  => (bool) ($week['is_current'] ?? false),
-                        'is_settled'  => (bool) ($week['is_settled'] ?? false),
+                        'week_no'    => $week['week_no'] ?? null,
+                        'start'      => $toIst($week['start_date'] ?? null, '00:00:00'),
+                        'end'        => $toIst($week['end_date'] ?? null, '23:59:59'),
+                        'payout_date' => $endDateTime ? $toIst($endDateTime->format('Y-m-d'), '00:00:00') : null,
+                        'is_current' => (bool) ($week['is_current'] ?? false),
+                        'is_settled' => (bool) ($week['is_settled'] ?? false),
                     ];
                 }
 
