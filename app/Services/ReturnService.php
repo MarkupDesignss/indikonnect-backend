@@ -991,7 +991,10 @@ class ReturnService
             $this->updateOrderReturnStatus($order);
 
             if (method_exists($order, 'updateOrderStatus')) {
-                $order->updateOrderStatus();
+                // $order->updateOrderStatus();
+                $order->update([
+                    'status' => 'return_pending',
+                ]);
             }
 
             /*
@@ -3232,7 +3235,11 @@ class ReturnService
             }
 
             // 3. Update order-level statuses
-            $this->updateOrderReturnStatus($returnOrder->order);
+            // $this->updateOrderReturnStatus($returnOrder->order);
+            $returnOrder->order->update([
+                'status' => 'return_approved',
+                'return_status' => 'approved',
+            ]);
 
             // 4. Notifications
             $this->createReturnNotification($returnOrder, 'approved');
@@ -3329,7 +3336,11 @@ class ReturnService
             }
 
             // Update order-level statuses
-            $this->updateOrderReturnStatus($returnOrder->order);
+            // $this->updateOrderReturnStatus($returnOrder->order);
+            $returnOrder->order->update([
+                'status' => 'return_rejected',
+                'return_status' => 'rejected',
+            ]);
             // $this->updateOrderMainStatus($returnOrder->order);
 
             // Notifications
@@ -3457,7 +3468,11 @@ class ReturnService
             }
 
             // 3. Order-level return status
-            $this->updateOrderReturnStatus($returnOrder->order);
+            // $this->updateOrderReturnStatus($returnOrder->order);
+            $returnOrder->order->update([
+                'status' => 'return_received',
+                'return_status' => 'returned',
+            ]);
 
             // 4. Order main status
             // $this->updateOrderMainStatus($returnOrder->order);
@@ -3904,9 +3919,22 @@ class ReturnService
             // ============================================================
             // COMMON: Status recalculation + notifications
             // ============================================================
-            $this->updateOrderReturnStatus($returnOrder->order);
+            // $this->updateOrderReturnStatus($returnOrder->order);
+            // $this->createReturnNotification($returnOrder, 'completed');
+            // $this->sendUserNotification($returnOrder, 'completed');
+            // COMMON: Update order status based on resolution
+            $returnOrder->order->update([
+                'status' => $resolution === 'replacement'
+                    ? 'replaced'
+                    : 'refunded',
+                'return_status' => 'fully_returned',
+            ]);
+
+            // Notifications
             $this->createReturnNotification($returnOrder, 'completed');
             $this->sendUserNotification($returnOrder, 'completed');
+
+            $returnOrder->order->refresh();
 
             $returnOrder->order->refresh();
 
