@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\IndiaPostShipmentSyncService;
+use App\Services\IndiaPostDispatchInvoiceService;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -465,7 +466,11 @@ final class IndiaPostShippingFlowController extends Controller
     public function syncLine(Request $request,string $orderReference,string $orderLineId,IndiaPostShipmentSyncService $service): JsonResponse
     {
         [$order,$line,$id,$lid]=$this->resolveLine($orderReference,$orderLineId);
-        try {return response()->json(['success'=>true,'data'=>$service->syncLine($id,$lid)])->header('Cache-Control','private, no-store');}
+        try {
+            $data = $service->syncLine($id,$lid);
+            $invoices = app(IndiaPostDispatchInvoiceService::class)->reconcileOrder($id,$lid);
+            return response()->json(['success'=>true,'data'=>$data,'dispatch_invoices'=>$invoices])->header('Cache-Control','private, no-store');
+        }
         catch (Throwable $e) {return $this->lineFailure($e,$id,$lid);}
     }
 
@@ -497,7 +502,12 @@ final class IndiaPostShippingFlowController extends Controller
     public function sync(Request $request, string $orderId, IndiaPostShipmentSyncService $service): JsonResponse
     {
         $id=(int)$orderId;
-        try { $id=$this->id($orderId); return response()->json(['success'=>true,'data'=>$service->syncOne($id)]); }
+        try {
+            $id=$this->id($orderId);
+            $data=$service->syncOne($id);
+            $invoices=app(IndiaPostDispatchInvoiceService::class)->reconcileOrder($id);
+            return response()->json(['success'=>true,'data'=>$data,'dispatch_invoices'=>$invoices]);
+        }
         catch(Throwable $e) {return $this->fail($e,$id);}
     }
 }
