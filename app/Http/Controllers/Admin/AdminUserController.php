@@ -481,7 +481,7 @@ class AdminUserController extends Controller
             ]);
 
             // Update all order lines under this order
-            $order->orderLines()->update([
+            $order->lines()->update([
                 'is_cancel_return_allowed' => $value,
             ]);
         });
@@ -496,7 +496,7 @@ class AdminUserController extends Controller
             'data' => [
                 'order_id' => $order->id,
                 'is_cancel_return_allowed' => (bool) $order->is_cancel_return_allowed,
-                'order_lines_updated' => $order->orderLines()->count(),
+                'order_lines_updated' => $order->lines()->count(),
             ],
         ]);
     }
