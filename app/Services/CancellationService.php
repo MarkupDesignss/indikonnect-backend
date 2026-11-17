@@ -167,7 +167,10 @@ class CancellationService
             }
 
             // Sync order status
-            $order->updateOrderStatus();
+            $order->update([
+                'status' => 'cancel_pending',
+            ]);
+            // $order->updateOrderStatus();
 
             Log::info('Order-level cancellation request created', [
                 'order'       => $orderReference,

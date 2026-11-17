@@ -653,7 +653,10 @@ class CancellationApprovalController extends Controller
 
                 // Sync order status (no more cancel_pending)
                 if (method_exists($order, 'updateOrderStatus')) {
-                    $order->updateOrderStatus();
+                    // $order->updateOrderStatus();
+                    $order->update([
+                        'status' => 'confirmed',
+                    ]);
                 }
 
                 // Mark admin notification(s) as read
