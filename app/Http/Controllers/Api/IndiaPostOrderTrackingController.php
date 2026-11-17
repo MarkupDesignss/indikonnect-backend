@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -76,10 +77,31 @@ class IndiaPostOrderTrackingController extends Controller
         return $this->trackingForVerifiedOrder($order);
     }
 
+    /** Customer tracking for one verified order line. Never falls back to parent AWB. */
+    public function showByLine(Request $request, string $orderReference, string $orderLineId): JsonResponse
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 401);
+        }
+        $reference = trim($orderReference);
+        $lineId = filter_var($orderLineId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($reference === '' || mb_strlen($reference) > 100 || $lineId === false) {
+            return response()->json(['success' => false, 'message' => 'Invalid order reference or line ID.'], 422);
+        }
+        $order = Order::query()->where('user_id', $user->id)
+            ->where('order_reference', $reference)->first();
+        if (!$order || (string) $order->order_reference !== $reference ||
+            !DB::table('order_lines')->where('id', $lineId)->where('order_id', $order->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Order line not found.'], 404);
+        }
+        return $this->trackingForVerifiedOrder($order, $lineId);
+    }
+
     /**
      * Called only after an order has been resolved and ownership verified.
      */
-    private function trackingForVerifiedOrder(Order $order): JsonResponse
+    private function trackingForVerifiedOrder(Order $order, ?int $lineId = null): JsonResponse
     {
         $base = rtrim((string) config('services.indiapost_node.url', ''), '/');
         $key = (string) config('services.indiapost_node.api_key', '');
@@ -98,7 +120,12 @@ class IndiaPostOrderTrackingController extends Controller
 
             // IMPORTANT: Node.js existing shipment & AWB APIs are keyed by
             // internal order ID. Do NOT replace this with order_reference.
-            $response = $client->get($base . '/api/indiapost/orders/' . $order->id . '/shipments');
+            $path = $base . '/api/indiapost/orders/' . $order->id;
+            $response = $lineId === null
+                ? $client->get($path . '/shipments')
+                : $client->get($path . '/lines/' . $lineId . '/shipments', [
+                    'orderReference' => (string) $order->order_reference,
+                ]);
             $data = $response->json();
             if (!$response->successful() || !is_array($data) || ($data['success'] ?? false) !== true) {
                 return response()->json([
@@ -107,11 +134,26 @@ class IndiaPostOrderTrackingController extends Controller
                 ], 502);
             }
 
+            $mappingStatus = null;
+            if ($lineId !== null) {
+                $mappingStatus = $data['mappingStatus'] ?? null;
+                if ((string) ($data['orderId'] ?? '') !== (string) $order->id
+                    || ($data['orderReference'] ?? null) !== (string) $order->order_reference
+                    || (string) ($data['orderLineId'] ?? '') !== (string) $lineId
+                    || !in_array($mappingStatus, ['linked', 'unmapped', 'reconciliation_required'], true)
+                    || !is_array($data['shipments'] ?? null) || !is_array($data['allocations'] ?? null)
+                    || ($mappingStatus === 'unmapped' && ($data['shipments'] !== [] || $data['allocations'] !== []))) {
+                    return response()->json(['success' => false, 'message' => 'Unable to verify order-line tracking.'], 502);
+                }
+            }
+
             // Only rows actually bound to this verified order are permitted.
             $rows = array_values(array_filter(
                 is_array($data['shipments'] ?? null) ? $data['shipments'] : [],
                 fn ($s) => is_array($s)
                     && (int) ($s['order_id'] ?? 0) === (int) $order->id
+                    && ($lineId === null || (($s['order_reference'] ?? null) === (string) $order->order_reference
+                        && !in_array(strtolower((string) ($s['booking_status'] ?? '')), ['needs_reconciliation'], true)))
                     && preg_match('/^[A-Z]{2}[0-9]{9}IN$/D', strtoupper((string) ($s['barcode_no'] ?? ''))) === 1
                     && !in_array(strtolower((string) ($s['booking_status'] ?? '')), ['rejected', 'unknown', 'submitting'], true)
             ));
@@ -124,13 +166,32 @@ class IndiaPostOrderTrackingController extends Controller
             )));
 
             $providerByBarcode = [];
-            $warning = null;
+            $warning = $mappingStatus === 'reconciliation_required'
+                ? 'Some linked parcels require verification by support.' : null;
+            $allocations = [];
             $allocatedAwb = null;
             $allocatedAt = null;
 
             // An AWB can exist in allocations before a shipment exists.
             // This call only reads the allocation; it does NOT book an article.
-            if (count($barcodes) === 0) {
+            if ($lineId !== null) {
+                // Only allocations explicitly linked and independently verified by Node.
+                // Do not call the parent order AWB endpoint for an unmapped line.
+                foreach (array_slice($data['allocations'], 0, 20) as $allocation) {
+                    if (!is_array($allocation)) continue;
+                    $candidate = strtoupper((string) ($allocation['barcode_no'] ?? ''));
+                    if (preg_match('/^[A-Z]{2}[0-9]{9}IN$/D', $candidate) !== 1) continue;
+                    $allocations[$candidate] = [
+                        'barcode' => $candidate,
+                        'allocated_at' => $this->safeText($allocation['allocated_at'] ?? null, 60),
+                    ];
+                }
+                $allocations = array_values($allocations);
+                if (count($allocations) === 1 && count($barcodes) === 0) {
+                    $allocatedAwb = $allocations[0]['barcode'];
+                    $allocatedAt = $allocations[0]['allocated_at'];
+                }
+            } elseif (count($barcodes) === 0) {
                 try {
                     $allocationResponse = $client->get($base . '/api/indiapost/orders/' . $order->id . '/awb');
                     $allocationData = $allocationResponse->json();
@@ -182,14 +243,14 @@ class IndiaPostOrderTrackingController extends Controller
                             }
                         }
                     } else {
-                        $warning = 'Live courier movement updates are not available right now.';
+                        $warning = trim(($warning ? $warning . ' ' : '') . 'Live courier movement updates are not available right now.');
                     }
                 } catch (Throwable $e) {
                     Log::warning('India Post customer tracking refresh failed', [
                         'order_id' => $order->id,
                         'exception_type' => get_class($e),
                     ]);
-                    $warning = 'Live courier movement updates are not available right now.';
+                    $warning = trim(($warning ? $warning . ' ' : '') . 'Live courier movement updates are not available right now.');
                 }
             }
 
@@ -239,6 +300,11 @@ class IndiaPostOrderTrackingController extends Controller
                     'allocated_at' => $allocatedAt,
                     'shipments' => $shipments,
                     'warning' => $warning,
+                    ...($lineId !== null ? [
+                        'order_line_id' => $lineId,
+                        'mapping_status' => $mappingStatus,
+                        'allocations' => $allocations,
+                    ] : []),
                 ],
             ])->header('Cache-Control', 'private, no-store');
         } catch (Throwable $e) {

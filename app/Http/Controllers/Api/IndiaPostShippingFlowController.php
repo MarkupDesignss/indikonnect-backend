@@ -250,6 +250,54 @@ final class IndiaPostShippingFlowController extends Controller
         } catch (Throwable $e) { return $this->fail($e, $id); }
     }
 
+    /** Admin-only association of a verified existing parcel; never allocates or books. */
+    public function linkExistingParcel(Request $request, string $orderReference, string $orderLineId): JsonResponse
+    {
+        $reference = trim($orderReference);
+        $lineId = filter_var($orderLineId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($reference === '' || mb_strlen($reference) > 100 || $lineId === false) {
+            return response()->json(['success' => false, 'message' => 'Invalid order reference or line ID.'], 422);
+        }
+        $params = $request->validate([
+            'barcode_no' => ['required', 'string', 'regex:/^[A-Z]{2}[0-9]{9}IN$/D'],
+            'confirm_parcel_contents' => ['required', 'accepted'],
+        ]);
+        $order = DB::table('orders')->where('order_reference', $reference)
+            ->whereNull('deleted_at')->first();
+        if (!$order || (string) $order->order_reference !== $reference ||
+            !DB::table('order_lines')->where('id', $lineId)->where('order_id', $order->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Order line not found.'], 404);
+        }
+        $id = (int) $order->id;
+        try {
+            $response = $this->node('POST', '/api/indiapost/orders/' . $id . '/lines/' . $lineId . '/parcel-links', [
+                'orderReference' => $reference,
+                'barcode' => $params['barcode_no'],
+                'confirmParcelContents' => true,
+            ]);
+            $data = $response->json();
+            if (!$response->successful()) {
+                $status = in_array($response->status(), [403, 404, 409, 422, 429], true) ? $response->status() : 502;
+                return response()->json(['success' => false, 'message' => 'Parcel link not confirmed. Check Node configuration and reconcile before retrying.'], $status);
+            }
+            if (!is_array($data) || ($data['success'] ?? false) !== true
+                || (string) ($data['orderId'] ?? '') !== (string) $id
+                || ($data['orderReference'] ?? null) !== $reference
+                || (string) ($data['orderLineId'] ?? '') !== (string) $lineId
+                || ($data['barcode'] ?? null) !== $params['barcode_no']
+                || ($data['linked'] ?? false) !== true || ($data['bookingPerformed'] ?? null) !== false) {
+                return response()->json(['success' => false, 'message' => 'Parcel link could not be verified.'], 502);
+            }
+            return response()->json(['success' => true, 'data' => [
+                'order_id' => $id, 'order_reference' => $reference, 'order_line_id' => $lineId,
+                'awb' => $params['barcode_no'], 'linked' => true, 'booking_performed' => false,
+            ]])->header('Cache-Control', 'private, no-store');
+        } catch (Throwable $e) {
+            Log::warning('India Post parcel link unconfirmed', ['order_id' => $id, 'order_line_id' => $lineId, 'error_type' => get_class($e)]);
+            return response()->json(['success' => false, 'message' => 'Parcel link could not be verified. Check the line tracking before retrying.'], 502);
+        }
+    }
+
     public function shipments(Request $request, string $orderId): JsonResponse
     {
         $id=(int)$orderId;
