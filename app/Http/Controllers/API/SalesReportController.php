@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Order;
 use App\Models\OrderLine;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
