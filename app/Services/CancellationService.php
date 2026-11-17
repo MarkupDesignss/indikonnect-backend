@@ -109,15 +109,15 @@ class CancellationService
 
             // Mandatory product check (any line)
             $mandatoryProductId = Product::where('is_mandatory', 1)->value('id');
-            if ($mandatoryProductId) {
-                $mandatoryLine = $order->lines->firstWhere('product_id', $mandatoryProductId);
-                if ($mandatoryLine) {
-                    $name = $mandatoryLine->product->name ?? 'the mandatory product';
-                    throw new \Exception(
-                        "The item \"{$name}\" is a mandatory product and cannot be cancelled."
-                    );
-                }
-            }
+            // if ($mandatoryProductId) {
+            //     $mandatoryLine = $order->lines->firstWhere('product_id', $mandatoryProductId);
+            //     if ($mandatoryLine) {
+            //         $name = $mandatoryLine->product->name ?? 'the mandatory product';
+            //         throw new \Exception(
+            //             "The item \"{$name}\" is a mandatory product and cannot be cancelled."
+            //         );
+            //     }
+            // }
 
             // ---- Per-line eligibility ----
             // Cancel allowed only for: pending / confirmed / processing

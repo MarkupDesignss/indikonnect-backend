@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\DistributorProfile;
+use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\UserNotificationSetting;
 use Illuminate\Http\Request;
@@ -413,9 +414,42 @@ class AdminUserController extends Controller
         }
     }
 
+    // public function updateCancelReturnAllowed(
+    //     Request $request,
+    //     OrderLine $orderLine
+    // ) {
+    //     $validator = Validator::make($request->all(), [
+    //         'is_cancel_return_allowed' => 'required|boolean',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Validation failed.',
+    //             'errors'  => $validator->errors(),
+    //         ], 422);
+    //     }
+
+    //     $orderLine->update([
+    //         'is_cancel_return_allowed' => $request->boolean(
+    //             'is_cancel_return_allowed'
+    //         ),
+    //     ]);
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => $request->boolean('is_cancel_return_allowed')
+    //             ? 'Cancel/return option activated successfully.'
+    //             : 'Cancel/return option deactivated successfully.',
+    //         'data' => [
+    //             'order_line_id' => $orderLine->id,
+    //             'is_cancel_return_allowed' => (bool) $orderLine->is_cancel_return_allowed,
+    //         ],
+    //     ]);
+    // }
     public function updateCancelReturnAllowed(
         Request $request,
-        OrderLine $orderLine
+        Order $order
     ) {
         $validator = Validator::make($request->all(), [
             'is_cancel_return_allowed' => 'required|boolean',
@@ -429,20 +463,29 @@ class AdminUserController extends Controller
             ], 422);
         }
 
-        $orderLine->update([
-            'is_cancel_return_allowed' => $request->boolean(
-                'is_cancel_return_allowed'
-            ),
-        ]);
+        $value = $request->boolean('is_cancel_return_allowed');
+
+        DB::transaction(function () use ($order, $value) {
+            // Update order
+            $order->update([
+                'is_cancel_return_allowed' => $value,
+            ]);
+
+            // Update all order lines under this order
+            $order->orderLines()->update([
+                'is_cancel_return_allowed' => $value,
+            ]);
+        });
 
         return response()->json([
             'success' => true,
-            'message' => $request->boolean('is_cancel_return_allowed')
+            'message' => $value
                 ? 'Cancel/return option activated successfully.'
                 : 'Cancel/return option deactivated successfully.',
             'data' => [
-                'order_line_id' => $orderLine->id,
-                'is_cancel_return_allowed' => (bool) $orderLine->is_cancel_return_allowed,
+                'order_id' => $order->id,
+                'is_cancel_return_allowed' => (bool) $order->fresh()->is_cancel_return_allowed,
+                'order_lines_updated' => $order->orderLines()->count(),
             ],
         ]);
     }

@@ -52,6 +52,7 @@ class Order extends Model
         'amount_paid'            => 'decimal:2',
         'coupon_discount'        => 'decimal:2',
         'commissionable_volume'  => 'decimal:2',
+        'is_cancel_return_allowed' => 'boolean',
     ];
 
     // Relationships
