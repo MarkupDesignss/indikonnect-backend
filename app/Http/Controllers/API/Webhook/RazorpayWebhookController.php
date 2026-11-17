@@ -47,7 +47,7 @@ class RazorpayWebhookController extends Controller
             // Pull notes from payment first, fallback to order entity
             $notes = $paymentEntity['notes'] ?? $orderEntity['notes'] ?? [];
 
-            //  Only order_reference now (no group id)
+            // Only order_reference now (no group id)
             $orderReference = $notes['order_reference']
                 ?? $orderEntity['receipt']
                 ?? $payload['reference_id']
@@ -72,7 +72,7 @@ class RazorpayWebhookController extends Controller
 
                     $result = $this->confirmFromWebhook($orderReference, [
                         'gateway'        => 'razorpay',
-                        'transaction_id' => $paymentEntity['id'] ?? null,
+                        'transaction_id' => $paymentEntity['id'] ?? null, // pay_xxx — correct
                         'amount'         => isset($paymentEntity['amount']) ? $paymentEntity['amount'] / 100 : 0,
                         'method'         => $paymentEntity['method'] ?? 'unknown',
                         'status'         => 'captured',
@@ -83,11 +83,6 @@ class RazorpayWebhookController extends Controller
                     ]);
                     return response()->json(['status' => 'success', 'data' => $result]);
 
-                    // case 'payment.failed':
-                    //     Log::warning('Payment failed', [
-                    //         'reference' => $orderReference,
-                    //     ]);
-                    //     return response()->json(['status' => 'failed', 'message' => 'Payment failed']);
                 case 'payment.failed':
                     $result = $this->failOrderFromWebhook($orderReference, [
                         'gateway'        => 'razorpay',
@@ -109,9 +104,21 @@ class RazorpayWebhookController extends Controller
                     ]);
 
                 case 'order.paid':
+                    /**
+                     * IMPORTANT:
+                     * `order.paid` payload does NOT contain a payment id — only an
+                     * order id (`order_xxx`). We must NOT overwrite
+                     * `gateway_transaction_id` with it, otherwise refunds will fail
+                     * with "The id provided does not exist".
+                     *
+                     * Refund requires a `pay_` prefixed payment id, which is
+                     * delivered by the `payment.captured` webhook. If we reach
+                     * this branch without a pay id already stored, we leave the
+                     * column untouched.
+                     */
                     $result = $this->confirmFromWebhook($orderReference, [
                         'gateway'        => 'razorpay',
-                        'transaction_id' => $orderEntity['id'] ?? null,
+                        'transaction_id' => null,
                         'amount'         => isset($orderEntity['amount']) ? $orderEntity['amount'] / 100 : 0,
                         'method'         => 'razorpay',
                         'status'         => 'paid',
@@ -128,7 +135,16 @@ class RazorpayWebhookController extends Controller
 
                     if ($refundEntity) {
                         $refundId     = $refundEntity['id'] ?? null;
-                        $refundStatus = $refundEntity['status'] ?? 'processing';
+                        $razorpayStatus = $refundEntity['status'] ?? 'processing';
+
+                        // Normalize Razorpay status -> our internal enum
+                        $statusMap = [
+                            'pending'    => 'initiated',
+                            'processing' => 'initiated',
+                            'processed'  => 'completed',
+                            'failed'     => 'failed',
+                        ];
+                        $refundStatus = $statusMap[$razorpayStatus] ?? 'initiated';
 
                         if ($refundId) {
                             $returnOrder = \App\Models\OrderReturn::where('refund_transaction_id', $refundId)->first();
@@ -138,7 +154,19 @@ class RazorpayWebhookController extends Controller
                                 Log::info('Refund status updated via webhook', [
                                     'return_id' => $returnOrder->id,
                                     'refund_id' => $refundId,
+                                    'razorpay_status' => $razorpayStatus,
                                     'status'    => $refundStatus,
+                                ]);
+                            }
+
+                            // Also sync the Refund model row
+                            $refundRow = \App\Models\Refund::where('gateway_reference', $refundId)->first();
+                            if ($refundRow) {
+                                $refundRow->update([
+                                    'status'       => $refundStatus,
+                                    'completed_at' => $refundStatus === 'completed'
+                                        ? ($refundRow->completed_at ?? now())
+                                        : $refundRow->completed_at,
                                 ]);
                             }
                         }
@@ -169,7 +197,6 @@ class RazorpayWebhookController extends Controller
     /**
      * Mark order and all order lines as payment failed.
      */
-
     private function failOrderFromWebhook(
         string $orderReference,
         array $gatewayData
