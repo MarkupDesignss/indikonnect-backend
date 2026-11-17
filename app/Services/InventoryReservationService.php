@@ -4,8 +4,8 @@ namespace App\Services;
 
 use App\Models\InventoryReservation;
 use App\Models\Product;
-use App\Models\ProductVariant;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class InventoryReservationService
@@ -39,10 +39,6 @@ class InventoryReservationService
             $qty = (int) $item['quantity'];
             $productId = (int) $item['product_id'];
 
-            $variantId = !empty($item['variant_id'])
-                ? (int) $item['variant_id']
-                : null;
-
             if ($qty <= 0) {
                 throw new \Exception(
                     "Invalid quantity for product #{$productId}"
@@ -60,54 +56,22 @@ class InventoryReservationService
                 );
             }
 
-            // Lock variant if available
-            $variant = null;
-
-            if ($variantId) {
-
-                $variant = ProductVariant::where('id', $variantId)
-                    ->where('item_id', $productId)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (!$variant) {
-                    throw new \Exception(
-                        "Variant not found: #{$variantId}"
-                    );
-                }
-            }
-
             /*
              * ALWAYS deduct stock.
              * No StockGuardService checks.
              * Negative stock is allowed.
              */
 
-            if ($variant) {
-
-                DB::table('product_variants')
-                    ->where('id', $variant->id)
-                    ->update([
-                        'stock_quantity' => DB::raw(
-                            'stock_quantity - ' . $qty
-                        ),
-                        'reserved_inventory' => DB::raw(
-                            'reserved_inventory + ' . $qty
-                        ),
-                    ]);
-            } else {
-
-                DB::table('products')
-                    ->where('id', $product->id)
-                    ->update([
-                        'stock_quantity' => DB::raw(
-                            'stock_quantity - ' . $qty
-                        ),
-                        'reserved_inventory' => DB::raw(
-                            'reserved_inventory + ' . $qty
-                        ),
-                    ]);
-            }
+            DB::table('products')
+                ->where('id', $product->id)
+                ->update([
+                    'stock_quantity' => DB::raw(
+                        'stock_quantity - ' . $qty
+                    ),
+                    'reserved_inventory' => DB::raw(
+                        'reserved_inventory + ' . $qty
+                    ),
+                ]);
 
             // Always create reservation entry
             $created[] = InventoryReservation::create([
@@ -133,6 +97,10 @@ class InventoryReservationService
      *
      * Stock is already deducted during reserve().
      * Only reserved_inventory will decrease.
+     *
+     * Returns false (instead of throwing) when a reservation cannot be
+     * consumed, so the caller (CheckoutService::confirmOrder) can fall
+     * back to a direct stock decrement / mark stock_unavailable.
      */
     public function consume(int $orderId): bool
     {
@@ -142,37 +110,33 @@ class InventoryReservationService
             ->get();
 
         if ($reservations->isEmpty()) {
+            Log::warning('consume(): no held reservations', [
+                'order_id' => $orderId,
+            ]);
             return false;
         }
 
         foreach ($reservations as $res) {
 
-            if ($res->variant_id) {
-
-                $affected = DB::table('product_variants')
-                    ->where('id', $res->variant_id)
-                    ->where('reserved_inventory', '>=', $res->quantity)
-                    ->update([
-                        'reserved_inventory' => DB::raw(
-                            'reserved_inventory - ' . (int) $res->quantity
-                        ),
-                    ]);
-            } else {
-
-                $affected = DB::table('products')
-                    ->where('id', $res->product_id)
-                    ->where('reserved_inventory', '>=', $res->quantity)
-                    ->update([
-                        'reserved_inventory' => DB::raw(
-                            'reserved_inventory - ' . (int) $res->quantity
-                        ),
-                    ]);
-            }
+            $affected = DB::table('products')
+                ->where('id', $res->product_id)
+                ->where('reserved_inventory', '>=', $res->quantity)
+                ->update([
+                    'reserved_inventory' => DB::raw(
+                        'reserved_inventory - ' . (int) $res->quantity
+                    ),
+                ]);
 
             if (!$affected) {
-                throw new \Exception(
-                    "Reservation mismatch consuming product #{$res->product_id} for order #{$orderId}"
-                );
+                Log::warning('consume(): reservation mismatch', [
+                    'order_id'   => $orderId,
+                    'product_id' => $res->product_id,
+                    'quantity'   => $res->quantity,
+                    'res_id'     => $res->id,
+                ]);
+
+                // Do not throw — let confirmOrder() fallback handle it.
+                return false;
             }
 
             $res->update([
@@ -192,21 +156,12 @@ class InventoryReservationService
      */
     public function hasAvailability(
         int $productId,
-        int $qty,
-        ?int $variantId = null
+        int $qty
     ): bool {
 
         $product = Product::find($productId);
 
         if (!$product) {
-            return false;
-        }
-
-        $variant = $variantId
-            ? ProductVariant::find($variantId)
-            : null;
-
-        if ($variantId && !$variant) {
             return false;
         }
 
@@ -233,33 +188,17 @@ class InventoryReservationService
             return;
         }
 
-        if ($res->variant_id) {
-
-            $affected = DB::table('product_variants')
-                ->where('id', $res->variant_id)
-                ->where('reserved_inventory', '>=', $res->quantity)
-                ->update([
-                    'stock_quantity' => DB::raw(
-                        'stock_quantity + ' . (int) $res->quantity
-                    ),
-                    'reserved_inventory' => DB::raw(
-                        'reserved_inventory - ' . (int) $res->quantity
-                    ),
-                ]);
-        } else {
-
-            $affected = DB::table('products')
-                ->where('id', $res->product_id)
-                ->where('reserved_inventory', '>=', $res->quantity)
-                ->update([
-                    'stock_quantity' => DB::raw(
-                        'stock_quantity + ' . (int) $res->quantity
-                    ),
-                    'reserved_inventory' => DB::raw(
-                        'reserved_inventory - ' . (int) $res->quantity
-                    ),
-                ]);
-        }
+        $affected = DB::table('products')
+            ->where('id', $res->product_id)
+            ->where('reserved_inventory', '>=', $res->quantity)
+            ->update([
+                'stock_quantity' => DB::raw(
+                    'stock_quantity + ' . (int) $res->quantity
+                ),
+                'reserved_inventory' => DB::raw(
+                    'reserved_inventory - ' . (int) $res->quantity
+                ),
+            ]);
 
         if (!$affected) {
             throw new \Exception(
