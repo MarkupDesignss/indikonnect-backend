@@ -73,6 +73,7 @@ use App\Http\Controllers\API\Webhook\AxisPgWebhookController;
 use App\Http\Controllers\API\HdfcPaymentController;
 use App\Http\Controllers\API\FinanceCommissionExportController;
 use App\Http\Controllers\API\SalesReportExportController;
+use App\Http\Controllers\API\SalesReportController;
 
 /*
 |--------------------------------------------------------------------------
@@ -148,7 +149,7 @@ Route::prefix('admin')->group(function () {
         Route::get('/all-orders', [OrderController::class, 'allOrder'])
             ->middleware(\App\Http\Middleware\AppendIndiaPostOrderTracking::class);
         Route::get('/get-order-details/{id}', [OrderController::class, 'getOrderDetails']);
-        Route::get('/sales-report', [OrderController::class, 'salesReport']);
+        Route::get('/sales-report', [SalesReportController::class, 'salesReport']);
 
         // Commission Reconciliation Report
         Route::get('/reconciliation', [ReconciliationController::class, 'index']);
