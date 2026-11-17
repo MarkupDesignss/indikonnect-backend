@@ -168,12 +168,18 @@ class SalesReportController extends Controller
 
             // 6. FORMAT
             $stateNormalize = [
-                'RAJISTHAN' => 'Rajasthan', 'MAADHYA PRADESH' => 'Madhya Pradesh',
-                'HIMANCHAL PRADESH' => 'Himachal Pradesh', 'WEST BANGAL' => 'West Bengal',
-                'KARNATKA' => 'Karnataka', 'KARANATAKA' => 'Karnataka',
-                'CHHATISGRAH' => 'Chhattisgarh', 'CHHATTSGARH' => 'Chhattisgarh',
-                'GUJRAT' => 'Gujarat', 'HARIYANA' => 'Haryana',
-                'U.P' => 'Uttar Pradesh', 'UP' => 'Uttar Pradesh',
+                'RAJISTHAN' => 'Rajasthan',
+                'MAADHYA PRADESH' => 'Madhya Pradesh',
+                'HIMANCHAL PRADESH' => 'Himachal Pradesh',
+                'WEST BANGAL' => 'West Bengal',
+                'KARNATKA' => 'Karnataka',
+                'KARANATAKA' => 'Karnataka',
+                'CHHATISGRAH' => 'Chhattisgarh',
+                'CHHATTSGARH' => 'Chhattisgarh',
+                'GUJRAT' => 'Gujarat',
+                'HARIYANA' => 'Haryana',
+                'U.P' => 'Uttar Pradesh',
+                'UP' => 'Uttar Pradesh',
             ];
 
             $data = $paginated->getCollection()->map(function ($row) use ($stateNormalize) {
@@ -496,7 +502,7 @@ class SalesReportController extends Controller
                 // ----- Item -----
                 'p.name                     as item_name',
                 'p.product_code             as sku',
-                'ol.quantity                as qty',
+                'ol.returned_quantity       as qty',
                 'ol.unit_price              as unit_price',
                 'ol.line_total              as line_total',
 
@@ -584,35 +590,35 @@ class SalesReportController extends Controller
                 'Contact Number'         => $row->contact_number,
 
                 // Extra useful columns
-                'Ignite Order No'        => $row->ignite_order_no,
-                'Order Date'             => $row->order_date,
-                'Return Id'              => $row->return_id,
-                'Return Type'            => $row->return_type,
-                'Return Status'          => $row->return_status,
-                'Return Resolution'      => $row->return_resolution,
-                'Return Tracking Id'     => $row->return_tracking_id,
-                'Return Courier'         => $row->return_courier,
-                'Return Received At'     => $row->return_received_at,
-                'Return Completed At'    => $row->return_completed_at,
+                // 'Ignite Order No'        => $row->ignite_order_no,
+                // 'Order Date'             => $row->order_date,
+                // 'Return Id'              => $row->return_id,
+                // 'Return Type'            => $row->return_type,
+                // 'Return Status'          => $row->return_status,
+                // 'Return Resolution'      => $row->return_resolution,
+                // 'Return Tracking Id'     => $row->return_tracking_id,
+                // 'Return Courier'         => $row->return_courier,
+                // 'Return Received At'     => $row->return_received_at,
+                // 'Return Completed At'    => $row->return_completed_at,
 
                 'Item Name'              => $row->item_name,
                 'SKU'                    => $row->sku,
                 'QTY'                    => $row->qty,
-                'Unit Price'             => $row->unit_price,
-                'Line Total'             => $row->line_total,
+                // 'Unit Price'             => $row->unit_price,
+                // 'Line Total'             => $row->line_total,
 
-                'Refund Subtotal'        => $row->refund_subtotal,
-                'Refund Tax'             => $row->refund_tax,
-                'Refund Shipping'        => $row->refund_shipping,
-                'Refund Gateway Charges' => $row->refund_gateway_charges,
-                'Refund Extra Deductions' => $row->refund_extra_deductions,
-                'Total Refund Amount'    => $row->total_refund_amount,
-                'Refund Adjusted Amount' => $row->refund_adjusted_amount,
-                'Refund Status'          => $row->refund_status,
-                'Refund Method'          => $row->refund_method,
-                'Refund Gateway Ref'     => $row->refund_gateway_reference,
-                'Refund Failure Reason'  => $row->refund_failure_reason,
-                'Refund Notes'           => $row->refund_notes,
+                // 'Refund Subtotal'        => $row->refund_subtotal,
+                // 'Refund Tax'             => $row->refund_tax,
+                // 'Refund Shipping'        => $row->refund_shipping,
+                // 'Refund Gateway Charges' => $row->refund_gateway_charges,
+                // 'Refund Extra Deductions' => $row->refund_extra_deductions,
+                // 'Total Refund Amount'    => $row->total_refund_amount,
+                // 'Refund Adjusted Amount' => $row->refund_adjusted_amount,
+                // 'Refund Status'          => $row->refund_status,
+                // 'Refund Method'          => $row->refund_method,
+                // 'Refund Gateway Ref'     => $row->refund_gateway_reference,
+                // 'Refund Failure Reason'  => $row->refund_failure_reason,
+                // 'Refund Notes'           => $row->refund_notes,
                 'Email'                  => $row->email,
             ];
         });
@@ -635,18 +641,18 @@ class SalesReportController extends Controller
             'data' => $data,
         ]);
     }
-
     public function returnArticlereport(Request $request)
     {
         $query = DB::table('returns as r')
             ->leftJoin('refunds as rf', function ($join) {
+                // Latest refund per return (by max id)
                 $join->on('rf.return_id', '=', 'r.id')
                     ->whereRaw('rf.id = (SELECT MAX(id) FROM refunds WHERE return_id = r.id)');
             })
             ->leftJoin('orders as o', 'o.id', '=', 'r.order_id')
             ->leftJoin('order_lines as ol', 'ol.id', '=', 'r.order_line_id')
             ->leftJoin('products as p', 'p.id', '=', 'ol.product_id')
-            ->leftJoin('users as u', 'u.id', '=', 'r.user_id')
+            ->leftJoin('users as u', 'u.id', '=', 'r.user_id')  // recipient
             ->select([
                 // ----- Refund (bill id = refunds.id) -----
                 'rf.id                      as refund_bill_id',
@@ -659,7 +665,7 @@ class SalesReportController extends Controller
                 'rf.failure_reason          as refund_failure_reason',
                 'rf.notes                   as refund_notes',
 
-                // ----- Original order -----
+                // ----- Original order (bill id = order_reference) -----
                 'o.id                       as original_order_id',
                 'o.order_reference          as original_bill_id',
                 'o.ignite_order_no          as ignite_order_no',
@@ -686,18 +692,16 @@ class SalesReportController extends Controller
                 // ----- Item -----
                 'p.name                     as item_name',
                 'p.product_code             as sku',
-                'ol.quantity                as qty',
-                'ol.returned_quantity       as returned_qty',   // ✅ returned quantity
+                'ol.returned_quantity       as qty',
                 'ol.unit_price              as unit_price',
                 'ol.line_total              as line_total',
 
-                // ----- Distributor -----
+                // ----- Distributor (user_name = distributor id) -----
                 'u.id                       as distributor_id',
                 'u.full_name                as customer_name',
                 'u.phone                    as contact_number',
                 'u.email                    as email',
-            ])
-            ->whereNull('r.deleted_at');
+            ]);
 
         // ---------- Optional filters ----------
 
@@ -748,7 +752,6 @@ class SalesReportController extends Controller
             'return_status',
             'item_name',
             'sku',
-            'returned_qty',
         ];
 
         if (in_array($sortBy, $allowedSortColumns)) {
@@ -766,45 +769,46 @@ class SalesReportController extends Controller
         // ---------- Format response (Excel-like) ----------
         $data = collect($rows->items())->map(function ($row) {
             return [
-                'Refund Bill Id'         => $row->refund_bill_id,
-                'Original Bill Id'       => $row->original_bill_id,
+                // Mapping your CSV headers with requested corrections:
+                'Refund Bill Id'         => $row->refund_bill_id,           // refunds.id
+                'Original Bill Id'       => $row->original_bill_id,         // order_reference
                 'Refund Amount'          => $row->refund_amount ?? $row->total_refund_amount,
                 'Reason'                 => $row->return_reason,
                 'Refund Date'            => $row->refund_date,
-                'Distributor Id'         => $row->distributor_id,
+                'Distributor Id'         => $row->distributor_id,           // users.id (was User Name)
                 'Customer Name'          => $row->customer_name,
                 'Contact Number'         => $row->contact_number,
 
-                'Ignite Order No'        => $row->ignite_order_no,
-                'Order Date'             => $row->order_date,
-                'Return Id'              => $row->return_id,
-                'Return Type'            => $row->return_type,
-                'Return Status'          => $row->return_status,
-                'Return Resolution'      => $row->return_resolution,
-                'Return Tracking Id'     => $row->return_tracking_id,
-                'Return Courier'         => $row->return_courier,
-                'Return Received At'     => $row->return_received_at,
-                'Return Completed At'    => $row->return_completed_at,
+                // Extra useful columns
+                // 'Ignite Order No'        => $row->ignite_order_no,
+                // 'Order Date'             => $row->order_date,
+                // 'Return Id'              => $row->return_id,
+                // 'Return Type'            => $row->return_type,
+                // 'Return Status'          => $row->return_status,
+                // 'Return Resolution'      => $row->return_resolution,
+                // 'Return Tracking Id'     => $row->return_tracking_id,
+                // 'Return Courier'         => $row->return_courier,
+                // 'Return Received At'     => $row->return_received_at,
+                // 'Return Completed At'    => $row->return_completed_at,
 
                 'Item Name'              => $row->item_name,
                 'SKU'                    => $row->sku,
                 'QTY'                    => $row->qty,
-                'Returned Quantity'      => $row->returned_qty,
-                'Unit Price'             => $row->unit_price,
-                'Line Total'             => $row->line_total,
+                // 'Unit Price'             => $row->unit_price,
+                // 'Line Total'             => $row->line_total,
 
-                'Refund Subtotal'        => $row->refund_subtotal,
-                'Refund Tax'             => $row->refund_tax,
-                'Refund Shipping'        => $row->refund_shipping,
-                'Refund Gateway Charges' => $row->refund_gateway_charges,
-                'Refund Extra Deductions' => $row->refund_extra_deductions,
-                'Total Refund Amount'    => $row->total_refund_amount,
-                'Refund Adjusted Amount' => $row->refund_adjusted_amount,
-                'Refund Status'          => $row->refund_status,
-                'Refund Method'          => $row->refund_method,
-                'Refund Gateway Ref'     => $row->refund_gateway_reference,
-                'Refund Failure Reason'  => $row->refund_failure_reason,
-                'Refund Notes'           => $row->refund_notes,
+                // 'Refund Subtotal'        => $row->refund_subtotal,
+                // 'Refund Tax'             => $row->refund_tax,
+                // 'Refund Shipping'        => $row->refund_shipping,
+                // 'Refund Gateway Charges' => $row->refund_gateway_charges,
+                // 'Refund Extra Deductions' => $row->refund_extra_deductions,
+                // 'Total Refund Amount'    => $row->total_refund_amount,
+                // 'Refund Adjusted Amount' => $row->refund_adjusted_amount,
+                // 'Refund Status'          => $row->refund_status,
+                // 'Refund Method'          => $row->refund_method,
+                // 'Refund Gateway Ref'     => $row->refund_gateway_reference,
+                // 'Refund Failure Reason'  => $row->refund_failure_reason,
+                // 'Refund Notes'           => $row->refund_notes,
                 'Email'                  => $row->email,
             ];
         });
@@ -827,4 +831,196 @@ class SalesReportController extends Controller
             'data' => $data,
         ]);
     }
+
+    // public function returnArticlereport(Request $request)
+    // {
+    //     $query = DB::table('returns as r')
+    //         ->leftJoin('refunds as rf', function ($join) {
+    //             $join->on('rf.return_id', '=', 'r.id')
+    //                 ->whereRaw('rf.id = (SELECT MAX(id) FROM refunds WHERE return_id = r.id)');
+    //         })
+    //         ->leftJoin('orders as o', 'o.id', '=', 'r.order_id')
+    //         ->leftJoin('order_lines as ol', 'ol.id', '=', 'r.order_line_id')
+    //         ->leftJoin('products as p', 'p.id', '=', 'ol.product_id')
+    //         ->leftJoin('users as u', 'u.id', '=', 'r.user_id')
+    //         ->select([
+    //             // ----- Refund (bill id = refunds.id) -----
+    //             'rf.id                      as refund_bill_id',
+    //             'rf.amount                  as refund_amount',
+    //             'rf.adjusted_amount         as refund_adjusted_amount',
+    //             'rf.status                  as refund_status',
+    //             'rf.refund_method           as refund_method',
+    //             'rf.gateway_reference       as refund_gateway_reference',
+    //             'rf.completed_at            as refund_date',
+    //             'rf.failure_reason          as refund_failure_reason',
+    //             'rf.notes                   as refund_notes',
+
+    //             // ----- Original order -----
+    //             'o.id                       as original_order_id',
+    //             'o.order_reference          as original_bill_id',
+    //             'o.ignite_order_no          as ignite_order_no',
+    //             'o.created_at               as order_date',
+
+    //             // ----- Return -----
+    //             'r.id                       as return_id',
+    //             'r.type                     as return_type',
+    //             'r.status                   as return_status',
+    //             'r.resolution               as return_resolution',
+    //             'r.reason                   as return_reason',
+    //             'r.refund_subtotal          as refund_subtotal',
+    //             'r.refund_tax               as refund_tax',
+    //             'r.refund_shipping          as refund_shipping',
+    //             'r.refund_gateway_charges   as refund_gateway_charges',
+    //             'r.refund_extra_deductions  as refund_extra_deductions',
+    //             'r.total_refund_amount      as total_refund_amount',
+    //             'r.tracking_id              as return_tracking_id',
+    //             'r.courier                  as return_courier',
+    //             'r.received_at              as return_received_at',
+    //             'r.completed_at             as return_completed_at',
+    //             'r.created_at               as return_created_at',
+
+    //             // ----- Item -----
+    //             'p.name                     as item_name',
+    //             'p.product_code             as sku',
+    //             'ol.quantity                as qty',
+    //             'ol.returned_quantity       as returned_qty',   // ✅ returned quantity
+    //             'ol.unit_price              as unit_price',
+    //             'ol.line_total              as line_total',
+
+    //             // ----- Distributor -----
+    //             'u.id                       as distributor_id',
+    //             'u.full_name                as customer_name',
+    //             'u.phone                    as contact_number',
+    //             'u.email                    as email',
+    //         ])
+    //         ->whereNull('r.deleted_at');
+
+    //     // ---------- Optional filters ----------
+
+    //     if ($request->filled('from_date')) {
+    //         $query->whereDate('r.created_at', '>=', $request->from_date);
+    //     }
+    //     if ($request->filled('to_date')) {
+    //         $query->whereDate('r.created_at', '<=', $request->to_date);
+    //     }
+    //     if ($request->filled('return_status')) {
+    //         $query->where('r.status', $request->return_status);
+    //     }
+    //     if ($request->filled('refund_status')) {
+    //         $query->where('rf.status', $request->refund_status);
+    //     }
+    //     if ($request->filled('return_type')) {
+    //         $query->where('r.type', $request->return_type);
+    //     }
+    //     if ($request->filled('order_id')) {
+    //         $query->where('r.order_id', $request->order_id);
+    //     }
+    //     if ($request->filled('distributor_id')) {
+    //         $query->where('u.id', $request->distributor_id);
+    //     }
+    //     if ($request->filled('search')) {
+    //         $search = $request->search;
+    //         $query->where(function ($q) use ($search) {
+    //             $q->where('u.full_name', 'like', "%{$search}%")
+    //                 ->orWhere('u.phone', 'like', "%{$search}%")
+    //                 ->orWhere('o.order_reference', 'like', "%{$search}%")
+    //                 ->orWhere('p.product_code', 'like', "%{$search}%")
+    //                 ->orWhere('rf.id', 'like', "%{$search}%");
+    //         });
+    //     }
+
+    //     // ---------- Sorting ----------
+    //     $sortBy  = $request->get('sort_by', 'r.created_at');
+    //     $sortDir = strtolower($request->get('sort_dir', 'desc')) === 'asc' ? 'asc' : 'desc';
+
+    //     $allowedSortColumns = [
+    //         'refund_bill_id',
+    //         'original_bill_id',
+    //         'refund_amount',
+    //         'refund_date',
+    //         'distributor_id',
+    //         'customer_name',
+    //         'contact_number',
+    //         'return_status',
+    //         'item_name',
+    //         'sku',
+    //         'returned_qty',
+    //     ];
+
+    //     if (in_array($sortBy, $allowedSortColumns)) {
+    //         $query->orderBy($sortBy, $sortDir);
+    //     } else {
+    //         $query->orderBy('r.created_at', 'desc');
+    //     }
+
+    //     // ---------- Pagination ----------
+    //     $perPage = (int) $request->get('per_page', 500);
+    //     $perPage = min(max($perPage, 1), 5000);
+
+    //     $rows = $query->paginate($perPage);
+
+    //     // ---------- Format response (Excel-like) ----------
+    //     $data = collect($rows->items())->map(function ($row) {
+    //         return [
+    //             'Refund Bill Id'         => $row->refund_bill_id,
+    //             'Original Bill Id'       => $row->original_bill_id,
+    //             'Refund Amount'          => $row->refund_amount ?? $row->total_refund_amount,
+    //             'Reason'                 => $row->return_reason,
+    //             'Refund Date'            => $row->refund_date,
+    //             'Distributor Id'         => $row->distributor_id,
+    //             'Customer Name'          => $row->customer_name,
+    //             'Contact Number'         => $row->contact_number,
+
+    //             'Ignite Order No'        => $row->ignite_order_no,
+    //             'Order Date'             => $row->order_date,
+    //             'Return Id'              => $row->return_id,
+    //             'Return Type'            => $row->return_type,
+    //             'Return Status'          => $row->return_status,
+    //             'Return Resolution'      => $row->return_resolution,
+    //             'Return Tracking Id'     => $row->return_tracking_id,
+    //             'Return Courier'         => $row->return_courier,
+    //             'Return Received At'     => $row->return_received_at,
+    //             'Return Completed At'    => $row->return_completed_at,
+
+    //             'Item Name'              => $row->item_name,
+    //             'SKU'                    => $row->sku,
+    //             'QTY'                    => $row->qty,
+    //             'Returned Quantity'      => $row->returned_qty,
+    //             'Unit Price'             => $row->unit_price,
+    //             'Line Total'             => $row->line_total,
+
+    //             'Refund Subtotal'        => $row->refund_subtotal,
+    //             'Refund Tax'             => $row->refund_tax,
+    //             'Refund Shipping'        => $row->refund_shipping,
+    //             'Refund Gateway Charges' => $row->refund_gateway_charges,
+    //             'Refund Extra Deductions' => $row->refund_extra_deductions,
+    //             'Total Refund Amount'    => $row->total_refund_amount,
+    //             'Refund Adjusted Amount' => $row->refund_adjusted_amount,
+    //             'Refund Status'          => $row->refund_status,
+    //             'Refund Method'          => $row->refund_method,
+    //             'Refund Gateway Ref'     => $row->refund_gateway_reference,
+    //             'Refund Failure Reason'  => $row->refund_failure_reason,
+    //             'Refund Notes'           => $row->refund_notes,
+    //             'Email'                  => $row->email,
+    //         ];
+    //     });
+
+    //     return response()->json([
+    //         'status'  => true,
+    //         'message' => 'Returns report fetched successfully',
+    //         'filters' => [
+    //             'from_date'     => $request->from_date,
+    //             'to_date'       => $request->to_date,
+    //             'return_status' => $request->return_status,
+    //             'refund_status' => $request->refund_status,
+    //         ],
+    //         'pagination' => [
+    //             'current_page' => $rows->currentPage(),
+    //             'per_page'     => $rows->perPage(),
+    //             'total'        => $rows->total(),
+    //             'last_page'    => $rows->lastPage(),
+    //         ],
+    //         'data' => $data,
+    //     ]);
+    // }
 }
