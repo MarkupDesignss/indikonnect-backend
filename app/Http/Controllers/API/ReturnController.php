@@ -265,16 +265,16 @@ class ReturnController extends Controller
 
             // Mandatory product check (any line)
             $mandatoryProductId = Product::where('is_mandatory', 1)->value('id');
-            if ($mandatoryProductId) {
-                $mandatoryLine = $order->lines->firstWhere('product_id', $mandatoryProductId);
-                if ($mandatoryLine) {
-                    $name = $mandatoryLine->product->name ?? 'the mandatory product';
-                    return response()->json([
-                        'success' => false,
-                        'message' => "The item \"{$name}\" is a mandatory product and cannot be returned.",
-                    ], 403);
-                }
-            }
+            // if ($mandatoryProductId) {
+            //     $mandatoryLine = $order->lines->firstWhere('product_id', $mandatoryProductId);
+            //     if ($mandatoryLine) {
+            //         $name = $mandatoryLine->product->name ?? 'the mandatory product';
+            //         return response()->json([
+            //             'success' => false,
+            //             'message' => "The item \"{$name}\" is a mandatory product and cannot be returned.",
+            //         ], 403);
+            //     }
+            // }
 
             // Non-returnable check (any line)
             $nonReturnable = $order->lines->filter(fn($l) => !$l->is_returnable);
