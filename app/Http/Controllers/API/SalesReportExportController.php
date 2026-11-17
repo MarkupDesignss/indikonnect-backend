@@ -31,7 +31,7 @@ class SalesReportExportController extends Controller
     }
 
     // =================================================================
-    // ENDPOINT 0 — Report metadata (available weeks, current week)
+    // ENDPOINT 0 — Report metadata
     // GET /api/admin/finance/sales-report/meta?year=2026
     // =================================================================
     public function meta(Request $request)
@@ -48,10 +48,9 @@ class SalesReportExportController extends Controller
             ->sortBy('week_no')
             ->values();
 
-        // Fallback to previous sales year
         if ($weeks->isEmpty()) {
-            $prev   = $this->getCalendar($year - 1);
-            $weeks  = collect($prev['months'] ?? [])
+            $prev  = $this->getCalendar($year - 1);
+            $weeks = collect($prev['months'] ?? [])
                 ->flatMap(fn ($m) => $m['weeks'] ?? [])
                 ->sortBy('week_no')
                 ->values();
@@ -93,8 +92,8 @@ class SalesReportExportController extends Controller
     }
 
     // =================================================================
-    // ENDPOINT 1 — Sales & OS Report
-    // GET /api/admin/finance/sales-report/category?year=2026&week=0&weeks_back=10
+    // ENDPOINT 1 — Sales & OS Report (Category matrix)
+    // GET /api/admin/finance/sales-report/category?year=2026&week=0&weeks_back=5
     // =================================================================
     public function categoryReport(Request $request)
     {
@@ -113,7 +112,6 @@ class SalesReportExportController extends Controller
             : null;
         $want = fn (string $s) => $include === null || in_array($s, $include, true);
 
-        // week=0 → auto-detect current week
         if ($week === 0) {
             $week = $this->currentWeekFromCalendar($year);
             if ($week === null) {
@@ -135,14 +133,12 @@ class SalesReportExportController extends Controller
 
         $weekNos = array_keys($weekRanges);
 
-        // Bulk fetch
         $salesByCat   = $this->categoryWeekly('sales',   $weekRanges);
         $returnsByCat = $this->categoryWeekly('returns', $weekRanges);
         $grossByWeek  = $this->grossRetailWeekly($weekRanges);
         $cvByWeek     = $this->cvByWeek($year, $weekNos);
         $osByCat      = $this->outstandingByCategory($year, $weekRanges);
 
-        // Net = sales + returns
         $netByWeek = [];
         foreach ($weekNos as $w) {
             $s = array_sum(array_map(fn ($row) => $row[$w] ?? 0, $salesByCat));
@@ -150,7 +146,6 @@ class SalesReportExportController extends Controller
             $netByWeek[$w] = round($s + $r, 2);
         }
 
-        // All categories — zero-filled
         $salesRows   = $this->allCategoryRows($salesByCat,   $weekNos);
         $returnsRows = $this->allCategoryRows($returnsByCat, $weekNos);
         $osRows      = $this->allCategoryRows($osByCat,      $weekNos, 4);
@@ -207,7 +202,6 @@ class SalesReportExportController extends Controller
         $week      = (int) ($request->week ?? 0);
         $weeksBack = (int) ($request->weeks_back ?? 5);
 
-        // week=0 → auto-detect
         if ($week === 0) {
             $week = $this->currentWeekFromCalendar($year);
             if ($week === null) {
@@ -228,7 +222,6 @@ class SalesReportExportController extends Controller
 
         $weekNos = array_keys($weekRanges);
 
-        // Product list
         $productQuery = Product::select('id', 'name', 'category_id')
             ->whereNull('deleted_at')
             ->orderBy('name');
@@ -242,12 +235,10 @@ class SalesReportExportController extends Controller
         }
         $products = $productQuery->get();
 
-        // Bulk data
         $salesByProduct  = $this->productWeekly('sales',  $weekRanges);
         $ordersByProduct = $this->productWeekly('orders', $weekRanges);
         $salesByCat      = $this->categoryWeekly('sales', $weekRanges);
 
-        // Category summary — all categories, zero-filled
         $categoryRows = $this->allCategoryRows($salesByCat, $weekNos);
         $catTotals    = $this->columnTotals($categoryRows, $weekNos);
 
@@ -280,7 +271,7 @@ class SalesReportExportController extends Controller
             ->flatMap(fn ($m) => $m['weeks'] ?? []);
 
         if ($weeks->isEmpty()) {
-            $prev = $this->getCalendar($year - 1);
+            $prev  = $this->getCalendar($year - 1);
             $weeks = collect($prev['months'] ?? [])
                 ->flatMap(fn ($m) => $m['weeks'] ?? []);
             if ($weeks->isEmpty()) return null;
@@ -295,9 +286,6 @@ class SalesReportExportController extends Controller
         return (int) $weeks->max('week_no');
     }
 
-    /**
-     * [week_no => [Carbon start, Carbon end]]  — start inclusive, end exclusive.
-     */
     private function resolveWeekRanges(int $year, int $currentWeek, int $weeksBack): array
     {
         $ranges = [];
@@ -392,33 +380,35 @@ class SalesReportExportController extends Controller
     }
 
     // =================================================================
-    // BULK QUERIES
+    // BULK QUERIES — using COALESCE(confirmed_at, created_at)
     // =================================================================
     private function categoryWeekly(string $mode, array $weekRanges): array
     {
         [$start, $end] = $this->window($weekRanges);
 
+        $dateExpr = 'COALESCE(o.confirmed_at, o.created_at)';
+
         $q = DB::table('order_lines as ol')
             ->join('orders as o', 'o.id', '=', 'ol.order_id')
             ->join('products as p', 'p.id', '=', 'ol.product_id')
-            ->where('o.ordered_at', '>=', $start)
-            ->where('o.ordered_at', '<',  $end)
+            ->whereRaw("{$dateExpr} >= ?", [$start])
+            ->whereRaw("{$dateExpr} <  ?", [$end])
             ->whereNull('o.deleted_at')
             ->whereNull('ol.deleted_at');
 
         if ($mode === 'sales') {
             $q->whereIn('o.status', self::SALE_STATUSES)
-              ->select('p.category_id', DB::raw('SUM(ol.line_total) as amt'), 'o.ordered_at');
+              ->select('p.category_id', DB::raw('SUM(ol.line_total) as amt'), DB::raw("{$dateExpr} as order_date"));
         } else {
             $q->where('o.status', 'returned')
-              ->select('p.category_id', DB::raw('SUM(-ol.line_total) as amt'), 'o.ordered_at');
+              ->select('p.category_id', DB::raw('SUM(-ol.line_total) as amt'), DB::raw("{$dateExpr} as order_date"));
         }
 
-        $rows = $q->groupBy('p.category_id', 'o.ordered_at')->get();
+        $rows = $q->groupBy('p.category_id', DB::raw($dateExpr))->get();
 
         $out = [];
         foreach ($rows as $r) {
-            $wk = $this->weekNoFor(Carbon::parse($r->ordered_at));
+            $wk = $this->weekNoFor(Carbon::parse($r->order_date));
             if ($wk === null) continue;
             $out[$r->category_id][$wk] = ($out[$r->category_id][$wk] ?? 0) + (float) $r->amt;
         }
@@ -429,27 +419,29 @@ class SalesReportExportController extends Controller
     {
         [$start, $end] = $this->window($weekRanges);
 
+        $dateExpr = 'COALESCE(o.confirmed_at, o.created_at)';
+
         $q = DB::table('order_lines as ol')
             ->join('orders as o', 'o.id', '=', 'ol.order_id')
-            ->where('o.ordered_at', '>=', $start)
-            ->where('o.ordered_at', '<',  $end)
+            ->whereRaw("{$dateExpr} >= ?", [$start])
+            ->whereRaw("{$dateExpr} <  ?", [$end])
             ->whereNull('o.deleted_at')
             ->whereNull('ol.deleted_at')
             ->whereIn('o.status', self::SALE_STATUSES);
 
         if ($mode === 'sales') {
-            $q->select('ol.product_id', DB::raw('SUM(ol.line_total) as val'), 'o.ordered_at')
-              ->groupBy('ol.product_id', 'o.ordered_at');
+            $q->select('ol.product_id', DB::raw('SUM(ol.line_total) as val'), DB::raw("{$dateExpr} as order_date"))
+              ->groupBy('ol.product_id', DB::raw($dateExpr));
         } else {
-            $q->select('ol.product_id', DB::raw('COUNT(DISTINCT o.id) as val'), 'o.ordered_at')
-              ->groupBy('ol.product_id', 'o.ordered_at');
+            $q->select('ol.product_id', DB::raw('COUNT(DISTINCT o.id) as val'), DB::raw("{$dateExpr} as order_date"))
+              ->groupBy('ol.product_id', DB::raw($dateExpr));
         }
 
         $rows = $q->get();
 
         $out = [];
         foreach ($rows as $r) {
-            $wk = $this->weekNoFor(Carbon::parse($r->ordered_at));
+            $wk = $this->weekNoFor(Carbon::parse($r->order_date));
             if ($wk === null) continue;
             $out[$r->product_id][$wk] = ($out[$r->product_id][$wk] ?? 0) + (float) $r->val;
         }
@@ -460,18 +452,20 @@ class SalesReportExportController extends Controller
     {
         [$start, $end] = $this->window($weekRanges);
 
+        $dateExpr = 'COALESCE(o.confirmed_at, o.created_at)';
+
         $rows = DB::table('orders as o')
-            ->where('o.ordered_at', '>=', $start)
-            ->where('o.ordered_at', '<',  $end)
+            ->whereRaw("{$dateExpr} >= ?", [$start])
+            ->whereRaw("{$dateExpr} <  ?", [$end])
             ->whereNull('o.deleted_at')
             ->whereIn('o.status', self::SALE_STATUSES)
-            ->select('o.ordered_at', DB::raw('SUM(o.grand_total) as amt'))
-            ->groupBy('o.ordered_at')
+            ->select(DB::raw("{$dateExpr} as order_date"), DB::raw('SUM(o.total_payable) as amt'))
+            ->groupBy(DB::raw($dateExpr))
             ->get();
 
         $out = [];
         foreach ($rows as $r) {
-            $wk = $this->weekNoFor(Carbon::parse($r->ordered_at));
+            $wk = $this->weekNoFor(Carbon::parse($r->order_date));
             if ($wk === null) continue;
             $out[$wk] = ($out[$wk] ?? 0) + (float) $r->amt;
         }
