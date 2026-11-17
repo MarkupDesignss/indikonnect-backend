@@ -1005,6 +1005,7 @@ class OrderController extends Controller
                 'order.deliveryAddress',
                 'order.shippingMethod',
                 'order.invoice',
+                'invoice',
                 'order.returns',
                 'order.creditNotes',
                 'product',
@@ -1258,6 +1259,12 @@ class OrderController extends Controller
                     $items[] = [
                         // Line item details
                         'line_id'              => $line->id,
+                        'invoice'              => $line->invoice ? [
+                            'id'                 => $line->invoice->id,
+                            'order_line_id'      => $line->id,
+                            'invoice_number'     => $line->invoice->invoice_number,
+                            'generated_at'       => $formatDate($line->invoice->created_at),
+                        ] : null,
                         'product_id'           => $line->product_id,
                         'item_reference_id'    => $line->item_reference_id,
                         'product_name'         => $product?->name ?? 'Product Not Found',
@@ -2889,7 +2896,7 @@ class OrderController extends Controller
         try {
             DB::beginTransaction();
 
-            $order = Order::where('order_reference', $request->order_reference)->firstOrFail();
+            $order = Order::where('order_reference', $request->order_reference)->lockForUpdate()->firstOrFail();
 
             // Determine which items to dispatch
             $itemsToDispatch = $this->getItemsToProcess($order, $request->items ?? []);
