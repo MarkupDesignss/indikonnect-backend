@@ -21,6 +21,25 @@ final class IndiaPostDispatchReadinessController extends Controller
 {
     public function show(Request $request, string $orderId): JsonResponse
     {
+        return $this->check($request, $orderId, null);
+    }
+
+    public function showByLine(Request $request, string $orderReference, string $orderLineId): JsonResponse
+    {
+        $lineId = filter_var($orderLineId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($lineId === false || $orderReference === '' || mb_strlen($orderReference) > 100) {
+            return response()->json(['success' => false, 'message' => 'Invalid order reference or line ID.'], 422);
+        }
+        $order = DB::table('orders')->where('order_reference', $orderReference)->whereNull('deleted_at')->first();
+        if (!$order || (string) $order->order_reference !== $orderReference ||
+            !DB::table('order_lines')->where('id', $lineId)->where('order_id', $order->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Order line not found.'], 404);
+        }
+        return $this->check($request, (string) $order->id, $lineId, $orderReference);
+    }
+
+    private function check(Request $request, string $orderId, ?int $lineId, ?string $reference = null): JsonResponse
+    {
         if (!ctype_digit($orderId) || (int) $orderId < 1) {
             return response()->json(['success' => false, 'message' => 'Invalid order ID.'], 422);
         }
@@ -31,7 +50,7 @@ final class IndiaPostDispatchReadinessController extends Controller
             ->whereNull('deleted_at')
             ->first();
 
-        if (!$order) {
+        if (!$order || ($reference !== null && (string) $order->order_reference !== $reference)) {
             return response()->json(['success' => false, 'message' => 'Order not found.'], 404);
         }
 
@@ -54,8 +73,11 @@ final class IndiaPostDispatchReadinessController extends Controller
             $blockers[] = 'Paid amount does not match order payable amount. Verify payment before dispatch.';
         }
 
-        $lines = DB::table('order_lines')->where('order_id', $id)->get([
+        $lineQuery = DB::table('order_lines')->where('order_id', $id);
+        if ($lineId !== null) $lineQuery->where('id', $lineId);
+        $lines = $lineQuery->get([
             'id', 'product_id', 'variant_id', 'quantity', 'delivery_status',
+            'returned_quantity', 'return_status', 'cancelled_at', 'cancellation_requested_at', 'is_replacement',
         ]);
         $checks['order_has_items'] = $lines->isNotEmpty();
         if ($lines->isEmpty()) {
@@ -65,6 +87,9 @@ final class IndiaPostDispatchReadinessController extends Controller
         $checks['items_eligible'] = $lines->every(static fn ($line) =>
             (int) $line->quantity > 0 && !in_array(strtolower((string) $line->delivery_status), $unsafeLineStatus, true)
         );
+        if ($lineId !== null) {
+            $checks['items_eligible'] = $lines->count() === 1 && $lines->every([self::class, 'eligibleLine']);
+        }
         if (!$checks['items_eligible']) {
             $blockers[] = 'Some items are cancelled, returning, returned or otherwise not dispatchable.';
         }
@@ -188,6 +213,18 @@ final class IndiaPostDispatchReadinessController extends Controller
         $destinationOffice = null;
         $sourceOffice = null;
         $existingShipmentCount = null;
+        $lineAwb = null;
+        $lineBookingEnabled = false;
+        $lineAllocationEnabled = false;
+        // Shared database with Node. Never infer that an order-wide parcel can be split.
+        try {
+            self::assertScope($id, $lineId, (string) $order->order_reference);
+            $checks['parcel_scope_clear'] = true;
+        } catch (Throwable $e) {
+            $checks['parcel_scope_clear'] = false;
+            $blockers[] = 'Existing shipment/parcel scope or schema requires reconciliation before dispatch.';
+            Log::warning('India Post parcel scope not clear', ['order_id' => $id, 'order_line_id' => $lineId, 'type' => get_class($e)]);
+        }
 
         if (!$nodeConfigured) {
             $blockers[] = 'India Post Node.js adapter is disabled or missing HTTPS URL/internal key.';
@@ -236,17 +273,51 @@ final class IndiaPostDispatchReadinessController extends Controller
             }
 
             try {
-                $shipResp = $client->get($nodeUrl . '/api/indiapost/orders/' . $id . '/shipments');
+                $path = $nodeUrl . '/api/indiapost/orders/' . $id;
+                $shipResp = $lineId === null
+                    ? $client->get($path . '/shipments')
+                    : $client->get($path . '/lines/' . $lineId . '/shipments', ['orderReference' => (string) $order->order_reference]);
                 $shipData = $shipResp->json();
-                if (!$shipResp->successful() || !is_array($shipData) || ($shipData['success'] ?? false) !== true) {
-                    $blockers[] = 'Could not check whether an AWB is already assigned; do not retry booking blindly.';
-                } else {
-                    $existing = is_array($shipData['shipments'] ?? null) ? $shipData['shipments'] : [];
-                    $existingShipmentCount = count($existing);
-                    if ($existingShipmentCount > 0) {
-                        $blockers[] = 'India Post already has ' . $existingShipmentCount
-                            . ' shipment record(s) for this order. Reconcile them before any new booking.';
+                if (!$shipResp->successful() || !is_array($shipData) || ($shipData['success'] ?? false) !== true
+                    || !is_array($shipData['shipments'] ?? null)) {
+                    throw new \RuntimeException('Invalid Node shipment response.');
+                }
+                $existingShipmentCount = count($shipData['shipments']);
+                if ($existingShipmentCount > 0) {
+                    $blockers[] = 'A shipment already exists for this parcel scope. Reconcile before any new booking.';
+                }
+                if ($lineId !== null) {
+                    if ((string) ($shipData['orderId'] ?? '') !== (string) $id
+                        || ($shipData['orderReference'] ?? null) !== (string) $order->order_reference
+                        || (string) ($shipData['orderLineId'] ?? '') !== (string) $lineId
+                        || !in_array($shipData['mappingStatus'] ?? null, ['unmapped', 'linked'], true)
+                        || !is_array($shipData['allocations'] ?? null)) {
+                        throw new \RuntimeException('Unverified line mapping.');
                     }
+                    $allocations = $shipData['allocations'];
+                    if (count($allocations) > 1 || ($shipData['mappingStatus'] === 'unmapped' && ($allocations || $existingShipmentCount))) {
+                        throw new \RuntimeException('Ambiguous line mapping.');
+                    }
+                    if ($allocations) {
+                        $lineAwb = $allocations[0]['barcode_no'] ?? null;
+                        if (!is_string($lineAwb) || !preg_match('/^[A-Z]{2}[0-9]{9}IN$/D', $lineAwb)
+                            || $shipData['mappingStatus'] !== 'linked'
+                            || !DB::table('indiapost_awb_allocations')->where('order_id', $id)->where('order_line_id', $lineId)
+                                ->where('order_reference', $order->order_reference)->where('barcode_no', $lineAwb)->exists()) {
+                            throw new \RuntimeException('Allocation ownership mismatch.');
+                        }
+                    } elseif ($shipData['mappingStatus'] === 'linked' || DB::table('indiapost_awb_allocations')
+                        ->where('order_id', $id)->where('order_line_id', $lineId)->exists()) {
+                        throw new \RuntimeException('Dedicated allocation/mapping mismatch.');
+                    }
+                    $health = $client->get($nodeUrl . '/api/indiapost/health');
+                    $flags = $health->json();
+                    if (!$health->successful() || ($flags['ok'] ?? null) !== true
+                        || !is_bool($flags['lineBookingEnabled'] ?? null) || !is_bool($flags['lineAwbAllocationEnabled'] ?? null)) {
+                        throw new \RuntimeException('Updated Node health unavailable.');
+                    }
+                    $lineBookingEnabled = $flags['lineBookingEnabled'];
+                    $lineAllocationEnabled = $flags['lineAwbAllocationEnabled'];
                 }
             } catch (Throwable $e) {
                 Log::warning('India Post shipment existence check unavailable', ['order_id' => $id, 'type' => get_class($e)]);
@@ -262,6 +333,11 @@ final class IndiaPostDispatchReadinessController extends Controller
                 'order_id' => $id,
                 'order_reference' => $order->order_reference,
                 'order_status' => $order->status,
+                'order_line_id' => $lineId,
+                'line_quantity' => $lineId !== null ? (int) ($lines->first()->quantity ?? 0) : null,
+                'allocated_awb' => $lineAwb,
+                'line_booking_enabled' => $lineBookingEnabled,
+                'line_awb_allocation_enabled' => $lineAllocationEnabled,
                 'booking_performed' => false,
                 'ready_for_preview' => count($blockers) === 0,
                 'checks' => $checks,
@@ -292,6 +368,44 @@ final class IndiaPostDispatchReadinessController extends Controller
                     : 'Resolve all blockers before generating or submitting India Post booking payload.',
             ],
         ])->header('Cache-Control', 'private, no-store');
+    }
+
+    /** Exact independent-line eligibility; mirrors the deployed Node repository. */
+    public static function eligibleLine(object $line): bool
+    {
+        return (string) $line->delivery_status === 'confirmed' && (int) $line->quantity > 0
+            && (int) $line->returned_quantity === 0 && in_array($line->return_status, ['none', null], true)
+            && !$line->cancelled_at && !$line->cancellation_requested_at && (int) $line->is_replacement === 0;
+    }
+
+    /** Run with the order locked when reserving a local booking attempt. Read-only otherwise. */
+    public static function assertScope(int $id, ?int $lineId, string $reference): void
+    {
+        $local = DB::table('indiapost_order_shipments')->where('order_id', $id);
+        $alloc = DB::table('indiapost_awb_allocations')->where('order_id', $id);
+        if ($lineId === null) {
+            if ($local->exists() || (clone $alloc)->whereNotNull('order_line_id')->exists()) {
+                throw new \RuntimeException('Existing parcel attempt or independent allocation.');
+            }
+            return;
+        }
+        if ($local->where(fn ($q) => $q->whereNull('order_line_id')->orWhere('order_line_id', $lineId))->exists()
+            || (clone $alloc)->whereNull('order_line_id')->exists()) {
+            throw new \RuntimeException('Legacy or same-line parcel already exists.');
+        }
+        // Other dedicated lines may ship independently; prohibit ambiguous/legacy shipments.
+        if (DB::table('indiapost_shipments as s')->leftJoin('indiapost_awb_allocations as a', function ($join) {
+            $join->on('a.barcode_no', '=', 's.barcode_no')->on('a.order_id', '=', 's.order_id');
+        })->where('s.order_id', $id)->where(function ($q) use ($lineId, $reference) {
+            $q->whereNull('a.order_line_id')->orWhere('a.order_line_id', $lineId)
+                ->orWhereNull('a.order_reference')->orWhere('a.order_reference', '<>', $reference);
+        })->exists()) throw new \RuntimeException('Existing or ambiguous Node shipment.');
+        if (DB::table('order_shipping_details')->where('order_id', $id)
+            ->where(fn ($q) => $q->whereNull('order_line_id')->orWhere('order_line_id', $lineId))
+            ->where(fn ($q) => $q->whereIn('status', ['shipped', 'dispatched', 'delivered'])
+                ->orWhere(fn ($x) => $x->whereNotNull('courier_tracking_number')->where('courier_tracking_number', '<>', '')))->exists()) {
+            throw new \RuntimeException('Existing shipping details must be reconciled first.');
+        }
     }
 
     private function inRange($value, float $min, float $max): bool

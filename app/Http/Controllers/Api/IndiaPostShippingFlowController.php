@@ -217,7 +217,7 @@ final class IndiaPostShippingFlowController extends Controller
                     || DB::table('credit_notes')->where('order_id',$id)->exists()) {
                     throw new RuntimeException('Return/refund/credit note present. Never book.');
                 }
-                if (DB::table('indiapost_order_shipments')->where('order_id',$id)->exists()) throw new RuntimeException('Booking was already attempted. Reconcile; no automatic retry.');
+                IndiaPostDispatchReadinessController::assertScope($id, null, (string) $order->order_reference);
                 DB::table('indiapost_order_shipments')->insert([
                     'order_id'=>$id, 'warehouse_id'=>$params['warehouse_id'], 'barcode_no'=>$barcode,
                     'booking_status'=>'submitting','weight_grams'=>$params['weight_grams'],
@@ -232,7 +232,7 @@ final class IndiaPostShippingFlowController extends Controller
                 $submitted=$resp->successful() && ($json['providerAcceptedRequest'] ?? false) === true
                     && in_array($barcode,$json['summary']['submitted'] ?? [],true);
                 $status=$submitted?'submitted':($resp->status()===409 || in_array($barcode,$json['summary']['rejected'] ?? [],true) ? 'needs_reconciliation':'unknown');
-                DB::table('indiapost_order_shipments')->where('order_id',$id)->update([
+                DB::table('indiapost_order_shipments')->where('order_id',$id)->where('barcode_no',$barcode)->update([
                     'booking_status'=>$status, 'provider_accepted'=>$submitted,
                     'provider_batch_id'=>isset($json['providerBatchId'])?(string)$json['providerBatchId']:null,
                     'updated_at'=>now(),
@@ -243,7 +243,7 @@ final class IndiaPostShippingFlowController extends Controller
                     'provider_batch_id'=>$json['providerBatchId'] ?? null,'physical_booking_confirmed'=>false,
                     'next_action'=>'Print verified label/manifest, hand parcel to courier, then sync actual India Post scan events.']],202);
             } catch (Throwable $upstreamError) {
-                DB::table('indiapost_order_shipments')->where('order_id',$id)->update(['booking_status'=>'unknown','updated_at'=>now()]);
+                DB::table('indiapost_order_shipments')->where('order_id',$id)->where('barcode_no',$barcode)->update(['booking_status'=>'unknown','updated_at'=>now()]);
                 Log::error('India Post booking outcome unknown; manual reconciliation required', ['order_id'=>$id, 'error_type'=>get_class($upstreamError)]);
                 return response()->json(['success'=>false,'message'=>'Booking outcome unknown. Do not retry; reconcile with carrier and Node shipment record.','awb'=>$barcode],502);
             }
@@ -298,19 +298,199 @@ final class IndiaPostShippingFlowController extends Controller
         }
     }
 
+    private function resolveLine(string $reference, string $lineId): array
+    {
+        $lid=filter_var($lineId,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
+        abort_if($lid===false || $reference==='' || mb_strlen($reference)>100,422,'Invalid order reference or line ID.');
+        $order=DB::table('orders')->where('order_reference',$reference)->whereNull('deleted_at')->first();
+        abort_if(!$order || (string)$order->order_reference!==$reference,404,'Order line not found.');
+        $line=DB::table('order_lines')->where('id',$lid)->where('order_id',$order->id)->first();
+        abort_if(!$line,404,'Order line not found.');
+        return [$order,$line,(int)$order->id,(int)$lid];
+    }
+
+    private function linePath(int $id,int $lid): string
+    {
+        return '/api/indiapost/orders/'.$id.'/lines/'.$lid;
+    }
+
+    private function lineReady(string $ref,int $lid,array $params): array
+    {
+        $result=app(IndiaPostDispatchReadinessController::class)->showByLine(Request::create('/','GET',$params),$ref,(string)$lid)->getData(true);
+        $data=$result['data'] ?? [];
+        if (empty($data['ready_for_preview'])) throw new RuntimeException('Not ready: '.implode(' | ',$data['blockers'] ?? ['Line readiness failed.']));
+        if (!empty($data['warnings']) && empty($params['physical_stock_verified'])) throw new RuntimeException('Verify physical warehouse stock and reservations first.');
+        return $data;
+    }
+
+    private function verifiedIdentity(array $data,int $id,int $lid,string $ref): bool
+    {
+        return ($data['success'] ?? false)===true && (string)($data['orderId'] ?? '')===(string)$id
+            && (string)($data['orderLineId'] ?? '')===(string)$lid && ($data['orderReference'] ?? null)===$ref;
+    }
+
+    private function lineFailure(Throwable $e,int $id,int $lid): JsonResponse
+    {
+        Log::warning('India Post line flow rejected',['order_id'=>$id,'order_line_id'=>$lid,'error_type'=>get_class($e)]);
+        // Never expose database errors, internal URLs, authorization keys or carrier PII.
+        return response()->json(['success'=>false,'message'=>$e instanceof RuntimeException && get_class($e)===RuntimeException
+            ? $e->getMessage() : 'Line operation could not be verified. Check readiness and reconcile before retrying.'],422);
+    }
+
+    public function allocateLine(Request $request,string $orderReference,string $orderLineId): JsonResponse
+    {
+        [$order,$line,$id,$lid]=$this->resolveLine($orderReference,$orderLineId);
+        $params=$this->input($request);
+        $request->validate(['confirm_parcel_contents'=>'required|accepted']);
+        try {
+            $ready=$this->lineReady($orderReference,$lid,$params);
+            if (($ready['line_awb_allocation_enabled'] ?? false)!==true) return response()->json(['success'=>false,'message'=>'Independent AWB allocation disabled pending approval.'],409);
+            $response=$this->node('POST',$this->linePath($id,$lid).'/awb/allocate',['orderReference'=>$orderReference,'confirmParcelContents'=>true]);
+            $data=$response->json();
+            if (!$response->successful() || !is_array($data) || !$this->verifiedIdentity($data,$id,$lid,$orderReference)
+                || !preg_match('/^[A-Z]{2}[0-9]{9}IN$/D',(string)($data['barcode'] ?? '')) || ($data['bookingPerformed'] ?? null)!==false) {
+                throw new RuntimeException('Allocation not verified. Check line readiness/shipments before retrying.');
+            }
+            return response()->json(['success'=>true,'data'=>['order_id'=>$id,'order_reference'=>$orderReference,'order_line_id'=>$lid,
+                'awb'=>$data['barcode'],'already_allocated'=>($data['alreadyAllocated'] ?? false)===true,'booking_performed'=>false]])->header('Cache-Control','private, no-store');
+        } catch (Throwable $e) {return $this->lineFailure($e,$id,$lid);}
+    }
+
+    private function linePreview(int $id,int $lid,string $ref,array $params,array $ready,string $barcode): array
+    {
+        if ($barcode==='' || ($ready['allocated_awb'] ?? null)!==$barcode) throw new RuntimeException('Allocate and verify the dedicated line AWB first.');
+        $article=$this->article($id,$params,$ready,$barcode);
+        // Preserve the established provider order reference; the unique AWB identifies each article.
+        $body=['orderReference'=>$ref,'articles'=>[$article]];
+        $response=$this->node('POST',$this->linePath($id,$lid).'/booking/preview',$body);
+        $data=$response->json();
+        if (!$response->successful() || !is_array($data) || !$this->verifiedIdentity($data,$id,$lid,$ref)
+            || ($data['ready'] ?? false)!==true || ($data['awb'] ?? null)!==$barcode || ($data['bookingPerformed'] ?? null)!==false) {
+            throw new RuntimeException('Node line preview failed or AWB ownership did not match.');
+        }
+        return [$body,$data];
+    }
+
+    public function previewLine(Request $request,string $orderReference,string $orderLineId): JsonResponse
+    {
+        [$order,$line,$id,$lid]=$this->resolveLine($orderReference,$orderLineId);
+        $params=$this->input($request);
+        try {
+            $ready=$this->lineReady($orderReference,$lid,$params);
+            $barcode=(string)($params['barcode_no'] ?? '');
+            [$body,$data]=$this->linePreview($id,$lid,$orderReference,$params,$ready,$barcode);
+            return response()->json(['success'=>true,'data'=>['order_id'=>$id,'order_reference'=>$orderReference,'order_line_id'=>$lid,
+                'awb'=>$barcode,'ready_for_booking'=>true,'booking_enabled'=>($ready['line_booking_enabled'] ?? false)===true && ($data['bookingEnabled'] ?? false)===true,
+                'warnings'=>$ready['warnings'] ?? [],'article'=>$body['articles'][0],'booking_performed'=>false]])->header('Cache-Control','private, no-store');
+        } catch (Throwable $e) {return $this->lineFailure($e,$id,$lid);}
+    }
+
+    public function bookLine(Request $request,string $orderReference,string $orderLineId): JsonResponse
+    {
+        [$order,$line,$id,$lid]=$this->resolveLine($orderReference,$orderLineId);
+        $params=$this->input($request);
+        $request->validate(['confirm_parcel_contents'=>'required|accepted','confirm_authorized_uat_booking'=>'required|accepted']);
+        $barcode=(string)($params['barcode_no'] ?? '');
+        try {
+            $ready=$this->lineReady($orderReference,$lid,$params);
+            if (($ready['line_booking_enabled'] ?? false)!==true) return response()->json(['success'=>false,'message'=>'Independent booking disabled pending authorized UAT.'],409);
+            [$body,$preview]=$this->linePreview($id,$lid,$orderReference,$params,$ready,$barcode);
+            if (($preview['bookingEnabled'] ?? false)!==true) throw new RuntimeException('Independent booking disabled.');
+            // Local attempt is durable BEFORE any carrier submission. The Node reservation is independently locked.
+            $localId=DB::transaction(function () use ($id,$lid,$orderReference,$barcode,$params,$ready): int {
+                $order=DB::table('orders')->where('id',$id)->whereNull('deleted_at')->lockForUpdate()->first();
+                $line=DB::table('order_lines')->where('id',$lid)->where('order_id',$id)->lockForUpdate()->first();
+                if (!$order || (string)$order->order_reference!==$orderReference || $order->status!=='confirmed' || !$order->confirmed_at
+                    || (float)$order->total_payable<0 || (float)$order->amount_paid+0.01<(float)$order->total_payable
+                    || !$line || !IndiaPostDispatchReadinessController::eligibleLine($line) || (int)$line->quantity!==(int)$ready['line_quantity']) {
+                    throw new RuntimeException('Order or line eligibility changed. Run readiness again.');
+                }
+                if (DB::table('returns')->where('order_id',$id)->whereNull('deleted_at')->whereIn('status',['pending','approved','partially_approved','received','completed'])->exists()
+                    || DB::table('refunds')->where('order_id',$id)->whereIn('status',['initiated','completed'])->exists()
+                    || DB::table('credit_notes')->where('order_id',$id)->exists()) throw new RuntimeException('Return/refund/credit note present.');
+                IndiaPostDispatchReadinessController::assertScope($id,$lid,$orderReference);
+                if (!DB::table('indiapost_awb_allocations')->where('order_id',$id)->where('order_line_id',$lid)->where('order_reference',$orderReference)->where('barcode_no',$barcode)->exists()) {
+                    throw new RuntimeException('Dedicated allocation no longer matches.');
+                }
+                return (int)DB::table('indiapost_order_shipments')->insertGetId([
+                    'order_id'=>$id,'order_line_id'=>$lid,'warehouse_id'=>$params['warehouse_id'],'barcode_no'=>$barcode,
+                    'booking_status'=>'submitting','weight_grams'=>$params['weight_grams'],'length_cm'=>$params['length_cm'],
+                    'width_cm'=>$params['width_cm'],'height_cm'=>$params['height_cm'],'booking_attempted_at'=>now(),'created_at'=>now(),'updated_at'=>now(),
+                ]);
+            });
+            $update=fn()=>DB::table('indiapost_order_shipments')->where('id',$localId)->where('order_id',$id)->where('order_line_id',$lid)->where('barcode_no',$barcode)->where('booking_status','submitting');
+            try {
+                $body['confirmParcelContents']=true;
+                $body['confirmAuthorizedBooking']=true;
+                $response=$this->node('POST',$this->linePath($id,$lid).'/booking/submit-managed',$body);
+                $data=$response->json();
+                $verified=is_array($data) && $this->verifiedIdentity($data,$id,$lid,$orderReference) && ($data['awb'] ?? null)===$barcode;
+                $submitted=$response->successful() && $verified && ($data['providerAcceptedRequest'] ?? false)===true
+                    && in_array($barcode,(array)($data['summary']['submitted'] ?? []),true);
+                $status=$submitted?'submitted':'needs_reconciliation';
+                $update()->update(['booking_status'=>$status,'provider_accepted'=>$submitted,
+                    'provider_batch_id'=>$verified && isset($data['providerBatchId']) ? mb_substr((string)$data['providerBatchId'],0,120) : null,'updated_at'=>now()]);
+                if (!$submitted) return response()->json(['success'=>false,'message'=>'Submission not confirmed. Reconcile; never resend.','order_id'=>$id,'order_line_id'=>$lid,'awb'=>$barcode,'booking_status'=>$status],409);
+                return response()->json(['success'=>true,'data'=>['order_id'=>$id,'order_reference'=>$orderReference,'order_line_id'=>$lid,'awb'=>$barcode,
+                    'booking_status'=>'submitted','physical_booking_confirmed'=>false,'provider_batch_id'=>$data['providerBatchId'] ?? null]],202);
+            } catch (Throwable $e) {
+                $update()->update(['booking_status'=>'unknown','updated_at'=>now()]);
+                Log::warning('India Post line booking outcome unknown',['order_id'=>$id,'order_line_id'=>$lid,'error_type'=>get_class($e)]);
+                return response()->json(['success'=>false,'message'=>'Booking outcome unknown. Do not retry; reconcile.','order_line_id'=>$lid,'awb'=>$barcode],502);
+            }
+        } catch (Throwable $e) {return $this->lineFailure($e,$id,$lid);}
+    }
+
+    public function shipmentsLine(Request $request,string $orderReference,string $orderLineId): JsonResponse
+    {
+        [$order,$line,$id,$lid]=$this->resolveLine($orderReference,$orderLineId);
+        try {
+            // Use the exact same verified mapping read as customer tracking. Never fall back to order-wide AWBs.
+            $response=$this->node('GET',$this->linePath($id,$lid).'/shipments?'.http_build_query(['orderReference'=>$orderReference]));
+            $data=$response->json();
+            if (!$response->successful() || !is_array($data) || !$this->verifiedIdentity($data,$id,$lid,$orderReference)
+                || !in_array($data['mappingStatus'] ?? null,['linked','unmapped','reconciliation_required'],true)
+                || !is_array($data['shipments'] ?? null) || !is_array($data['allocations'] ?? null)) throw new RuntimeException('Line shipments unavailable.');
+            $locals=DB::table('indiapost_order_shipments')->where('order_id',$id)->where('order_line_id',$lid)->get(['barcode_no','booking_status','latest_event','latest_event_at']);
+            $rows=[];
+            foreach ($data['shipments'] as $row) {
+                if (!is_array($row) || (string)($row['order_id'] ?? '')!==(string)$id || ($row['order_reference'] ?? null)!==$orderReference || !preg_match('/^[A-Z]{2}[0-9]{9}IN$/D',(string)($row['barcode_no'] ?? ''))) throw new RuntimeException('Unverified shipment response.');
+                $rows[]=$row;
+            }
+            return response()->json(['success'=>true,'data'=>['order_id'=>$id,'order_reference'=>$orderReference,'order_line_id'=>$lid,
+                'mapping_status'=>$data['mappingStatus'],'shipments'=>$rows,'allocations'=>$data['allocations'],'local_attempts'=>$locals,'warnings'=>$data['warnings'] ?? []]])->header('Cache-Control','private, no-store');
+        } catch (Throwable $e) {return $this->lineFailure($e,$id,$lid);}
+    }
+
+    public function syncLine(Request $request,string $orderReference,string $orderLineId,IndiaPostShipmentSyncService $service): JsonResponse
+    {
+        [$order,$line,$id,$lid]=$this->resolveLine($orderReference,$orderLineId);
+        try {return response()->json(['success'=>true,'data'=>$service->syncLine($id,$lid)])->header('Cache-Control','private, no-store');}
+        catch (Throwable $e) {return $this->lineFailure($e,$id,$lid);}
+    }
+
     public function shipments(Request $request, string $orderId): JsonResponse
     {
         $id=(int)$orderId;
         try {
             $id=$this->id($orderId);
-            $local=DB::table('indiapost_order_shipments')->where('order_id',$id)->first();
-            if (!$local) return response()->json(['success'=>true,'data'=>['order_id'=>$id,'shipments'=>[]]]);
+            $locals=DB::table('indiapost_order_shipments')->where('order_id',$id)->get();
+            if ($locals->isEmpty()) return response()->json(['success'=>true,'data'=>['order_id'=>$id,'shipments'=>[]]]);
+            $order=DB::table('orders')->where('id',$id)->whereNull('deleted_at')->first();
+            if (!$order) throw new RuntimeException('Order not found.');
             $remote=$this->node('GET','/api/indiapost/orders/' . $id . '/shipments');
             $data=$remote->json();
-            if (!$remote->successful()) return response()->json(['success'=>false,'message'=>'Node shipments unavailable'],502);
-            return response()->json(['success'=>true,'data'=>['order_id'=>$id,'local_status'=>$local->booking_status,
-                'shipments'=>array_values(array_filter($data['shipments'] ?? [], fn($s)=>($s['barcode_no'] ?? '')===$local->barcode_no))]])
-                ->header('Cache-Control','private, no-store');
+            if (!$remote->successful() || ($data['success'] ?? false)!==true || !is_array($data['shipments'] ?? null)) throw new RuntimeException('Node shipments unavailable.');
+            $byBarcode=$locals->keyBy('barcode_no');
+            $rows=[];
+            foreach ($data['shipments'] as $row) {
+                $local=$byBarcode->get($row['barcode_no'] ?? '');
+                if ($local && (string)($row['order_id'] ?? '')===(string)$id && ($row['order_reference'] ?? null)===(string)$order->order_reference) {
+                    $rows[]=array_merge($row,['order_line_id'=>$local->order_line_id ?? null]);
+                }
+            }
+            return response()->json(['success'=>true,'data'=>['order_id'=>$id,'local_status'=>$locals->count()===1?$locals->first()->booking_status:null,
+                'shipments'=>$rows]])->header('Cache-Control','private, no-store');
         } catch (Throwable $e) {return $this->fail($e,$id);}
     }
 
