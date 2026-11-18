@@ -503,86 +503,88 @@ class UserDashboardController extends Controller
     //     }
     // }
 
-    private function getSalesCalendar(int $year): ?array
-    {
-        try {
-            $resp = Cache::remember("ignite_sales_calendar_{$year}", 21600, function () use ($year) {
-                return $this->ignite->salesCalendar($year);
-            });
+     
+private function getSalesCalendar(int $year): ?array
+{
+    try {
+        $resp = Cache::remember("ignite_sales_calendar_v2_{$year}", 21600, function () use ($year) {
+            return $this->ignite->salesCalendar($year);
+        });
 
-            if (($resp['code'] ?? null) !== ResultCode::OK->value) {
+        if (($resp['code'] ?? null) !== ResultCode::OK->value) {
+            return null;
+        }
+
+        $data = $resp['data'] ?? [];
+
+        $utc8 = new \DateTimeZone('Asia/Singapore');
+        $ist  = new \DateTimeZone('Asia/Kolkata');
+
+        // Convert Ignite UTC+8 datetime into IST.
+        $toIst = function (?string $dateTime) use ($utc8, $ist): ?\DateTimeImmutable {
+            if (empty($dateTime)) {
                 return null;
             }
 
-            $data = $resp['data'] ?? [];
+            $dt = new \DateTimeImmutable($dateTime, $utc8);
 
-            $utc8 = new \DateTimeZone('Asia/Singapore');
-            $ist  = new \DateTimeZone('Asia/Kolkata');
+            return $dt->setTimezone($ist);
+        };
 
-            // Convert SG date+time+offset to IST string
-            $toIst = function (?string $sgDate, string $time, int $addDays = 0) use ($utc8, $ist): ?string {
-                if (!$sgDate) return null;
-                $dt = new \DateTime("{$sgDate} {$time}", $utc8);
-                if ($addDays !== 0) {
-                    $dt->modify(($addDays > 0 ? '+' : '') . "{$addDays} day");
-                }
-                $dt->setTimezone($ist);
-                return $dt->format('Y-m-d H:i:s');
-            };
+        $allMonths = [];
 
-            $allMonths = [];
+        foreach (($data['months'] ?? []) as $month) {
+            $weeksData = [];
 
-            foreach (($data['months'] ?? []) as $month) {
-                $weeksData = [];
-                foreach (($month['weeks'] ?? []) as $week) {
-                    // start_date = Friday (SG label). IST target = Fri 23:30.
-                    // SG instant = next day (Saturday) 02:00 -> +1 day
-                    $start = $toIst($week['start_date'] ?? null, '02:00:00', 1);
+            foreach (($month['weeks'] ?? []) as $week) {
 
-                    // end_date = Thursday (SG label). IST target = Fri 23:29:59 (next Friday after start).
-                    // SG instant = Saturday 01:59:59 of the following week -> +2 days
-                    $end = $toIst($week['end_date'] ?? null, '01:59:59', 2);
+                // Ignite provides actual weekly boundaries in UTC+8.
+                $startAt = $toIst($week['start_at'] ?? null);
+                $endAt   = $toIst($week['end_at'] ?? null);
 
-                    // Payout: Saturday settlement runs 07:30 IST (guide: "Saturday settlement runs 07:30 to about 08:30").
-                    // Payout date = the Saturday following week close, at 07:30 IST.
-                    // Build from end IST date + 1 day at 07:30 IST (Saturday).
-                    $payout = null;
-                    if ($end) {
-                        $endIstDate = \Carbon\Carbon::parse($end, 'Asia/Kolkata');
-                        $payout = $endIstDate
-                            ->copy()
-                            ->addDay()          // Friday -> Saturday
-                            ->setTime(7, 30, 0) // 07:30 IST settlement
-                            ->format('Y-m-d H:i:s');
-                    }
+                // end_at is exclusive, so subtract one second.
+                $end = $endAt
+                    ? $endAt->modify('-1 second')
+                    : null;
 
-                    $weeksData[] = [
-                        'week_no'     => $week['week_no'] ?? null,
-                        'start'       => $start,
-                        'end'         => $end,
-                        'payout_date' => $payout,
-                        'is_current'  => (bool) ($week['is_current'] ?? false),
-                        'is_settled'  => (bool) ($week['is_settled'] ?? false),
-                    ];
-                }
+                // Saturday settlement at 07:30 AM IST.
+                $payout = $endAt
+                    ? $endAt->modify('+8 hours')
+                    : null;
 
-                $allMonths[] = [
-                    'month_no'   => $month['month_no'] ?? null,
-                    'label'      => $month['label'] ?? null,
-                    'is_current' => (bool) ($month['is_current'] ?? false),
-                    'weeks'      => $weeksData,
+                $weeksData[] = [
+                    'week_no'     => $week['week_no'] ?? null,
+                    'start'       => $startAt?->format('Y-m-d H:i:s'),
+                    'end'         => $end?->format('Y-m-d H:i:s'),
+                    'payout_date' => $payout?->format('Y-m-d H:i:s'),
+                    'is_current'  => (bool) ($week['is_current'] ?? false),
+                    'is_settled'  => (bool) ($week['is_settled'] ?? false),
                 ];
             }
 
-            return [
-                'year'       => $data['year'] ?? $year,
-                'all_months' => $allMonths,
+            $allMonths[] = [
+                'month_no'   => $month['month_no'] ?? null,
+                'label'      => $month['label'] ?? null,
+                'is_current' => (bool) ($month['is_current'] ?? false),
+                'weeks'      => $weeksData,
             ];
-        } catch (\Throwable $e) {
-            Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
-            return null;
         }
+
+        return [
+            'year'       => $data['year'] ?? $year,
+            'all_months' => $allMonths,
+        ];
+
+    } catch (\Throwable $e) {
+        Log::warning('Ignite salesCalendar failed', [
+            'year'  => $year,
+            'error' => $e->getMessage(),
+        ]);
+
+        return null;
     }
+}
+
 
     /**
      * Calculate general user statistics.
