@@ -22,10 +22,101 @@ class InvoiceController extends Controller
      * - GET /api/invoices/order/{orderId} - For full order invoice
      * - GET /api/invoices/order/{orderId}/{lineId} - For specific line item invoice
      */
+    // public function getInvoiceByOrder(Request $request, int $orderId, ?int $lineId = null): JsonResponse
+    // {
+    //     try {
+    //         // Find the order with necessary relationships
+    //         $order = Order::with([
+    //             'invoice',
+    //             'user',
+    //             'billingAddress',
+    //             'deliveryAddress'
+    //         ])->find($orderId);
+
+    //         // Check if order exists
+    //         if (!$order) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Order not found'
+    //             ], 404);
+    //         }
+
+    //         // Check if invoice exists for this order
+    //         if (!$order->invoice) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Invoice not found for this order'
+    //             ], 404);
+    //         }
+
+    //         $invoice = $order->invoice;
+
+    //         // If lineId is provided, fetch specific line item
+    //         if ($lineId) {
+    //             // Find the specific order line
+    //             $orderLine = OrderLine::with([
+    //                 'product.images',
+    //                 'variant'
+    //             ])->where('order_id', $orderId)
+    //                 ->find($lineId);
+
+    //             if (!$orderLine) {
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => 'Order line not found for this order'
+    //                 ], 404);
+    //             }
+
+    //             // Format single order line
+    //             $orderLines = $this->formatSingleOrderLine($orderLine);
+    //             $invoiceType = 'single_item';
+    //             $message = 'Invoice for single item retrieved successfully';
+    //         } else {
+    //             // Load all order lines for full order
+    //             $order->load(['lines.product.images', 'lines.variant']);
+
+    //             // Format all order lines
+    //             $orderLines = $this->formatOrderLines($order->lines);
+    //             $invoiceType = 'full_order';
+    //             $message = 'Invoice retrieved successfully';
+    //         }
+
+    //         // Decode JSON fields
+    //         $lineItems = json_decode($invoice->line_items, true) ?? [];
+    //         $summarySnapshot = json_decode($invoice->summary_snapshot, true) ?? [];
+    //         $taxBreakdown = json_decode($order->tax_breakdown, true) ?? [];
+    //         $summaryData = json_decode($order->summary_data, true) ?? [];
+
+    //         // Prepare complete response
+    //         $responseData = $this->prepareInvoiceResponse(
+    //             $invoice,
+    //             $order,
+    //             $lineItems,
+    //             $summarySnapshot,
+    //             $taxBreakdown,
+    //             $summaryData,
+    //             $orderLines,
+    //             $lineId
+    //         );
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => $message,
+    //             'data' => $responseData,
+    //             'invoice_type' => $invoiceType
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'An error occurred while fetching invoice details',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function getInvoiceByOrder(Request $request, int $orderId, ?int $lineId = null): JsonResponse
     {
         try {
-            // Find the order with necessary relationships
             $order = Order::with([
                 'invoice',
                 'user',
@@ -33,7 +124,6 @@ class InvoiceController extends Controller
                 'deliveryAddress'
             ])->find($orderId);
 
-            // Check if order exists
             if (!$order) {
                 return response()->json([
                     'success' => false,
@@ -41,23 +131,54 @@ class InvoiceController extends Controller
                 ], 404);
             }
 
-            // Check if invoice exists for this order
-            if (!$order->invoice) {
+            // First check invoice record in invoice table
+            $invoice = $order->invoice;
+
+            if (!$invoice) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Invoice not found for this order'
                 ], 404);
             }
 
-            $invoice = $order->invoice;
+            // Get only order lines saved in invoice table's line_items
+            $lineItems = is_array($invoice->line_items)
+                ? $invoice->line_items
+                : (json_decode($invoice->line_items, true) ?? []);
 
-            // If lineId is provided, fetch specific line item
-            if ($lineId) {
-                // Find the specific order line
+            $invoiceLineIds = collect($lineItems)
+                ->pluck('order_line_id')
+                ->filter()
+                ->map(fn($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->all();
+
+            if (empty($invoiceLineIds)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No order items found in this invoice'
+                ], 404);
+            }
+
+            // Single order line invoice
+            if ($lineId !== null) {
+
+                // Check whether this order line actually exists in invoice table
+                if (!in_array($lineId, $invoiceLineIds, true)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Invoice not found for this order line'
+                    ], 404);
+                }
+
                 $orderLine = OrderLine::with([
                     'product.images',
+                    'product.taxCategory',
                     'variant'
-                ])->where('order_id', $orderId)
+                ])
+                    ->where('order_id', $orderId)
+                    ->whereIn('id', $invoiceLineIds)
                     ->find($lineId);
 
                 if (!$orderLine) {
@@ -67,27 +188,44 @@ class InvoiceController extends Controller
                     ], 404);
                 }
 
-                // Format single order line
-                $orderLines = $this->formatSingleOrderLine($orderLine);
+                $orderLines = [
+                    $this->formatSingleOrderLine($orderLine)
+                ];
+
                 $invoiceType = 'single_item';
                 $message = 'Invoice for single item retrieved successfully';
             } else {
-                // Load all order lines for full order
-                $order->load(['lines.product.images', 'lines.variant']);
 
-                // Format all order lines
-                $orderLines = $this->formatOrderLines($order->lines);
+                // Fetch ONLY order lines present in invoice table
+                $orderLineModels = OrderLine::with([
+                    'product.images',
+                    'product.taxCategory',
+                    'variant'
+                ])
+                    ->where('order_id', $orderId)
+                    ->whereIn('id', $invoiceLineIds)
+                    ->get();
+
+                $orderLines = $this->formatOrderLines($orderLineModels);
+
                 $invoiceType = 'full_order';
                 $message = 'Invoice retrieved successfully';
             }
 
             // Decode JSON fields
-            $lineItems = json_decode($invoice->line_items, true) ?? [];
-            $summarySnapshot = json_decode($invoice->summary_snapshot, true) ?? [];
-            $taxBreakdown = json_decode($order->tax_breakdown, true) ?? [];
-            $summaryData = json_decode($order->summary_data, true) ?? [];
+            $summarySnapshot = is_array($invoice->summary_snapshot)
+                ? $invoice->summary_snapshot
+                : (json_decode($invoice->summary_snapshot, true) ?? []);
 
-            // Prepare complete response
+            $taxBreakdown = is_array($order->tax_breakdown)
+                ? $order->tax_breakdown
+                : (json_decode($order->tax_breakdown, true) ?? []);
+
+            $summaryData = is_array($order->summary_data)
+                ? $order->summary_data
+                : (json_decode($order->summary_data, true) ?? []);
+
+            // Prepare invoice response
             $responseData = $this->prepareInvoiceResponse(
                 $invoice,
                 $order,
@@ -106,6 +244,7 @@ class InvoiceController extends Controller
                 'invoice_type' => $invoiceType
             ], 200);
         } catch (\Exception $e) {
+
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while fetching invoice details',
@@ -113,6 +252,7 @@ class InvoiceController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Format all order lines with complete details
