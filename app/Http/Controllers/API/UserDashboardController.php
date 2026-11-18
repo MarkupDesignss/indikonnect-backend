@@ -504,87 +504,86 @@ class UserDashboardController extends Controller
     // }
 
      
-private function getSalesCalendar(int $year): ?array
-{
-    try {
-        $resp = Cache::remember("ignite_sales_calendar_v2_{$year}", 21600, function () use ($year) {
-            return $this->ignite->salesCalendar($year);
-        });
+    private function getSalesCalendar(int $year): ?array
+    {
+        try {
+            $resp = Cache::remember("ignite_sales_calendar_v2_{$year}", 21600, function () use ($year) {
+                return $this->ignite->salesCalendar($year);
+            });
 
-        if (($resp['code'] ?? null) !== ResultCode::OK->value) {
-            return null;
-        }
-
-        $data = $resp['data'] ?? [];
-
-        $utc8 = new \DateTimeZone('Asia/Singapore');
-        $ist  = new \DateTimeZone('Asia/Kolkata');
-
-        // Convert Ignite UTC+8 datetime into IST.
-        $toIst = function (?string $dateTime) use ($utc8, $ist): ?\DateTimeImmutable {
-            if (empty($dateTime)) {
+            if (($resp['code'] ?? null) !== ResultCode::OK->value) {
                 return null;
             }
 
-            $dt = new \DateTimeImmutable($dateTime, $utc8);
+            $data = $resp['data'] ?? [];
 
-            return $dt->setTimezone($ist);
-        };
+            $utc8 = new \DateTimeZone('Asia/Singapore');
+            $ist  = new \DateTimeZone('Asia/Kolkata');
 
-        $allMonths = [];
+            // Convert Ignite UTC+8 datetime into IST.
+            $toIst = function (?string $dateTime) use ($utc8, $ist): ?\DateTimeImmutable {
+                if (empty($dateTime)) {
+                    return null;
+                }
 
-        foreach (($data['months'] ?? []) as $month) {
-            $weeksData = [];
+                $dt = new \DateTimeImmutable($dateTime, $utc8);
 
-            foreach (($month['weeks'] ?? []) as $week) {
+                return $dt->setTimezone($ist);
+            };
 
-                // Ignite provides actual weekly boundaries in UTC+8.
-                $startAt = $toIst($week['start_at'] ?? null);
-                $endAt   = $toIst($week['end_at'] ?? null);
+            $allMonths = [];
 
-                // end_at is exclusive, so subtract one second.
-                $end = $endAt
-                    ? $endAt->modify('-1 second')
-                    : null;
+            foreach (($data['months'] ?? []) as $month) {
+                $weeksData = [];
 
-                // Saturday settlement at 07:30 AM IST.
-                $payout = $endAt
-                    ? $endAt->modify('+8 hours')
-                    : null;
+                foreach (($month['weeks'] ?? []) as $week) {
 
-                $weeksData[] = [
-                    'week_no'     => $week['week_no'] ?? null,
-                    'start'       => $startAt?->format('Y-m-d H:i:s'),
-                    'end'         => $end?->format('Y-m-d H:i:s'),
-                    'payout_date' => $payout?->format('Y-m-d H:i:s'),
-                    'is_current'  => (bool) ($week['is_current'] ?? false),
-                    'is_settled'  => (bool) ($week['is_settled'] ?? false),
+                    // Ignite provides actual weekly boundaries in UTC+8.
+                    $startAt = $toIst($week['start_at'] ?? null);
+                    $endAt   = $toIst($week['end_at'] ?? null);
+
+                    // end_at is exclusive, so subtract one second.
+                    $end = $endAt
+                        ? $endAt->modify('-1 second')
+                        : null;
+
+                    // Saturday settlement at 07:30 AM IST.
+                    $payout = $endAt
+                        ? $endAt->modify('+8 hours')
+                        : null;
+
+                    $weeksData[] = [
+                        'week_no'     => $week['week_no'] ?? null,
+                        'start'       => $startAt?->format('Y-m-d H:i:s'),
+                        'end'         => $end?->format('Y-m-d H:i:s'),
+                        'payout_date' => $payout?->format('Y-m-d H:i:s'),
+                        'is_current'  => (bool) ($week['is_current'] ?? false),
+                        'is_settled'  => (bool) ($week['is_settled'] ?? false),
+                    ];
+                }
+
+                $allMonths[] = [
+                    'month_no'   => $month['month_no'] ?? null,
+                    'label'      => $month['label'] ?? null,
+                    'is_current' => (bool) ($month['is_current'] ?? false),
+                    'weeks'      => $weeksData,
                 ];
             }
 
-            $allMonths[] = [
-                'month_no'   => $month['month_no'] ?? null,
-                'label'      => $month['label'] ?? null,
-                'is_current' => (bool) ($month['is_current'] ?? false),
-                'weeks'      => $weeksData,
+            return [
+                'year'       => $data['year'] ?? $year,
+                'all_months' => $allMonths,
             ];
+
+        } catch (\Throwable $e) {
+            Log::warning('Ignite salesCalendar failed', [
+                'year'  => $year,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
         }
-
-        return [
-            'year'       => $data['year'] ?? $year,
-            'all_months' => $allMonths,
-        ];
-
-    } catch (\Throwable $e) {
-        Log::warning('Ignite salesCalendar failed', [
-            'year'  => $year,
-            'error' => $e->getMessage(),
-        ]);
-
-        return null;
     }
-}
-
 
     /**
      * Calculate general user statistics.
