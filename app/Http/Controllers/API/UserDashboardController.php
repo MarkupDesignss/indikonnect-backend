@@ -519,10 +519,13 @@ class UserDashboardController extends Controller
             $utc8 = new \DateTimeZone('Asia/Singapore');
             $ist  = new \DateTimeZone('Asia/Kolkata');
 
-            // Convert a Singapore date+time to IST string
-            $toIst = function (?string $date, string $time = '00:00:00') use ($utc8, $ist): ?string {
-                if (!$date) return null;
-                $dt = new \DateTime("{$date} {$time}", $utc8);
+            // Convert SG date+time+offset to IST string
+            $toIst = function (?string $sgDate, string $time, int $addDays = 0) use ($utc8, $ist): ?string {
+                if (!$sgDate) return null;
+                $dt = new \DateTime("{$sgDate} {$time}", $utc8);
+                if ($addDays !== 0) {
+                    $dt->modify(($addDays > 0 ? '+' : '') . "{$addDays} day");
+                }
                 $dt->setTimezone($ist);
                 return $dt->format('Y-m-d H:i:s');
             };
@@ -532,30 +535,34 @@ class UserDashboardController extends Controller
             foreach (($data['months'] ?? []) as $month) {
                 $weeksData = [];
                 foreach (($month['weeks'] ?? []) as $week) {
-                    // Week starts Friday 23:30 IST = Saturday 02:00 Singapore
-                    // Week ends   Friday 23:29:59 IST = Saturday 01:59:59 Singapore
-                    // So: start_date (Friday in SG) needs to shift +2h to land on Sat 02:00 SG
-                    //     which maps to Fri 23:30 IST.
-                    //
-                    // Simpler: directly build IST strings from the SG date.
-                    $startIst = $toIst($week['start_date'] ?? null, '02:00:00'); // SG Sat 02:00 -> IST Fri 23:30
-                    $endIst   = $toIst($week['end_date']   ?? null, '01:59:59'); // SG Sat 01:59:59 -> IST Fri 23:29:59
+                    // start_date = Friday (SG label). IST target = Fri 23:30.
+                    // SG instant = next day (Saturday) 02:00 -> +1 day
+                    $start = $toIst($week['start_date'] ?? null, '02:00:00', 1);
 
-                    // Payout date: next day 00:00 SG = previous day 21:30 IST.
-                    // If payout should also align to IST midnight, use 02:00 SG.
-                    $endDateTime = $week['end_date']
-                        ? (new \DateTime("{$week['end_date']} 00:00:00", $utc8))->modify('+1 day')
-                        : null;
+                    // end_date = Thursday (SG label). IST target = Fri 23:29:59 (next Friday after start).
+                    // SG instant = Saturday 01:59:59 of the following week -> +2 days
+                    $end = $toIst($week['end_date'] ?? null, '01:59:59', 2);
+
+                    // Payout: Saturday settlement runs 07:30 IST (guide: "Saturday settlement runs 07:30 to about 08:30").
+                    // Payout date = the Saturday following week close, at 07:30 IST.
+                    // Build from end IST date + 1 day at 07:30 IST (Saturday).
+                    $payout = null;
+                    if ($end) {
+                        $endIstDate = \Carbon\Carbon::parse($end, 'Asia/Kolkata');
+                        $payout = $endIstDate
+                            ->copy()
+                            ->addDay()          // Friday -> Saturday
+                            ->setTime(7, 30, 0) // 07:30 IST settlement
+                            ->format('Y-m-d H:i:s');
+                    }
 
                     $weeksData[] = [
-                        'week_no'    => $week['week_no'] ?? null,
-                        'start'      => $startIst,
-                        'end'        => $endIst,
-                        'payout_date' => $endDateTime
-                            ? $toIst($endDateTime->format('Y-m-d'), '02:00:00')
-                            : null,
-                        'is_current' => (bool) ($week['is_current'] ?? false),
-                        'is_settled' => (bool) ($week['is_settled'] ?? false),
+                        'week_no'     => $week['week_no'] ?? null,
+                        'start'       => $start,
+                        'end'         => $end,
+                        'payout_date' => $payout,
+                        'is_current'  => (bool) ($week['is_current'] ?? false),
+                        'is_settled'  => (bool) ($week['is_settled'] ?? false),
                     ];
                 }
 
