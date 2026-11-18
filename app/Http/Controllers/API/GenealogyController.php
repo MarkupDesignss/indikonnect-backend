@@ -90,61 +90,152 @@ class GenealogyController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
+    // public function tree(Request $request)
+    // {
+    //     $user = Auth::user();
+
+    //     if (!$user->distributor_id) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'You are not registered on Ignite yet.',
+    //         ], 422);
+    //     }
+
+    //     $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+    //     $depth    = min(max((int) $request->input('depth', 3), 1), 5);
+
+    //     // 1) Fetch binary tree from Ignite
+    //     $response = $this->ignite->binaryTree($mainBaId, $depth);
+
+    //     if (($response['code'] ?? null) !== ResultCode::OK->value) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $response['msg'] ?? 'Failed to fetch binary tree',
+    //             'code'    => $response['code'],
+    //         ], 422);
+    //     }
+
+    //     $rows = $response['data']['rows'] ?? [];
+
+    //     // 2) Enrich every row with full_name
+    //     $rows = $this->enrichTreeRowsWithNames($rows, $mainBaId);
+
+    //     // 3) Root node (level 0)
+    //     $root = collect($rows)->firstWhere('level', 0);
+
+    //     // 4) Volumes from memberDetails (unchanged)
+    //     $member      = $this->fetchMemberDetails($mainBaId);
+    //     $leftVolume  = (float) ($member['cv_left'] ?? 0) + (float) ($member['floating_cv_left'] ?? 0);
+    //     $rightVolume = (float) ($member['cv_right'] ?? 0) + (float) ($member['floating_cv_right'] ?? 0);
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'data' => [
+    //             'root'              => $root,
+    //             'rows'              => $rows,
+    //             'left_volume'       => number_format($leftVolume, 4, '.', ''),
+    //             'right_volume'      => number_format($rightVolume, 4, '.', ''),
+    //             'weaker_leg'        => $this->getWeakerLeg($leftVolume, $rightVolume),
+    //             'depth'             => $depth,
+    //             'total_nodes'       => count($rows),
+    //             'cv_settled_left'   => $member['cv_left']           ?? '0.0000',
+    //             'cv_settled_right'  => $member['cv_right']          ?? '0.0000',
+    //             'cv_floating_left'  => $member['floating_cv_left']  ?? '0.0000',
+    //             'cv_floating_right' => $member['floating_cv_right'] ?? '0.0000',
+    //         ],
+    //     ]);
+    // }
+
     public function tree(Request $request)
-    {
-        $user = Auth::user();
+{
+    $user = Auth::user();
 
-        if (!$user->distributor_id) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You are not registered on Ignite yet.',
-            ], 422);
-        }
-
-        $mainBaId = $this->normalizeMainBaId($user->distributor_id);
-        $depth    = min(max((int) $request->input('depth', 3), 1), 5);
-
-        // 1) Fetch binary tree from Ignite
-        $response = $this->ignite->binaryTree($mainBaId, $depth);
-
-        if (($response['code'] ?? null) !== ResultCode::OK->value) {
-            return response()->json([
-                'success' => false,
-                'message' => $response['msg'] ?? 'Failed to fetch binary tree',
-                'code'    => $response['code'],
-            ], 422);
-        }
-
-        $rows = $response['data']['rows'] ?? [];
-
-        // 2) Enrich every row with full_name
-        $rows = $this->enrichTreeRowsWithNames($rows, $mainBaId);
-
-        // 3) Root node (level 0)
-        $root = collect($rows)->firstWhere('level', 0);
-
-        // 4) Volumes from memberDetails (unchanged)
-        $member      = $this->fetchMemberDetails($mainBaId);
-        $leftVolume  = (float) ($member['cv_left'] ?? 0) + (float) ($member['floating_cv_left'] ?? 0);
-        $rightVolume = (float) ($member['cv_right'] ?? 0) + (float) ($member['floating_cv_right'] ?? 0);
-
+    if (!$user->distributor_id) {
         return response()->json([
-            'success' => true,
-            'data' => [
-                'root'              => $root,
-                'rows'              => $rows,
-                'left_volume'       => number_format($leftVolume, 4, '.', ''),
-                'right_volume'      => number_format($rightVolume, 4, '.', ''),
-                'weaker_leg'        => $this->getWeakerLeg($leftVolume, $rightVolume),
-                'depth'             => $depth,
-                'total_nodes'       => count($rows),
-                'cv_settled_left'   => $member['cv_left']           ?? '0.0000',
-                'cv_settled_right'  => $member['cv_right']          ?? '0.0000',
-                'cv_floating_left'  => $member['floating_cv_left']  ?? '0.0000',
-                'cv_floating_right' => $member['floating_cv_right'] ?? '0.0000',
-            ],
-        ]);
+            'success' => false,
+            'message' => 'You are not registered on Ignite yet.',
+        ], 422);
     }
+
+    $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+    $depth    = min(max((int) $request->input('depth', 3), 1), 5);
+
+    $response = $this->ignite->binaryTree($mainBaId, $depth);
+
+    if (($response['code'] ?? null) !== ResultCode::OK->value) {
+        return response()->json([
+            'success' => false,
+            'message' => $response['msg'] ?? 'Failed to fetch binary tree',
+            'code'    => $response['code'],
+        ], 422);
+    }
+
+    $rows = $response['data']['rows'] ?? [];
+
+    $rows = $this->enrichTreeRowsWithNames($rows, $mainBaId);
+
+    // ✅ ADD THIS LINE — TC label add karo
+    $rows = $this->addTcLabels($rows);
+
+    $root = collect($rows)->firstWhere('level', 0);
+
+    $member      = $this->fetchMemberDetails($mainBaId);
+    $leftVolume  = (float) ($member['cv_left'] ?? 0) + (float) ($member['floating_cv_left'] ?? 0);
+    $rightVolume = (float) ($member['cv_right'] ?? 0) + (float) ($member['floating_cv_right'] ?? 0);
+
+    return response()->json([
+        'success' => true,
+        'data' => [
+            'root'              => $root,
+            'rows'              => $rows,
+            'left_volume'       => number_format($leftVolume, 4, '.', ''),
+            'right_volume'      => number_format($rightVolume, 4, '.', ''),
+            'weaker_leg'        => $this->getWeakerLeg($leftVolume, $rightVolume),
+            'depth'             => $depth,
+            'total_nodes'       => count($rows),
+            'cv_settled_left'   => $member['cv_left']           ?? '0.0000',
+            'cv_settled_right'  => $member['cv_right']          ?? '0.0000',
+            'cv_floating_left'  => $member['floating_cv_left']  ?? '0.0000',
+            'cv_floating_right' => $member['floating_cv_right'] ?? '0.0000',
+        ],
+    ]);
+}
+
+/**
+ * Add tc_label (TC-001, TC-002, ...) to each binary-tree row.
+ * Baaki fields ko touch nahi karta — sirf 2 naye field add karta hai.
+ *
+ *   AIA1675197-001         -> TC-001
+ *   AIA1675197-002         -> TC-002
+ *   AIA1675197-001-019     -> TC-019
+ *   AIA8929708-001         -> TC-001
+ *   AIA2325349-002         -> TC-002
+ */
+private function addTcLabels(array $rows): array
+{
+    foreach ($rows as &$row) {
+        $baId = $row['ba_id'] ?? null;
+
+        if (!$baId) {
+            $row['tc_label']     = null;
+            $row['tc_sequence']  = null;
+            continue;
+        }
+
+        // Last 3+ digit segment = TC number
+        if (preg_match('/-(\d{3,})$/', $baId, $m)) {
+            $seq = (int) $m[1];
+            $row['tc_label']    = sprintf('TC-%03d', $seq);
+            $row['tc_sequence'] = $seq;
+        } else {
+            $row['tc_label']    = null;
+            $row['tc_sequence'] = null;
+        }
+    }
+    unset($row);
+
+    return $rows;
+}
 
     /**
      * Get the direct children (left and right) of a specific node.
