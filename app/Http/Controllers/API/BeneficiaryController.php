@@ -20,6 +20,7 @@ class BeneficiaryController extends Controller
         $user = Auth::user();
 
         $beneficiaries = Beneficiary::where('user_id', $user->id)
+            ->select('user_id', 'full_name', 'relationship', 'age')
             ->orderBy('is_primary', 'desc')
             ->orderBy('created_at', 'desc')
             ->get();
@@ -33,6 +34,77 @@ class BeneficiaryController extends Controller
     /**
      * Store a new beneficiary.
      */
+    // public function store(Request $request)
+    // {
+    //     $user = Auth::user();
+
+    //     $validator = Validator::make($request->all(), [
+    //         'full_name' => 'required|string|max:191',
+    //         'relationship' => 'required|string|max:100',
+    //         'age' => 'required',
+    //         // 'contact_number' => 'nullable|string|max:20',
+    //         // 'email' => 'nullable|email|max:191',
+    //         // 'share_percentage' => 'required|numeric|min:0.01|max:100',
+    //         // 'is_primary' => 'sometimes|boolean',
+    //         // 'address' => 'nullable|string',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'errors' => $validator->errors(),
+    //         ], 422);
+    //     }
+
+    //     $data = $validator->validated();
+
+    //     // Ensure total share doesn't exceed 100%
+    //     $currentTotal = Beneficiary::where('user_id', $user->id)->sum('share_percentage');
+    //     $newTotal = $currentTotal + $data['share_percentage'];
+
+    //     if ($newTotal > 100) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => "Total share percentage cannot exceed 100%. Current total: {$currentTotal}%, Adding: {$data['share_percentage']}%",
+    //         ], 422);
+    //     }
+
+    //     // If setting as primary, remove primary from others
+    //     $isPrimary = $data['is_primary'] ?? false;
+    //     if ($isPrimary) {
+    //         Beneficiary::where('user_id', $user->id)->update(['is_primary' => false]);
+    //     }
+
+    //     // If no primary exists and this is the first, make it primary
+    //     if (!$isPrimary) {
+    //         $primaryExists = Beneficiary::where('user_id', $user->id)->where('is_primary', true)->exists();
+    //         if (!$primaryExists) {
+    //             $data['is_primary'] = true;
+    //             $isPrimary = true;
+    //         }
+    //     }
+
+    //     $beneficiary = Beneficiary::create([
+    //         'user_id' => $user->id,
+    //         'full_name' => $data['full_name'],
+    //         'relationship' => $data['relationship'],
+    //         'age' => $data['age'],
+    //         // 'contact_number' => $data['contact_number'] ?? null,
+    //         // 'email' => $data['email'] ?? null,
+    //         // 'share_percentage' => $data['share_percentage'],
+    //         // 'is_primary' => $data['is_primary'] ?? false,
+    //         // 'address' => $data['address'] ?? null,
+    //         'confirmed_at' => null,
+    //     ]);
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'Beneficiary added successfully. Please confirm via OTP to activate.',
+    //         'data' => $beneficiary,
+    //         'requires_confirmation' => true,
+    //     ], 201);
+    // }
+
     public function store(Request $request)
     {
         $user = Auth::user();
@@ -40,11 +112,12 @@ class BeneficiaryController extends Controller
         $validator = Validator::make($request->all(), [
             'full_name' => 'required|string|max:191',
             'relationship' => 'required|string|max:100',
-            'contact_number' => 'nullable|string|max:20',
-            'email' => 'nullable|email|max:191',
-            'share_percentage' => 'required|numeric|min:0.01|max:100',
-            'is_primary' => 'sometimes|boolean',
-            'address' => 'nullable|string',
+            'age' => 'required|integer|min:0|max:120',
+            // 'contact_number' => 'nullable|string|max:20',
+            // 'email' => 'nullable|email|max:191',
+            // 'share_percentage' => 'required|numeric|min:0.01|max:100',
+            // 'is_primary' => 'sometimes|boolean',
+            // 'address' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -57,41 +130,42 @@ class BeneficiaryController extends Controller
         $data = $validator->validated();
 
         // Ensure total share doesn't exceed 100%
-        $currentTotal = Beneficiary::where('user_id', $user->id)->sum('share_percentage');
-        $newTotal = $currentTotal + $data['share_percentage'];
+        // $currentTotal = Beneficiary::where('user_id', $user->id)->sum('share_percentage');
+        // $newTotal = $currentTotal + $data['share_percentage'];
 
-        if ($newTotal > 100) {
-            return response()->json([
-                'success' => false,
-                'message' => "Total share percentage cannot exceed 100%. Current total: {$currentTotal}%, Adding: {$data['share_percentage']}%",
-            ], 422);
-        }
+        // if ($newTotal > 100) {
+        //     return response()->json([
+        //         'success' => false,
+        //         'message' => "Total share percentage cannot exceed 100%. Current total: {$currentTotal}%, Adding: {$data['share_percentage']}%",
+        //     ], 422);
+        // }
 
         // If setting as primary, remove primary from others
-        $isPrimary = $data['is_primary'] ?? false;
-        if ($isPrimary) {
-            Beneficiary::where('user_id', $user->id)->update(['is_primary' => false]);
-        }
+        // $isPrimary = $data['is_primary'] ?? false;
+        // if ($isPrimary) {
+        //     Beneficiary::where('user_id', $user->id)->update(['is_primary' => false]);
+        // }
 
         // If no primary exists and this is the first, make it primary
-        if (!$isPrimary) {
-            $primaryExists = Beneficiary::where('user_id', $user->id)->where('is_primary', true)->exists();
-            if (!$primaryExists) {
-                $data['is_primary'] = true;
-                $isPrimary = true;
-            }
-        }
+        // if (!$isPrimary) {
+        //     $primaryExists = Beneficiary::where('user_id', $user->id)->where('is_primary', true)->exists();
+        //     if (!$primaryExists) {
+        //         $data['is_primary'] = true;
+        //         $isPrimary = true;
+        //     }
+        // }
 
         $beneficiary = Beneficiary::create([
             'user_id' => $user->id,
             'full_name' => $data['full_name'],
             'relationship' => $data['relationship'],
-            'contact_number' => $data['contact_number'] ?? null,
-            'email' => $data['email'] ?? null,
-            'share_percentage' => $data['share_percentage'],
-            'is_primary' => $data['is_primary'] ?? false,
-            'address' => $data['address'] ?? null,
-            'confirmed_at' => null, // Requires OTP confirmation
+            'age' => $data['age'],
+            // 'contact_number' => $data['contact_number'] ?? null,
+            // 'email' => $data['email'] ?? null,
+            // 'share_percentage' => $data['share_percentage'],
+            // 'is_primary' => $data['is_primary'] ?? false,
+            // 'address' => $data['address'] ?? null,
+            'confirmed_at' => null,
         ]);
 
         return response()->json([
@@ -102,22 +176,26 @@ class BeneficiaryController extends Controller
         ], 201);
     }
 
+
     /**
      * Update an existing beneficiary.
      */
+
     public function update(Request $request, int $id)
     {
         $user = Auth::user();
+
         $beneficiary = Beneficiary::where('user_id', $user->id)->findOrFail($id);
 
         $validator = Validator::make($request->all(), [
-            'full_name' => 'sometimes|string|max:191',
-            'relationship' => 'sometimes|string|max:100',
-            'contact_number' => 'nullable|string|max:20',
-            'email' => 'nullable|email|max:191',
-            'share_percentage' => 'sometimes|numeric|min:0.01|max:100',
-            'is_primary' => 'sometimes|boolean',
-            'address' => 'nullable|string',
+            'full_name' => 'sometimes|required|string|max:191',
+            'relationship' => 'sometimes|required|string|max:100',
+            'age' => 'sometimes|required|integer|min:0|max:120',
+            // 'contact_number' => 'nullable|string|max:20',
+            // 'email' => 'nullable|email|max:191',
+            // 'share_percentage' => 'sometimes|numeric|min:0.01|max:100',
+            // 'is_primary' => 'sometimes|boolean',
+            // 'address' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -130,40 +208,40 @@ class BeneficiaryController extends Controller
         $data = $validator->validated();
 
         // Validate total share (excluding current record)
-        if (isset($data['share_percentage'])) {
-            $currentTotal = Beneficiary::where('user_id', $user->id)
-                ->where('id', '!=', $id)
-                ->sum('share_percentage');
-            $newTotal = $currentTotal + $data['share_percentage'];
+        // if (isset($data['share_percentage'])) {
+        //     $currentTotal = Beneficiary::where('user_id', $user->id)
+        //         ->where('id', '!=', $id)
+        //         ->sum('share_percentage');
+        //     $newTotal = $currentTotal + $data['share_percentage'];
 
-            if ($newTotal > 100) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "Total share percentage cannot exceed 100%. Current total (excluding this): {$currentTotal}%, New share: {$data['share_percentage']}%",
-                ], 422);
-            }
-        }
+        //     if ($newTotal > 100) {
+        //         return response()->json([
+        //             'success' => false,
+        //             'message' => "Total share percentage cannot exceed 100%. Current total (excluding this): {$currentTotal}%, New share: {$data['share_percentage']}%",
+        //         ], 422);
+        //     }
+        // }
 
         // If setting as primary, remove primary from others
-        if (isset($data['is_primary']) && $data['is_primary'] === true) {
-            Beneficiary::where('user_id', $user->id)
-                ->where('id', '!=', $id)
-                ->update(['is_primary' => false]);
-        }
+        // if (isset($data['is_primary']) && $data['is_primary'] === true) {
+        //     Beneficiary::where('user_id', $user->id)
+        //         ->where('id', '!=', $id)
+        //         ->update(['is_primary' => false]);
+        // }
 
         // If user tries to set primary = false, but no other primary exists, prevent it
-        if (isset($data['is_primary']) && $data['is_primary'] === false) {
-            $otherPrimaryExists = Beneficiary::where('user_id', $user->id)
-                ->where('id', '!=', $id)
-                ->where('is_primary', true)
-                ->exists();
-            if (!$otherPrimaryExists && $beneficiary->is_primary) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'At least one beneficiary must be marked as primary. Please set another beneficiary as primary first.',
-                ], 422);
-            }
-        }
+        // if (isset($data['is_primary']) && $data['is_primary'] === false) {
+        //     $otherPrimaryExists = Beneficiary::where('user_id', $user->id)
+        //         ->where('id', '!=', $id)
+        //         ->where('is_primary', true)
+        //         ->exists();
+        //     if (!$otherPrimaryExists && $beneficiary->is_primary) {
+        //         return response()->json([
+        //             'success' => false,
+        //             'message' => 'At least one beneficiary must be marked as primary. Please set another beneficiary as primary first.',
+        //         ], 422);
+        //     }
+        // }
 
         // Update
         $beneficiary->update($data);
@@ -180,6 +258,83 @@ class BeneficiaryController extends Controller
             'requires_confirmation' => is_null($beneficiary->confirmed_at),
         ]);
     }
+
+    // public function update(Request $request, int $id)
+    // {
+    //     $user = Auth::user();
+    //     $beneficiary = Beneficiary::where('user_id', $user->id)->findOrFail($id);
+
+    //     $validator = Validator::make($request->all(), [
+    //         'full_name' => 'sometimes|string|max:191',
+    //         'relationship' => 'sometimes|string|max:100',
+    //         'age' => 'sometimes',
+    //         // 'contact_number' => 'nullable|string|max:20',
+    //         // 'email' => 'nullable|email|max:191',
+    //         // 'share_percentage' => 'sometimes|numeric|min:0.01|max:100',
+    //         // 'is_primary' => 'sometimes|boolean',
+    //         // 'address' => 'nullable|string',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'errors' => $validator->errors(),
+    //         ], 422);
+    //     }
+
+    //     $data = $validator->validated();
+
+    //     // Validate total share (excluding current record)
+    //     if (isset($data['share_percentage'])) {
+    //         $currentTotal = Beneficiary::where('user_id', $user->id)
+    //             ->where('id', '!=', $id)
+    //             ->sum('share_percentage');
+    //         $newTotal = $currentTotal + $data['share_percentage'];
+
+    //         if ($newTotal > 100) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => "Total share percentage cannot exceed 100%. Current total (excluding this): {$currentTotal}%, New share: {$data['share_percentage']}%",
+    //             ], 422);
+    //         }
+    //     }
+
+    //     // If setting as primary, remove primary from others
+    //     if (isset($data['is_primary']) && $data['is_primary'] === true) {
+    //         Beneficiary::where('user_id', $user->id)
+    //             ->where('id', '!=', $id)
+    //             ->update(['is_primary' => false]);
+    //     }
+
+    //     // If user tries to set primary = false, but no other primary exists, prevent it
+    //     if (isset($data['is_primary']) && $data['is_primary'] === false) {
+    //         $otherPrimaryExists = Beneficiary::where('user_id', $user->id)
+    //             ->where('id', '!=', $id)
+    //             ->where('is_primary', true)
+    //             ->exists();
+    //         if (!$otherPrimaryExists && $beneficiary->is_primary) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'At least one beneficiary must be marked as primary. Please set another beneficiary as primary first.',
+    //             ], 422);
+    //         }
+    //     }
+
+    //     // Update
+    //     $beneficiary->update($data);
+
+    //     // Reset confirmation status if sensitive fields changed
+    //     if ($beneficiary->wasChanged(['full_name', 'contact_number', 'email', 'share_percentage'])) {
+    //         $beneficiary->update(['confirmed_at' => null]);
+    //     }
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'Beneficiary updated successfully. Please confirm via OTP if sensitive fields were changed.',
+    //         'data' => $beneficiary,
+    //         'requires_confirmation' => is_null($beneficiary->confirmed_at),
+    //     ]);
+    // }
 
     /**
      * Delete a beneficiary.
