@@ -179,6 +179,10 @@ class GenealogyController extends Controller
 
     $root = collect($rows)->firstWhere('level', 0);
 
+    if ($root) {
+        $root['display_ba_id'] = preg_replace('/-\d{3,}(-\d{3,})*$/', '', $root['ba_id'] ?? '');
+    }
+
     $member      = $this->fetchMemberDetails($mainBaId);
     $leftVolume  = (float) ($member['cv_left'] ?? 0) + (float) ($member['floating_cv_left'] ?? 0);
     $rightVolume = (float) ($member['cv_right'] ?? 0) + (float) ($member['floating_cv_right'] ?? 0);
