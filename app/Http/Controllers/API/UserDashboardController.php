@@ -444,6 +444,65 @@ class UserDashboardController extends Controller
     /**
      * Get sales calendar for one year, cached for 6 hours.
      */
+
+    // private function getSalesCalendar(int $year): ?array
+    // {
+    //     try {
+    //         $resp = Cache::remember("ignite_sales_calendar_{$year}", 21600, function () use ($year) {
+    //             return $this->ignite->salesCalendar($year);
+    //         });
+
+    //         if (($resp['code'] ?? null) !== ResultCode::OK->value) {
+    //             return null;
+    //         }
+
+    //         $data = $resp['data'] ?? [];
+
+    //         $utc8 = new \DateTimeZone('Asia/Singapore');
+    //         $ist  = new \DateTimeZone('Asia/Kolkata');
+
+    //         $toIst = function (?string $date, string $time = '00:00:00') use ($utc8, $ist): ?string {
+    //             if (!$date) return null;
+    //             $dt = new \DateTime("{$date} {$time}", $utc8);
+    //             $dt->setTimezone($ist);
+    //             return $dt->format('Y-m-d H:i:s');
+    //         };
+
+    //         $allMonths = [];
+
+    //         foreach (($data['months'] ?? []) as $month) {
+    //             $weeksData = [];
+    //             foreach (($month['weeks'] ?? []) as $week) {
+    //                 $endDateTime = $week['end_date'] ? (new \DateTime("{$week['end_date']} 00:00:00", $utc8))->modify('+1 day') : null;
+
+    //                 $weeksData[] = [
+    //                     'week_no'    => $week['week_no'] ?? null,
+    //                     'start'      => $toIst($week['start_date'] ?? null, '00:00:00'),
+    //                     'end'        => $toIst($week['end_date'] ?? null, '23:59:59'),
+    //                     'payout_date' => $endDateTime ? $toIst($endDateTime->format('Y-m-d'), '00:00:00') : null,
+    //                     'is_current' => (bool) ($week['is_current'] ?? false),
+    //                     'is_settled' => (bool) ($week['is_settled'] ?? false),
+    //                 ];
+    //             }
+
+    //             $allMonths[] = [
+    //                 'month_no'   => $month['month_no'] ?? null,
+    //                 'label'      => $month['label'] ?? null,
+    //                 'is_current' => (bool) ($month['is_current'] ?? false),
+    //                 'weeks'      => $weeksData,
+    //             ];
+    //         }
+
+    //         return [
+    //             'year'       => $data['year'] ?? $year,
+    //             'all_months' => $allMonths,
+    //         ];
+    //     } catch (\Throwable $e) {
+    //         Log::warning('Ignite salesCalendar failed', ['year' => $year, 'error' => $e->getMessage()]);
+    //         return null;
+    //     }
+    // }
+
     private function getSalesCalendar(int $year): ?array
     {
         try {
@@ -460,6 +519,7 @@ class UserDashboardController extends Controller
             $utc8 = new \DateTimeZone('Asia/Singapore');
             $ist  = new \DateTimeZone('Asia/Kolkata');
 
+            // Convert a Singapore date+time to IST string
             $toIst = function (?string $date, string $time = '00:00:00') use ($utc8, $ist): ?string {
                 if (!$date) return null;
                 $dt = new \DateTime("{$date} {$time}", $utc8);
@@ -472,13 +532,28 @@ class UserDashboardController extends Controller
             foreach (($data['months'] ?? []) as $month) {
                 $weeksData = [];
                 foreach (($month['weeks'] ?? []) as $week) {
-                    $endDateTime = $week['end_date'] ? (new \DateTime("{$week['end_date']} 00:00:00", $utc8))->modify('+1 day') : null;
+                    // Week starts Friday 23:30 IST = Saturday 02:00 Singapore
+                    // Week ends   Friday 23:29:59 IST = Saturday 01:59:59 Singapore
+                    // So: start_date (Friday in SG) needs to shift +2h to land on Sat 02:00 SG
+                    //     which maps to Fri 23:30 IST.
+                    //
+                    // Simpler: directly build IST strings from the SG date.
+                    $startIst = $toIst($week['start_date'] ?? null, '02:00:00'); // SG Sat 02:00 -> IST Fri 23:30
+                    $endIst   = $toIst($week['end_date']   ?? null, '01:59:59'); // SG Sat 01:59:59 -> IST Fri 23:29:59
+
+                    // Payout date: next day 00:00 SG = previous day 21:30 IST.
+                    // If payout should also align to IST midnight, use 02:00 SG.
+                    $endDateTime = $week['end_date']
+                        ? (new \DateTime("{$week['end_date']} 00:00:00", $utc8))->modify('+1 day')
+                        : null;
 
                     $weeksData[] = [
                         'week_no'    => $week['week_no'] ?? null,
-                        'start'      => $toIst($week['start_date'] ?? null, '00:00:00'),
-                        'end'        => $toIst($week['end_date'] ?? null, '23:59:59'),
-                        'payout_date' => $endDateTime ? $toIst($endDateTime->format('Y-m-d'), '00:00:00') : null,
+                        'start'      => $startIst,
+                        'end'        => $endIst,
+                        'payout_date' => $endDateTime
+                            ? $toIst($endDateTime->format('Y-m-d'), '02:00:00')
+                            : null,
                         'is_current' => (bool) ($week['is_current'] ?? false),
                         'is_settled' => (bool) ($week['is_settled'] ?? false),
                     ];
