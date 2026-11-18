@@ -104,7 +104,7 @@ return [
             'webhook_password' => env('HDFC_IE_WEBHOOK_PASSWORD'),
         ],
     ],
-    
+
     'indiapost_node' => [
         'enabled' => env('INDIAPOST_NODE_ENABLED', false),
         'url' => env(
@@ -156,6 +156,14 @@ return [
         'sid'   => env('TWILIO_ACCOUNT_SID'),
         'token' => env('TWILIO_AUTH_TOKEN'),
         'from'  => env('TWILIO_5R'),
+    ],
+    'airtel' => [
+        'username'   => env('AIRTEL_USERNAME'),
+        'password'   => env('AIRTEL_PASSWORD'),
+        'customer_id'   => env('AIRTEL_CUSTOMER_ID'),
+        'sender_id'   => env('AIRTEL_USERNAME'),
+        'entity_id'   => env('AIRTEL_USERNAME'),
+        'template_id'   => env('AIRTEL_USERNAME'),
     ],
 
     'ignite' => [

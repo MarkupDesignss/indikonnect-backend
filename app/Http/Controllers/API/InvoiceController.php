@@ -377,6 +377,7 @@ class InvoiceController extends Controller
             'product_id'            => $orderLine->product_id,
             'variant_id'            => $orderLine->variant_id,
             'product_name'          => $product?->name ?? 'Unknown',
+            'product_slug'          => $product?->slug ?? 'No slug',
             'product_code'          => $product?->product_code,
             'hsn_code'              => $product?->hsn_code,
             'uom'                   => $product?->uom,
