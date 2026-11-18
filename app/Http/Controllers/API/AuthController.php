@@ -4838,7 +4838,7 @@ class AuthController extends Controller
 
             // Get user beneficiaries
             $beneficiaries = Beneficiary::where('user_id', $user->id)
-                ->select('user_id', 'full_name', 'relationship', 'age')
+                ->select('id', 'user_id', 'full_name', 'relationship', 'age')
                 ->orderBy('created_at', 'desc')
                 ->get();
 

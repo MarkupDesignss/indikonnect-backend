@@ -858,7 +858,8 @@ class CancellationApprovalController extends Controller
     public function WarehouseReceiveCancel(Request $request, string $orderReference)
     {
         $warehouseId = $request->input('warehouse_id')
-            ?? optional($request->user())->warehouse_id;
+            ?? $request->user()?->warehouse_id
+            ?? 1;
 
         if (!$warehouseId) {
             return response()->json([
