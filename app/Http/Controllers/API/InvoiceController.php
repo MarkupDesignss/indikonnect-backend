@@ -114,144 +114,144 @@ class InvoiceController extends Controller
         }
     }
 
-    public function getInvoiceByOrder(Request $request, int $orderId, ?int $lineId = null): JsonResponse
-    // {
-    //     try {
-    //         $order = Order::with([
-    //             'invoice',
-    //             'user',
-    //             'billingAddress',
-    //             'deliveryAddress'
-    //         ])->find($orderId);
+    // public function getInvoiceByOrder(Request $request, int $orderId, ?int $lineId = null): JsonResponse
+    // // {
+    // //     try {
+    // //         $order = Order::with([
+    // //             'invoice',
+    // //             'user',
+    // //             'billingAddress',
+    // //             'deliveryAddress'
+    // //         ])->find($orderId);
 
-    //         if (!$order) {
-    //             return response()->json([
-    //                 'success' => false,
-    //                 'message' => 'Order not found'
-    //             ], 404);
-    //         }
+    // //         if (!$order) {
+    // //             return response()->json([
+    // //                 'success' => false,
+    // //                 'message' => 'Order not found'
+    // //             ], 404);
+    // //         }
 
-    //         // First check invoice record in invoice table
-    //         $invoice = $order->invoice;
+    // //         // First check invoice record in invoice table
+    // //         $invoice = $order->invoice;
 
-    //         if (!$invoice) {
-    //             return response()->json([
-    //                 'success' => false,
-    //                 'message' => 'Invoice not found for this order'
-    //             ], 404);
-    //         }
+    // //         if (!$invoice) {
+    // //             return response()->json([
+    // //                 'success' => false,
+    // //                 'message' => 'Invoice not found for this order'
+    // //             ], 404);
+    // //         }
 
-    //         // Get only order lines saved in invoice table's line_items
-    //         $lineItems = is_array($invoice->line_items)
-    //             ? $invoice->line_items
-    //             : (json_decode($invoice->line_items, true) ?? []);
+    // //         // Get only order lines saved in invoice table's line_items
+    // //         $lineItems = is_array($invoice->line_items)
+    // //             ? $invoice->line_items
+    // //             : (json_decode($invoice->line_items, true) ?? []);
 
-    //         $invoiceLineIds = collect($lineItems)
-    //             ->pluck('order_line_id')
-    //             ->filter()
-    //             ->map(fn($id) => (int) $id)
-    //             ->unique()
-    //             ->values()
-    //             ->all();
+    // //         $invoiceLineIds = collect($lineItems)
+    // //             ->pluck('order_line_id')
+    // //             ->filter()
+    // //             ->map(fn($id) => (int) $id)
+    // //             ->unique()
+    // //             ->values()
+    // //             ->all();
 
-    //         if (empty($invoiceLineIds)) {
-    //             return response()->json([
-    //                 'success' => false,
-    //                 'message' => 'No order items found in this invoice'
-    //             ], 404);
-    //         }
+    // //         if (empty($invoiceLineIds)) {
+    // //             return response()->json([
+    // //                 'success' => false,
+    // //                 'message' => 'No order items found in this invoice'
+    // //             ], 404);
+    // //         }
 
-    //         // Single order line invoice
-    //         if ($lineId !== null) {
+    // //         // Single order line invoice
+    // //         if ($lineId !== null) {
 
-    //             // Check whether this order line actually exists in invoice table
-    //             if (!in_array($lineId, $invoiceLineIds, true)) {
-    //                 return response()->json([
-    //                     'success' => false,
-    //                     'message' => 'Invoice not found for this order line'
-    //                 ], 404);
-    //             }
+    // //             // Check whether this order line actually exists in invoice table
+    // //             if (!in_array($lineId, $invoiceLineIds, true)) {
+    // //                 return response()->json([
+    // //                     'success' => false,
+    // //                     'message' => 'Invoice not found for this order line'
+    // //                 ], 404);
+    // //             }
 
-    //             $orderLine = OrderLine::with([
-    //                 'product.images',
-    //                 'product.taxCategory',
-    //                 'variant'
-    //             ])
-    //                 ->where('order_id', $orderId)
-    //                 ->whereIn('id', $invoiceLineIds)
-    //                 ->find($lineId);
+    // //             $orderLine = OrderLine::with([
+    // //                 'product.images',
+    // //                 'product.taxCategory',
+    // //                 'variant'
+    // //             ])
+    // //                 ->where('order_id', $orderId)
+    // //                 ->whereIn('id', $invoiceLineIds)
+    // //                 ->find($lineId);
 
-    //             if (!$orderLine) {
-    //                 return response()->json([
-    //                     'success' => false,
-    //                     'message' => 'Order line not found for this order'
-    //                 ], 404);
-    //             }
+    // //             if (!$orderLine) {
+    // //                 return response()->json([
+    // //                     'success' => false,
+    // //                     'message' => 'Order line not found for this order'
+    // //                 ], 404);
+    // //             }
 
-    //             $orderLines = [
-    //                 $this->formatSingleOrderLine($orderLine)
-    //             ];
+    // //             $orderLines = [
+    // //                 $this->formatSingleOrderLine($orderLine)
+    // //             ];
 
-    //             $invoiceType = 'single_item';
-    //             $message = 'Invoice for single item retrieved successfully';
-    //         } else {
+    // //             $invoiceType = 'single_item';
+    // //             $message = 'Invoice for single item retrieved successfully';
+    // //         } else {
 
-    //             // Fetch ONLY order lines present in invoice table
-    //             $orderLineModels = OrderLine::with([
-    //                 'product.images',
-    //                 'product.taxCategory',
-    //                 'variant'
-    //             ])
-    //                 ->where('order_id', $orderId)
-    //                 ->whereIn('id', $invoiceLineIds)
-    //                 ->get();
+    // //             // Fetch ONLY order lines present in invoice table
+    // //             $orderLineModels = OrderLine::with([
+    // //                 'product.images',
+    // //                 'product.taxCategory',
+    // //                 'variant'
+    // //             ])
+    // //                 ->where('order_id', $orderId)
+    // //                 ->whereIn('id', $invoiceLineIds)
+    // //                 ->get();
 
-    //             $orderLines = $this->formatOrderLines($orderLineModels);
+    // //             $orderLines = $this->formatOrderLines($orderLineModels);
 
-    //             $invoiceType = 'full_order';
-    //             $message = 'Invoice retrieved successfully';
-    //         }
+    // //             $invoiceType = 'full_order';
+    // //             $message = 'Invoice retrieved successfully';
+    // //         }
 
-    //         // Decode JSON fields
-    //         $summarySnapshot = is_array($invoice->summary_snapshot)
-    //             ? $invoice->summary_snapshot
-    //             : (json_decode($invoice->summary_snapshot, true) ?? []);
+    // //         // Decode JSON fields
+    // //         $summarySnapshot = is_array($invoice->summary_snapshot)
+    // //             ? $invoice->summary_snapshot
+    // //             : (json_decode($invoice->summary_snapshot, true) ?? []);
 
-    //         $taxBreakdown = is_array($order->tax_breakdown)
-    //             ? $order->tax_breakdown
-    //             : (json_decode($order->tax_breakdown, true) ?? []);
+    // //         $taxBreakdown = is_array($order->tax_breakdown)
+    // //             ? $order->tax_breakdown
+    // //             : (json_decode($order->tax_breakdown, true) ?? []);
 
-    //         $summaryData = is_array($order->summary_data)
-    //             ? $order->summary_data
-    //             : (json_decode($order->summary_data, true) ?? []);
+    // //         $summaryData = is_array($order->summary_data)
+    // //             ? $order->summary_data
+    // //             : (json_decode($order->summary_data, true) ?? []);
 
-    //         // Prepare invoice response
-    //         $responseData = $this->prepareInvoiceResponse(
-    //             $invoice,
-    //             $order,
-    //             $lineItems,
-    //             $summarySnapshot,
-    //             $taxBreakdown,
-    //             $summaryData,
-    //             $orderLines,
-    //             $lineId
-    //         );
+    // //         // Prepare invoice response
+    // //         $responseData = $this->prepareInvoiceResponse(
+    // //             $invoice,
+    // //             $order,
+    // //             $lineItems,
+    // //             $summarySnapshot,
+    // //             $taxBreakdown,
+    // //             $summaryData,
+    // //             $orderLines,
+    // //             $lineId
+    // //         );
 
-    //         return response()->json([
-    //             'success' => true,
-    //             'message' => $message,
-    //             'data' => $responseData,
-    //             'invoice_type' => $invoiceType
-    //         ], 200);
-    //     } catch (\Exception $e) {
+    // //         return response()->json([
+    // //             'success' => true,
+    // //             'message' => $message,
+    // //             'data' => $responseData,
+    // //             'invoice_type' => $invoiceType
+    // //         ], 200);
+    // //     } catch (\Exception $e) {
 
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'An error occurred while fetching invoice details',
-    //             'error' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
+    // //         return response()->json([
+    // //             'success' => false,
+    // //             'message' => 'An error occurred while fetching invoice details',
+    // //             'error' => $e->getMessage()
+    // //         ], 500);
+    // //     }
+    // // }
 
 
     /**
