@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\DistributorStatusMail;
+use App\Models\Beneficiary;
 use Carbon\Carbon;
 use App\Models\User;
 use App\Models\DistributorProfile;
@@ -1615,6 +1616,68 @@ class AuthController extends Controller
     //         ], 500);
     //     }
     // }
+    // public function getUserDetails($id)
+    // {
+    //     try {
+    //         $users = User::with('role', 'distributorProfile')
+    //             ->where('is_registered', true)
+    //             ->where('id', $id)
+    //             ->get()
+    //             ->map(function ($user) {
+
+    //                 if ($user->profile_picture) {
+    //                     $user->profile_picture = asset('storage/' . $user->profile_picture);
+    //                 }
+
+    //                 // Ignite payout data
+    //                 $user->setAttribute(
+    //                     'ignite_payout',
+    //                     $this->buildIgnitePayoutDetail($user)
+    //                 );
+
+    //                 // Buyback expiry date
+    //                 $buybackWindowDays = (int) setting('buyback_window_days', 30);
+
+    //                 $buybackUntil = null;
+
+    //                 if ($user->registration_completed_at) {
+    //                     $buybackUntil = \Carbon\Carbon::parse(
+    //                         $user->registration_completed_at
+    //                     )->addDays($buybackWindowDays);
+    //                 }
+
+    //                 $user->setAttribute(
+    //                     'buyback_untill',
+    //                     $buybackUntil?->format('Y-m-d H:i:s')
+    //                 );
+
+    //                 return $user;
+    //             });
+
+    //         if ($users->isEmpty()) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'User not found.',
+    //                 'errors'  => [
+    //                     'user_id' => ['User not found.']
+    //                 ]
+    //             ], 404);
+    //         }
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'User details fetched successfully.',
+    //             'data'    => $users
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to fetch user details.',
+    //             'error'   => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function getUserDetails($id)
     {
         try {
@@ -1650,6 +1713,14 @@ class AuthController extends Controller
                         $buybackUntil?->format('Y-m-d H:i:s')
                     );
 
+                    // Beneficiaries
+                    $beneficiaries = Beneficiary::where('user_id', $user->id)
+                        ->select('id', 'user_id', 'full_name', 'relationship', 'age')
+                        ->orderBy('created_at', 'desc')
+                        ->get();
+
+                    $user->setAttribute('beneficiaries', $beneficiaries);
+
                     return $user;
                 });
 
@@ -1657,7 +1728,7 @@ class AuthController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'User not found.',
-                    'errors'  => [
+                    'errors' => [
                         'user_id' => ['User not found.']
                     ]
                 ], 404);
@@ -1666,16 +1737,17 @@ class AuthController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User details fetched successfully.',
-                'data'    => $users
+                'data' => $users
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch user details.',
-                'error'   => $e->getMessage()
+                'error' => $e->getMessage()
             ], 500);
         }
     }
+
 
     /**
      * Full Ignite payout detail for one distributor.
