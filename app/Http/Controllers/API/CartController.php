@@ -229,6 +229,59 @@ class CartController extends Controller
             ])
             ->exists();
     }
+    // protected function ensureMandatoryProductsInCart(Cart $cart): void
+    // {
+    //     $user = auth('sanctum')->user();
+
+    //     if (!$user) {
+    //         return;
+    //     }
+
+    //     $mandatoryProducts = Product::where('is_mandatory', true)->get();
+
+    //     if ($mandatoryProducts->isEmpty()) {
+    //         return;
+    //     }
+
+    //     $alreadyPurchased = $this->hasUserPurchasedMandatoryProduct(
+    //         (int) $user->id,
+    //         $mandatoryProducts->pluck('id')->toArray()
+    //     );
+
+    //     if ($alreadyPurchased) {
+    //         // User already purchased → mandatory dobara force nahi
+    //         // Also remove from cart if somehow present
+    //         CartItem::where('cart_id', $cart->id)
+    //             ->whereIn('product_id', $mandatoryProducts->pluck('id')->toArray())
+    //             ->whereNull('variant_id')
+    //             ->delete();
+
+    //         return;
+    //     }
+
+    //     //  Check cart_items for existing mandatory product
+    //     $existingMandatoryIds = CartItem::where('cart_id', $cart->id)
+    //         ->whereIn('product_id', $mandatoryProducts->pluck('id')->toArray())
+    //         ->whereNull('variant_id')
+    //         ->pluck('product_id')
+    //         ->toArray();
+
+    //     foreach ($mandatoryProducts as $product) {
+    //         // Skip if already in cart
+    //         if (in_array($product->id, $existingMandatoryIds, true)) {
+    //             continue;
+    //         }
+
+    //         CartItem::create([
+    //             'cart_id'         => $cart->id,
+    //             'product_id'      => $product->id,
+    //             'variant_id'      => null,
+    //             'quantity'        => 1,
+    //             'unit_price'      => 0,
+    //             'shipping_charge' => $product->shipping_charge ?? 0,
+    //         ]);
+    //     }
+    // }
     protected function ensureMandatoryProductsInCart(Cart $cart): void
     {
         $user = auth('sanctum')->user();
@@ -243,32 +296,28 @@ class CartController extends Controller
             return;
         }
 
+        $mandatoryProductIds = $mandatoryProducts->pluck('id')->toArray();
+
         $alreadyPurchased = $this->hasUserPurchasedMandatoryProduct(
             (int) $user->id,
-            $mandatoryProducts->pluck('id')->toArray()
+            $mandatoryProductIds
         );
 
+        // User already purchased mandatory product.
+        // Do not automatically add it again.
+        // Keep manually added products in cart.
         if ($alreadyPurchased) {
-            // User already purchased → mandatory dobara force nahi
-            // Also remove from cart if somehow present
-            CartItem::where('cart_id', $cart->id)
-                ->whereIn('product_id', $mandatoryProducts->pluck('id')->toArray())
-                ->whereNull('variant_id')
-                ->delete();
-
             return;
         }
 
-        //  Check cart_items for existing mandatory product
         $existingMandatoryIds = CartItem::where('cart_id', $cart->id)
-            ->whereIn('product_id', $mandatoryProducts->pluck('id')->toArray())
+            ->whereIn('product_id', $mandatoryProductIds)
             ->whereNull('variant_id')
             ->pluck('product_id')
             ->toArray();
 
         foreach ($mandatoryProducts as $product) {
-            // Skip if already in cart
-            if (in_array($product->id, $existingMandatoryIds, true)) {
+            if (in_array($product->id, $existingMandatoryIds)) {
                 continue;
             }
 
