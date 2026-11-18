@@ -2080,235 +2080,6 @@ class UserDashboardController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
-    // public function getWalletDetails(Request $request)
-    // {
-    //     $user = $request->user();
-
-    //     if (!$user || empty($user->distributor_id)) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Not registered on Ignite'
-    //         ], 422);
-    //     }
-
-    //     $baId = $user->distributor_id;
-
-    //     // ---------- 1. Member details ----------
-    //     $memberResp = $this->ignite->memberDetails($baId);
-    //     if (($memberResp['code'] ?? null) !== ResultCode::OK->value) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Failed to fetch wallet balances from Ignite'
-    //         ], 422);
-    //     }
-    //     $member = $memberResp['data'];
-
-    //     // ---------- 2. Exchange rate (cached, zero-check) ----------
-    //     $usdRate = (float) Cache::remember('usd_to_inr_rate', 3600, function () {
-    //         return \App\Models\Setting::where('group', 'exchange_rate')
-    //             ->where('key', 'usd_to_inr')->value('value') ?: 0;
-    //     });
-
-    //     if ($usdRate <= 0) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Exchange rate not configured. Contact admin.'
-    //         ], 500);
-    //     }
-
-    //     // ---------- 3. Distributor profile (GSTIN + PAN) ----------
-    //     $profile     = \App\Models\DistributorProfile::where('user_id', $user->id)->first();
-    //     $gstIn       = $profile?->gst_in;
-    //     $panVerified = (bool) ($profile?->pan_verified ?? false);
-
-    //     $normalizedGst = strtoupper(trim((string) $gstIn));
-
-    //     $isValidGst = !empty($normalizedGst)
-    //         && $normalizedGst !== 'URP'
-    //         && preg_match('/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $normalizedGst);
-
-    //     // Valid GSTIN + verified PAN => 2%, otherwise 20%
-    //     $tdsRate    = ($isValidGst && $panVerified) ? 0.02 : 0.20;
-    //     $tdsSection = $isValidGst ? '194-O' : '194J';
-
-    //     // ---------- 4. Plan rates ----------
-    //     $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
-    //         try {
-    //             $resp = $this->ignite->planRanks();
-    //             return ($resp['code'] ?? null) === ResultCode::OK->value
-    //                 ? ($resp['data']['plan'] ?? [])
-    //                 : [];
-    //         } catch (\Throwable $e) {
-    //             return [];
-    //         }
-    //     });
-
-    //     $yellowSmallRate = (float) ($planResp['yellow_usd_small'] ?? 30);
-    //     $yellowLargeRate = (float) ($planResp['yellow_usd_large'] ?? 40);
-    //     $blueRate        = (float) ($planResp['blue_usd']         ?? 12.5);
-    //     $greenRate       = (float) ($planResp['green_redeem_usd'] ?? 125);
-
-    //     // ---------- 5. Transactions ----------
-    //     $txResp  = $this->ignite->pointTxs($baId, 0, 100);
-    //     $rawTxs  = $txResp['data']['rows'] ?? [];
-    //     $hasMore = $txResp['data']['has_more'] ?? false;
-
-    //     $retailProfitUsd = 0;
-    //     foreach ($rawTxs as $tx) {
-    //         if (($tx['point_type'] ?? '') === 'cash_bal' && ($tx['description'] ?? '') === 'comm_retail') {
-    //             $retailProfitUsd += (float) $tx['amount'];
-    //         }
-    //     }
-
-    //     $transactions = [];
-    //     $withdrawals  = [];
-
-    //     foreach ($rawTxs as $tx) {
-    //         $category = match ($tx['tx_type']) {
-    //             'comm'  => 'Commission',
-    //             'cr'    => 'RedeemCoin',
-    //             'wd'    => 'Withdrawal',
-    //             'adj'   => 'Adjustment',
-    //             'pv'    => 'CV',
-    //             default => ucfirst($tx['tx_type'] ?? 'Other'),
-    //         };
-
-    //         $amt     = (float) $tx['amount'];
-    //         $isDebit = $amt < 0;
-
-    //         // All display values are positive; direction is conveyed via `direction`.
-    //         $absAmt = abs($amt);
-
-    //         $walletChangeUsd = ($tx['point_type'] ?? '') === 'cash_bal' ? $absAmt : 0;
-    //         $walletChangeInr = round($walletChangeUsd * $usdRate, 2);
-
-    //         $greenCoin  = ($tx['point_type'] ?? '') === 'green_bal'  ? $absAmt : 0;
-    //         $yellowCoin = ($tx['point_type'] ?? '') === 'yellow_bal' ? $absAmt : 0;
-    //         $blueCoin   = ($tx['point_type'] ?? '') === 'blue_bal'   ? $absAmt : 0;
-    //         $pvCoin     = in_array($tx['point_type'] ?? '', ['pv1_bal', 'pv2_bal']) ? $absAmt : 0;
-
-    //         $greenValueInr  = round((floor($greenCoin / 6) * $greenRate) * $usdRate, 2);
-    //         $yellowValueInr = round(($yellowCoin * ($yellowCoin >= 3 ? $yellowLargeRate : $yellowSmallRate)) * $usdRate, 2);
-    //         $blueValueInr   = round(($blueCoin * $blueRate) * $usdRate, 2);
-
-    //         $isWithdrawal = ($tx['tx_type'] ?? '') === 'wd';
-
-    //         // ---------- Base transaction row ----------
-    //         $txRow = [
-    //             'id'            => $tx['id'],
-    //             'date'          => $tx['created_at'],
-    //             'category'      => $category,
-    //             'description'   => $tx['description'] ?? '-',
-    //             'point_type'    => $tx['point_type'] ?? null,
-    //             'direction'     => $isDebit ? 'debit' : 'credit',
-
-    //             'wallet_change_usd' => $walletChangeUsd,
-    //             'wallet_change_inr' => $walletChangeInr,
-
-    //             'green_coin'    => $greenCoin,
-    //             'yellow_coin'   => $yellowCoin,
-    //             'blue_coin'     => $blueCoin,
-    //             'pv_coin'       => $pvCoin,
-
-    //             'green_value_inr'  => $greenValueInr,
-    //             'yellow_value_inr' => $yellowValueInr,
-    //             'blue_value_inr'   => $blueValueInr,
-
-    //             'order_id'       => $tx['order_no'] ?? null,
-    //             'related_member' => $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
-    //         ];
-
-    //         // ---------- TDS fields only for withdrawals ----------
-    //         if ($isWithdrawal) {
-    //             $grossInr      = round($absAmt * $usdRate, 2);
-    //             $tdsAmountInr  = round($grossInr * $tdsRate, 2);
-    //             $netPayableInr = round($grossInr - $tdsAmountInr, 2);
-
-    //             $txRow['tds_section']      = $tdsSection;
-    //             $txRow['tds_rate_percent'] = round($tdsRate * 100, 2);
-    //             $txRow['tds_amount_inr']   = $tdsAmountInr;
-    //             $txRow['net_payable_inr']  = $netPayableInr;
-
-    //             $withdrawals[] = [
-    //                 'id'               => $tx['id'],
-    //                 'date'             => $tx['created_at'],
-    //                 'amount_usd'       => round($absAmt, 4),
-    //                 'amount_inr'       => $grossInr,
-    //                 'tds_section'      => $tdsSection,
-    //                 'tds_rate_percent' => round($tdsRate * 100, 2),
-    //                 'tds_amount_inr'   => $tdsAmountInr,
-    //                 'net_payable_inr'  => $netPayableInr,
-    //                 'gst_in'           => $gstIn,
-    //                 'status'           => ($member['allow_withdraw'] ?? true) ? 'Paid' : 'Held',
-    //                 'remark'           => $tx['description'] ?? 'Withdrawal',
-    //                 'currency'         => 'INR',
-    //             ];
-    //         }
-
-    //         $transactions[] = $txRow;
-    //     }
-
-    //     // ---------- 6. Balances ----------
-    //     $cashUsd     = (float) ($member['cash_bal'] ?? 0);
-    //     $greenQty    = (float) ($member['green_bal'] ?? 0);
-    //     $yellowQty   = (float) ($member['yellow_bal'] ?? 0);
-    //     $blueQty     = (float) ($member['blue_bal'] ?? 0);
-
-    //     $greenValUsd  = floor($greenQty / 6) * $greenRate;
-    //     $yellowValUsd = $yellowQty * ($yellowQty >= 3 ? $yellowLargeRate : $yellowSmallRate);
-    //     $blueValUsd   = $blueQty >= 4 ? $blueQty * $blueRate : 0;
-
-    //     $greenRedeemable = floor($greenQty / 6) * 6;
-    //     $greenPending    = $greenQty - $greenRedeemable;
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'currency' => [
-    //             'base'    => 'USD',
-    //             'display' => 'INR',
-    //             'exchange_rate' => $usdRate,
-    //         ],
-    //         'tds' => [
-    //             'gst_in'         => $gstIn,
-    //             'pan_verified'   => $panVerified,
-    //             'section'        => $tdsSection,
-    //             'applied_rate'   => round($tdsRate * 100, 2),
-    //             'reason'         => $isValidGst
-    //                 ? ($panVerified ? 'Valid GSTIN + verified PAN' : 'Valid GSTIN but PAN not verified')
-    //                 : 'GSTIN missing, invalid or URP',
-    //         ],
-    //         'data' => [
-    //             'balances' => [
-    //                 'cash_bal_usd'      => round($cashUsd, 4),
-    //                 'cash_bal_inr'      => round($cashUsd * $usdRate, 2),
-    //                 'cash_bal_display_currency' => 'INR',
-
-    //                 'retail_profit_usd' => round($retailProfitUsd, 2),
-    //                 'retail_profit_inr' => round($retailProfitUsd * $usdRate, 2),
-
-    //                 'green_bal'            => $greenQty,
-    //                 'green_bal_redeemable' => $greenRedeemable,
-    //                 'green_bal_pending'    => $greenPending,
-    //                 'yellow_bal'           => $yellowQty,
-    //                 'blue_bal'             => $blueQty,
-
-    //                 'green_value_usd'   => round($greenValUsd, 2),
-    //                 'yellow_value_usd'  => round($yellowValUsd, 2),
-    //                 'blue_value_usd'    => round($blueValUsd, 2),
-
-    //                 'green_value_inr'   => round($greenValUsd * $usdRate, 2),
-    //                 'yellow_value_inr'  => round($yellowValUsd * $usdRate, 2),
-    //                 'blue_value_inr'    => round($blueValUsd * $usdRate, 2),
-
-    //                 'exchange_rate'     => $usdRate,
-    //             ],
-    //             'transactions'          => $transactions,
-    //             'has_more_transactions' => $hasMore,
-    //             'withdrawals'           => $withdrawals,
-    //         ]
-    //     ]);
-    // }
-
     public function getWalletDetails(Request $request)
     {
         $user = $request->user();
@@ -2322,16 +2093,6 @@ class UserDashboardController extends Controller
 
         $baId = $user->distributor_id;
 
-        // ---------- Filter input ----------
-        $filter = strtolower($request->input('filter', 'all'));
-        if (!in_array($filter, ['week', 'month', 'year', 'all'], true)) {
-            $filter = 'all';
-        }
-
-        $filterYear   = $request->input('year');     // int|null
-        $filterMonth  = $request->input('month');    // int|null
-        $filterWeekNo = $request->input('week_no');  // int|null
-
         // ---------- 1. Member details ----------
         $memberResp = $this->ignite->memberDetails($baId);
         if (($memberResp['code'] ?? null) !== ResultCode::OK->value) {
@@ -2342,7 +2103,7 @@ class UserDashboardController extends Controller
         }
         $member = $memberResp['data'];
 
-        // ---------- 2. Exchange rate ----------
+        // ---------- 2. Exchange rate (cached, zero-check) ----------
         $usdRate = (float) Cache::remember('usd_to_inr_rate', 3600, function () {
             return \App\Models\Setting::where('group', 'exchange_rate')
                 ->where('key', 'usd_to_inr')->value('value') ?: 0;
@@ -2355,16 +2116,18 @@ class UserDashboardController extends Controller
             ], 500);
         }
 
-        // ---------- 3. Distributor profile ----------
+        // ---------- 3. Distributor profile (GSTIN + PAN) ----------
         $profile     = \App\Models\DistributorProfile::where('user_id', $user->id)->first();
         $gstIn       = $profile?->gst_in;
         $panVerified = (bool) ($profile?->pan_verified ?? false);
 
         $normalizedGst = strtoupper(trim((string) $gstIn));
-        $isValidGst    = !empty($normalizedGst)
+
+        $isValidGst = !empty($normalizedGst)
             && $normalizedGst !== 'URP'
             && preg_match('/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $normalizedGst);
 
+        // Valid GSTIN + verified PAN => 2%, otherwise 20%
         $tdsRate    = ($isValidGst && $panVerified) ? 0.02 : 0.20;
         $tdsSection = $isValidGst ? '194-O' : '194J';
 
@@ -2385,86 +2148,18 @@ class UserDashboardController extends Controller
         $blueRate        = (float) ($planResp['blue_usd']         ?? 12.5);
         $greenRate       = (float) ($planResp['green_redeem_usd'] ?? 125);
 
-        // ---------- 5. Resolve date window (NEW) ----------
-        [$fromDate, $toDate, $periodMeta] = $this->resolveWalletPeriod(
-            $filter, $filterYear, $filterMonth, $filterWeekNo
-        );
+        // ---------- 5. Transactions ----------
+        $txResp  = $this->ignite->pointTxs($baId, 0, 100);
+        $rawTxs  = $txResp['data']['rows'] ?? [];
+        $hasMore = $txResp['data']['has_more'] ?? false;
 
-        if ($filter !== 'all' && $periodMeta['from'] === null) {
-            return response()->json([
-                'success' => false,
-                'message' => "No data window found for filter={$filter}",
-            ], 422);
-        }
-
-        // ---------- 6. Fetch transactions with pagination + date bound (REWRITTEN) ----------
-        $rawTxs  = [];
-        $afterId = 0;
-        $guard   = 0;
-        $hasMore = false;
-
-        try {
-            do {
-                $txResp = $this->ignite->pointTxs($baId, $afterId, 500);
-
-                if (($txResp['code'] ?? null) !== ResultCode::OK->value) {
-                    break;
-                }
-
-                $batch = $txResp['data']['rows'] ?? [];
-                if (empty($batch)) {
-                    $hasMore = false;
-                    break;
-                }
-
-                $shouldBreak = false;
-
-                foreach ($batch as $tx) {
-                    $created = $tx['created_at'] ?? null;
-                    if (!$created) continue;
-
-                    // Ignite timestamps are Hong Kong time → convert to IST
-                    $dt = \Carbon\Carbon::parse($created, 'Asia/Hong_Kong')
-                        ->setTimezone('Asia/Kolkata');
-
-                    // Older than window → stop paginating
-                    if ($fromDate && $dt->lt($fromDate)) {
-                        $shouldBreak = true;
-                        break;
-                    }
-
-                    // Newer than window → skip, keep walking
-                    if ($toDate && $dt->gt($toDate)) {
-                        continue;
-                    }
-
-                    $rawTxs[] = $tx;
-                }
-
-                if ($shouldBreak) {
-                    $hasMore = false;
-                    break;
-                }
-
-                $hasMore = (bool) ($txResp['data']['has_more'] ?? false);
-                $afterId = (int) end($batch)['id'];
-                $guard++;
-            } while ($hasMore && $guard < 200);
-        } catch (\Throwable $e) {
-            Log::warning('wallet pointTxs failed', ['ba_id' => $baId, 'error' => $e->getMessage()]);
-            $hasMore = false;
-        }
-
-        // ---------- 7. Retail profit (filtered rows only) ----------
         $retailProfitUsd = 0;
         foreach ($rawTxs as $tx) {
-            if (($tx['point_type'] ?? '') === 'cash_bal'
-                && ($tx['description'] ?? '') === 'comm_retail') {
+            if (($tx['point_type'] ?? '') === 'cash_bal' && ($tx['description'] ?? '') === 'comm_retail') {
                 $retailProfitUsd += (float) $tx['amount'];
             }
         }
 
-        // ---------- 8. Build transactions + withdrawals ----------
         $transactions = [];
         $withdrawals  = [];
 
@@ -2480,7 +2175,9 @@ class UserDashboardController extends Controller
 
             $amt     = (float) $tx['amount'];
             $isDebit = $amt < 0;
-            $absAmt  = abs($amt);
+
+            // All display values are positive; direction is conveyed via `direction`.
+            $absAmt = abs($amt);
 
             $walletChangeUsd = ($tx['point_type'] ?? '') === 'cash_bal' ? $absAmt : 0;
             $walletChangeInr = round($walletChangeUsd * $usdRate, 2);
@@ -2496,6 +2193,7 @@ class UserDashboardController extends Controller
 
             $isWithdrawal = ($tx['tx_type'] ?? '') === 'wd';
 
+            // ---------- Base transaction row ----------
             $txRow = [
                 'id'            => $tx['id'],
                 'date'          => $tx['created_at'],
@@ -2520,6 +2218,7 @@ class UserDashboardController extends Controller
                 'related_member' => $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
             ];
 
+            // ---------- TDS fields only for withdrawals ----------
             if ($isWithdrawal) {
                 $grossInr      = round($absAmt * $usdRate, 2);
                 $tdsAmountInr  = round($grossInr * $tdsRate, 2);
@@ -2549,7 +2248,7 @@ class UserDashboardController extends Controller
             $transactions[] = $txRow;
         }
 
-        // ---------- 9. Balances (unchanged) ----------
+        // ---------- 6. Balances ----------
         $cashUsd     = (float) ($member['cash_bal'] ?? 0);
         $greenQty    = (float) ($member['green_bal'] ?? 0);
         $yellowQty   = (float) ($member['yellow_bal'] ?? 0);
@@ -2562,45 +2261,6 @@ class UserDashboardController extends Controller
         $greenRedeemable = floor($greenQty / 6) * 6;
         $greenPending    = $greenQty - $greenRedeemable;
 
-        // ---------- 10. Period totals (NEW) ----------
-        $periodTotals = [
-            'cash_credit_usd'  => 0.0,
-            'cash_debit_usd'   => 0.0,
-            'green_credit'     => 0.0,
-            'yellow_credit'    => 0.0,
-            'blue_credit'      => 0.0,
-            'withdrawal_count' => count($withdrawals),
-            'withdrawal_inr'   => 0.0,
-            'tds_inr'          => 0.0,
-            'net_payable_inr'  => 0.0,
-        ];
-
-        foreach ($rawTxs as $tx) {
-            $amt     = (float) $tx['amount'];
-            $isDebit = $amt < 0;
-            $abs     = abs($amt);
-            $point   = $tx['point_type'] ?? '';
-
-            if ($point === 'cash_bal') {
-                $isDebit
-                    ? $periodTotals['cash_debit_usd']  += $abs
-                    : $periodTotals['cash_credit_usd'] += $abs;
-            } elseif ($point === 'green_bal'  && !$isDebit) $periodTotals['green_credit']  += $abs;
-            elseif ($point === 'yellow_bal' && !$isDebit) $periodTotals['yellow_credit'] += $abs;
-            elseif ($point === 'blue_bal'   && !$isDebit) $periodTotals['blue_credit']   += $abs;
-
-            if (($tx['tx_type'] ?? '') === 'wd') {
-                $gross = round($abs * $usdRate, 2);
-                $tds   = round($gross * $tdsRate, 2);
-                $periodTotals['withdrawal_inr']  += $gross;
-                $periodTotals['tds_inr']         += $tds;
-                $periodTotals['net_payable_inr'] += round($gross - $tds, 2);
-            }
-        }
-
-        $periodTotals['cash_credit_inr'] = round($periodTotals['cash_credit_usd'] * $usdRate, 2);
-        $periodTotals['cash_debit_inr']  = round($periodTotals['cash_debit_usd']  * $usdRate, 2);
-
         return response()->json([
             'success' => true,
             'currency' => [
@@ -2608,7 +2268,6 @@ class UserDashboardController extends Controller
                 'display' => 'INR',
                 'exchange_rate' => $usdRate,
             ],
-            'filter' => $periodMeta,
             'tds' => [
                 'gst_in'         => $gstIn,
                 'pan_verified'   => $panVerified,
@@ -2643,172 +2302,10 @@ class UserDashboardController extends Controller
 
                     'exchange_rate'     => $usdRate,
                 ],
-                'period_totals'         => $periodTotals,
                 'transactions'          => $transactions,
                 'has_more_transactions' => $hasMore,
                 'withdrawals'           => $withdrawals,
             ]
         ]);
     }
-
-    /**
- * Resolve a date window from the sales calendar for wallet filtering.
- *
- * Priority (week filter): week_no > month (first week) > is_current
- *
- * @param  string   $filter   week|month|year|all
- * @param  int|null $year     optional override
- * @param  int|null $month    optional override
- * @param  int|null $weekNo   optional explicit week number
- *
- * @return array{0: ?\Carbon\Carbon, 1: ?\Carbon\Carbon, 2: array}
- */
-private function resolveWalletPeriod(
-    string $filter,
-    $year = null,
-    $month = null,
-    $weekNo = null
-): array {
-    $meta = [
-        'type'       => $filter,
-        'year'       => null,
-        'month'      => null,
-        'week_no'    => null,
-        'week_label' => null,
-        'label'      => 'All time',
-        'from'       => null,
-        'to'         => null,
-    ];
-
-    if ($filter === 'all') {
-        return [null, null, $meta];
-    }
-
-    $now        = \Carbon\Carbon::now('Asia/Kolkata');
-    $targetYear = (int) ($year ?: $now->year);
-    $calendar   = $this->getSalesCalendar($targetYear);
-
-    if (!$calendar || !$this->calendarHasCurrentWeek($calendar)) {
-        $prev = $this->getSalesCalendar($targetYear - 1);
-        if ($prev && $this->calendarHasCurrentWeek($prev)) {
-            $calendar   = $prev;
-            $targetYear = $targetYear - 1;
-        }
-    }
-
-    if (!$calendar) {
-        return [null, null, $meta];
-    }
-
-    // Flatten weeks (with month_no for month filter)
-    $allWeeks = [];
-    foreach (($calendar['all_months'] ?? []) as $m) {
-        foreach (($m['weeks'] ?? []) as $w) {
-            $allWeeks[] = [
-                'week_no'    => (int) ($w['week_no'] ?? 0),
-                'start'      => $w['start']       ?? null,
-                'end'        => $w['end']         ?? null,
-                'is_current' => (bool) ($w['is_current'] ?? false),
-                'month_no'   => (int) ($m['month_no'] ?? 0),
-            ];
-        }
-    }
-
-    if (empty($allWeeks)) {
-        return [null, null, $meta];
-    }
-
-    usort($allWeeks, fn($a, $b) => strcmp($a['start'] ?? '', $b['start'] ?? ''));
-
-    // ---------- WEEK ----------
-    if ($filter === 'week') {
-        $week = null;
-
-        // 1. Explicit week_no
-        if (!empty($weekNo)) {
-            foreach ($allWeeks as $w) {
-                if ($w['week_no'] === (int) $weekNo) { $week = $w; break; }
-            }
-        }
-
-        // 2. week_no missing but month given → first week of that month
-        if (!$week && !empty($month)) {
-            foreach ($allWeeks as $w) {
-                if ($w['month_no'] === (int) $month) { $week = $w; break; }
-            }
-        }
-
-        // 3. Fallback → current week
-        if (!$week) {
-            foreach ($allWeeks as $w) {
-                if ($w['is_current']) { $week = $w; break; }
-            }
-        }
-
-        if (!$week) {
-            return [null, null, $meta];
-        }
-
-        $from = \Carbon\Carbon::parse($week['start'], 'Asia/Kolkata')->startOfDay();
-        $to   = \Carbon\Carbon::parse($week['end'],   'Asia/Kolkata')->endOfDay();
-
-        $resolvedYear = (int) ($calendar['year'] ?? $targetYear);
-
-        $meta['year']       = $resolvedYear;
-        $meta['week_no']    = $week['week_no'];
-        $meta['week_label'] = sprintf('%d-W%02d', $resolvedYear, $week['week_no']);
-        $meta['label']      = "Week {$meta['week_label']}";
-        $meta['from']       = $from->toDateTimeString();
-        $meta['to']         = $to->toDateTimeString();
-
-        return [$from, $to, $meta];
-    }
-
-    // ---------- MONTH ----------
-    if ($filter === 'month') {
-        $targetMonth = (int) ($month ?: $now->month);
-
-        $weeksInMonth = array_filter(
-            $allWeeks,
-            fn($w) => $w['month_no'] === $targetMonth
-        );
-
-        if (empty($weeksInMonth)) {
-            return [null, null, $meta];
-        }
-
-        usort($weeksInMonth, fn($a, $b) => strcmp($a['start'] ?? '', $b['start'] ?? ''));
-
-        $first = reset($weeksInMonth);
-        $last  = end($weeksInMonth);
-
-        $from = \Carbon\Carbon::parse($first['start'], 'Asia/Kolkata')->startOfDay();
-        $to   = \Carbon\Carbon::parse($last['end'],    'Asia/Kolkata')->endOfDay();
-
-        $meta['year']  = (int) ($calendar['year'] ?? $targetYear);
-        $meta['month'] = $targetMonth;
-        $meta['label'] = $from->format('F Y');
-        $meta['from']  = $from->toDateTimeString();
-        $meta['to']    = $to->toDateTimeString();
-
-        return [$from, $to, $meta];
-    }
-
-    // ---------- YEAR ----------
-    if ($filter === 'year') {
-        $from = \Carbon\Carbon::create($targetYear, 1, 1, 0, 0, 0, 'Asia/Kolkata')->startOfDay();
-        $to   = \Carbon\Carbon::create($targetYear, 12, 31, 23, 59, 59, 'Asia/Kolkata')->endOfDay();
-
-        $meta['year']  = $targetYear;
-        $meta['label'] = (string) $targetYear;
-        $meta['from']  = $from->toDateTimeString();
-        $meta['to']    = $to->toDateTimeString();
-
-        return [$from, $to, $meta];
-    }
-
-    return [null, null, $meta];
-}
-
-
 }
