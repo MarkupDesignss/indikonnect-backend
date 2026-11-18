@@ -376,16 +376,21 @@ class InvoiceController extends Controller
         $frontendUrl = $user?->account_type === 'distributor'
             ? env('DISTRIBUTOR_FRONTEND_URL')
             : env('CUSTOMER_FRONTEND_URL');
-        $productSlug = $product?->slug ?? 'No slug';
+        $user = auth()->user();
 
-        $productUrl = rtrim($frontendUrl, '/') . '/product/' . $productSlug;
+        $redirectUrl = $user?->account_type === 'distributor'
+            ? rtrim(env('DISTRIBUTOR_FRONTEND_URL'), '/') . '/distributor/order-history'
+            : rtrim(env('CUSTOMER_FRONTEND_URL'), '/') . '/profile/?tab=orders';
+        // $productSlug = $product?->slug ?? 'No slug';
+
+        // $productUrl = rtrim($frontendUrl, '/') . '/product/' . $productSlug;
         return [
             'order_line_id'         => $orderLine->id,
             'product_id'            => $orderLine->product_id,
             'variant_id'            => $orderLine->variant_id,
             'product_name'          => $product?->name ?? 'Unknown',
-            'product_slug'          => $productSlug,
-            'product_url'          => $productUrl,
+            // 'product_slug'          => $productSlug,
+            'product_url'          => $redirectUrl,
             'product_service_charge'          => $product?->service_charge ?? 'No slug',
             'product_code'          => $product?->product_code,
             'hsn_code'              => $product?->hsn_code,
