@@ -371,13 +371,21 @@ class InvoiceController extends Controller
             // We don't know intra/inter from line alone here — leave blank, caller can decide
             $igstAmount = $lineGstAmount;
         }
+        $user = auth()->user();
 
+        $frontendUrl = $user?->account_type === 'distributor'
+            ? env('DISTRIBUTOR_FRONTEND_URL')
+            : env('CUSTOMER_FRONTEND_URL');
+        $productSlug = $product?->slug ?? 'No slug';
+
+        $productUrl = rtrim($frontendUrl, '/') . '/product/' . $productSlug;
         return [
             'order_line_id'         => $orderLine->id,
             'product_id'            => $orderLine->product_id,
             'variant_id'            => $orderLine->variant_id,
             'product_name'          => $product?->name ?? 'Unknown',
-            'product_slug'          => $product?->slug ?? 'No slug',
+            'product_slug'          => $productSlug,
+            'product_url'          => $productUrl,
             'product_service_charge'          => $product?->service_charge ?? 'No slug',
             'product_code'          => $product?->product_code,
             'hsn_code'              => $product?->hsn_code,
