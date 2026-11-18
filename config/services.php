@@ -161,9 +161,9 @@ return [
         'username'   => env('AIRTEL_USERNAME'),
         'password'   => env('AIRTEL_PASSWORD'),
         'customer_id'   => env('AIRTEL_CUSTOMER_ID'),
-        'sender_id'   => env('AIRTEL_USERNAME'),
-        'entity_id'   => env('AIRTEL_USERNAME'),
-        'template_id'   => env('AIRTEL_USERNAME'),
+        'sender_id'   => env('AIRTEL_SENDER_ID'),
+        'entity_id'   => env('AIRTEL_ENTITY_ID'),
+        'template_id'   => env('AIRTEL_TEMPLATE_ID'),
     ],
 
     'ignite' => [
