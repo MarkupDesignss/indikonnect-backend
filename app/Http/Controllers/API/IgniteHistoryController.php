@@ -104,11 +104,54 @@ class IgniteHistoryController extends Controller
     //         'after_id' => $afterId,
     //     ]);
     // }
+    // public function floatingCvTxs(Request $request)
+    // {
+    //     $user = Auth::user();
+
+    //     // ba_id explicit support (admin/self only — chahe to strict check lagao)
+    //     $baId = $request->input('ba_id') ?: $user->distributor_id;
+
+    //     if (!$baId) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Not registered on Ignite',
+    //         ], 422);
+    //     }
+
+    //     $afterId = (int) $request->input('after_id', 0);
+    //     $limit   = min(max((int) $request->input('limit', 100), 1), 500);
+
+    //     $response = $this->ignite->floatingCvTxs($baId, $afterId, $limit);
+
+    //     if (($response['code'] ?? null) !== ResultCode::OK->value) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $response['msg'] ?? 'Failed to fetch floatingCvTxs',
+    //             'code'    => $response['code'] ?? null,
+    //         ], 422);
+    //     }
+
+    //     $rows = $response['data']['rows'] ?? [];
+
+    //     // Ignite ascending order (oldest first). Cursor = last row id.
+    //     $lastId  = !empty($rows) ? (int) end($rows)['id'] : null;
+    //     $hasMore = (bool) ($response['data']['has_more'] ?? false);
+
+    //     return response()->json([
+    //         'success'   => true,
+    //         'unit'      => 'CV',
+    //         'ba_id'     => $baId,
+    //         'data'      => $rows,
+    //         'page_size' => count($rows),
+    //         'has_more'  => $hasMore,
+    //         'after_id'  => $lastId,
+    //     ]);
+    // }
+
     public function floatingCvTxs(Request $request)
     {
         $user = Auth::user();
 
-        // ba_id explicit support (admin/self only — chahe to strict check lagao)
         $baId = $request->input('ba_id') ?: $user->distributor_id;
 
         if (!$baId) {
@@ -133,6 +176,14 @@ class IgniteHistoryController extends Controller
 
         $rows = $response['data']['rows'] ?? [];
 
+        // ba_id suffix strip (-001, -002, -003 ...)
+        $rows = array_map(function ($row) {
+            if (!empty($row['buyer_ba_id'])) {
+                $row['buyer_ba_id'] = preg_replace('/-\d{3}$/', '', $row['buyer_ba_id']);
+            }
+            return $row;
+        }, $rows);
+
         // Ignite ascending order (oldest first). Cursor = last row id.
         $lastId  = !empty($rows) ? (int) end($rows)['id'] : null;
         $hasMore = (bool) ($response['data']['has_more'] ?? false);
@@ -147,4 +198,5 @@ class IgniteHistoryController extends Controller
             'after_id'  => $lastId,
         ]);
     }
+
 }
