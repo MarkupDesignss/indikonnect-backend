@@ -20,7 +20,7 @@ class BeneficiaryController extends Controller
         $user = Auth::user();
 
         $beneficiaries = Beneficiary::where('user_id', $user->id)
-            ->select('user_id', 'full_name', 'relationship', 'age')
+            ->select('id', 'user_id', 'full_name', 'relationship', 'age')
             ->orderBy('is_primary', 'desc')
             ->orderBy('created_at', 'desc')
             ->get();
