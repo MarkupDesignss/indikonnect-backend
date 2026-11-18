@@ -12,6 +12,7 @@ use App\Models\RefreshToken;
 use Illuminate\Support\Facades\Cache;
 use App\Models\RejectedUser;
 use App\Models\AdminNotification;
+use App\Models\Beneficiary;
 use App\Models\DistributorProfile;
 use App\Models\UserNotificationSetting;
 use Illuminate\Http\Request;
@@ -4642,8 +4643,37 @@ class AuthController extends Controller
     //         // Load user relationships
     //         $user->load([
     //             'roles',
-    //             'latestCorrectionRequest'
+    //             'latestCorrectionRequest',
     //         ]);
+
+    //         // ─────────────────────────────────────────────
+    //         // Latest pending PHONE request
+    //         // ─────────────────────────────────────────────
+    //         $latestPendingPhoneRequest = \App\Models\CorrectionRequest::where('user_id', $user->id)
+    //             ->where('type', 'phone_request')
+    //             ->where('status', 'pending')
+    //             ->latest('id')
+    //             ->first();
+
+    //         // ─────────────────────────────────────────────
+    //         // Latest pending EMAIL request
+    //         // ─────────────────────────────────────────────
+    //         $latestPendingEmailRequest = \App\Models\CorrectionRequest::where('user_id', $user->id)
+    //             ->where('type', 'email_request')
+    //             ->where('status', 'pending')
+    //             ->latest('id')
+    //             ->first();
+
+    //         // Auto-heal legacy email request (reason me email pada ho)
+    //         if (
+    //             $latestPendingEmailRequest &&
+    //             empty($latestPendingEmailRequest->new_email) &&
+    //             !empty($latestPendingEmailRequest->reason) &&
+    //             filter_var($latestPendingEmailRequest->reason, FILTER_VALIDATE_EMAIL)
+    //         ) {
+    //             $latestPendingEmailRequest->new_email = $latestPendingEmailRequest->reason;
+    //             $latestPendingEmailRequest->reason    = 'Email change requested by user';
+    //         }
 
     //         // Format DOB
     //         if ($user->date_of_birth) {
@@ -4667,19 +4697,16 @@ class AuthController extends Controller
     //             ->whereNull('orders.deleted_at')
     //             ->exists();
 
-    //         // Check whether product ID 32 exists in user's current cart
     //         $hasMandatoryProductInCart = \App\Models\Cart::where('user_id', $user->id)
     //             ->whereHas('items', function ($query) {
     //                 $query->where('product_id', 32);
     //             })
     //             ->exists();
 
-    //         // can_buy = 1 if purchased OR added to current cart
     //         $canBuy = (
     //             $hasPurchasedMandatoryProduct ||
     //             $hasMandatoryProductInCart
     //         ) ? 1 : 0;
-
 
     //         // Get rejection duration from settings
     //         $rejectionDays = $this->getCorrectionRejectionDays();
@@ -4694,7 +4721,6 @@ class AuthController extends Controller
     //             $latestCorrection->status === 'rejected' &&
     //             $latestCorrection->rejected_at
     //         ) {
-
     //             $nextAllowedAt = Carbon::parse($latestCorrection->rejected_at)
     //                 ->addDays($rejectionDays);
 
@@ -4705,7 +4731,6 @@ class AuthController extends Controller
     //         if ($user->account_type === 'distributor') {
     //             $user->load('distributorProfile');
 
-    //             // Strip suffix like "-001" from distributor_id
     //             if (!empty($user->distributor_id)) {
     //                 $user->distributor_id = preg_replace('/-\d+$/', '', $user->distributor_id);
     //             }
@@ -4726,25 +4751,39 @@ class AuthController extends Controller
     //                 'https://www.markupdesigns.net/indikonnect/distributor/'
     //                 . $user->distributor_id;
     //         }
+
     //         $buybackActivateRaw = DB::table('settings')
     //             ->where('key', 'buyback_activate')
     //             ->value('value');
     //         $buybackActivate = filter_var($buybackActivateRaw, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
     //         $buybackActivate = $buybackActivate ?? false;
 
+    //         // ─────────────────────────────────────────────
+    //         //  user ko array me convert karo aur
+    //         // latest_correction_request ko OVERRIDE karo
+    //         // (dono pending requests yahi key me bhejo)
+    //         // ─────────────────────────────────────────────
+    //         $userArray = $user->toArray();
+
+    //         $userArray['latest_correction_request'] = [
+    //             'phone' => $latestPendingPhoneRequest,
+    //             'email' => $latestPendingEmailRequest,
+    //         ];
+
     //         return response()->json([
-    //             'status' => true,
+    //             'status'  => true,
     //             'message' => 'Profile fetched successfully',
-    //             'user' => $user,
-    //             'extra' => $extra,
+    //             'user'    => $userArray,
+    //             'extra'   => $extra,
     //             'can_buy' => $canBuy,
+
     //             // Correction rejection information
-    //             'buyback_activate' => $buybackActivate,
+    //             'buyback_activate'          => $buybackActivate,
     //             'correction_rejection_days' => $rejectionDays,
-    //             'next_allowed_at' => $nextAllowedAt
+    //             'next_allowed_at'           => $nextAllowedAt
     //                 ? $nextAllowedAt->format('Y-m-d H:i:s')
     //                 : null,
-    //             'can_resubmit_correction' => $canResubmit,
+    //             'can_resubmit_correction'   => $canResubmit,
 
     //         ], 200);
     //     } catch (\Exception $e) {
@@ -4796,6 +4835,12 @@ class AuthController extends Controller
                 ->where('status', 'pending')
                 ->latest('id')
                 ->first();
+
+            // Get user beneficiaries
+            $beneficiaries = Beneficiary::where('user_id', $user->id)
+                ->select('user_id', 'full_name', 'relationship', 'age')
+                ->orderBy('created_at', 'desc')
+                ->get();
 
             // Auto-heal legacy email request (reason me email pada ho)
             if (
@@ -4909,7 +4954,7 @@ class AuthController extends Controller
                 'user'    => $userArray,
                 'extra'   => $extra,
                 'can_buy' => $canBuy,
-
+                'beneficiaries' => $beneficiaries,
                 // Correction rejection information
                 'buyback_activate'          => $buybackActivate,
                 'correction_rejection_days' => $rejectionDays,
