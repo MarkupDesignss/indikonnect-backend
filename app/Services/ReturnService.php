@@ -751,13 +751,37 @@ class ReturnService
          * 3. DELIVERED ITEMS CHECK
          * ============================================================
          */
-            $deliveredLines = $order->lines->filter(
-                fn($line) => $line->delivery_status === 'delivered'
+            // $deliveredLines = $order->lines->filter(
+            //     fn($line) => $line->delivery_status === 'delivered'
+            // );
+
+            // if ($deliveredLines->isEmpty()) {
+            //     throw new Exception('No items in this order have been delivered yet.');
+            // }
+
+
+            if ($order->lines->isEmpty()) {
+                throw new Exception('No items found in this order.');
+            }
+
+            $notDeliveredLines = $order->lines->filter(
+                fn($line) => $line->delivery_status !== 'delivered'
             );
 
-            if ($deliveredLines->isEmpty()) {
-                throw new Exception('No items in this order have been delivered yet.');
+            if ($notDeliveredLines->isNotEmpty()) {
+                $items = $notDeliveredLines->map(function ($line) {
+                    $productName = $line->product?->name ?? "Line #{$line->id}";
+
+                    return "{$productName} (Status: {$line->delivery_status})";
+                })->implode(', ');
+
+                throw new Exception(
+                    "Return is allowed only when all items in the order are delivered. "
+                        . "Remaining items: {$items}"
+                );
             }
+
+            $deliveredLines = $order->lines;
 
             /*
          * ============================================================
