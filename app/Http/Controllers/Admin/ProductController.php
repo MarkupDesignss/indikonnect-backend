@@ -9191,7 +9191,7 @@ class ProductController extends Controller
                     : null,
                 'created_at'      => $order->created_at,
                 'lines'           => $lines,
-                r
+
             ];
         });
 

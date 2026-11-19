@@ -634,7 +634,7 @@ class InvoiceController extends Controller
                 // Buyer Details — split into billing & delivery addresses
                 'buyer' => [
                     'name'  => $invoice->buyer_name,
-                    'gstin' => $invoice->buyer_gstin,
+                    'gstin' => $invoice->buyer_gstin ?? "URP",
 
                     // Billing address (billing_* fields)
                     'billing_address' => $order->billingAddress ? [
