@@ -111,6 +111,19 @@ class SalesReportController extends Controller
                 ->groupBy('order_lines.order_id');
 
             // 4. BASE QUERY — Order level
+            // $query = Order::query()
+            //     ->join('users', 'users.id', '=', 'orders.user_id')
+            //     ->leftJoinSub($refundSub, 'refund_sum', function ($join) {
+            //         $join->on('refund_sum.order_id', '=', 'orders.id');
+            //     })
+            //     ->leftJoinSub($gstinSub, 'gstin_data', function ($join) {
+            //         $join->on('gstin_data.user_id', '=', 'users.id');
+            //     })
+            //     ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
+            //         $join->on('line_agg.order_id', '=', 'orders.id');
+            //     })
+            //     ->whereIn('orders.status', $allowedStatuses)
+            //     ->whereNull('orders.deleted_at');
             $query = Order::query()
                 ->join('users', 'users.id', '=', 'orders.user_id')
                 ->leftJoinSub($refundSub, 'refund_sum', function ($join) {
@@ -122,7 +135,7 @@ class SalesReportController extends Controller
                 ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
                     $join->on('line_agg.order_id', '=', 'orders.id');
                 })
-                ->whereIn('orders.status', $allowedStatuses)
+                ->whereIn('line_agg.overall_delivery_status', $allowedStatuses)
                 ->whereNull('orders.deleted_at');
 
             if ($request->filled('from')) {
