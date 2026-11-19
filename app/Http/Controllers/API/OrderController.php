@@ -3348,6 +3348,11 @@ class OrderController extends Controller
                 '',
                 'return_initiated',
                 'undefined',
+                'buyback_pending',
+                'buyback_approved',
+                'buyback_rejected',
+                'buyback_refunded',
+                'buyback_cancelled',
             ];
 
             // Merge both statuses, remove duplicates and excluded statuses
