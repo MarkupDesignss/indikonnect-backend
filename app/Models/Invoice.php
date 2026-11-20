@@ -24,4 +24,8 @@ class Invoice extends Model
     {
         return $this->belongsTo(Order::class);
     }
+    public function orderLine()
+    {
+        return $this->belongsTo(OrderLine::class, 'order_line_id', 'id');
+    }
 }
