@@ -147,99 +147,99 @@ class GenealogyController extends Controller
     // }
 
     public function tree(Request $request)
-{
-    $user = Auth::user();
+    {
+        $user = Auth::user();
 
-    if (!$user->distributor_id) {
-        return response()->json([
-            'success' => false,
-            'message' => 'You are not registered on Ignite yet.',
-        ], 422);
-    }
-
-    $mainBaId = $this->normalizeMainBaId($user->distributor_id);
-    $depth    = min(max((int) $request->input('depth', 3), 1), 5);
-
-    $response = $this->ignite->binaryTree($mainBaId, $depth);
-
-    if (($response['code'] ?? null) !== ResultCode::OK->value) {
-        return response()->json([
-            'success' => false,
-            'message' => $response['msg'] ?? 'Failed to fetch binary tree',
-            'code'    => $response['code'],
-        ], 422);
-    }
-
-    $rows = $response['data']['rows'] ?? [];
-
-    $rows = $this->enrichTreeRowsWithNames($rows, $mainBaId);
-
-    // ✅ ADD THIS LINE — TC label add karo
-    $rows = $this->addTcLabels($rows);
-
-    $root = collect($rows)->firstWhere('level', 0);
-
-    if ($root) {
-        $root['display_ba_id'] = preg_replace('/-\d{3,}(-\d{3,})*$/', '', $root['ba_id'] ?? '');
-    }
-
-    $member      = $this->fetchMemberDetails($mainBaId);
-    $leftVolume  = (float) ($member['cv_left'] ?? 0) + (float) ($member['floating_cv_left'] ?? 0);
-    $rightVolume = (float) ($member['cv_right'] ?? 0) + (float) ($member['floating_cv_right'] ?? 0);
-
-    return response()->json([
-        'success' => true,
-        'data' => [
-            'root'              => $root,
-            'rows'              => $rows,
-            'left_volume'       => number_format($leftVolume, 4, '.', ''),
-            'right_volume'      => number_format($rightVolume, 4, '.', ''),
-            'weaker_leg'        => $this->getWeakerLeg($leftVolume, $rightVolume),
-            'depth'             => $depth,
-            'total_nodes'       => count($rows),
-            'cv_settled_left'   => $member['cv_left']           ?? '0.0000',
-            'cv_settled_right'  => $member['cv_right']          ?? '0.0000',
-            'cv_floating_left'  => $member['floating_cv_left']  ?? '0.0000',
-            'cv_floating_right' => $member['floating_cv_right'] ?? '0.0000',
-        ],
-    ]);
-}
-
-/**
- * Add tc_label (TC-001, TC-002, ...) to each binary-tree row.
- * Baaki fields ko touch nahi karta — sirf 2 naye field add karta hai.
- *
- *   AIA1675197-001         -> TC-001
- *   AIA1675197-002         -> TC-002
- *   AIA1675197-001-019     -> TC-019
- *   AIA8929708-001         -> TC-001
- *   AIA2325349-002         -> TC-002
- */
-private function addTcLabels(array $rows): array
-{
-    foreach ($rows as &$row) {
-        $baId = $row['ba_id'] ?? null;
-
-        if (!$baId) {
-            $row['tc_label']     = null;
-            $row['tc_sequence']  = null;
-            continue;
+        if (!$user->distributor_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You are not registered on Ignite yet.',
+            ], 422);
         }
 
-        // Last 3+ digit segment = TC number
-        if (preg_match('/-(\d{3,})$/', $baId, $m)) {
-            $seq = (int) $m[1];
-            $row['tc_label']    = sprintf('TC-%03d', $seq);
-            $row['tc_sequence'] = $seq;
-        } else {
-            $row['tc_label']    = null;
-            $row['tc_sequence'] = null;
-        }
-    }
-    unset($row);
+        $mainBaId = $this->normalizeMainBaId($user->distributor_id);
+        $depth    = min(max((int) $request->input('depth', 3), 1), 5);
 
-    return $rows;
-}
+        $response = $this->ignite->binaryTree($mainBaId, $depth);
+
+        if (($response['code'] ?? null) !== ResultCode::OK->value) {
+            return response()->json([
+                'success' => false,
+                'message' => $response['msg'] ?? 'Failed to fetch binary tree',
+                'code'    => $response['code'],
+            ], 422);
+        }
+
+        $rows = $response['data']['rows'] ?? [];
+
+        $rows = $this->enrichTreeRowsWithNames($rows, $mainBaId);
+
+        //  ADD THIS LINE — TC label add karo
+        $rows = $this->addTcLabels($rows);
+
+        $root = collect($rows)->firstWhere('level', 0);
+
+        if ($root) {
+            $root['display_ba_id'] = preg_replace('/-\d{3,}(-\d{3,})*$/', '', $root['ba_id'] ?? '');
+        }
+
+        $member      = $this->fetchMemberDetails($mainBaId);
+        $leftVolume  = (float) ($member['cv_left'] ?? 0) + (float) ($member['floating_cv_left'] ?? 0);
+        $rightVolume = (float) ($member['cv_right'] ?? 0) + (float) ($member['floating_cv_right'] ?? 0);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'root'              => $root,
+                'rows'              => $rows,
+                'left_volume'       => number_format($leftVolume, 4, '.', ''),
+                'right_volume'      => number_format($rightVolume, 4, '.', ''),
+                'weaker_leg'        => $this->getWeakerLeg($leftVolume, $rightVolume),
+                'depth'             => $depth,
+                'total_nodes'       => count($rows),
+                'cv_settled_left'   => $member['cv_left']           ?? '0.0000',
+                'cv_settled_right'  => $member['cv_right']          ?? '0.0000',
+                'cv_floating_left'  => $member['floating_cv_left']  ?? '0.0000',
+                'cv_floating_right' => $member['floating_cv_right'] ?? '0.0000',
+            ],
+        ]);
+    }
+
+    /**
+     * Add tc_label (TC-001, TC-002, ...) to each binary-tree row.
+     * Baaki fields ko touch nahi karta — sirf 2 naye field add karta hai.
+     *
+     *   AIA1675197-001         -> TC-001
+     *   AIA1675197-002         -> TC-002
+     *   AIA1675197-001-019     -> TC-019
+     *   AIA8929708-001         -> TC-001
+     *   AIA2325349-002         -> TC-002
+     */
+    private function addTcLabels(array $rows): array
+    {
+        foreach ($rows as &$row) {
+            $baId = $row['ba_id'] ?? null;
+
+            if (!$baId) {
+                $row['tc_label']     = null;
+                $row['tc_sequence']  = null;
+                continue;
+            }
+
+            // Last 3+ digit segment = TC number
+            if (preg_match('/-(\d{3,})$/', $baId, $m)) {
+                $seq = (int) $m[1];
+                $row['tc_label']    = sprintf('TC-%03d', $seq);
+                $row['tc_sequence'] = $seq;
+            } else {
+                $row['tc_label']    = null;
+                $row['tc_sequence'] = null;
+            }
+        }
+        unset($row);
+
+        return $rows;
+    }
 
     /**
      * Get the direct children (left and right) of a specific node.
@@ -622,7 +622,7 @@ private function addTcLabels(array $rows): array
 
     /**
      * Seat one extra TC from a main account's TC Bank at a specific position in the binary tree.
-     * 
+     *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
@@ -631,8 +631,8 @@ private function addTcLabels(array $rows): array
     //     $validator = Validator::make($request->all(), [
     //         'ba_id'               => 'required|string',
     //         'side'                => 'required|in:1,2',
-    //         'placement_ba_id'     => 'nullable|string',  
-    //         'placement_member_id' => 'nullable|integer', 
+    //         'placement_ba_id'     => 'nullable|string',
+    //         'placement_member_id' => 'nullable|integer',
     //     ]);
 
     //     if ($validator->fails()) {
@@ -669,10 +669,10 @@ private function addTcLabels(array $rows): array
 
     //     if ($request->filled('placement_ba_id')) {
     //         $placementParent = $request->placement_ba_id;
-    //     } 
+    //     }
     //     elseif ($request->filled('placement_member_id')) {
     //         $placementParent = (int) $request->placement_member_id;
-    //     } 
+    //     }
     //     else {
     //         $member  = $this->fetchMemberDetails($mainBaId);
     //         $slotKey = $side === 1 ? 'far_left_id' : 'far_right_id';
@@ -690,7 +690,7 @@ private function addTcLabels(array $rows): array
     //     try {
     //         $response = $this->ignite->placeBankedTc(
     //             baId:            $requestedBaId,
-    //             placementParent: $placementParent, 
+    //             placementParent: $placementParent,
     //             side:            $side,
     //         );
     //     } catch (\Throwable $e) {
@@ -1671,7 +1671,7 @@ private function addTcLabels(array $rows): array
         // Enrich only paginated rows
         // Strip -001 / -002 suffix before DB lookup
         $baIds = $paginated->pluck('ba_id')->filter()
-            ->map(fn ($id) => preg_replace('/-\d{3}$/', '', $id))
+            ->map(fn($id) => preg_replace('/-\d{3}$/', '', $id))
             ->unique()->values()->all();
 
         $localUsers = User::whereIn('distributor_id', $baIds)
@@ -1682,7 +1682,7 @@ private function addTcLabels(array $rows): array
 
         // Referrals count map (from full tree) — also normalize parent ids
         $referralsByParent = collect($rows)
-            ->groupBy(fn ($r) => preg_replace('/-\d{3}$/', '', $r['unilevel_parent_ba_id'] ?? ''))
+            ->groupBy(fn($r) => preg_replace('/-\d{3}$/', '', $r['unilevel_parent_ba_id'] ?? ''))
             ->map->count();
 
         $data = $paginated->map(function ($row) use ($localUsers, $rankNames, $referralsByParent) {

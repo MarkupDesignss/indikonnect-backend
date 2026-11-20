@@ -30,13 +30,18 @@ class SalesReportExportController extends Controller
      *
      * To match the client's calendar, shift every Ignite boundary
      * backwards by 2 hours:
-     *   Friday 23:30 IST  →  Friday 21:30 IST  ✅
-     *   Friday 23:30 IST  →  Friday 21:30 IST  ✅ (next week end)
+     *   Friday 23:30 IST  →  Friday 21:30 IST
+     *   Friday 23:30 IST  →  Friday 21:30 IST   (next week end)
      */
     private const WEEK_SHIFT_HOURS = 2;
 
     private const SALE_STATUSES = [
-        'confirmed', 'processing', 'dispatched', 'shipped', 'delivered', 'partial_delivered',
+        'confirmed',
+        'processing',
+        'dispatched',
+        'shipped',
+        'delivered',
+        'partial_delivered',
     ];
 
     public function __construct(IgniteClient $ignite)
@@ -58,14 +63,14 @@ class SalesReportExportController extends Controller
         $calendar = $this->getCalendar($year);
 
         $weeks = collect($calendar['months'] ?? [])
-            ->flatMap(fn ($m) => $m['weeks'] ?? [])
+            ->flatMap(fn($m) => $m['weeks'] ?? [])
             ->sortBy('week_no')
             ->values();
 
         if ($weeks->isEmpty()) {
             $prev  = $this->getCalendar($year - 1);
             $weeks = collect($prev['months'] ?? [])
-                ->flatMap(fn ($m) => $m['weeks'] ?? [])
+                ->flatMap(fn($m) => $m['weeks'] ?? [])
                 ->sortBy('week_no')
                 ->values();
         }
@@ -127,7 +132,7 @@ class SalesReportExportController extends Controller
         $include   = $request->filled('include')
             ? array_map('trim', explode(',', $request->include))
             : null;
-        $want = fn (string $s) => $include === null || in_array($s, $include, true);
+        $want = fn(string $s) => $include === null || in_array($s, $include, true);
 
         if ($week === 0) {
             $week = $this->currentWeekFromCalendar($year);
@@ -158,8 +163,8 @@ class SalesReportExportController extends Controller
 
         $netByWeek = [];
         foreach ($weekNos as $w) {
-            $s = array_sum(array_map(fn ($row) => $row[$w] ?? 0, $salesByCat));
-            $r = array_sum(array_map(fn ($row) => $row[$w] ?? 0, $returnsByCat));
+            $s = array_sum(array_map(fn($row) => $row[$w] ?? 0, $salesByCat));
+            $r = array_sum(array_map(fn($row) => $row[$w] ?? 0, $returnsByCat));
             $netByWeek[$w] = round($s + $r, 2);
         }
 
@@ -185,7 +190,7 @@ class SalesReportExportController extends Controller
                 'year'         => $year,
                 'anchor_week'  => $week,
                 'weeks'        => $weekNos,
-                'calendar_rule'=> 'Friday 21:30:00 IST → Friday 21:29:59 IST',
+                'calendar_rule' => 'Friday 21:30:00 IST → Friday 21:29:59 IST',
                 'week_ranges'  => $this->formatWeekRanges($weekRanges),
 
                 'sales_by_category'        => $want('sales')       ? $salesRows     : null,
@@ -309,12 +314,12 @@ class SalesReportExportController extends Controller
     {
         $calendar = $this->getCalendar($year);
         $weeks = collect($calendar['months'] ?? [])
-            ->flatMap(fn ($m) => $m['weeks'] ?? []);
+            ->flatMap(fn($m) => $m['weeks'] ?? []);
 
         if ($weeks->isEmpty()) {
             $prev  = $this->getCalendar($year - 1);
             $weeks = collect($prev['months'] ?? [])
-                ->flatMap(fn ($m) => $m['weeks'] ?? []);
+                ->flatMap(fn($m) => $m['weeks'] ?? []);
             if ($weeks->isEmpty()) return null;
         }
 
@@ -339,14 +344,14 @@ class SalesReportExportController extends Controller
         for ($i = 0; $i < $weeksBack; $i++) {
             $calendar = $this->getCalendar($y);
             $weeks = collect($calendar['months'] ?? [])
-                ->flatMap(fn ($m) => $m['weeks'] ?? [])
+                ->flatMap(fn($m) => $m['weeks'] ?? [])
                 ->keyBy('week_no');
 
             if (!isset($weeks[$w])) {
                 $y--;
                 $prev = $this->getCalendar($y);
                 $prevWeeks = collect($prev['months'] ?? [])
-                    ->flatMap(fn ($m) => $m['weeks'] ?? [])
+                    ->flatMap(fn($m) => $m['weeks'] ?? [])
                     ->keyBy('week_no');
 
                 if ($prevWeeks->isEmpty()) break;
@@ -440,10 +445,10 @@ class SalesReportExportController extends Controller
 
         if ($mode === 'sales') {
             $q->whereIn('o.status', self::SALE_STATUSES)
-              ->select('p.category_id', DB::raw('SUM(ol.line_total) as amt'), DB::raw("{$dateExpr} as order_date"));
+                ->select('p.category_id', DB::raw('SUM(ol.line_total) as amt'), DB::raw("{$dateExpr} as order_date"));
         } else {
             $q->where('o.status', 'returned')
-              ->select('p.category_id', DB::raw('SUM(-ol.line_total) as amt'), DB::raw("{$dateExpr} as order_date"));
+                ->select('p.category_id', DB::raw('SUM(-ol.line_total) as amt'), DB::raw("{$dateExpr} as order_date"));
         }
 
         $rows = $q->groupBy('p.category_id', DB::raw($dateExpr))->get();
@@ -471,10 +476,10 @@ class SalesReportExportController extends Controller
 
         if ($mode === 'sales') {
             $q->select('ol.product_id', DB::raw('SUM(ol.line_total) as val'), DB::raw("{$dateExpr} as order_date"))
-              ->groupBy('ol.product_id', DB::raw($dateExpr));
+                ->groupBy('ol.product_id', DB::raw($dateExpr));
         } else {
             $q->select('ol.product_id', DB::raw('COUNT(DISTINCT o.id) as val'), DB::raw("{$dateExpr} as order_date"))
-              ->groupBy('ol.product_id', DB::raw($dateExpr));
+                ->groupBy('ol.product_id', DB::raw($dateExpr));
         }
 
         $rows = $q->get();
@@ -520,7 +525,7 @@ class SalesReportExportController extends Controller
                     $resp = $this->ignite->pairings($year, $w);
                     if (($resp['code'] ?? null) !== ResultCode::OK->value) return 0.0;
                     return collect($resp['data']['rows'] ?? [])
-                        ->sum(fn ($r) => (float) ($r['paired_cv'] ?? 0));
+                        ->sum(fn($r) => (float) ($r['paired_cv'] ?? 0));
                 } catch (\Throwable $e) {
                     Log::warning('Ignite pairings failed', ['year' => $year, 'week' => $w, 'error' => $e->getMessage()]);
                     return 0.0;
@@ -586,7 +591,7 @@ class SalesReportExportController extends Controller
                 $totals[$w] += $row['weekly'][$w] ?? 0;
             }
         }
-        return array_map(fn ($v) => round($v, $precision), $totals)
+        return array_map(fn($v) => round($v, $precision), $totals)
             + ['total' => round(array_sum($totals), $precision)];
     }
 
@@ -613,7 +618,7 @@ class SalesReportExportController extends Controller
         return [
             'rows'          => $rows,
             'weekly_totals' => $cast === 'money'
-                ? array_map(fn ($v) => round($v, 2), $totals) + ['total' => round(array_sum($totals), 2)]
+                ? array_map(fn($v) => round($v, 2), $totals) + ['total' => round(array_sum($totals), 2)]
                 : $totals + ['total' => array_sum($totals)],
         ];
     }
@@ -635,8 +640,8 @@ class SalesReportExportController extends Controller
 
     private function window(array $weekRanges): array
     {
-        $starts = array_map(fn ($r) => $r[0], $weekRanges);
-        $ends   = array_map(fn ($r) => $r[1], $weekRanges);
+        $starts = array_map(fn($r) => $r[0], $weekRanges);
+        $ends   = array_map(fn($r) => $r[1], $weekRanges);
         return [min($starts), max($ends)];
     }
 }

@@ -381,7 +381,13 @@ class InvoiceController extends Controller
         $redirectUrl = $user?->account_type === 'distributor'
             ? rtrim(env('DISTRIBUTOR_FRONTEND_URL'), '/') . '/distributor/order-history'
             : rtrim(env('CUSTOMER_FRONTEND_URL'), '/') . '/profile/?tab=orders';
+        $termfOfUse = $user?->account_type === 'distributor'
+            ? rtrim(env('DISTRIBUTOR_FRONTEND_URL'), '/') . '/footer-policy/terms-of-use/'
+            : rtrim(env('CUSTOMER_FRONTEND_URL'), '/') . '/footer-policy/terms-of-use/';
         // $productSlug = $product?->slug ?? 'No slug';
+
+        $adminOrdersUrl = rtrim(config('services.admin_url.key'), '/') . '/orders';
+
 
         // $productUrl = rtrim($frontendUrl, '/') . '/product/' . $productSlug;
         return [
@@ -392,6 +398,8 @@ class InvoiceController extends Controller
             // 'product_slug'          => $productSlug,
             'product_url'          => $redirectUrl,
             'product_service_charge'          => $product?->service_charge ?? 'No slug',
+            'admin_orders'    => $adminOrdersUrl,
+            'terms_condition' => $termfOfUse,
             'product_code'          => $product?->product_code,
             'hsn_code'              => $product?->hsn_code,
             'uom'                   => $product?->uom,
@@ -634,7 +642,10 @@ class InvoiceController extends Controller
                 // Buyer Details — split into billing & delivery addresses
                 'buyer' => [
                     'name'  => $invoice->buyer_name,
-                    'gstin' => $invoice->buyer_gstin ?? "URP",
+                    // 'gstin' => $invoice->buyer_gstin ?? "URP",
+                    ...($order->user?->account_type === 'distributor'
+                        ? ['gstin' => $order->user->distributorProfile?->gst_in ?: 'URP']
+                        : []),
 
                     // Billing address (billing_* fields)
                     'billing_address' => $order->billingAddress ? [
