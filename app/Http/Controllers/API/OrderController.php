@@ -2760,7 +2760,7 @@ class OrderController extends Controller
 
                         // Line-level cancel/return flag (orders table se order-level alag bheja hai)
                         'is_cancel_return_allowed' => (bool) $line->is_cancel_return_allowed,
-                        'courier_tracking_number'  => $line->shippingDetails->courier_tracking_number ?? null,
+                        'courier_tracking_id'  => $line->shippingDetails->courier_tracking_number ?? null,
 
                         // Category + Brand
                         'category_id'   => $product?->category_id,
