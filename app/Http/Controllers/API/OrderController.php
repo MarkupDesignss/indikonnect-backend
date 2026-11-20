@@ -3390,7 +3390,7 @@ class OrderController extends Controller
             'order_reference'         => 'required|string|exists:orders,order_reference',
             'items'                   => 'nullable|array|min:1',
             'items.*.order_line_id'   => 'required|integer|exists:order_lines,id',
-            'courier_tracking_number' => 'nullable|string|max:100',
+            'courier_tracking_id' => 'nullable|string|max:100',
             'courier_company'         => 'nullable|string|max:100',
             'delivery_notes'          => 'nullable|string|max:500',
             'courier_delivery_date'   => 'nullable|date',
@@ -4281,7 +4281,7 @@ class OrderController extends Controller
         return OrderShippingDetail::create([
             'order_id' => $order->id,
             'order_line_id' => $orderLine->id,
-            'courier_tracking_number' => $request->courier_tracking_number,
+            'courier_tracking_number' => $request->courier_tracking_id,
             'courier_company' => $request->courier_company,
             'delivery_notes' => $request->delivery_notes,
             'courier_delivery_date' => $request->courier_delivery_date,
