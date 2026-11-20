@@ -2760,7 +2760,7 @@ class OrderController extends Controller
 
                         // Line-level cancel/return flag (orders table se order-level alag bheja hai)
                         'is_cancel_return_allowed' => (bool) $line->is_cancel_return_allowed,
-                        'courier_tracking_number'  => $line->shippingDetails->courier_tracking_number ?? null,
+                        'courier_tracking_id'  => $line->shippingDetails->courier_tracking_number ?? null,
 
                         // Category + Brand
                         'category_id'   => $product?->category_id,
@@ -2810,7 +2810,7 @@ class OrderController extends Controller
                         // Shipping / Courier Details (line-wise)
                         'shipping_details' => $line->shippingDetails ? [
                             'id'                      => $line->shippingDetails->id,
-                            'courier_tracking_number' => $line->shippingDetails->courier_tracking_number ?? null,
+                            'courier_tracking_id' => $line->shippingDetails->courier_tracking_number ?? null,
                             'courier_company'         => $line->shippingDetails->courier_company,
                             'delivery_notes'          => $line->shippingDetails->delivery_notes,
                             'courier_delivery_date'   => $line->shippingDetails->courier_delivery_date,
@@ -3390,7 +3390,7 @@ class OrderController extends Controller
             'order_reference'         => 'required|string|exists:orders,order_reference',
             'items'                   => 'nullable|array|min:1',
             'items.*.order_line_id'   => 'required|integer|exists:order_lines,id',
-            'courier_tracking_number' => 'nullable|string|max:100',
+            'courier_tracking_id' => 'nullable|string|max:100',
             'courier_company'         => 'nullable|string|max:100',
             'delivery_notes'          => 'nullable|string|max:500',
             'courier_delivery_date'   => 'nullable|date',
@@ -4281,7 +4281,7 @@ class OrderController extends Controller
         return OrderShippingDetail::create([
             'order_id' => $order->id,
             'order_line_id' => $orderLine->id,
-            'courier_tracking_number' => $request->courier_tracking_number,
+            'courier_tracking_number' => $request->courier_tracking_id,
             'courier_company' => $request->courier_company,
             'delivery_notes' => $request->delivery_notes,
             'courier_delivery_date' => $request->courier_delivery_date,
