@@ -920,6 +920,7 @@ class SalesReportController extends Controller
                     'Delivery Status'         => $row->delivery_status ?? '',
 
                     // ✅ axispg → Freecharge
+
                     'Payment Gateway'         => $paymentGatewayDisplay,
                     'Courier Company'         => $row->courier_company ?? '',
                     'Courier Tracking Number' => $row->courier_tracking_number ?? '',
