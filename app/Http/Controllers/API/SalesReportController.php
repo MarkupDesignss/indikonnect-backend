@@ -52,229 +52,7 @@ class SalesReportController extends Controller
     //             ->select('order_id')
     //             ->selectRaw('SUM(amount) AS total_refunded')
     //             ->selectRaw('MAX(completed_at) AS last_refunded_at')
-    //             ->where('status', 'completed')
-    //             ->groupBy('order_id');
-
-    //         // 2. GSTIN subquery
-    //         $gstinSub = DB::table('distributor_profiles')
-    //             ->select('user_id')
-    //             ->selectRaw('MAX(gst_in) AS gst_in')
-    //             ->whereNotNull('gst_in')
-    //             ->groupBy('user_id');
-
-    //         // 3. LINE AGGREGATE SUBQUERY — fan-out fix + CV + Tax (shipping included)
-    //         $lineAggSub = DB::table('order_lines')
-    //             ->join('products', 'products.id', '=', 'order_lines.product_id')
-    //             ->join('orders', 'orders.id', '=', 'order_lines.order_id')
-    //             ->leftJoin('addresses as delivery_addr', 'delivery_addr.id', '=', 'orders.delivery_address_id')
-    //             ->select('order_lines.order_id')
-    //             ->selectRaw('SUM(order_lines.quantity) AS total_items')
-    //             ->selectRaw('SUM(order_lines.quantity * COALESCE(products.commission_value, 0)) AS total_cv')
-    //             ->selectRaw('SUM(COALESCE(order_lines.shipping_charge, 0)) AS total_shipping_charge')
-    //             ->selectRaw('MAX(order_lines.shipped_at) AS max_shipped_at')
-    //             ->selectRaw('MAX(delivery_addr.state) AS shipping_state')
-    //             ->selectRaw('
-    //                 SUM(
-    //                     (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
-    //                     - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
-    //                 ) AS derived_total_tax
-    //             ')
-    //             ->selectRaw("
-    //                 SUM(
-    //                     CASE
-    //                         WHEN UPPER(TRIM(delivery_addr.state)) IN ('PUNJAB','PB')
-    //                         THEN (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
-    //                             - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
-    //                         ELSE 0
-    //                     END
-    //                 ) AS derived_intra_tax
-    //             ")
-    //             ->selectRaw("
-    //                 SUM(
-    //                     CASE
-    //                         WHEN UPPER(TRIM(delivery_addr.state)) NOT IN ('PUNJAB','PB')
-    //                             OR delivery_addr.state IS NULL
-    //                         THEN (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
-    //                             - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
-    //                         ELSE 0
-    //                     END
-    //                 ) AS derived_inter_tax
-    //             ")
-    //             ->selectRaw("
-    //                 CASE
-    //                     WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
-    //                     WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0 THEN 'shipped'
-    //                     WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
-    //                     ELSE 'confirmed'
-    //                 END AS overall_delivery_status
-    //             ")
-    //             ->groupBy('order_lines.order_id');
-
-    //         // 4. BASE QUERY — Order level
-    //         // $query = Order::query()
-    //         //     ->join('users', 'users.id', '=', 'orders.user_id')
-    //         //     ->leftJoinSub($refundSub, 'refund_sum', function ($join) {
-    //         //         $join->on('refund_sum.order_id', '=', 'orders.id');
-    //         //     })
-    //         //     ->leftJoinSub($gstinSub, 'gstin_data', function ($join) {
-    //         //         $join->on('gstin_data.user_id', '=', 'users.id');
-    //         //     })
-    //         //     ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
-    //         //         $join->on('line_agg.order_id', '=', 'orders.id');
-    //         //     })
-    //         //     ->whereIn('orders.status', $allowedStatuses)
-    //         //     ->whereNull('orders.deleted_at');
-    //         $query = Order::query()
-    //             ->join('users', 'users.id', '=', 'orders.user_id')
-    //             ->leftJoinSub($refundSub, 'refund_sum', function ($join) {
-    //                 $join->on('refund_sum.order_id', '=', 'orders.id');
-    //             })
-    //             ->leftJoinSub($gstinSub, 'gstin_data', function ($join) {
-    //                 $join->on('gstin_data.user_id', '=', 'users.id');
-    //             })
-    //             ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
-    //                 $join->on('line_agg.order_id', '=', 'orders.id');
-    //             })
-    //             ->whereIn('line_agg.overall_delivery_status', $allowedStatuses)
-    //             ->whereNull('orders.deleted_at');
-
-    //         if ($request->filled('from')) {
-    //             $query->where('orders.created_at', '>=', $request->from . ' 00:00:00');
-    //         }
-    //         if ($request->filled('to')) {
-    //             $query->where('orders.created_at', '<=', $request->to . ' 23:59:59');
-    //         }
-
-    //         // 5. SELECT
-    //         $query->select([
-    //             'orders.order_reference                    AS bill_id',
-    //             'orders.created_at                         AS order_date',
-    //             'users.full_name                           AS customer_name',
-    //             'users.phone                               AS customer_mobile',
-    //             'orders.subtotal                           AS gross_total',
-    //             'orders.total_payable                      AS order_amount',
-    //             DB::raw('COALESCE(refund_sum.total_refunded, 0) AS refunded_amount'),
-    //             DB::raw('(orders.total_payable - COALESCE(refund_sum.total_refunded, 0)) AS net_order_amount'),
-    //             'orders.status                             AS order_status',
-    //             DB::raw('COALESCE(line_agg.total_items, 0) AS total_items'),
-    //             DB::raw('COALESCE(line_agg.derived_total_tax, 0) AS total_tax'),
-    //             DB::raw('ROUND(COALESCE(line_agg.derived_intra_tax, 0) / 2, 2) AS cgst'),
-    //             DB::raw('ROUND(COALESCE(line_agg.derived_intra_tax, 0) / 2, 2) AS sgst'),
-    //             DB::raw('ROUND(COALESCE(line_agg.derived_inter_tax, 0), 2) AS igst'),
-    //             'orders.subtotal                           AS total_list_price',
-    //             'orders.coupon_discount                    AS discount_amount',
-    //             DB::raw('COALESCE(line_agg.total_cv, 0) AS cv'),
-    //             'users.distributor_id                      AS user_name',
-    //             'gstin_data.gst_in                         AS customer_gstin',
-    //             'line_agg.max_shipped_at                   AS shipping_date',
-    //             'line_agg.shipping_state                   AS customer_shipping_state',
-    //             DB::raw('COALESCE(line_agg.total_shipping_charge, 0) AS shipping_charge'),
-    //             DB::raw("CASE WHEN orders.status = 'delivered' THEN 'delivered' ELSE COALESCE(line_agg.overall_delivery_status, 'confirmed') END AS delivery_status"),
-    //             DB::raw("CASE WHEN COALESCE(refund_sum.total_refunded, 0) > 0 THEN 'TRUE' ELSE 'FALSE' END AS is_refunded"),
-    //             'orders.refund_status                      AS refund_status',
-    //             DB::raw('0 AS refunded_items'),
-    //             'refund_sum.last_refunded_at               AS last_refund_date',
-    //         ])
-    //             ->orderBy('orders.created_at', 'desc');
-
-    //         $paginated = $query->paginate($perPage);
-
-    //         // 6. FORMAT
-    //         $stateNormalize = [
-    //             'RAJISTHAN' => 'Rajasthan',
-    //             'MAADHYA PRADESH' => 'Madhya Pradesh',
-    //             'HIMANCHAL PRADESH' => 'Himachal Pradesh',
-    //             'WEST BANGAL' => 'West Bengal',
-    //             'KARNATKA' => 'Karnataka',
-    //             'KARANATAKA' => 'Karnataka',
-    //             'CHHATISGRAH' => 'Chhattisgarh',
-    //             'CHHATTSGARH' => 'Chhattisgarh',
-    //             'GUJRAT' => 'Gujarat',
-    //             'HARIYANA' => 'Haryana',
-    //             'U.P' => 'Uttar Pradesh',
-    //             'UP' => 'Uttar Pradesh',
-    //         ];
-
-    //         $data = $paginated->getCollection()->map(function ($row) use ($stateNormalize) {
-    //             $rawState = strtoupper(trim((string) ($row->customer_shipping_state ?? '')));
-    //             $state = $stateNormalize[$rawState] ?? ($row->customer_shipping_state ?? '');
-
-    //             return [
-    //                 'Bill Id'                 => (string) $row->bill_id,
-    //                 'Order Date'              => $row->order_date ? Carbon::parse($row->order_date)->format('d-m-Y H:i') : '',
-    //                 'Customer Name'           => $row->customer_name ?? '',
-    //                 'Customer Mobile'         => $row->customer_mobile ?? '',
-    //                 'Gross Total'             => round((float) $row->gross_total, 2),
-    //                 'Order Amount'            => round((float) $row->order_amount, 2),
-    //                 'Refunded Amount'         => round((float) ($row->refunded_amount ?? 0), 2),
-    //                 'Net Order Amount'        => round((float) $row->net_order_amount, 2),
-    //                 'Order Status'            => $row->order_status,
-    //                 'Total Items'             => (int) $row->total_items,
-    //                 'Total Tax'               => round((float) $row->total_tax, 2),
-    //                 'CGST'                    => round((float) $row->cgst, 2),
-    //                 'SGST'                    => round((float) $row->sgst, 2),
-    //                 'IGST'                    => round((float) $row->igst, 2),
-    //                 'Total List Price'        => round((float) $row->total_list_price, 2),
-    //                 'Discount Amount'         => round((float) $row->discount_amount, 2),
-    //                 'CV'                      => round((float) $row->cv, 2),
-    //                 'User Name'               => $row->user_name ?? '',
-    //                 'Customer GSTIN'          => $row->customer_gstin ?? '',
-    //                 'Shipping Date'           => $row->shipping_date ? Carbon::parse($row->shipping_date)->format('d-m-Y H:i') : '',
-    //                 'Customer Shipping State' => $state,
-    //                 'Shipping Charge'         => round((float) $row->shipping_charge, 2),
-    //                 'Delivery Status'         => $row->delivery_status ?? '',
-    //                 'Is Refunded'             => $row->is_refunded,
-    //                 'Refund Status'           => $row->refund_status ?? '',
-    //                 'Refunded Items'          => (int) $row->refunded_items,
-    //                 'Last Refund Date'        => $row->last_refund_date ? Carbon::parse($row->last_refund_date)->format('d-m-Y H:i') : '',
-    //             ];
-    //         });
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'data'    => $data,
-    //             'meta'    => [
-    //                 'total'        => $paginated->total(),
-    //                 'per_page'     => $paginated->perPage(),
-    //                 'current_page' => $paginated->currentPage(),
-    //                 'last_page'    => $paginated->lastPage(),
-    //             ],
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('Sales report failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-    //         return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
-    //     }
-    // }
-    // public function salesReport(Request $request): JsonResponse
-    // {
-    //     $validator = Validator::make($request->all(), [
-    //         'status'   => 'nullable|string|in:confirmed,dispatched,shipped,delivered',
-    //         'from'     => 'nullable|date',
-    //         'to'       => 'nullable|date|after_or_equal:from',
-    //         'per_page' => 'nullable|integer|min:1|max:500',
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Validation failed.',
-    //             'errors'  => $validator->errors(),
-    //         ], 422);
-    //     }
-
-    //     try {
-    //         $allowedStatuses = $request->filled('status')
-    //             ? [$request->status]
-    //             : ['confirmed', 'dispatched', 'shipped', 'delivered'];
-
-    //         $perPage = (int) $request->input('per_page', 100);
-
-    //         // 1. Refund subquery
-    //         $refundSub = DB::table('refunds')
-    //             ->select('order_id')
-    //             ->selectRaw('SUM(amount) AS total_refunded')
-    //             ->selectRaw('MAX(completed_at) AS last_refunded_at')
-    //             ->selectRaw('MAX(created_at) AS first_refund_created_at') //  ADDED
+    //             ->selectRaw('MAX(created_at) AS first_refund_created_at')
     //             ->where('status', 'completed')
     //             ->groupBy('order_id');
 
@@ -301,43 +79,55 @@ class SalesReportController extends Controller
 
     //             ->selectRaw('MAX(delivery_addr.state) AS shipping_state')
     //             ->selectRaw('
-    //             SUM(
-    //                 (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
-    //                 - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
-    //             ) AS derived_total_tax
-    //         ')
+    //         SUM(
+    //             (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
+    //             - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
+    //         ) AS derived_total_tax
+    //     ')
     //             ->selectRaw("
-    //             SUM(
-    //                 CASE
-    //                     WHEN UPPER(TRIM(delivery_addr.state)) IN ('PUNJAB','PB')
-    //                     THEN (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
-    //                         - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
-    //                     ELSE 0
-    //                 END
-    //             ) AS derived_intra_tax
-    //         ")
-    //             ->selectRaw("
-    //             SUM(
-    //                 CASE
-    //                     WHEN UPPER(TRIM(delivery_addr.state)) NOT IN ('PUNJAB','PB')
-    //                         OR delivery_addr.state IS NULL
-    //                     THEN (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
-    //                         - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
-    //                     ELSE 0
-    //                 END
-    //             ) AS derived_inter_tax
-    //         ")
-    //             ->selectRaw("
+    //         SUM(
     //             CASE
-    //                 WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
-    //                 WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0 THEN 'shipped'
-    //                 WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
-    //                 ELSE 'confirmed'
-    //             END AS overall_delivery_status
+    //                 WHEN UPPER(TRIM(delivery_addr.state)) IN ('PUNJAB','PB')
+    //                 THEN (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
+    //                     - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
+    //                 ELSE 0
+    //             END
+    //         ) AS derived_intra_tax
+    //     ")
+    //             ->selectRaw("
+    //         SUM(
+    //             CASE
+    //                 WHEN UPPER(TRIM(delivery_addr.state)) NOT IN ('PUNJAB','PB')
+    //                     OR delivery_addr.state IS NULL
+    //                 THEN (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
+    //                     - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
+    //                 ELSE 0
+    //             END
+    //         ) AS derived_inter_tax
+    //     ")
+    //             ->selectRaw("
+    //         CASE
+    //             WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
+    //             WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0 THEN 'shipped'
+    //             WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
+    //             ELSE 'confirmed'
+    //         END AS overall_delivery_status
+    //     ")
+    //             ->groupBy('order_lines.order_id');
+
+    //         // 3b. PRODUCTS SUBQUERY — order ke andar saare products (name, slug, product_code)
+    //         $productAggSub = DB::table('order_lines')
+    //             ->join('products', 'products.id', '=', 'order_lines.product_id')
+    //             ->select('order_lines.order_id')
+    //             ->selectRaw("
+    //             GROUP_CONCAT(
+    //                 DISTINCT CONCAT_WS('::', products.name, products.slug, products.product_code)
+    //                 ORDER BY products.name SEPARATOR '||'
+    //             ) AS products_concat
     //         ")
     //             ->groupBy('order_lines.order_id');
 
-    //         // 4. BASE QUERY — Order level (unchanged)
+    //         // 4. BASE QUERY — Order level
     //         $query = Order::query()
     //             ->join('users', 'users.id', '=', 'orders.user_id')
     //             ->leftJoinSub($refundSub, 'refund_sum', function ($join) {
@@ -348,6 +138,9 @@ class SalesReportController extends Controller
     //             })
     //             ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
     //                 $join->on('line_agg.order_id', '=', 'orders.id');
+    //             })
+    //             ->leftJoinSub($productAggSub, 'product_agg', function ($join) {
+    //                 $join->on('product_agg.order_id', '=', 'orders.id');
     //             })
     //             ->whereIn('line_agg.overall_delivery_status', $allowedStatuses)
     //             ->whereNull('orders.deleted_at');
@@ -382,8 +175,8 @@ class SalesReportController extends Controller
     //             'gstin_data.gst_in                         AS customer_gstin',
     //             'line_agg.max_shipped_at                   AS shipping_date',
     //             'line_agg.min_line_created_at              AS confirmed_at',
-    //             'line_agg.max_dispatched_at                AS dispatched_at',   //  ADDED
-    //             'line_agg.max_delivered_at                 AS delivered_at',    //  ADDED
+    //             'line_agg.max_dispatched_at                AS dispatched_at',
+    //             'line_agg.max_delivered_at                 AS delivered_at',
     //             'line_agg.shipping_state                   AS customer_shipping_state',
     //             DB::raw('COALESCE(line_agg.total_shipping_charge, 0) AS shipping_charge'),
     //             DB::raw("CASE WHEN orders.status = 'delivered' THEN 'delivered' ELSE COALESCE(line_agg.overall_delivery_status, 'confirmed') END AS delivery_status"),
@@ -391,7 +184,10 @@ class SalesReportController extends Controller
     //             'orders.refund_status                      AS refund_status',
     //             DB::raw('0 AS refunded_items'),
     //             'refund_sum.last_refunded_at               AS last_refund_date',
-    //             'refund_sum.first_refund_created_at        AS refunded_at',      //  ADDED
+    //             'refund_sum.first_refund_created_at        AS refunded_at',
+
+    //             //  NEW: products concatenated string
+    //             'product_agg.products_concat               AS products_concat',
     //         ])
     //             ->orderBy('orders.created_at', 'desc');
 
@@ -417,11 +213,34 @@ class SalesReportController extends Controller
     //             $rawState = strtoupper(trim((string) ($row->customer_shipping_state ?? '')));
     //             $state = $stateNormalize[$rawState] ?? ($row->customer_shipping_state ?? '');
 
+    //             //  Parse products_concat into structured array
+    //             $products = [];
+    //             if (!empty($row->products_concat)) {
+    //                 foreach (explode('||', $row->products_concat) as $productStr) {
+    //                     $parts = explode('::', $productStr);
+    //                     if (count($parts) >= 3) {
+    //                         $products[] = [
+    //                             'name'         => $parts[0],
+    //                             'slug'         => $parts[1],
+    //                             'product_code' => $parts[2],
+    //                         ];
+    //                     }
+    //                 }
+    //             }
+
+    //             //  Also expose as comma-separated names for convenience
+    //             $productNames = implode(', ', array_column($products, 'name'));
+
     //             return [
     //                 'Bill Id'                 => (string) $row->bill_id,
     //                 'Order Date'              => $row->order_date ? Carbon::parse($row->order_date)->format('d-m-Y H:i') : '',
     //                 'Customer Name'           => $row->customer_name ?? '',
     //                 'Customer Mobile'         => $row->customer_mobile ?? '',
+
+    //                 // NEW: Product details
+    //                 'Product Names'           => $productNames,
+    //                 'Products'                => $products,
+
     //                 'Gross Total'             => round((float) $row->gross_total, 2),
     //                 'Order Amount'            => round((float) $row->order_amount, 2),
     //                 'Refunded Amount'         => round((float) ($row->refunded_amount ?? 0), 2),
@@ -438,10 +257,10 @@ class SalesReportController extends Controller
     //                 'User Name'               => $row->user_name ?? '',
     //                 'Customer GSTIN'          => $row->customer_gstin ?? '',
     //                 'Shipping Date'           => $row->shipping_date ? Carbon::parse($row->shipping_date)->format('d-m-Y H:i') : '',
-    //                 'Confirmed At'            => $row->confirmed_at  ? Carbon::parse($row->confirmed_at)->format('d-m-Y H:i')  : '', //  ADDED
-    //                 'Dispatched At'           => $row->dispatched_at ? Carbon::parse($row->dispatched_at)->format('d-m-Y H:i') : '', //  ADDED
-    //                 'Delivered At'            => $row->delivered_at  ? Carbon::parse($row->delivered_at)->format('d-m-Y H:i')  : '', //  ADDED
-    //                 'Refunded At'             => $row->refunded_at   ? Carbon::parse($row->refunded_at)->format('d-m-Y H:i')   : '', //  ADDED
+    //                 'Confirmed At'            => $row->confirmed_at  ? Carbon::parse($row->confirmed_at)->format('d-m-Y H:i')  : '',
+    //                 'Dispatched At'           => $row->dispatched_at ? Carbon::parse($row->dispatched_at)->format('d-m-Y H:i') : '',
+    //                 'Delivered At'            => $row->delivered_at  ? Carbon::parse($row->delivered_at)->format('d-m-Y H:i')  : '',
+    //                 'Refunded At'             => $row->refunded_at   ? Carbon::parse($row->refunded_at)->format('d-m-Y H:i')   : '',
     //                 'Customer Shipping State' => $state,
     //                 'Shipping Charge'         => round((float) $row->shipping_charge, 2),
     //                 'Delivery Status'         => $row->delivery_status ?? '',
@@ -520,56 +339,78 @@ class SalesReportController extends Controller
                 ->selectRaw('MAX(order_lines.dispatched_at) AS max_dispatched_at')
                 ->selectRaw('MAX(order_lines.delivered_at)  AS max_delivered_at')
                 ->selectRaw('MIN(order_lines.created_at)    AS min_line_created_at')
-
                 ->selectRaw('MAX(delivery_addr.state) AS shipping_state')
                 ->selectRaw('
-            SUM(
-                (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
-                - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
-            ) AS derived_total_tax
-        ')
+                SUM(
+                    (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
+                    - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
+                ) AS derived_total_tax
+            ')
                 ->selectRaw("
-            SUM(
+                SUM(
+                    CASE
+                        WHEN UPPER(TRIM(delivery_addr.state)) IN ('PUNJAB','PB')
+                        THEN (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
+                            - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
+                        ELSE 0
+                    END
+                ) AS derived_intra_tax
+            ")
+                ->selectRaw("
+                SUM(
+                    CASE
+                        WHEN UPPER(TRIM(delivery_addr.state)) NOT IN ('PUNJAB','PB')
+                            OR delivery_addr.state IS NULL
+                        THEN (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
+                            - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
+                        ELSE 0
+                    END
+                ) AS derived_inter_tax
+            ")
+                ->selectRaw("
                 CASE
-                    WHEN UPPER(TRIM(delivery_addr.state)) IN ('PUNJAB','PB')
-                    THEN (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
-                        - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
-                    ELSE 0
-                END
-            ) AS derived_intra_tax
-        ")
-                ->selectRaw("
-            SUM(
-                CASE
-                    WHEN UPPER(TRIM(delivery_addr.state)) NOT IN ('PUNJAB','PB')
-                        OR delivery_addr.state IS NULL
-                    THEN (order_lines.line_total + COALESCE(order_lines.shipping_charge, 0))
-                        - ((order_lines.line_total + COALESCE(order_lines.shipping_charge, 0)) / (1 + (COALESCE(order_lines.gst_rate, 0) / 100)))
-                    ELSE 0
-                END
-            ) AS derived_inter_tax
-        ")
-                ->selectRaw("
-            CASE
-                WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
-                WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0 THEN 'shipped'
-                WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
-                ELSE 'confirmed'
-            END AS overall_delivery_status
-        ")
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0 THEN 'shipped'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
+                    ELSE 'confirmed'
+                END AS overall_delivery_status
+            ")
                 ->groupBy('order_lines.order_id');
 
-            // 3b. PRODUCTS SUBQUERY — order ke andar saare products (name, slug, product_code)
+            // 3b. PRODUCTS SUBQUERY — name, slug, product_code, quantity, unit_price, line_total
             $productAggSub = DB::table('order_lines')
                 ->join('products', 'products.id', '=', 'order_lines.product_id')
                 ->select('order_lines.order_id')
                 ->selectRaw("
                 GROUP_CONCAT(
-                    DISTINCT CONCAT_WS('::', products.name, products.slug, products.product_code)
+                    DISTINCT CONCAT_WS('::',
+                        products.name,
+                        products.slug,
+                        products.product_code,
+                        order_lines.quantity,
+                        order_lines.unit_price,
+                        order_lines.line_total
+                    )
                     ORDER BY products.name SEPARATOR '||'
                 ) AS products_concat
             ")
                 ->groupBy('order_lines.order_id');
+
+            // 3c. LINE SHIPPING DETAILS SUBQUERY — courier company + tracking (line-level)
+            // (agar aapko order_shipping_details table se line-wise courier chahiye)
+            $shippingAggSub = DB::table('order_shipping_details as osd')
+                ->join('order_lines as ol', 'ol.id', '=', 'osd.order_line_id')
+                ->select('ol.order_id')
+                ->selectRaw("
+                GROUP_CONCAT(
+                    DISTINCT CONCAT_WS('::',
+                        COALESCE(osd.courier_company, ''),
+                        COALESCE(osd.courier_tracking_number, '')
+                    )
+                    ORDER BY osd.id SEPARATOR '||'
+                ) AS courier_concat
+            ")
+                ->groupBy('ol.order_id');
 
             // 4. BASE QUERY — Order level
             $query = Order::query()
@@ -585,6 +426,9 @@ class SalesReportController extends Controller
                 })
                 ->leftJoinSub($productAggSub, 'product_agg', function ($join) {
                     $join->on('product_agg.order_id', '=', 'orders.id');
+                })
+                ->leftJoinSub($shippingAggSub, 'shipping_agg', function ($join) {
+                    $join->on('shipping_agg.order_id', '=', 'orders.id');
                 })
                 ->whereIn('line_agg.overall_delivery_status', $allowedStatuses)
                 ->whereNull('orders.deleted_at');
@@ -602,6 +446,7 @@ class SalesReportController extends Controller
                 'orders.created_at                         AS order_date',
                 'users.full_name                           AS customer_name',
                 'users.phone                               AS customer_mobile',
+                'users.email                               AS customer_email',        // ✅ NEW
                 'orders.subtotal                           AS gross_total',
                 'orders.total_payable                      AS order_amount',
                 DB::raw('COALESCE(refund_sum.total_refunded, 0) AS refunded_amount'),
@@ -630,8 +475,18 @@ class SalesReportController extends Controller
                 'refund_sum.last_refunded_at               AS last_refund_date',
                 'refund_sum.first_refund_created_at        AS refunded_at',
 
-                //  NEW: products concatenated string
+                // ✅ NEW: Payment gateway
+                'orders.payment_gateway                    AS payment_gateway',
+
+                // ✅ NEW: Order-level courier (orders table se)
+                'orders.courier_company                    AS courier_company',
+                'orders.courier_tracking_number            AS courier_tracking_number',
+
+                // ✅ NEW: Products concatenated string (ab qty/price/line_total ke saath)
                 'product_agg.products_concat               AS products_concat',
+
+                // ✅ NEW: Line-level courier details (order_shipping_details se)
+                'shipping_agg.courier_concat               AS courier_concat',
             ])
                 ->orderBy('orders.created_at', 'desc');
 
@@ -657,22 +512,44 @@ class SalesReportController extends Controller
                 $rawState = strtoupper(trim((string) ($row->customer_shipping_state ?? '')));
                 $state = $stateNormalize[$rawState] ?? ($row->customer_shipping_state ?? '');
 
-                //  Parse products_concat into structured array
+                // ✅ Parse products_concat into structured array (with qty, unit_price, line_total)
                 $products = [];
                 if (!empty($row->products_concat)) {
                     foreach (explode('||', $row->products_concat) as $productStr) {
                         $parts = explode('::', $productStr);
-                        if (count($parts) >= 3) {
+                        if (count($parts) >= 6) {
+                            $qty       = (int) $parts[3];
+                            $unitPrice = (float) $parts[4];
+                            $lineTotal = (float) $parts[5];
+
                             $products[] = [
                                 'name'         => $parts[0],
                                 'slug'         => $parts[1],
                                 'product_code' => $parts[2],
+                                'quantity'     => $qty,
+                                'unit_price'   => round($unitPrice, 2),
+                                'line_total'   => round($lineTotal, 2),
+                                // ✅ subtotal / quantity (computed per-unit from line_total)
+                                'subtotal_per_unit' => $qty > 0 ? round($lineTotal / $qty, 2) : 0,
                             ];
                         }
                     }
                 }
 
-                //  Also expose as comma-separated names for convenience
+                // ✅ Parse courier_concat into structured array (line-level)
+                $lineCouriers = [];
+                if (!empty($row->courier_concat)) {
+                    foreach (explode('||', $row->courier_concat) as $courierStr) {
+                        $parts = explode('::', $courierStr);
+                        if (count($parts) >= 2) {
+                            $lineCouriers[] = [
+                                'courier_company'         => $parts[0] ?: null,
+                                'courier_tracking_number' => $parts[1] ?: null,
+                            ];
+                        }
+                    }
+                }
+
                 $productNames = implode(', ', array_column($products, 'name'));
 
                 return [
@@ -680,8 +557,9 @@ class SalesReportController extends Controller
                     'Order Date'              => $row->order_date ? Carbon::parse($row->order_date)->format('d-m-Y H:i') : '',
                     'Customer Name'           => $row->customer_name ?? '',
                     'Customer Mobile'         => $row->customer_mobile ?? '',
+                    'Customer Email'          => $row->customer_email ?? '',            // ✅ NEW
 
-                    // NEW: Product details
+                    // ✅ NEW: Product details (with qty, unit_price, line_total, subtotal_per_unit)
                     'Product Names'           => $productNames,
                     'Products'                => $products,
 
@@ -708,6 +586,13 @@ class SalesReportController extends Controller
                     'Customer Shipping State' => $state,
                     'Shipping Charge'         => round((float) $row->shipping_charge, 2),
                     'Delivery Status'         => $row->delivery_status ?? '',
+
+                    // ✅ NEW: Payment + Courier
+                    'Payment Gateway'         => $row->payment_gateway ?? '',
+                    'Courier Company'         => $row->courier_company ?? '',            // orders table (order-level)
+                    'Courier Tracking Number' => $row->courier_tracking_number ?? '',    // orders table (order-level)
+                    'Line Couriers'           => $lineCouriers,                          // order_shipping_details (line-level)
+
                     'Is Refunded'             => $row->is_refunded,
                     'Refund Status'           => $row->refund_status ?? '',
                     'Refunded Items'          => (int) $row->refunded_items,
