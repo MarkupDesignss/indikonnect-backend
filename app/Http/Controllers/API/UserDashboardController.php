@@ -998,9 +998,9 @@ class UserDashboardController extends Controller
     /**
      * Get distributor-specific statistics including Ignite rank progress.
      *
-     * This method retrieves local order statistics and combines them with 
-     * Ignite's rank progress data. It also calculates pre-formatted fields 
-     * (like current rank name, next rank name, and total CV from Ignite) 
+     * This method retrieves local order statistics and combines them with
+     * Ignite's rank progress data. It also calculates pre-formatted fields
+     * (like current rank name, next rank name, and total CV from Ignite)
      * so the frontend can directly consume them without complex mapping.
      *
      * @param  \Illuminate\Http\Request  $request
@@ -2164,274 +2164,273 @@ class UserDashboardController extends Controller
      * @return \Illuminate\Http\JsonResponse
      */
     public function getWalletDetails(Request $request)
-{
-    $user = $request->user();
+    {
+        $user = $request->user();
 
-    if (!$user || empty($user->distributor_id)) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Not registered on Ignite'
-        ], 422);
-    }
-
-    $baId = $user->distributor_id;
-
-    // ---------- 1. Member details ----------
-    $memberResp = $this->ignite->memberDetails($baId);
-    if (($memberResp['code'] ?? null) !== ResultCode::OK->value) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to fetch wallet balances from Ignite'
-        ], 422);
-    }
-    $member = $memberResp['data'];
-
-    // ---------- 2. Exchange rate (cached, zero-check) ----------
-    $usdRate = (float) Cache::remember('usd_to_inr_rate', 3600, function () {
-        return \App\Models\Setting::where('group', 'exchange_rate')
-            ->where('key', 'usd_to_inr')->value('value') ?: 0;
-    });
-
-    if ($usdRate <= 0) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Exchange rate not configured. Contact admin.'
-        ], 500);
-    }
-
-    // ---------- 3. Distributor profile (GSTIN + PAN) ----------
-    $profile     = \App\Models\DistributorProfile::where('user_id', $user->id)->first();
-    $gstIn       = $profile?->gst_in;
-    $panVerified = (bool) ($profile?->pan_verified ?? false);
-
-    $normalizedGst = strtoupper(trim((string) $gstIn));
-
-    $isValidGst = !empty($normalizedGst)
-        && $normalizedGst !== 'URP'
-        && preg_match('/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $normalizedGst);
-
-    // Valid GSTIN + verified PAN => 2%, otherwise 20%
-    $tdsRate    = ($isValidGst && $panVerified) ? 0.02 : 0.20;
-    $tdsSection = $isValidGst ? '194-O' : '194J';
-
-    // ---------- 4. Plan rates ----------
-    $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
-        try {
-            $resp = $this->ignite->planRanks();
-            return ($resp['code'] ?? null) === ResultCode::OK->value
-                ? ($resp['data']['plan'] ?? [])
-                : [];
-        } catch (\Throwable $e) {
-            return [];
-        }
-    });
-
-    $yellowSmallRate = (float) ($planResp['yellow_usd_small'] ?? 30);
-    $yellowLargeRate = (float) ($planResp['yellow_usd_large'] ?? 40);
-    $blueRate        = (float) ($planResp['blue_usd']         ?? 12.5);
-    $greenRate       = (float) ($planResp['green_redeem_usd'] ?? 125);
-
-    // ---------- 5. Transactions ----------
-    $txResp  = $this->ignite->pointTxs($baId, 0, 100);
-    $rawTxs  = $txResp['data']['rows'] ?? [];
-    $hasMore = $txResp['data']['has_more'] ?? false;
-
-    // Retail profit + Matching bonus totals
-    $retailProfitUsd  = 0;
-    $matchingBonusUsd = 0;
-    $matchingbonus    = [];
-
-    foreach ($rawTxs as $tx) {
-        $ptype = $tx['point_type'] ?? '';
-        $desc  = $tx['description'] ?? '';
-        $descL = strtolower($desc);
-
-        // Retail profit
-        if ($ptype === 'cash_bal' && $desc === 'comm_retail') {
-            $retailProfitUsd += (float) $tx['amount'];
+        if (!$user || empty($user->distributor_id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Not registered on Ignite'
+            ], 422);
         }
 
-        // ✅ Matching bonus
-        if ($ptype === 'cash_bal' && (
-            str_contains($descL, 'matching') ||
-            str_contains($descL, 'comm_match') ||
-            str_contains($descL, 'team_bonus')
-        )) {
-            $amt = (float) $tx['amount'];
-            $matchingBonusUsd += $amt;
+        $baId = $user->distributor_id;
 
-            $matchingbonus[] = [
-                'id'             => $tx['id'] ?? null,
-                'date'           => $tx['created_at'] ?? null,
-                'description'    => $desc ?: '-',
-                'amount_usd'     => round(abs($amt), 4),
-                'amount_inr'     => round(abs($amt) * $usdRate, 2),
-                'direction'      => $amt < 0 ? 'debit' : 'credit',
+        // ---------- 1. Member details ----------
+        $memberResp = $this->ignite->memberDetails($baId);
+        if (($memberResp['code'] ?? null) !== ResultCode::OK->value) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch wallet balances from Ignite'
+            ], 422);
+        }
+        $member = $memberResp['data'];
+
+        // ---------- 2. Exchange rate (cached, zero-check) ----------
+        $usdRate = (float) Cache::remember('usd_to_inr_rate', 3600, function () {
+            return \App\Models\Setting::where('group', 'exchange_rate')
+                ->where('key', 'usd_to_inr')->value('value') ?: 0;
+        });
+
+        if ($usdRate <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Exchange rate not configured. Contact admin.'
+            ], 500);
+        }
+
+        // ---------- 3. Distributor profile (GSTIN + PAN) ----------
+        $profile     = \App\Models\DistributorProfile::where('user_id', $user->id)->first();
+        $gstIn       = $profile?->gst_in;
+        $panVerified = (bool) ($profile?->pan_verified ?? false);
+
+        $normalizedGst = strtoupper(trim((string) $gstIn));
+
+        $isValidGst = !empty($normalizedGst)
+            && $normalizedGst !== 'URP'
+            && preg_match('/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $normalizedGst);
+
+        // Valid GSTIN + verified PAN => 2%, otherwise 20%
+        $tdsRate    = ($isValidGst && $panVerified) ? 0.02 : 0.20;
+        $tdsSection = $isValidGst ? '194-O' : '194J';
+
+        // ---------- 4. Plan rates ----------
+        $planResp = Cache::remember('ignite_plan_ranks', 3600, function () {
+            try {
+                $resp = $this->ignite->planRanks();
+                return ($resp['code'] ?? null) === ResultCode::OK->value
+                    ? ($resp['data']['plan'] ?? [])
+                    : [];
+            } catch (\Throwable $e) {
+                return [];
+            }
+        });
+
+        $yellowSmallRate = (float) ($planResp['yellow_usd_small'] ?? 30);
+        $yellowLargeRate = (float) ($planResp['yellow_usd_large'] ?? 40);
+        $blueRate        = (float) ($planResp['blue_usd']         ?? 12.5);
+        $greenRate       = (float) ($planResp['green_redeem_usd'] ?? 125);
+
+        // ---------- 5. Transactions ----------
+        $txResp  = $this->ignite->pointTxs($baId, 0, 100);
+        $rawTxs  = $txResp['data']['rows'] ?? [];
+        $hasMore = $txResp['data']['has_more'] ?? false;
+
+        // Retail profit + Matching bonus totals
+        $retailProfitUsd  = 0;
+        $matchingBonusUsd = 0;
+        $matchingbonus    = [];
+
+        foreach ($rawTxs as $tx) {
+            $ptype = $tx['point_type'] ?? '';
+            $desc  = $tx['description'] ?? '';
+            $descL = strtolower($desc);
+
+            // Retail profit
+            if ($ptype === 'cash_bal' && $desc === 'comm_retail') {
+                $retailProfitUsd += (float) $tx['amount'];
+            }
+
+            //  Matching bonus
+            if ($ptype === 'cash_bal' && (
+                str_contains($descL, 'matching') ||
+                str_contains($descL, 'comm_match') ||
+                str_contains($descL, 'team_bonus')
+            )) {
+                $amt = (float) $tx['amount'];
+                $matchingBonusUsd += $amt;
+
+                $matchingbonus[] = [
+                    'id'             => $tx['id'] ?? null,
+                    'date'           => $tx['created_at'] ?? null,
+                    'description'    => $desc ?: '-',
+                    'amount_usd'     => round(abs($amt), 4),
+                    'amount_inr'     => round(abs($amt) * $usdRate, 2),
+                    'direction'      => $amt < 0 ? 'debit' : 'credit',
+                    'order_id'       => $tx['order_no'] ?? null,
+                    'related_member' => $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
+                ];
+            }
+        }
+
+        $transactions = [];
+        $withdrawals  = [];
+
+        foreach ($rawTxs as $tx) {
+            $category = match ($tx['tx_type']) {
+                'comm'  => 'Commission',
+                'cr'    => 'RedeemCoin',
+                'wd'    => 'Withdrawal',
+                'adj'   => 'Adjustment',
+                'pv'    => 'CV',
+                default => ucfirst($tx['tx_type'] ?? 'Other'),
+            };
+
+            $amt     = (float) $tx['amount'];
+            $isDebit = $amt < 0;
+
+            // All display values are positive; direction is conveyed via `direction`.
+            $absAmt = abs($amt);
+
+            $walletChangeUsd = ($tx['point_type'] ?? '') === 'cash_bal' ? $absAmt : 0;
+            $walletChangeInr = round($walletChangeUsd * $usdRate, 2);
+
+            $greenCoin  = ($tx['point_type'] ?? '') === 'green_bal'  ? $absAmt : 0;
+            $yellowCoin = ($tx['point_type'] ?? '') === 'yellow_bal' ? $absAmt : 0;
+            $blueCoin   = ($tx['point_type'] ?? '') === 'blue_bal'   ? $absAmt : 0;
+            $pvCoin     = in_array($tx['point_type'] ?? '', ['pv1_bal', 'pv2_bal']) ? $absAmt : 0;
+
+            $greenValueInr  = round((floor($greenCoin / 6) * $greenRate) * $usdRate, 2);
+            $yellowValueInr = round(($yellowCoin * ($yellowCoin >= 3 ? $yellowLargeRate : $yellowSmallRate)) * $usdRate, 2);
+            $blueValueInr   = round(($blueCoin * $blueRate) * $usdRate, 2);
+
+            $isWithdrawal = ($tx['tx_type'] ?? '') === 'wd';
+
+            // ---------- Base transaction row ----------
+            $txRow = [
+                'id'            => $tx['id'],
+                'date'          => $tx['created_at'],
+                'category'      => $category,
+                'description'   => $tx['description'] ?? '-',
+                'point_type'    => $tx['point_type'] ?? null,
+                'direction'     => $isDebit ? 'debit' : 'credit',
+
+                'wallet_change_usd' => $walletChangeUsd,
+                'wallet_change_inr' => $walletChangeInr,
+
+                'green_coin'    => $greenCoin,
+                'yellow_coin'   => $yellowCoin,
+                'blue_coin'     => $blueCoin,
+                'pv_coin'       => $pvCoin,
+
+                'green_value_inr'  => $greenValueInr,
+                'yellow_value_inr' => $yellowValueInr,
+                'blue_value_inr'   => $blueValueInr,
+
                 'order_id'       => $tx['order_no'] ?? null,
                 'related_member' => $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
             ];
-        }
-    }
 
-    $transactions = [];
-    $withdrawals  = [];
+            // ---------- TDS fields only for withdrawals ----------
+            if ($isWithdrawal) {
+                $grossInr      = round($absAmt * $usdRate, 2);
+                $tdsAmountInr  = round($grossInr * $tdsRate, 2);
+                $netPayableInr = round($grossInr - $tdsAmountInr, 2);
 
-    foreach ($rawTxs as $tx) {
-        $category = match ($tx['tx_type']) {
-            'comm'  => 'Commission',
-            'cr'    => 'RedeemCoin',
-            'wd'    => 'Withdrawal',
-            'adj'   => 'Adjustment',
-            'pv'    => 'CV',
-            default => ucfirst($tx['tx_type'] ?? 'Other'),
-        };
+                $txRow['tds_section']      = $tdsSection;
+                $txRow['tds_rate_percent'] = round($tdsRate * 100, 2);
+                $txRow['tds_amount_inr']   = $tdsAmountInr;
+                $txRow['net_payable_inr']  = $netPayableInr;
 
-        $amt     = (float) $tx['amount'];
-        $isDebit = $amt < 0;
+                $withdrawals[] = [
+                    'id'               => $tx['id'],
+                    'date'             => $tx['created_at'],
+                    'amount_usd'       => round($absAmt, 4),
+                    'amount_inr'       => $grossInr,
+                    'tds_section'      => $tdsSection,
+                    'tds_rate_percent' => round($tdsRate * 100, 2),
+                    'tds_amount_inr'   => $tdsAmountInr,
+                    'net_payable_inr'  => $netPayableInr,
+                    'gst_in'           => $gstIn,
+                    'status'           => ($member['allow_withdraw'] ?? true) ? 'Paid' : 'Held',
+                    'remark'           => $tx['description'] ?? 'Withdrawal',
+                    'currency'         => 'INR',
+                ];
+            }
 
-        // All display values are positive; direction is conveyed via `direction`.
-        $absAmt = abs($amt);
-
-        $walletChangeUsd = ($tx['point_type'] ?? '') === 'cash_bal' ? $absAmt : 0;
-        $walletChangeInr = round($walletChangeUsd * $usdRate, 2);
-
-        $greenCoin  = ($tx['point_type'] ?? '') === 'green_bal'  ? $absAmt : 0;
-        $yellowCoin = ($tx['point_type'] ?? '') === 'yellow_bal' ? $absAmt : 0;
-        $blueCoin   = ($tx['point_type'] ?? '') === 'blue_bal'   ? $absAmt : 0;
-        $pvCoin     = in_array($tx['point_type'] ?? '', ['pv1_bal', 'pv2_bal']) ? $absAmt : 0;
-
-        $greenValueInr  = round((floor($greenCoin / 6) * $greenRate) * $usdRate, 2);
-        $yellowValueInr = round(($yellowCoin * ($yellowCoin >= 3 ? $yellowLargeRate : $yellowSmallRate)) * $usdRate, 2);
-        $blueValueInr   = round(($blueCoin * $blueRate) * $usdRate, 2);
-
-        $isWithdrawal = ($tx['tx_type'] ?? '') === 'wd';
-
-        // ---------- Base transaction row ----------
-        $txRow = [
-            'id'            => $tx['id'],
-            'date'          => $tx['created_at'],
-            'category'      => $category,
-            'description'   => $tx['description'] ?? '-',
-            'point_type'    => $tx['point_type'] ?? null,
-            'direction'     => $isDebit ? 'debit' : 'credit',
-
-            'wallet_change_usd' => $walletChangeUsd,
-            'wallet_change_inr' => $walletChangeInr,
-
-            'green_coin'    => $greenCoin,
-            'yellow_coin'   => $yellowCoin,
-            'blue_coin'     => $blueCoin,
-            'pv_coin'       => $pvCoin,
-
-            'green_value_inr'  => $greenValueInr,
-            'yellow_value_inr' => $yellowValueInr,
-            'blue_value_inr'   => $blueValueInr,
-
-            'order_id'       => $tx['order_no'] ?? null,
-            'related_member' => $tx['rel_ba_id'] ?? $tx['rel_member_id'] ?? null,
-        ];
-
-        // ---------- TDS fields only for withdrawals ----------
-        if ($isWithdrawal) {
-            $grossInr      = round($absAmt * $usdRate, 2);
-            $tdsAmountInr  = round($grossInr * $tdsRate, 2);
-            $netPayableInr = round($grossInr - $tdsAmountInr, 2);
-
-            $txRow['tds_section']      = $tdsSection;
-            $txRow['tds_rate_percent'] = round($tdsRate * 100, 2);
-            $txRow['tds_amount_inr']   = $tdsAmountInr;
-            $txRow['net_payable_inr']  = $netPayableInr;
-
-            $withdrawals[] = [
-                'id'               => $tx['id'],
-                'date'             => $tx['created_at'],
-                'amount_usd'       => round($absAmt, 4),
-                'amount_inr'       => $grossInr,
-                'tds_section'      => $tdsSection,
-                'tds_rate_percent' => round($tdsRate * 100, 2),
-                'tds_amount_inr'   => $tdsAmountInr,
-                'net_payable_inr'  => $netPayableInr,
-                'gst_in'           => $gstIn,
-                'status'           => ($member['allow_withdraw'] ?? true) ? 'Paid' : 'Held',
-                'remark'           => $tx['description'] ?? 'Withdrawal',
-                'currency'         => 'INR',
-            ];
+            $transactions[] = $txRow;
         }
 
-        $transactions[] = $txRow;
+        // ---------- 6. Balances ----------
+        $cashUsd     = (float) ($member['cash_bal'] ?? 0);
+        $greenQty    = (float) ($member['green_bal'] ?? 0);
+        $yellowQty   = (float) ($member['yellow_bal'] ?? 0);
+        $blueQty     = (float) ($member['blue_bal'] ?? 0);
+
+        $greenValUsd  = floor($greenQty / 6) * $greenRate;
+        $yellowValUsd = $yellowQty * ($yellowQty >= 3 ? $yellowLargeRate : $yellowSmallRate);
+        $blueValUsd   = $blueQty >= 4 ? $blueQty * $blueRate : 0;
+
+        $greenRedeemable = floor($greenQty / 6) * 6;
+        $greenPending    = $greenQty - $greenRedeemable;
+
+        return response()->json([
+            'success' => true,
+            'currency' => [
+                'base'    => 'USD',
+                'display' => 'INR',
+                'exchange_rate' => $usdRate,
+            ],
+            'tds' => [
+                'gst_in'         => $gstIn,
+                'pan_verified'   => $panVerified,
+                'section'        => $tdsSection,
+                'applied_rate'   => round($tdsRate * 100, 2),
+                'reason'         => $isValidGst
+                    ? ($panVerified ? 'Valid GSTIN + verified PAN' : 'Valid GSTIN but PAN not verified')
+                    : 'GSTIN missing, invalid or URP',
+            ],
+            'data' => [
+                'balances' => [
+                    'cash_bal_usd'      => round($cashUsd, 4),
+                    'cash_bal_inr'      => round($cashUsd * $usdRate, 2),
+                    'cash_bal_display_currency' => 'INR',
+
+                    'retail_profit_usd' => round($retailProfitUsd, 2),
+                    'retail_profit_inr' => round($retailProfitUsd * $usdRate, 2),
+
+                    //  NEW: matching bonus totals
+                    'matching_bonus_usd' => round($matchingBonusUsd, 2),
+                    'matching_bonus_inr' => round($matchingBonusUsd * $usdRate, 2),
+
+                    'green_bal'            => $greenQty,
+                    'green_bal_redeemable' => $greenRedeemable,
+                    'green_bal_pending'    => $greenPending,
+                    'yellow_bal'           => $yellowQty,
+                    'blue_bal'             => $blueQty,
+
+                    'green_value_usd'   => round($greenValUsd, 2),
+                    'yellow_value_usd'  => round($yellowValUsd, 2),
+                    'blue_value_usd'    => round($blueValUsd, 2),
+
+                    'green_value_inr'   => round($greenValUsd * $usdRate, 2),
+                    'yellow_value_inr'  => round($yellowValUsd * $usdRate, 2),
+                    'blue_value_inr'    => round($blueValUsd * $usdRate, 2),
+
+                    'exchange_rate'     => $usdRate,
+                ],
+                'transactions'          => $transactions,
+                'has_more_transactions' => $hasMore,
+                'withdrawals'           => $withdrawals,
+
+                //  NEW: matching bonus section
+                'matching_bonus' => [
+                    'total_usd' => round($matchingBonusUsd, 2),
+                    'total_inr' => round($matchingBonusUsd * $usdRate, 2),
+                    'count'     => count($matchingbonus),
+                    'rows'      => $matchingbonus,
+                ],
+            ]
+        ]);
     }
-
-    // ---------- 6. Balances ----------
-    $cashUsd     = (float) ($member['cash_bal'] ?? 0);
-    $greenQty    = (float) ($member['green_bal'] ?? 0);
-    $yellowQty   = (float) ($member['yellow_bal'] ?? 0);
-    $blueQty     = (float) ($member['blue_bal'] ?? 0);
-
-    $greenValUsd  = floor($greenQty / 6) * $greenRate;
-    $yellowValUsd = $yellowQty * ($yellowQty >= 3 ? $yellowLargeRate : $yellowSmallRate);
-    $blueValUsd   = $blueQty >= 4 ? $blueQty * $blueRate : 0;
-
-    $greenRedeemable = floor($greenQty / 6) * 6;
-    $greenPending    = $greenQty - $greenRedeemable;
-
-    return response()->json([
-        'success' => true,
-        'currency' => [
-            'base'    => 'USD',
-            'display' => 'INR',
-            'exchange_rate' => $usdRate,
-        ],
-        'tds' => [
-            'gst_in'         => $gstIn,
-            'pan_verified'   => $panVerified,
-            'section'        => $tdsSection,
-            'applied_rate'   => round($tdsRate * 100, 2),
-            'reason'         => $isValidGst
-                ? ($panVerified ? 'Valid GSTIN + verified PAN' : 'Valid GSTIN but PAN not verified')
-                : 'GSTIN missing, invalid or URP',
-        ],
-        'data' => [
-            'balances' => [
-                'cash_bal_usd'      => round($cashUsd, 4),
-                'cash_bal_inr'      => round($cashUsd * $usdRate, 2),
-                'cash_bal_display_currency' => 'INR',
-
-                'retail_profit_usd' => round($retailProfitUsd, 2),
-                'retail_profit_inr' => round($retailProfitUsd * $usdRate, 2),
-
-                // ✅ NEW: matching bonus totals
-                'matching_bonus_usd' => round($matchingBonusUsd, 2),
-                'matching_bonus_inr' => round($matchingBonusUsd * $usdRate, 2),
-
-                'green_bal'            => $greenQty,
-                'green_bal_redeemable' => $greenRedeemable,
-                'green_bal_pending'    => $greenPending,
-                'yellow_bal'           => $yellowQty,
-                'blue_bal'             => $blueQty,
-
-                'green_value_usd'   => round($greenValUsd, 2),
-                'yellow_value_usd'  => round($yellowValUsd, 2),
-                'blue_value_usd'    => round($blueValUsd, 2),
-
-                'green_value_inr'   => round($greenValUsd * $usdRate, 2),
-                'yellow_value_inr'  => round($yellowValUsd * $usdRate, 2),
-                'blue_value_inr'    => round($blueValUsd * $usdRate, 2),
-
-                'exchange_rate'     => $usdRate,
-            ],
-            'transactions'          => $transactions,
-            'has_more_transactions' => $hasMore,
-            'withdrawals'           => $withdrawals,
-
-            // ✅ NEW: matching bonus section
-            'matching_bonus' => [
-                'total_usd' => round($matchingBonusUsd, 2),
-                'total_inr' => round($matchingBonusUsd * $usdRate, 2),
-                'count'     => count($matchingbonus),
-                'rows'      => $matchingbonus,
-            ],
-        ]
-    ]);
-}
-
 }

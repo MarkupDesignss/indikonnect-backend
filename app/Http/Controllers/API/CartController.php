@@ -1910,7 +1910,7 @@ class CartController extends Controller
             $discountValue         = null;
             $discountAmountPerUnit = 0;
 
-            // ✅ Fetch shipping charge
+            //  Fetch shipping charge
             $shipping = (float) ($product?->shipping_charge ?? 0);
 
             // ---------------- variant path ----------------
@@ -1924,7 +1924,7 @@ class CartController extends Controller
                     ? ($variant->distributor_mrp ?? $variant->retail_mrp ?? null)
                     : ($variant->retail_mrp ?? null);
 
-                // ✅ Add shipping to both price and MRP
+                //  Add shipping to both price and MRP
                 $currentPrice = (float) $basePrice + $shipping;
                 $mrp = $baseMrp !== null ? (float) $baseMrp + $shipping : null;
 
@@ -1953,7 +1953,7 @@ class CartController extends Controller
                     ? ($product->distributor_mrp ?? $product->retail_mrp ?? null)
                     : ($product->retail_mrp ?? null);
 
-                // ✅ Add shipping to both price and MRP
+                //  Add shipping to both price and MRP
                 $currentPrice = (float) $basePrice + $shipping;
                 $mrp = $baseMrp !== null ? (float) $baseMrp + $shipping : null;
 
@@ -2019,7 +2019,7 @@ class CartController extends Controller
             $shippingGstTotal    = $shipSplitTotal['gst'];
 
             // ---------- DISTRIBUTOR pricing (GST-inclusive) ----------
-            // ✅ Distributor prices used in breakdown now include shipping
+            //  Distributor prices used in breakdown now include shipping
             $distPriceIncl        = (float) ($product->distributor_price ?? 0) + $shipping;
             $distMrpIncl          = (float) ($product->distributor_mrp ?? 0) + $shipping;
             $distDiscountType     = $product->distributor_discount_type ?? null;
@@ -2051,7 +2051,7 @@ class CartController extends Controller
             $distLineInclGst   = round($distPriceIncl * $qty, 2);
 
             // ---------- RETAIL pricing (GST-inclusive) ----------
-            // ✅ Retail prices used in breakdown now include shipping
+            //  Retail prices used in breakdown now include shipping
             $retailPriceIncl        = (float) ($product->retail_price ?? 0) + $shipping;
             $retailMrpIncl          = (float) ($product->retail_mrp ?? 0) + $shipping;
             $retailDiscountType     = $product->retail_discount_type ?? null;
