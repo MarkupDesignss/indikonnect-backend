@@ -115,7 +115,7 @@ class FinanceCommissionExportController extends Controller
                 $panVerified = (bool) ($profile?->pan_verified ?? false);
 
                 $hasPanCard = !empty(trim((string) $dist->complete_pan_card))
-                           && $dist->complete_pan_card !== '-';
+                    && $dist->complete_pan_card !== '-';
 
                 $tdsRate    = $hasPanCard ? 0.02 : 0.20;
                 $tdsSection = $hasPanCard ? '194-O' : '194J';
@@ -146,8 +146,8 @@ class FinanceCommissionExportController extends Controller
                     'bank_ifsc'           => $profile->bank_ifsc ?? '-',
 
                     'pan_number'          => $dist->complete_pan_card ?? '-',
-                    'bank_account_number' => $profile?->complete_bank_account ?? '-',                           
-                                                
+                    'bank_account_number' => $profile?->complete_bank_account ?? '-',
+
                 ];
             } catch (\Throwable $e) {
                 $failed[] = [
@@ -265,7 +265,7 @@ class FinanceCommissionExportController extends Controller
         $tdsInfoMap = [];
         foreach ($distributors as $dist) {
             $hasPanCard = !empty(trim((string) $dist->complete_pan_card))
-                       && $dist->complete_pan_card !== '-';
+                && $dist->complete_pan_card !== '-';
 
             $tdsInfoMap[$dist->distributor_id] = [
                 'tds_rate'    => $hasPanCard ? 0.02 : 0.20,
@@ -671,8 +671,8 @@ class FinanceCommissionExportController extends Controller
 
         $createdIst = $row['created_at']
             ? Carbon::parse($row['created_at'], 'Asia/Hong_Kong')
-                ->setTimezone('Asia/Kolkata')
-                ->toDateTimeString()
+            ->setTimezone('Asia/Kolkata')
+            ->toDateTimeString()
             : null;
 
         return [
@@ -727,7 +727,7 @@ class FinanceCommissionExportController extends Controller
             $point = $tx['point_type'] ?? '';
             $amt   = (float) ($tx['amount'] ?? 0);
 
-            if (in_array($point, ['cash_bal','green_bal','yellow_bal','blue_bal','pv1_bal','pv2_bal'], true)) {
+            if (in_array($point, ['cash_bal', 'green_bal', 'yellow_bal', 'blue_bal', 'pv1_bal', 'pv2_bal'], true)) {
                 $buckets[$matchedWeek][$point] = ($buckets[$matchedWeek][$point] ?? 0) + $amt;
             }
 
