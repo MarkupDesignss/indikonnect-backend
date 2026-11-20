@@ -39,12 +39,51 @@ class FinanceCommissionExportController extends Controller
         $year = (int) $request->year;
 
         // DEBUG MODE: Show entire Ignite calendar
+        // if ($week === 0) {
+        //     $calendar = $this->ignite->salesCalendar($year);
+        //     return response()->json([
+        //         'success'  => true,
+        //         'message'  => 'Full Ignite Sales Calendar for ' . $year,
+        //         'calendar' => $calendar['data'] ?? [],
+        //     ]);
+        // }
+
+        // DEBUG MODE: Show Ignite calendar converted to IST
         if ($week === 0) {
-            $calendar = $this->ignite->salesCalendar($year);
+            $response = $this->ignite->salesCalendar($year);
+            $calendar = $response['data'] ?? [];
+
+            foreach ($calendar['months'] ?? [] as &$month) {
+                foreach ($month['weeks'] ?? [] as &$w) {
+
+                    if (!empty($w['start_at'])) {
+                        $startIst = Carbon::parse(
+                            $w['start_at'],
+                            'Asia/Hong_Kong'
+                        )->setTimezone('Asia/Kolkata');
+
+                        $w['start_at'] = $startIst->format('Y-m-d H:i:s');
+                        $w['start_date'] = $startIst->format('Y-m-d');
+                    }
+
+                    if (!empty($w['end_at'])) {
+                        $endIst = Carbon::parse(
+                            $w['end_at'],
+                            'Asia/Hong_Kong'
+                        )->setTimezone('Asia/Kolkata')->subSecond();
+
+                        $w['end_at'] = $endIst->format('Y-m-d H:i:s');
+                        $w['end_date'] = $endIst->format('Y-m-d');
+                    }
+                }
+                unset($w);
+            }
+            unset($month);
+
             return response()->json([
                 'success'  => true,
-                'message'  => 'Full Ignite Sales Calendar for ' . $year,
-                'calendar' => $calendar['data'] ?? [],
+                'message'  => 'Ignite Sales Calendar converted to IST for ' . $year,
+                'calendar' => $calendar,
             ]);
         }
 
