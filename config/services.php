@@ -180,6 +180,12 @@ return [
         'node_suffix_003'   => env('IGNITE_NODE_SUFFIX_003', '-003'),
     ],
 
+    'eway_bill' => [
+        'username' => env('EWB_USERNAME'),
+        'password' => env('EWB_PASSWORD'),
+        'gstin'    => env('EWB_GSTIN'),
+    ],
+
     'india_post' => [
         'transporter_id' => env('INDIA_POST_TRANSFORMER_ID'),
     ],
