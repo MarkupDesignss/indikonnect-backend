@@ -21,6 +21,9 @@ return [
     'resend' => [
         'key' => env('RESEND_API_KEY'),
     ],
+    'admin_url' => [
+        'key' => env('ADMIN_URL', 'https://www.markupdesigns.net/indiekonnect-admin/'),
+    ],
 
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
