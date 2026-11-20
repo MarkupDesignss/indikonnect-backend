@@ -2810,7 +2810,8 @@ class OrderController extends Controller
                         // Shipping / Courier Details (line-wise)
                         'shipping_details' => $line->shippingDetails ? [
                             'id'                      => $line->shippingDetails->id,
-                            'courier_tracking_number' => $line->shippingDetails->courier_tracking_number ?? null,
+                            'courier_tracking_id' => $line->shippingDetails->courier_tracking_number ?? null,
+                            // 'courier_tracking_number' => $line->shippingDetails->courier_tracking_number ?? null,
                             'courier_company'         => $line->shippingDetails->courier_company,
                             'delivery_notes'          => $line->shippingDetails->delivery_notes,
                             'courier_delivery_date'   => $line->shippingDetails->courier_delivery_date,
