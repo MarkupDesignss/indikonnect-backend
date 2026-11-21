@@ -356,211 +356,115 @@ class EwayBillService
 
      | ========================================================= */
 
-    public function testMockGeneration(): array
-
-    {
-
-        // Step 2 token — same chain as generatePartA()
-
-        $token = $this->getEwbAccessToken();
-
-
-
-        $mockPayload = [
-
-            'supplyType'        => 'O',
-
-            'subSupplyType'     => '1',
-
-            'subSupplyDesc'     => '',
-
-            'docType'           => 'INV',
-
-            'docNo'             => '7001-' . time(), // unique to avoid duplicate error
-
-            'docDate'           => '15/12/2017',
-
-
-
-            'fromGstin'         => '29AAACQ3770E000',
-
-            'fromTrdName'       => 'welton',
-
-            'fromAddr1'         => '2ND CROSS NO 59  19  A',
-
-            'fromAddr2'         => 'GROUND FLOOR OSBORNE ROAD',
-
-            'fromPlace'         => 'FRAZER TOWN',
-
-            'fromPincode'       => 400027,
-
-            'actFromStateCode'  => 27,
-
-            'fromStateCode'     => 27,
-
-
-
-            'toGstin'           => '27AAACQ3770E000',
-
-            'toTrdName'         => 'sthuthya',
-
-            'toAddr1'           => 'Shree Nilaya',
-
-            'toAddr2'           => 'Dasarahosahalli',
-
-            'toPlace'           => 'Beml Nagar',
-
-            'toPincode'         => 560090,
-
-            'actToStateCode'    => 29,
-
-            'toStateCode'       => 29,
-
-
-
-            'transactionType'   => 4,
-
-            'otherValue'        => 0,
-
-            'totalValue'        => 56099,
-
-            'cgstValue'         => 0,
-
-            'sgstValue'         => 0,
-
-            'igstValue'         => 1682.97,
-
-            'cessValue'         => 1682.97,
-
-            'cessNonAdvolValue' => 0,
-
-            'totInvValue'       => 59464.94,
-
-
-
-            'transporterId'     => '27AAACQ3770E004',
-
-            'transporterName'   => '',
-
-            'transDocNo'        => '',
-
-            'transMode'         => '1',
-
-            'transDistance'     => '1000',
-
-            'transDocDate'      => '',
-
-            'vehicleNo'         => 'PVC1234',
-
-            'vehicleType'       => 'R',
-
-
-
-            'itemList'          => [
-
-                [
-
-                    'productName'   => 'Wheat',
-
-                    'productDesc'   => 'Wheat',
-
-                    'hsnCode'       => 1001,
-
-                    'quantity'      => 4,
-
-                    'qtyUnit'       => 'BOX',
-
-                    'cgstRate'      => 0,
-
-                    'sgstRate'      => 0,
-
-                    'igstRate'      => 3,
-
-                    'cessRate'      => 3,
-
-                    'cessNonadvol'  => 0,
-
-                    'taxableAmount' => 56099,
-
-                ],
-
+     
+public function testMockGeneration(): array
+{
+    // E-Way Bill portal access token
+    $token = $this->getEwbAccessToken();
+
+    // Exact static payload provided by Sandbox
+    $payload = [
+        'supplyType' => 'O',
+        'subSupplyType' => '1',
+        'subSupplyDesc' => '',
+        'docType' => 'INV',
+        'docNo' => '7001-11',
+        'docDate' => '15/12/2017',
+
+        'fromGstin' => '29AAACQ3770E000',
+        'fromTrdName' => 'welton',
+        'fromAddr1' => '2ND CROSS NO 59  19  A',
+        'fromAddr2' => 'GROUND FLOOR OSBORNE ROAD',
+        'fromPlace' => 'FRAZER TOWN',
+        'fromPincode' => 400027,
+        'actFromStateCode' => 27,
+        'fromStateCode' => 27,
+
+        'toGstin' => '27AAACQ3770E000',
+        'toTrdName' => 'sthuthya',
+        'toAddr1' => 'Shree Nilaya',
+        'toAddr2' => 'Dasarahosahalli',
+        'toPlace' => 'Beml Nagar',
+        'toPincode' => 560090,
+        'actToStateCode' => 29,
+        'toStateCode' => 29,
+
+        'transactionType' => 4,
+        'otherValue' => 0,
+        'totalValue' => 56099,
+        'cgstValue' => 0,
+        'sgstValue' => 0,
+        'igstValue' => 1682.97,
+        'cessValue' => 1682.97,
+        'cessNonAdvolValue' => 0,
+        'totInvValue' => 59464.94,
+
+        'transporterId' => '27AAACQ3770E004',
+        'transporterName' => '',
+        'transDocNo' => '',
+        'transMode' => '1',
+        'transDistance' => '1000',
+        'transDocDate' => '',
+        'vehicleNo' => 'PVC1234',
+        'vehicleType' => 'R',
+
+        'itemList' => [
+            [
+                'productName' => 'Wheat',
+                'productDesc' => 'Wheat',
+                'hsnCode' => 1001,
+                'quantity' => 4,
+                'qtyUnit' => 'BOX',
+                'cgstRate' => 0,
+                'sgstRate' => 0,
+                'igstRate' => 3,
+                'cessRate' => 3,
+                'cessNonadvol' => 0,
+                'taxableAmount' => 56099,
             ],
+        ],
+    ];
 
+    try {
+        $response = Http::withHeaders([
+            'authorization' => $token,
+            'x-api-key' => $this->apiKey,
+            'x-api-version' => $this->apiVersion,
+            'Content-Type' => 'application/json',
+        ])->post(
+            $this->baseUrl . '/gst/compliance/e-way-bill/consignor/bill',
+            $payload
+        );
+
+        $responseData = $response->json();
+
+        Log::info('E-Way Bill STATIC MOCK TEST', [
+            'http_status' => $response->status(),
+            'payload' => $payload,
+            'response' => $responseData,
+        ]);
+
+        return [
+            'success' => (string) (
+                $responseData['data']['status']
+                ?? $responseData['data']['status_cd']
+                ?? ''
+            ) === '1',
+            'http_status' => $response->status(),
+            'response' => $responseData,
         ];
 
+    } catch (\Exception $e) {
+        Log::error('E-Way Bill STATIC MOCK TEST FAILED', [
+            'error' => $e->getMessage(),
+        ]);
 
-
-        try {
-
-            $response = Http::withHeaders([
-
-                'authorization' => $token,
-
-                'x-api-key'     => $this->apiKey,
-
-                'x-api-version' => $this->apiVersion,
-
-                'Content-Type'  => 'application/json',
-
-            ])->post($this->baseUrl . '/gst/compliance/e-way-bill/consignor/bill', $mockPayload);
-
-
-
-            $responseData = $response->json();
-
-
-
-            Log::info('E-Way Bill MOCK test', [
-
-                'http_status' => $response->status(),
-
-                'response'    => $responseData,
-
-                'payload'     => $mockPayload,
-
-            ]);
-
-
-
-            return [
-
-                'success'      => isset($responseData['data']['status_cd'])
-
-                                    && (string) $responseData['data']['status_cd'] === '1',
-
-                'http_status'  => $response->status(),
-
-                'eway_bill_no' => $responseData['data']['data']['ewayBillNo'] ?? null,
-
-                'response'     => $responseData,
-
-            ];
-
-
-
-        } catch (Exception $e) {
-
-            Log::error('E-Way Bill MOCK test exception', [
-
-                'error' => $e->getMessage(),
-
-            ]);
-
-
-
-            return [
-
-                'success'     => false,
-
-                'http_status' => null,
-
-                'error'       => $e->getMessage(),
-
-            ];
-
-        }
-
+        return [
+            'success' => false,
+            'error' => $e->getMessage(),
+        ];
     }
+}
 
 
 
