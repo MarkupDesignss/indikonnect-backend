@@ -350,11 +350,12 @@ class InvoiceController extends Controller
 
         $shippingLineExcl = round($shippingPerUnitExcl * $qty, 2);
         $shippingGstAmt   = round($shippingLineIncl - $shippingLineExcl, 2);
+        $serviceLineCharge = round($product->service_charge * $qty, 2);
 
         // ------------------------------------------
         // Line totals (product + shipping)
         // ------------------------------------------
-        $lineTotalInclGst = round($linePriceIncl + $shippingLineIncl, 2);
+        $lineTotalInclGst = round($linePriceIncl + $shippingLineIncl + $serviceLineCharge, 2);
         $lineTotalExclGst = round($linePriceExcl + $shippingLineExcl, 2);
         $lineTotalGst     = round($lineTotalInclGst - $lineTotalExclGst, 2);
 
@@ -397,7 +398,10 @@ class InvoiceController extends Controller
             'product_name'          => $product?->name ?? 'Unknown',
             // 'product_slug'          => $productSlug,
             'product_url'          => $redirectUrl,
-            'product_service_charge'          => $product?->service_charge ?? 'No slug',
+            // 'product_service_charge'          => $product?->service_charge * $qty ?? '',
+            'product_service_charge' => ($product?->service_charge * $qty) > 0
+                ? $product->service_charge * $qty
+                : null,
             'admin_orders'    => $adminOrdersUrl,
             'terms_condition' => $termfOfUse,
             'product_code'          => $product?->product_code,
