@@ -2130,7 +2130,7 @@ class SalesReportController extends Controller
 
                     // Order
                     'order_status' => $row->order_status,
-                    'delivery_status' => $row->delivery_status ?? '',
+                    // 'delivery_status' => $row->delivery_status ?? '',
                     'total_items' => (int) $row->total_items,
 
                     // Commission
