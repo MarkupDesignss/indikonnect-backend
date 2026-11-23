@@ -2121,11 +2121,11 @@ class SalesReportController extends Controller
                     'gateway_transaction_id' => $row->gateway_transaction_id ?? null,
 
                     // Courier (order-level fallback)
-                    'courier_company' => $row->courier_company ?? '',
-                    'courier_tracking_number' => $row->courier_tracking_number ?? '',
-                    'courier_delivery_date' => $row->courier_delivery_date
-                        ? Carbon::parse($row->courier_delivery_date)->format('d-m-Y')
-                        : '',
+                    // 'courier_company' => $row->courier_company ?? '',
+                    // 'courier_tracking_number' => $row->courier_tracking_number ?? '',
+                    // 'courier_delivery_date' => $row->courier_delivery_date
+                    //     ? Carbon::parse($row->courier_delivery_date)->format('d-m-Y')
+                    //     : '',
                 ];
             });
 
