@@ -2158,13 +2158,13 @@ class SalesReportController extends Controller
                         ? Carbon::parse($row->delivered_at)->format('d-m-Y H:i')
                         : '',
 
-                    'refunded_at' => $row->refunded_at
-                        ? Carbon::parse($row->refunded_at)->format('d-m-Y H:i')
-                        : '',
+                    // 'refunded_at' => $row->refunded_at
+                    //     ? Carbon::parse($row->refunded_at)->format('d-m-Y H:i')
+                    //     : '',
 
-                    'last_refund_date' => $row->last_refund_date
-                        ? Carbon::parse($row->last_refund_date)->format('d-m-Y H:i')
-                        : '',
+                    // 'last_refund_date' => $row->last_refund_date
+                    //     ? Carbon::parse($row->last_refund_date)->format('d-m-Y H:i')
+                    //     : '',
 
                     // Payment
                     'payment_gateway' => $paymentGatewayDisplay,
