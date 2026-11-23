@@ -95,7 +95,6 @@ class FinanceCommissionExportController extends Controller
         }
 
         // ---------- Build period(s) ----------
-        // Har period = [start, end, label]
         $periods = [];
 
         if ($hasWeek) {
@@ -127,7 +126,7 @@ class FinanceCommissionExportController extends Controller
             ];
         }
 
-        // Union window (for logging + fetch optimization)
+        // Union window
         $unionStart = collect($periods)->min(fn($p) => $p['start']);
         $unionEnd   = collect($periods)->max(fn($p) => $p['end']);
 
@@ -168,7 +167,6 @@ class FinanceCommissionExportController extends Controller
 
         foreach ($distributors as $dist) {
             try {
-                // Fetch once for the union window
                 $history = $this->fetchHistoryInRange(
                     $dist->distributor_id,
                     $unionStart->copy(),
@@ -176,7 +174,7 @@ class FinanceCommissionExportController extends Controller
                     $usdRate
                 );
 
-                // Per-period gross (avoid double count if week ⊂ range)
+                // Per-period gross
                 $perPeriodGross = [];
                 foreach ($periods as $idx => $p) {
                     $gross = 0;
@@ -199,7 +197,7 @@ class FinanceCommissionExportController extends Controller
                     $perPeriodGross[$idx] = round($gross, 2);
                 }
 
-                // Combined gross: union ke andar sab positive cash_bal (dedup by tx id)
+                // Combined gross
                 $combinedGross = 0;
                 $seen = [];
                 foreach ($history as $tx) {
@@ -245,7 +243,6 @@ class FinanceCommissionExportController extends Controller
                 $tdsAmount     = round($combinedGross * $tdsRate, 2);
                 $netCommission = round($combinedGross - $tdsAmount, 2);
 
-                // Per-period breakdown (gross only; TDS same rate se)
                 $breakdown = [];
                 foreach ($periods as $idx => $p) {
                     $g = $perPeriodGross[$idx] ?? 0;
@@ -265,11 +262,9 @@ class FinanceCommissionExportController extends Controller
                     'distributor_name' => $dist->full_name,
                     'email'            => $dist->email,
 
-                    // period meta
                     'period_type' => count($periods) > 1 ? 'combined' : $periods[0]['type'],
                     'breakdown'   => $breakdown,
 
-                    // top-level (combined)
                     'gross_commission' => $combinedGross,
                     'tds_section'      => $tdsSection,
                     'tds_rate_percent' => round($tdsRate * 100, 2),
@@ -295,6 +290,34 @@ class FinanceCommissionExportController extends Controller
                 ]);
             }
         }
+
+        // ---------- purchase_not (placeholder entry, period meta only) ----------
+        $purchaseNot = [[
+            'ba_id'            => null,
+            'distributor_name' => null,
+            'email'            => null,
+            'period_type'      => count($periods) > 1 ? 'combined' : $periods[0]['type'],
+            'breakdown'        => array_map(fn($p) => [
+                'type'             => $p['type'],
+                'label'            => $p['label'],
+                'start'            => $p['start']->format('Y-m-d H:i:s'),
+                'end'              => $p['end']->format('Y-m-d H:i:s'),
+                'gross_commission' => null,
+                'tds_amount'       => null,
+                'net_commission'   => null,
+            ], $periods),
+            'gross_commission'    => null,
+            'tds_section'         => null,
+            'tds_rate_percent'    => null,
+            'tds_amount'          => null,
+            'net_commission'      => null,
+            'gst_in'              => null,
+            'pan_verified'        => null,
+            'bank_holder_name'    => null,
+            'bank_ifsc'           => null,
+            'pan_number'          => null,
+            'bank_account_number' => null,
+        ]];
 
         return response()->json([
             'success'  => true,
@@ -331,8 +354,9 @@ class FinanceCommissionExportController extends Controller
                 'total_tds'          => round(array_sum(array_column($rows, 'tds_amount')), 2),
                 'total_net'          => round(array_sum(array_column($rows, 'net_commission')), 2),
             ],
-            'data'   => $rows,
-            'failed' => $failed,
+            'data'         => $rows,
+            'purchase_not' => $purchaseNot,
+            'failed'       => $failed,
         ]);
     }
 
