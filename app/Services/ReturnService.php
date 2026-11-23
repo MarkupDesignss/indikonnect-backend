@@ -889,7 +889,7 @@ class ReturnService
 
                 $subtotal  = round($unitPrice * $quantity, 2);
                 $tax       = round($subtotal * ($gstRate / 100), 2);
-                $lineTotal = round($subtotal + $tax, 2);
+                $lineTotal = round($subtotal, 2);
 
                 $itemShippingRefund = round(
                     (float) ($orderLine->shipping_charge ?? 0) * $quantity,
