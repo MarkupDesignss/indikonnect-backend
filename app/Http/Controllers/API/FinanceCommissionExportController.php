@@ -258,7 +258,8 @@ class FinanceCommissionExportController extends Controller
                 }
 
                 $rows[] = [
-                    'ba_id'            => $dist->distributor_id,
+                    //'ba_id'            => $dist->distributor_id,
+                    'ba_id' => $this->stripBaIdSuffix($dist->distributor_id),
                     'distributor_name' => $dist->full_name,
                     'email'            => $dist->email,
 
@@ -989,5 +990,25 @@ class FinanceCommissionExportController extends Controller
     private function fetchHistoryInRange(string $baId, Carbon $start, Carbon $end, float $usdRate): array
     {
         return $this->fetchHistoryForWeek($baId, $start, $end, $usdRate);
+    }
+
+    /**
+     * Strip trailing numeric suffix from BA id.
+     * e.g. "AIA1675197-001" => "AIA1675197"
+     *      "AIA-1675197-002" => "AIA-1675197"
+     *      "AIA1675197"      => "AIA1675197"   (unchanged)
+     *      "AIA1675197-XYZ"  => "AIA1675197-XYZ" (unchanged, not numeric)
+     */
+    private function stripBaIdSuffix(?string $baId): ?string
+    {
+        if ($baId === null || $baId === '') {
+            return $baId;
+        }
+
+        if (preg_match('/^(.*)-(\d+)$/', $baId, $m)) {
+            return $m[1];
+        }
+
+        return $baId;
     }
 }
