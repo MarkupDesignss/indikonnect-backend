@@ -2054,6 +2054,7 @@ class SalesReportController extends Controller
                     // NEW: explicit order reference
                     'order_reference' => (string) ($row->order_reference ?? ''),
 
+
                     // Customer
                     'customer_name' => $row->customer_name ?? '',
                     'account_type' => $row->account_type ?? '',
