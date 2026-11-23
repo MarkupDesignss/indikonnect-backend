@@ -28,27 +28,240 @@ class FinanceCommissionExportController extends Controller
      *
      * TIP: Use week=0 to see the full Ignite Sales Calendar for debugging
      */
+    // public function download(Request $request)
+    // {
+    //     $request->validate([
+    //         'week' => 'required|integer|min:0|max:53',
+    //         'year' => 'required|integer|min:2020|max:2100',
+    //     ]);
+
+    //     $week = (int) $request->week;
+    //     $year = (int) $request->year;
+
+    //     // DEBUG MODE: Show entire Ignite calendar
+    //     // if ($week === 0) {
+    //     //     $calendar = $this->ignite->salesCalendar($year);
+    //     //     return response()->json([
+    //     //         'success'  => true,
+    //     //         'message'  => 'Full Ignite Sales Calendar for ' . $year,
+    //     //         'calendar' => $calendar['data'] ?? [],
+    //     //     ]);
+    //     // }
+
+    //     if ($week === 0) {
+    //         $response = $this->ignite->salesCalendar($year);
+    //         $calendar = $response['data'] ?? [];
+
+    //         foreach ($calendar['months'] as &$month) {
+    //             foreach ($month['weeks'] as &$w) {
+    //                 $startRaw = $w['start_at'] ?? null;
+    //                 $endRaw   = $w['end_at'] ?? null;
+
+    //                 if ($startRaw) {
+    //                     $startIst = Carbon::parse($startRaw, 'Asia/Hong_Kong')
+    //                         ->setTimezone('Asia/Kolkata');
+
+    //                     $w['start_at'] = $startIst->format('Y-m-d H:i:s');
+    //                     $w['start_date'] = $startIst->format('Y-m-d');
+    //                 }
+
+    //                 if ($endRaw) {
+    //                     $endIst = Carbon::parse($endRaw, 'Asia/Hong_Kong')
+    //                         ->setTimezone('Asia/Kolkata')
+    //                         ->subSecond();
+
+    //                     $w['end_at'] = $endIst->format('Y-m-d H:i:s');
+    //                     $w['end_date'] = $endIst->format('Y-m-d');
+    //                 }
+    //             }
+    //             unset($w);
+
+    //             if (!empty($month['weeks'])) {
+    //                 $firstWeek = reset($month['weeks']);
+    //                 $lastWeek = end($month['weeks']);
+
+    //                 $month['start_date'] = $firstWeek['start_date'] ?? null;
+    //                 $month['end_date'] = $lastWeek['end_date'] ?? null;
+    //             }
+    //         }
+    //         unset($month);
+
+    //         return response()->json([
+    //             'success'  => true,
+    //             'message'  => 'Full Ignite Sales Calendar (IST) for ' . $year,
+    //             'calendar' => $calendar,
+    //         ]);
+    //     }
+
+
+    //     [$weekStart, $weekEnd] = $this->getWeekRange($week, $year);
+
+    //     Log::info("Commission export started", [
+    //         'week'       => $week,
+    //         'year'       => $year,
+    //         'week_start' => $weekStart->toDateTimeString(),
+    //         'week_end'   => $weekEnd->toDateTimeString(),
+    //     ]);
+
+    //     $usdRate = (float) Cache::remember('usd_to_inr_rate', 3600, function () {
+    //         return \App\Models\Setting::where('group', 'exchange_rate')
+    //             ->where('key', 'usd_to_inr')->value('value') ?: 0;
+    //     });
+
+    //     if ($usdRate <= 0) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Exchange rate not configured. Contact admin.'
+    //         ], 500);
+    //     }
+
+    //     $distributors = User::query()
+    //         ->with(['distributorProfile'])
+    //         ->where('account_type', 'distributor')
+    //         ->whereNotNull('distributor_id')
+    //         ->where('distributor_id', '!=', '')
+    //         ->select('id', 'full_name', 'email', 'distributor_id', 'complete_pan_card')
+    //         ->orderBy('id')
+    //         ->get();
+
+    //     $rows   = [];
+    //     $failed = [];
+
+    //     foreach ($distributors as $dist) {
+    //         try {
+    //             $history = $this->fetchHistoryForWeek($dist->distributor_id, $weekStart, $weekEnd, $usdRate);
+
+    //             // ---------- Gross commission (withdrawals excluded) ----------
+    //             $grossCommission = 0;
+
+    //             foreach ($history as $tx) {
+    //                 if (($tx['point_type'] ?? '') !== 'cash_bal') continue;
+
+    //                 $desc   = $tx['description'] ?? '';
+    //                 $amount = (float) $tx['amount_inr'];
+
+    //                 // Withdrawals are payouts, not commission — exclude
+    //                 if ($desc === 'wd_partner_payout' || str_starts_with($desc, 'wd_')) {
+    //                     continue;
+    //                 }
+
+    //                 // Only positive earnings count
+    //                 if ($amount > 0) {
+    //                     $grossCommission += $amount;
+    //                 }
+    //             }
+
+    //             if ($grossCommission <= 0) {
+    //                 continue;
+    //             }
+
+    //             // ---------- TDS rate (based on complete_pan_card presence) ----------
+    //             $profile     = $dist->distributorProfile;
+    //             $gstIn       = $profile?->gst_in;
+    //             $panVerified = (bool) ($profile?->pan_verified ?? false);
+
+    //             $hasPanCard = !empty(trim((string) $dist->complete_pan_card))
+    //                 && $dist->complete_pan_card !== '-';
+
+    //             $tdsRate    = $hasPanCard ? 0.02 : 0.20;
+    //             $tdsSection = $hasPanCard ? '194-O' : '194J';
+
+    //             $tdsAmount     = round($grossCommission * $tdsRate, 2);
+    //             $netCommission = round($grossCommission - $tdsAmount, 2);
+
+    //             $rows[] = [
+    //                 'ba_id'               => $dist->distributor_id,
+    //                 'distributor_name'    => $dist->full_name,
+    //                 'email'               => $dist->email,
+    //                 'week'                => $week,
+    //                 'year'                => $year,
+    //                 'gross_commission'    => $grossCommission,
+
+    //                 // TDS fields
+    //                 'tds_section'         => $tdsSection,
+    //                 'tds_rate_percent'    => round($tdsRate * 100, 2),
+    //                 'tds_amount'          => $tdsAmount,
+    //                 'net_commission'      => $netCommission,
+
+    //                 // No masking — plain values
+    //                 'gst_in'              => $gstIn ?: '-',
+    //                 'pan_verified'        => $panVerified,
+
+    //                 // Bank details
+    //                 'bank_holder_name'    => $profile->bank_holder_name ?? '-',
+    //                 'bank_ifsc'           => $profile->bank_ifsc ?? '-',
+
+    //                 'pan_number'          => $dist->complete_pan_card ?? '-',
+    //                 'bank_account_number' => $profile?->complete_bank_account ?? '-',
+
+    //             ];
+    //         } catch (\Throwable $e) {
+    //             $failed[] = [
+    //                 'distributor_id' => $dist->distributor_id,
+    //                 'error'          => $e->getMessage(),
+    //             ];
+    //             Log::warning('Commission export failed', [
+    //                 'distributor_id' => $dist->distributor_id,
+    //                 'error'          => $e->getMessage(),
+    //             ]);
+    //         }
+    //     }
+
+    //     return response()->json([
+    //         'success'  => true,
+    //         'message'  => empty($rows)
+    //             ? 'No commission data available for the specified week and year.'
+    //             : 'Commission data fetched successfully.',
+    //         'currency' => [
+    //             'base'          => 'USD',
+    //             'display'       => 'INR',
+    //             'exchange_rate' => $usdRate,
+    //         ],
+    //         'filters' => [
+    //             'week' => $week,
+    //             'year' => $year,
+    //         ],
+    //         'week_range' => [
+    //             'start' => $weekStart->format('Y-m-d H:i:s'),
+    //             'end'   => $weekEnd->format('Y-m-d H:i:s'),
+    //         ],
+    //         'summary' => [
+    //             'total_distributors' => $distributors->count(),
+    //             'total_eligible'     => count($rows),
+    //             'failed_count'       => count($failed),
+    //             'total_gross'        => round(array_sum(array_column($rows, 'gross_commission')), 2),
+    //             'total_tds'          => round(array_sum(array_column($rows, 'tds_amount')), 2),
+    //             'total_net'          => round(array_sum(array_column($rows, 'net_commission')), 2),
+    //         ],
+    //         'data'   => $rows,
+    //         'failed' => $failed,
+    //     ]);
+    // }
+
     public function download(Request $request)
     {
         $request->validate([
-            'week' => 'required|integer|min:0|max:53',
-            'year' => 'required|integer|min:2020|max:2100',
+            'week'      => 'nullable|integer|min:0|max:53',
+            'year'      => 'nullable|integer|min:2020|max:2100',
+            'from_date' => 'nullable|date_format:Y-m-d|required_with:to_date',
+            'to_date'   => 'nullable|date_format:Y-m-d|required_with:from_date|after_or_equal:from_date',
         ]);
 
-        $week = (int) $request->week;
-        $year = (int) $request->year;
+        $hasWeek  = $request->filled('week') && $request->filled('year');
+        $hasRange = $request->filled('from_date') && $request->filled('to_date');
 
-        // DEBUG MODE: Show entire Ignite calendar
-        // if ($week === 0) {
-        //     $calendar = $this->ignite->salesCalendar($year);
-        //     return response()->json([
-        //         'success'  => true,
-        //         'message'  => 'Full Ignite Sales Calendar for ' . $year,
-        //         'calendar' => $calendar['data'] ?? [],
-        //     ]);
-        // }
+        if (!$hasWeek && !$hasRange) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Provide week+year and/or from_date+to_date.',
+            ], 422);
+        }
 
-        if ($week === 0) {
+        $week = $hasWeek ? (int) $request->week : null;
+        $year = $hasWeek ? (int) $request->year : null;
+
+        // ---------- DEBUG MODE (week=0) ----------
+        if ($hasWeek && $week === 0) {
             $response = $this->ignite->salesCalendar($year);
             $calendar = $response['data'] ?? [];
 
@@ -60,8 +273,7 @@ class FinanceCommissionExportController extends Controller
                     if ($startRaw) {
                         $startIst = Carbon::parse($startRaw, 'Asia/Hong_Kong')
                             ->setTimezone('Asia/Kolkata');
-
-                        $w['start_at'] = $startIst->format('Y-m-d H:i:s');
+                        $w['start_at']   = $startIst->format('Y-m-d H:i:s');
                         $w['start_date'] = $startIst->format('Y-m-d');
                     }
 
@@ -69,8 +281,7 @@ class FinanceCommissionExportController extends Controller
                         $endIst = Carbon::parse($endRaw, 'Asia/Hong_Kong')
                             ->setTimezone('Asia/Kolkata')
                             ->subSecond();
-
-                        $w['end_at'] = $endIst->format('Y-m-d H:i:s');
+                        $w['end_at']   = $endIst->format('Y-m-d H:i:s');
                         $w['end_date'] = $endIst->format('Y-m-d');
                     }
                 }
@@ -78,10 +289,9 @@ class FinanceCommissionExportController extends Controller
 
                 if (!empty($month['weeks'])) {
                     $firstWeek = reset($month['weeks']);
-                    $lastWeek = end($month['weeks']);
-
+                    $lastWeek  = end($month['weeks']);
                     $month['start_date'] = $firstWeek['start_date'] ?? null;
-                    $month['end_date'] = $lastWeek['end_date'] ?? null;
+                    $month['end_date']   = $lastWeek['end_date'] ?? null;
                 }
             }
             unset($month);
@@ -93,14 +303,52 @@ class FinanceCommissionExportController extends Controller
             ]);
         }
 
+        // ---------- Build period(s) ----------
+        // Har period = [start, end, label]
+        $periods = [];
 
-        [$weekStart, $weekEnd] = $this->getWeekRange($week, $year);
+        if ($hasWeek) {
+            [$wStart, $wEnd] = $this->getWeekRange($week, $year);
+            $periods[] = [
+                'type'  => 'week',
+                'label' => "W{$week}-{$year}",
+                'start' => $wStart,
+                'end'   => $wEnd,
+            ];
+        }
+
+        if ($hasRange) {
+            $rStart = Carbon::parse($request->from_date, 'Asia/Kolkata')->startOfDay();
+            $rEnd   = Carbon::parse($request->to_date,   'Asia/Kolkata')->endOfDay();
+
+            if ($rStart->diffInDays($rEnd) > 366) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Date range cannot exceed 366 days.',
+                ], 422);
+            }
+
+            $periods[] = [
+                'type'  => 'custom_range',
+                'label' => $rStart->toDateString() . ' to ' . $rEnd->toDateString(),
+                'start' => $rStart,
+                'end'   => $rEnd,
+            ];
+        }
+
+        // Union window (for logging + fetch optimization)
+        $unionStart = collect($periods)->min(fn($p) => $p['start']);
+        $unionEnd   = collect($periods)->max(fn($p) => $p['end']);
 
         Log::info("Commission export started", [
-            'week'       => $week,
-            'year'       => $year,
-            'week_start' => $weekStart->toDateTimeString(),
-            'week_end'   => $weekEnd->toDateTimeString(),
+            'periods'     => array_map(fn($p) => [
+                'type'  => $p['type'],
+                'label' => $p['label'],
+                'start' => $p['start']->toDateTimeString(),
+                'end'   => $p['end']->toDateTimeString(),
+            ], $periods),
+            'union_start' => $unionStart->toDateTimeString(),
+            'union_end'   => $unionEnd->toDateTimeString(),
         ]);
 
         $usdRate = (float) Cache::remember('usd_to_inr_rate', 3600, function () {
@@ -111,7 +359,7 @@ class FinanceCommissionExportController extends Controller
         if ($usdRate <= 0) {
             return response()->json([
                 'success' => false,
-                'message' => 'Exchange rate not configured. Contact admin.'
+                'message' => 'Exchange rate not configured. Contact admin.',
             ], 500);
         }
 
@@ -129,33 +377,70 @@ class FinanceCommissionExportController extends Controller
 
         foreach ($distributors as $dist) {
             try {
-                $history = $this->fetchHistoryForWeek($dist->distributor_id, $weekStart, $weekEnd, $usdRate);
+                // Fetch once for the union window
+                $history = $this->fetchHistoryInRange(
+                    $dist->distributor_id,
+                    $unionStart->copy(),
+                    $unionEnd->copy(),
+                    $usdRate
+                );
 
-                // ---------- Gross commission (withdrawals excluded) ----------
-                $grossCommission = 0;
+                // Per-period gross (avoid double count if week ⊂ range)
+                $perPeriodGross = [];
+                foreach ($periods as $idx => $p) {
+                    $gross = 0;
+                    foreach ($history as $tx) {
+                        if (($tx['point_type'] ?? '') !== 'cash_bal') continue;
 
+                        $desc   = $tx['description'] ?? '';
+                        $amount = (float) $tx['amount_inr'];
+
+                        if ($desc === 'wd_partner_payout' || str_starts_with($desc, 'wd_')) {
+                            continue;
+                        }
+                        if ($amount <= 0) continue;
+
+                        $txAt = Carbon::parse($tx['created_ist'], 'Asia/Kolkata');
+                        if ($txAt->gte($p['start']) && $txAt->lte($p['end'])) {
+                            $gross += $amount;
+                        }
+                    }
+                    $perPeriodGross[$idx] = round($gross, 2);
+                }
+
+                // Combined gross: union ke andar sab positive cash_bal (dedup by tx id)
+                $combinedGross = 0;
+                $seen = [];
                 foreach ($history as $tx) {
                     if (($tx['point_type'] ?? '') !== 'cash_bal') continue;
 
                     $desc   = $tx['description'] ?? '';
                     $amount = (float) $tx['amount_inr'];
 
-                    // Withdrawals are payouts, not commission — exclude
-                    if ($desc === 'wd_partner_payout' || str_starts_with($desc, 'wd_')) {
-                        continue;
-                    }
+                    if ($desc === 'wd_partner_payout' || str_starts_with($desc, 'wd_')) continue;
+                    if ($amount <= 0) continue;
 
-                    // Only positive earnings count
-                    if ($amount > 0) {
-                        $grossCommission += $amount;
+                    $txAt = Carbon::parse($tx['created_ist'], 'Asia/Kolkata');
+                    $inAny = false;
+                    foreach ($periods as $p) {
+                        if ($txAt->gte($p['start']) && $txAt->lte($p['end'])) {
+                            $inAny = true;
+                            break;
+                        }
                     }
+                    if (!$inAny) continue;
+                    if (isset($seen[$tx['id']])) continue;
+                    $seen[$tx['id']] = true;
+
+                    $combinedGross += $amount;
                 }
+                $combinedGross = round($combinedGross, 2);
 
-                if ($grossCommission <= 0) {
+                if ($combinedGross <= 0) {
                     continue;
                 }
 
-                // ---------- TDS rate (based on complete_pan_card presence) ----------
+                // ---------- TDS ----------
                 $profile     = $dist->distributorProfile;
                 $gstIn       = $profile?->gst_in;
                 $panVerified = (bool) ($profile?->pan_verified ?? false);
@@ -166,34 +451,47 @@ class FinanceCommissionExportController extends Controller
                 $tdsRate    = $hasPanCard ? 0.02 : 0.20;
                 $tdsSection = $hasPanCard ? '194-O' : '194J';
 
-                $tdsAmount     = round($grossCommission * $tdsRate, 2);
-                $netCommission = round($grossCommission - $tdsAmount, 2);
+                $tdsAmount     = round($combinedGross * $tdsRate, 2);
+                $netCommission = round($combinedGross - $tdsAmount, 2);
+
+                // Per-period breakdown (gross only; TDS same rate se)
+                $breakdown = [];
+                foreach ($periods as $idx => $p) {
+                    $g = $perPeriodGross[$idx] ?? 0;
+                    $breakdown[] = [
+                        'type'          => $p['type'],
+                        'label'         => $p['label'],
+                        'start'         => $p['start']->format('Y-m-d H:i:s'),
+                        'end'           => $p['end']->format('Y-m-d H:i:s'),
+                        'gross_commission' => $g,
+                        'tds_amount'    => round($g * $tdsRate, 2),
+                        'net_commission'=> round($g - round($g * $tdsRate, 2), 2),
+                    ];
+                }
 
                 $rows[] = [
-                    'ba_id'               => $dist->distributor_id,
-                    'distributor_name'    => $dist->full_name,
-                    'email'               => $dist->email,
-                    'week'                => $week,
-                    'year'                => $year,
-                    'gross_commission'    => $grossCommission,
+                    'ba_id'            => $dist->distributor_id,
+                    'distributor_name' => $dist->full_name,
+                    'email'            => $dist->email,
 
-                    // TDS fields
-                    'tds_section'         => $tdsSection,
-                    'tds_rate_percent'    => round($tdsRate * 100, 2),
-                    'tds_amount'          => $tdsAmount,
-                    'net_commission'      => $netCommission,
+                    // period meta
+                    'period_type' => count($periods) > 1 ? 'combined' : $periods[0]['type'],
+                    'breakdown'   => $breakdown,
 
-                    // No masking — plain values
-                    'gst_in'              => $gstIn ?: '-',
-                    'pan_verified'        => $panVerified,
+                    // top-level (combined)
+                    'gross_commission' => $combinedGross,
+                    'tds_section'      => $tdsSection,
+                    'tds_rate_percent' => round($tdsRate * 100, 2),
+                    'tds_amount'       => $tdsAmount,
+                    'net_commission'   => $netCommission,
 
-                    // Bank details
+                    'gst_in'       => $gstIn ?: '-',
+                    'pan_verified' => $panVerified,
+
                     'bank_holder_name'    => $profile->bank_holder_name ?? '-',
                     'bank_ifsc'           => $profile->bank_ifsc ?? '-',
-
                     'pan_number'          => $dist->complete_pan_card ?? '-',
                     'bank_account_number' => $profile?->complete_bank_account ?? '-',
-
                 ];
             } catch (\Throwable $e) {
                 $failed[] = [
@@ -210,20 +508,29 @@ class FinanceCommissionExportController extends Controller
         return response()->json([
             'success'  => true,
             'message'  => empty($rows)
-                ? 'No commission data available for the specified week and year.'
+                ? 'No commission data available for the specified period.'
                 : 'Commission data fetched successfully.',
             'currency' => [
                 'base'          => 'USD',
                 'display'       => 'INR',
                 'exchange_rate' => $usdRate,
             ],
+            'period_type' => count($periods) > 1 ? 'combined' : $periods[0]['type'],
             'filters' => [
-                'week' => $week,
-                'year' => $year,
+                'week'      => $week,
+                'year'      => $year,
+                'from_date' => $hasRange ? $request->from_date : null,
+                'to_date'   => $hasRange ? $request->to_date   : null,
             ],
+            'periods' => array_map(fn($p) => [
+                'type'  => $p['type'],
+                'label' => $p['label'],
+                'start' => $p['start']->format('Y-m-d H:i:s'),
+                'end'   => $p['end']->format('Y-m-d H:i:s'),
+            ], $periods),
             'week_range' => [
-                'start' => $weekStart->format('Y-m-d H:i:s'),
-                'end'   => $weekEnd->format('Y-m-d H:i:s'),
+                'start' => $unionStart->format('Y-m-d H:i:s'),
+                'end'   => $unionEnd->format('Y-m-d H:i:s'),
             ],
             'summary' => [
                 'total_distributors' => $distributors->count(),
@@ -244,31 +551,342 @@ class FinanceCommissionExportController extends Controller
     /**
      * GET /api/finance/weekly-commission-report?year=2026&weeks=12&ba_id=optional
      */
+    // public function weeklyCommissionReport(Request $request)
+    // {
+    //     $request->validate([
+    //         'year'  => 'required|integer|min:2020|max:2100',
+    //         'weeks' => 'nullable|integer|min:1|max:53',
+    //         'ba_id' => 'nullable|string|max:100',
+    //     ]);
+
+    //     $year  = (int) $request->year;
+    //     $weeks = min(max((int) $request->input('weeks', 12), 1), 53);
+    //     $baId  = $request->input('ba_id');
+
+    //     $calendar = $this->getRawCalendar($year);
+    //     if (!$calendar) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => "Sales calendar for {$year} not available",
+    //         ], 422);
+    //     }
+
+    //     $weekWindows = $this->buildWeekWindows($calendar);
+    //     if (empty($weekWindows)) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'No weeks found in calendar',
+    //         ], 422);
+    //     }
+
+    //     $usdRate = (float) Cache::remember('usd_to_inr_rate', 3600, function () {
+    //         return \App\Models\Setting::where('group', 'exchange_rate')
+    //             ->where('key', 'usd_to_inr')->value('value') ?: 0;
+    //     });
+
+    //     if ($usdRate <= 0) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Exchange rate not configured. Contact admin.'
+    //         ], 500);
+    //     }
+
+    //     $query = User::query()
+    //         ->with(['distributorProfile'])
+    //         ->where('account_type', 'distributor')
+    //         ->whereNotNull('distributor_id')
+    //         ->where('distributor_id', '!=', '')
+    //         ->select('id', 'full_name', 'email', 'distributor_id', 'complete_pan_card')
+    //         ->orderBy('id');
+
+    //     if ($baId) {
+    //         $query->where('distributor_id', $baId);
+    //     }
+
+    //     $distributors = $query->get();
+
+    //     if ($distributors->isEmpty()) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'No distributors found',
+    //         ], 404);
+    //     }
+
+    //     $cutoff = $weekWindows[0]['start'];
+
+    //     // Pre-compute TDS info per distributor (based on complete_pan_card)
+    //     $tdsInfoMap = [];
+    //     foreach ($distributors as $dist) {
+    //         $hasPanCard = !empty(trim((string) $dist->complete_pan_card))
+    //             && $dist->complete_pan_card !== '-';
+
+    //         $tdsInfoMap[$dist->distributor_id] = [
+    //             'tds_rate'    => $hasPanCard ? 0.02 : 0.20,
+    //             'tds_section' => $hasPanCard ? '194-O' : '194J',
+    //         ];
+    //     }
+
+    //     $perDistributor = [];
+    //     $failed         = [];
+
+    //     foreach ($distributors as $dist) {
+    //         try {
+    //             $transactions = $this->fetchAllPointTxsSince($dist->distributor_id, $cutoff, $usdRate);
+    //             $buckets      = $this->bucketByWeek($transactions, $weekWindows);
+
+    //             $perDistributor[$dist->distributor_id] = [
+    //                 'distributor' => $dist,
+    //                 'buckets'     => $buckets,
+    //             ];
+    //         } catch (\Throwable $e) {
+    //             $failed[] = [
+    //                 'distributor_id' => $dist->distributor_id,
+    //                 'error'          => $e->getMessage(),
+    //             ];
+    //             Log::warning('Weekly report failed for distributor', [
+    //                 'ba_id' => $dist->distributor_id,
+    //                 'error' => $e->getMessage(),
+    //             ]);
+    //         }
+    //     }
+
+    //     $weekRows = [];
+
+    //     foreach (array_reverse($weekWindows) as $win) {
+    //         $weekNo = $win['week_no'];
+
+    //         $aggCashUsd  = 0;
+    //         $aggGreen    = 0;
+    //         $aggYellow   = 0;
+    //         $aggBlue     = 0;
+    //         $aggCvLeft   = 0;
+    //         $aggCvRight  = 0;
+    //         $aggTdsInr   = 0;
+    //         $aggNetInr   = 0;
+    //         $txCount     = 0;
+    //         $distributorsInWeek = [];
+
+    //         foreach ($perDistributor as $distBaId => $entry) {
+    //             $b = $entry['buckets'][$weekNo] ?? null;
+    //             if (!$b) continue;
+
+    //             $cash   = (float) ($b['cash_bal']   ?? 0);
+    //             $green  = (float) ($b['green_bal']  ?? 0);
+    //             $yellow = (float) ($b['yellow_bal'] ?? 0);
+    //             $blue   = (float) ($b['blue_bal']   ?? 0);
+    //             $cvL    = (float) ($b['pv1_bal']    ?? 0);
+    //             $cvR    = (float) ($b['pv2_bal']    ?? 0);
+    //             $tc     = (int)   ($b['tx_count']   ?? 0);
+
+    //             if ($tc === 0) continue;
+
+    //             // Per-distributor TDS (on positive commission only)
+    //             $tdsInfo        = $tdsInfoMap[$distBaId] ?? ['tds_rate' => 0.20, 'tds_section' => '194J'];
+    //             $grossCommissionInr = (float) ($b['gross_commission_inr'] ?? 0);
+    //             $tdsAmountInr   = round($grossCommissionInr * $tdsInfo['tds_rate'], 2);
+    //             $netCommissionInr = round($grossCommissionInr - $tdsAmountInr, 2);
+
+    //             $aggCashUsd += $cash;
+    //             $aggGreen   += $green;
+    //             $aggYellow  += $yellow;
+    //             $aggBlue    += $blue;
+    //             $aggCvLeft  += $cvL;
+    //             $aggCvRight += $cvR;
+    //             $aggTdsInr  += $tdsAmountInr;
+    //             $aggNetInr  += $netCommissionInr;
+    //             $txCount    += $tc;
+
+    //             $distributorsInWeek[] = [
+    //                 'ba_id'       => $distBaId,
+    //                 'name'        => $entry['distributor']->full_name,
+    //                 'cash_usd'    => round($cash, 4),
+    //                 'cash_inr'    => round($cash * $usdRate, 2),
+    //                 'green_coin'  => round($green, 4),
+    //                 'yellow_coin' => round($yellow, 4),
+    //                 'blue_coin'   => round($blue, 4),
+    //                 'cv_left'     => round($cvL, 4),
+    //                 'cv_right'    => round($cvR, 4),
+    //                 'tx_count'    => $tc,
+
+    //                 // TDS per distributor
+    //                 'tds_section'      => $tdsInfo['tds_section'],
+    //                 'tds_rate_percent' => round($tdsInfo['tds_rate'] * 100, 2),
+    //                 'gross_commission_inr' => $grossCommissionInr,
+    //                 'tds_amount_inr'   => $tdsAmountInr,
+    //                 'net_commission_inr' => $netCommissionInr,
+    //             ];
+    //         }
+
+    //         if ($txCount === 0 && empty($win['is_current'])) {
+    //             continue;
+    //         }
+
+    //         $weekRows[] = [
+    //             'week_no'            => $weekNo,
+    //             'year'               => $year,
+    //             'start'              => $win['start']->format('Y-m-d H:i:s'),
+    //             'end'                => $win['end']->format('Y-m-d H:i:s'),
+    //             'is_current'         => $win['is_current'],
+    //             'is_settled'         => $win['is_settled'],
+
+    //             'total_cash_usd'     => round($aggCashUsd, 4),
+    //             'total_cash_inr'     => round($aggCashUsd * $usdRate, 2),
+    //             'total_green_coin'   => round($aggGreen, 4),
+    //             'total_yellow_coin'  => round($aggYellow, 4),
+    //             'total_blue_coin'    => round($aggBlue, 4),
+    //             'total_cv_left'      => round($aggCvLeft, 4),
+    //             'total_cv_right'     => round($aggCvRight, 4),
+    //             'total_tx_count'     => $txCount,
+    //             'distributor_count'  => count($distributorsInWeek),
+
+    //             // TDS summary for the week
+    //             'total_tds_inr'      => round($aggTdsInr, 2),
+    //             'total_net_commission_inr' => round($aggNetInr, 2),
+
+    //             'distributors'       => $distributorsInWeek,
+    //         ];
+
+    //         if (count($weekRows) >= $weeks) {
+    //             break;
+    //         }
+    //     }
+
+    //     return response()->json([
+    //         'success'  => true,
+    //         'message'  => empty($weekRows)
+    //             ? 'No commission data found for the given filters.'
+    //             : 'Weekly commission report fetched successfully.',
+    //         'currency' => [
+    //             'base'          => 'USD',
+    //             'display'       => 'INR',
+    //             'exchange_rate' => $usdRate,
+    //         ],
+    //         'filters' => [
+    //             'year'  => $year,
+    //             'weeks' => $weeks,
+    //             'ba_id' => $baId,
+    //         ],
+    //         'summary' => [
+    //             'total_distributors' => $distributors->count(),
+    //             'weeks_returned'     => count($weekRows),
+    //             'failed_count'       => count($failed),
+    //         ],
+    //         'weeks'  => $weekRows,
+    //         'failed' => $failed,
+    //     ]);
+    // }
     public function weeklyCommissionReport(Request $request)
     {
         $request->validate([
-            'year'  => 'required|integer|min:2020|max:2100',
-            'weeks' => 'nullable|integer|min:1|max:53',
-            'ba_id' => 'nullable|string|max:100',
+            'year'      => 'nullable|integer|min:2020|max:2100',
+            'weeks'     => 'nullable|integer|min:1|max:53',
+            'ba_id'     => 'nullable|string|max:100',
+            'week'      => 'nullable|integer|min:1|max:53',
+            'from_date' => 'nullable|date_format:Y-m-d|required_with:to_date',
+            'to_date'   => 'nullable|date_format:Y-m-d|required_with:from_date|after_or_equal:from_date',
         ]);
 
-        $year  = (int) $request->year;
-        $weeks = min(max((int) $request->input('weeks', 12), 1), 53);
-        $baId  = $request->input('ba_id');
+        $hasWeek  = $request->filled('week') && $request->filled('year');
+        $hasRange = $request->filled('from_date') && $request->filled('to_date');
+        $hasYear  = $request->filled('year');
 
-        $calendar = $this->getRawCalendar($year);
-        if (!$calendar) {
+        if (!$hasWeek && !$hasRange && !$hasYear) {
             return response()->json([
                 'success' => false,
-                'message' => "Sales calendar for {$year} not available",
+                'message' => 'Provide year (last N weeks), or week+year, or from_date+to_date.',
             ], 422);
         }
 
-        $weekWindows = $this->buildWeekWindows($calendar);
+        $baId = $request->input('ba_id');
+        $weeks = null;
+
+        // ---------- Build week windows ----------
+        $weekWindows = [];
+
+        if ($hasYear) {
+            $year = (int) $request->year;
+            $calendar = $this->getRawCalendar($year);
+            if (!$calendar) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Sales calendar for {$year} not available",
+                ], 422);
+            }
+
+            $allWindows = $this->buildWeekWindows($calendar);
+
+            if ($hasWeek) {
+                $one = null;
+                foreach ($allWindows as $w) {
+                    if ($w['week_no'] === (int) $request->week) {
+                        $one = $w;
+                        break;
+                    }
+                }
+                if (!$one) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Week {$request->week} not in calendar {$year}",
+                    ], 422);
+                }
+                $weekWindows[] = $one;
+            } else {
+                // last N weeks
+                $weeks = min(max((int) $request->input('weeks', 12), 1), 53);
+                $weekWindows = array_slice($allWindows, -$weeks);
+            }
+        }
+
+        if ($hasRange) {
+            $rStart = Carbon::parse($request->from_date, 'Asia/Kolkata')->startOfDay();
+            $rEnd   = Carbon::parse($request->to_date,   'Asia/Kolkata')->endOfDay();
+
+            if ($rStart->diffInDays($rEnd) > 366) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Date range cannot exceed 366 days.',
+                ], 422);
+            }
+
+            // Multi-year: fetch calendar for both years
+            $years = array_unique([$rStart->year, $rEnd->year]);
+            $rangeWindows = [];
+            foreach ($years as $y) {
+                $cal = $this->getRawCalendar((int) $y);
+                if (!$cal) continue;
+                foreach ($this->buildWeekWindows($cal) as $w) {
+                    if ($w['end']->gte($rStart) && $w['start']->lte($rEnd)) {
+                        // clamp
+                        if ($w['start']->lt($rStart)) $w['start'] = $rStart->copy();
+                        if ($w['end']->gt($rEnd))     $w['end']   = $rEnd->copy();
+                        $w['_year'] = (int) $y;
+                        $w['is_current'] = false;
+                        $w['is_settled'] = $w['end']->lt(now('Asia/Kolkata'));
+                        $rangeWindows[] = $w;
+                    }
+                }
+            }
+
+            // Merge with week windows (dedup by year+week_no)
+            $existing = [];
+            foreach ($weekWindows as $w) {
+                $existing[($w['_year'] ?? ($hasYear ? $year : 0)) . ':' . $w['week_no']] = true;
+            }
+            foreach ($rangeWindows as $w) {
+                $key = $w['_year'] . ':' . $w['week_no'];
+                if (isset($existing[$key])) continue;
+                $existing[$key] = true;
+                $weekWindows[] = $w;
+            }
+
+            // sort by start
+            usort($weekWindows, fn($a, $b) => $a['start'] <=> $b['start']);
+        }
+
         if (empty($weekWindows)) {
             return response()->json([
                 'success' => false,
-                'message' => 'No weeks found in calendar',
+                'message' => 'No weeks/range resolved.',
             ], 422);
         }
 
@@ -280,7 +898,7 @@ class FinanceCommissionExportController extends Controller
         if ($usdRate <= 0) {
             return response()->json([
                 'success' => false,
-                'message' => 'Exchange rate not configured. Contact admin.'
+                'message' => 'Exchange rate not configured. Contact admin.',
             ], 500);
         }
 
@@ -292,27 +910,20 @@ class FinanceCommissionExportController extends Controller
             ->select('id', 'full_name', 'email', 'distributor_id', 'complete_pan_card')
             ->orderBy('id');
 
-        if ($baId) {
-            $query->where('distributor_id', $baId);
-        }
+        if ($baId) $query->where('distributor_id', $baId);
 
         $distributors = $query->get();
-
         if ($distributors->isEmpty()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No distributors found',
-            ], 404);
+            return response()->json(['success' => false, 'message' => 'No distributors found'], 404);
         }
 
         $cutoff = $weekWindows[0]['start'];
 
-        // Pre-compute TDS info per distributor (based on complete_pan_card)
+        // TDS info map
         $tdsInfoMap = [];
         foreach ($distributors as $dist) {
             $hasPanCard = !empty(trim((string) $dist->complete_pan_card))
                 && $dist->complete_pan_card !== '-';
-
             $tdsInfoMap[$dist->distributor_id] = [
                 'tds_rate'    => $hasPanCard ? 0.02 : 0.20,
                 'tds_section' => $hasPanCard ? '194-O' : '194J',
@@ -320,7 +931,7 @@ class FinanceCommissionExportController extends Controller
         }
 
         $perDistributor = [];
-        $failed         = [];
+        $failed = [];
 
         foreach ($distributors as $dist) {
             try {
@@ -345,19 +956,13 @@ class FinanceCommissionExportController extends Controller
 
         $weekRows = [];
 
+        // Latest first
         foreach (array_reverse($weekWindows) as $win) {
             $weekNo = $win['week_no'];
 
-            $aggCashUsd  = 0;
-            $aggGreen    = 0;
-            $aggYellow   = 0;
-            $aggBlue     = 0;
-            $aggCvLeft   = 0;
-            $aggCvRight  = 0;
-            $aggTdsInr   = 0;
-            $aggNetInr   = 0;
-            $txCount     = 0;
-            $distributorsInWeek = [];
+            $aggCashUsd = 0; $aggGreen = 0; $aggYellow = 0; $aggBlue = 0;
+            $aggCvLeft = 0; $aggCvRight = 0; $aggTdsInr = 0; $aggNetInr = 0;
+            $txCount = 0; $distributorsInWeek = [];
 
             foreach ($perDistributor as $distBaId => $entry) {
                 $b = $entry['buckets'][$weekNo] ?? null;
@@ -373,11 +978,10 @@ class FinanceCommissionExportController extends Controller
 
                 if ($tc === 0) continue;
 
-                // Per-distributor TDS (on positive commission only)
-                $tdsInfo        = $tdsInfoMap[$distBaId] ?? ['tds_rate' => 0.20, 'tds_section' => '194J'];
+                $tdsInfo            = $tdsInfoMap[$distBaId] ?? ['tds_rate' => 0.20, 'tds_section' => '194J'];
                 $grossCommissionInr = (float) ($b['gross_commission_inr'] ?? 0);
-                $tdsAmountInr   = round($grossCommissionInr * $tdsInfo['tds_rate'], 2);
-                $netCommissionInr = round($grossCommissionInr - $tdsAmountInr, 2);
+                $tdsAmountInr       = round($grossCommissionInr * $tdsInfo['tds_rate'], 2);
+                $netCommissionInr   = round($grossCommissionInr - $tdsAmountInr, 2);
 
                 $aggCashUsd += $cash;
                 $aggGreen   += $green;
@@ -400,8 +1004,6 @@ class FinanceCommissionExportController extends Controller
                     'cv_left'     => round($cvL, 4),
                     'cv_right'    => round($cvR, 4),
                     'tx_count'    => $tc,
-
-                    // TDS per distributor
                     'tds_section'      => $tdsInfo['tds_section'],
                     'tds_rate_percent' => round($tdsInfo['tds_rate'] * 100, 2),
                     'gross_commission_inr' => $grossCommissionInr,
@@ -415,13 +1017,12 @@ class FinanceCommissionExportController extends Controller
             }
 
             $weekRows[] = [
-                'week_no'            => $weekNo,
-                'year'               => $year,
-                'start'              => $win['start']->format('Y-m-d H:i:s'),
-                'end'                => $win['end']->format('Y-m-d H:i:s'),
-                'is_current'         => $win['is_current'],
-                'is_settled'         => $win['is_settled'],
-
+                'week_no'    => $weekNo,
+                'year'       => $win['_year'] ?? $year ?? null,
+                'start'      => $win['start']->format('Y-m-d H:i:s'),
+                'end'        => $win['end']->format('Y-m-d H:i:s'),
+                'is_current' => $win['is_current'],
+                'is_settled' => $win['is_settled'],
                 'total_cash_usd'     => round($aggCashUsd, 4),
                 'total_cash_inr'     => round($aggCashUsd * $usdRate, 2),
                 'total_green_coin'   => round($aggGreen, 4),
@@ -431,17 +1032,12 @@ class FinanceCommissionExportController extends Controller
                 'total_cv_right'     => round($aggCvRight, 4),
                 'total_tx_count'     => $txCount,
                 'distributor_count'  => count($distributorsInWeek),
-
-                // TDS summary for the week
                 'total_tds_inr'      => round($aggTdsInr, 2),
                 'total_net_commission_inr' => round($aggNetInr, 2),
-
                 'distributors'       => $distributorsInWeek,
             ];
 
-            if (count($weekRows) >= $weeks) {
-                break;
-            }
+            if ($weeks !== null && count($weekRows) >= $weeks) break;
         }
 
         return response()->json([
@@ -455,9 +1051,12 @@ class FinanceCommissionExportController extends Controller
                 'exchange_rate' => $usdRate,
             ],
             'filters' => [
-                'year'  => $year,
-                'weeks' => $weeks,
-                'ba_id' => $baId,
+                'year'      => $year ?? null,
+                'weeks'     => $weeks,
+                'week'      => $hasWeek ? (int) $request->week : null,
+                'from_date' => $hasRange ? $request->from_date : null,
+                'to_date'   => $hasRange ? $request->to_date   : null,
+                'ba_id'     => $baId,
             ],
             'summary' => [
                 'total_distributors' => $distributors->count(),
