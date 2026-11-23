@@ -6047,7 +6047,8 @@ class ReturnService
         string $reason,
         ?float $refundAmount = null,
         ?string $adminNotes = null,
-        ?int $approvedBy = null
+        ?int $approvedBy = null,
+        ?string $cancel
     ): void {
         // Default to full refundable amount if not specified
         $refundable = $this->getRefundableAmount($order);
@@ -6117,7 +6118,11 @@ class ReturnService
                 'refunded_at'   => $fullyRefunded ? now() : $order->refunded_at,
             ]);
 
-            $this->generateCreditNoteForCancellation($order, $refund->id, $reason, $refundAmount);
+            // if (is_null($cancel)) {
+            //     // $this->generateCreditNoteForCancellation($order, $refund->id, $reason, $refundAmount);
+            // }
+
+            // $this->generateCreditNoteForCancellation($order, $refund->id, $reason, $refundAmount);
 
             Log::info('Refund processed via cancellation', [
                 'order_id'       => $order->id,

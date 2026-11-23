@@ -4946,11 +4946,12 @@ class CheckoutService
                 if ($order->amount_paid > 0) {
                     $this->returnService->processRefundForOrder(
                         $order,
-                        null,                       // ← full order refund
+                        null,
                         $reason,
                         $refundAmount,
                         $adminNotes,
-                        $approvedBy
+                        $approvedBy,
+                        'cancel'
                     );
                 }
 
