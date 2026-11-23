@@ -1559,10 +1559,10 @@ class SalesReportController extends Controller
             $allowedStatuses = $request->filled('status')
                 ? [$request->status]
                 : [
-                    'confirmed',
                     'dispatched',
                     'shipped',
                     'delivered',
+                    'undelivered',
                     'partial_dispatched',
                     'partial_shipped',
                     'partial_delivered',
