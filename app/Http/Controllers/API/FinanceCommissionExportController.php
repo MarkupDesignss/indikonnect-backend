@@ -1390,4 +1390,13 @@ class FinanceCommissionExportController extends Controller
 
         return $buckets;
     }
+
+    /**
+     * Fetch all pointTxs within an arbitrary range (IST boundaries).
+     * Wrapper around fetchHistoryForWeek() — same logic, generic name.
+     */
+    private function fetchHistoryInRange(string $baId, Carbon $start, Carbon $end, float $usdRate): array
+    {
+        return $this->fetchHistoryForWeek($baId, $start, $end, $usdRate);
+    }
 }
