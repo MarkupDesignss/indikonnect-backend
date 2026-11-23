@@ -1586,9 +1586,7 @@ class SalesReportController extends Controller
                 ->whereNotNull('gst_in')
                 ->groupBy('user_id');
 
-            /*
-         * INVOICE AGGREGATE
-         */
+            // Invoice aggregate
             $invoiceSub = DB::table('invoices')
                 ->select('order_id')
                 ->selectRaw('MIN(invoice_number) AS invoice_number')
@@ -1646,33 +1644,16 @@ class SalesReportController extends Controller
                 ->select('order_lines.order_id')
 
                 ->selectRaw('SUM(order_lines.quantity) AS total_items')
-
                 ->selectRaw('
                 SUM(
                     order_lines.quantity * COALESCE(products.commission_value, 0)
                 ) AS total_cv
             ')
-
-                ->selectRaw("
-                SUM($productWithoutTax) AS product_subtotal
-            ")
-
-                ->selectRaw("
-                SUM($shippingWithoutTax) AS shipping_without_gst
-            ")
-
-                ->selectRaw("
-                SUM($productTax) AS product_gst
-            ")
-
-                ->selectRaw("
-                SUM($shippingTax) AS shipping_gst
-            ")
-
-                ->selectRaw("
-                SUM($productTax + $shippingTax) AS total_gst
-            ")
-
+                ->selectRaw("SUM($productWithoutTax) AS product_subtotal")
+                ->selectRaw("SUM($shippingWithoutTax) AS shipping_without_gst")
+                ->selectRaw("SUM($productTax) AS product_gst")
+                ->selectRaw("SUM($shippingTax) AS shipping_gst")
+                ->selectRaw("SUM($productTax + $shippingTax) AS total_gst")
                 ->selectRaw("
                 SUM(
                     CASE
@@ -1680,14 +1661,12 @@ class SalesReportController extends Controller
                         AND delivery_addr.state IS NOT NULL
                         AND TRIM(billing_addr.state) != ''
                         AND TRIM(delivery_addr.state) != ''
-                        AND UPPER(TRIM(billing_addr.state))
-                            = UPPER(TRIM(delivery_addr.state))
+                        AND UPPER(TRIM(billing_addr.state)) = UPPER(TRIM(delivery_addr.state))
                         THEN $productTax + $shippingTax
                         ELSE 0
                     END
                 ) AS intra_state_tax
             ")
-
                 ->selectRaw("
                 SUM(
                     CASE
@@ -1695,85 +1674,56 @@ class SalesReportController extends Controller
                             OR delivery_addr.state IS NULL
                             OR TRIM(billing_addr.state) = ''
                             OR TRIM(delivery_addr.state) = ''
-                            OR UPPER(TRIM(billing_addr.state))
-                                != UPPER(TRIM(delivery_addr.state))
+                            OR UPPER(TRIM(billing_addr.state)) != UPPER(TRIM(delivery_addr.state))
                         THEN $productTax + $shippingTax
                         ELSE 0
                     END
                 ) AS inter_state_tax
             ")
-
                 ->selectRaw('SUM(COALESCE(order_lines.shipping_charge, 0)) AS shipping_gross')
-
                 ->selectRaw('MAX(order_lines.shipped_at) AS max_shipped_at')
                 ->selectRaw('MAX(order_lines.dispatched_at) AS max_dispatched_at')
                 ->selectRaw('MAX(order_lines.delivered_at) AS max_delivered_at')
                 ->selectRaw('MIN(order_lines.created_at) AS min_line_created_at')
-
                 ->selectRaw('MAX(delivery_addr.state) AS delivery_state')
                 ->selectRaw('MAX(billing_addr.state) AS billing_state')
-
                 ->selectRaw("
                 CASE
-                    WHEN SUM(
-                        CASE WHEN order_lines.delivery_status = 'delivered'
-                        THEN 1 ELSE 0 END
-                    ) = COUNT(*)
-                    THEN 'delivered'
-
-                    WHEN SUM(
-                        CASE WHEN order_lines.delivery_status = 'delivered'
-                        THEN 1 ELSE 0 END
-                    ) > 0
-                    THEN 'partial_delivered'
-
-                    WHEN SUM(
-                        CASE WHEN order_lines.delivery_status = 'shipped'
-                        THEN 1 ELSE 0 END
-                    ) > 0
-                    AND SUM(
-                        CASE WHEN order_lines.delivery_status
-                            NOT IN ('shipped', 'delivered')
-                        THEN 1 ELSE 0 END
-                    ) > 0
-                    THEN 'partial_shipped'
-
-                    WHEN SUM(
-                        CASE WHEN order_lines.delivery_status
-                            NOT IN ('shipped', 'delivered')
-                        THEN 1 ELSE 0 END
-                    ) = 0
-                    THEN 'shipped'
-
-                    WHEN SUM(
-                        CASE WHEN order_lines.delivery_status = 'dispatched'
-                        THEN 1 ELSE 0 END
-                    ) > 0
-                    AND SUM(
-                        CASE WHEN order_lines.delivery_status
-                            NOT IN ('dispatched', 'shipped', 'delivered')
-                        THEN 1 ELSE 0 END
-                    ) > 0
-                    THEN 'partial_dispatched'
-
-                    WHEN SUM(
-                        CASE WHEN order_lines.delivery_status = 'dispatched'
-                        THEN 1 ELSE 0 END
-                    ) > 0
-                    THEN 'dispatched'
-
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) > 0 THEN 'partial_delivered'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0
+                        AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) > 0
+                        THEN 'partial_shipped'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) = 0 THEN 'shipped'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0
+                        AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('dispatched','shipped','delivered') THEN 1 ELSE 0 END) > 0
+                        THEN 'partial_dispatched'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
                     ELSE 'confirmed'
                 END AS overall_delivery_status
             ")
-
                 ->groupBy('order_lines.order_id');
 
             /*
          * PRODUCT DETAILS
          *
-         * CHANGED: now includes order_lines.shipping_charge as the 9th
-         * field so each product line carries its own shipping charge
-         * (gross / GST-inclusive). It is converted to without-GST in PHP.
+         * Now includes:
+         *   - order_line_id (0) — needed to attach per-line couriers
+         *   - order_lines.item_reference_id (1)
+         *   - ... existing 9 fields ...
+         *
+         * Layout (11 fields):
+         *  0  order_line_id
+         *  1  item_reference_id
+         *  2  name
+         *  3  slug
+         *  4  hsn_code
+         *  5  product_code
+         *  6  quantity
+         *  7  unit_price
+         *  8  line_total
+         *  9  gst_rate
+         *  10 shipping_charge
          */
             $productAggSub = DB::table('order_lines')
                 ->join('products', 'products.id', '=', 'order_lines.product_id')
@@ -1784,6 +1734,8 @@ class SalesReportController extends Controller
                 ->selectRaw("
                 GROUP_CONCAT(
                     CONCAT_WS('::',
+                        COALESCE(order_lines.id, 0),
+                        COALESCE(order_lines.item_reference_id, ''),
                         COALESCE(products.name, ''),
                         COALESCE(products.slug, ''),
                         COALESCE(products.hsn_code, ''),
@@ -1801,14 +1753,20 @@ class SalesReportController extends Controller
                 ->groupBy('order_lines.order_id');
 
             /*
-         * COURIER AGGREGATE
+         * COURIER AGGREGATE (per line)
+         *
+         * Builds a concat keyed by order_line_id so each product can be
+         * matched to the courier(s) that dispatched THAT line.
+         * Format: "order_line_id::courier_company::courier_tracking_number"
+         * joined by '||'.
          */
             $shippingAggSub = DB::table('order_shipping_details as osd')
                 ->join('order_lines as ol', 'ol.id', '=', 'osd.order_line_id')
                 ->select('ol.order_id')
                 ->selectRaw("
                 GROUP_CONCAT(
-                    DISTINCT CONCAT_WS('::',
+                    CONCAT_WS('::',
+                        COALESCE(osd.order_line_id, 0),
                         COALESCE(osd.courier_company, ''),
                         COALESCE(osd.courier_tracking_number, '')
                     )
@@ -1829,23 +1787,18 @@ class SalesReportController extends Controller
                 ->leftJoinSub($refundSub, 'refund_sum', function ($join) {
                     $join->on('refund_sum.order_id', '=', 'orders.id');
                 })
-
                 ->leftJoinSub($gstinSub, 'gstin_data', function ($join) {
                     $join->on('gstin_data.user_id', '=', 'users.id');
                 })
-
                 ->leftJoinSub($invoiceSub, 'invoice_data', function ($join) {
                     $join->on('invoice_data.order_id', '=', 'orders.id');
                 })
-
                 ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
                     $join->on('line_agg.order_id', '=', 'orders.id');
                 })
-
                 ->leftJoinSub($productAggSub, 'product_agg', function ($join) {
                     $join->on('product_agg.order_id', '=', 'orders.id');
                 })
-
                 ->leftJoinSub($shippingAggSub, 'shipping_agg', function ($join) {
                     $join->on('shipping_agg.order_id', '=', 'orders.id');
                 })
@@ -1866,6 +1819,9 @@ class SalesReportController extends Controller
          */
             $query->select([
                 DB::raw('COALESCE(invoice_data.invoice_number, orders.order_reference) AS bill_id'),
+
+                // NEW: explicit order_reference
+                'orders.order_reference AS order_reference',
 
                 'orders.created_at AS order_date',
 
@@ -1990,27 +1946,49 @@ class SalesReportController extends Controller
                 $billingRaw = strtoupper(trim((string) ($row->billing_state ?? '')));
                 $deliveryRaw = strtoupper(trim((string) ($row->delivery_state ?? '')));
 
-                $billingState = $stateNormalize[$billingRaw]
-                    ?? ($row->billing_state ?? '');
+                $billingState = $stateNormalize[$billingRaw] ?? ($row->billing_state ?? '');
+                $deliveryState = $stateNormalize[$deliveryRaw] ?? ($row->delivery_state ?? '');
 
-                $deliveryState = $stateNormalize[$deliveryRaw]
-                    ?? ($row->delivery_state ?? '');
+                /*
+             * Parse couriers first, keyed by order_line_id.
+             * Format in concat: "order_line_id::courier_company::courier_tracking_number"
+             * Multiple couriers per line are possible → array of arrays.
+             */
+                $couriersByLine = [];
 
-                // Parse products and extract GST from each product
+                if (!empty($row->courier_concat)) {
+                    foreach (explode('||', $row->courier_concat) as $courierStr) {
+                        $parts = explode('::', $courierStr);
+
+                        if (count($parts) >= 3) {
+                            $lineId = (int) $parts[0];
+
+                            $couriersByLine[$lineId][] = [
+                                'courier_company' => $parts[1] ?: null,
+                                'courier_tracking_number' => $parts[2] ?: null,
+                            ];
+                        }
+                    }
+                }
+
+                // Parse products, attaching that line's couriers
                 $products = [];
 
                 if (!empty($row->products_concat)) {
                     foreach (explode('||', $row->products_concat) as $productStr) {
                         $parts = explode('::', $productStr);
 
-                        // CHANGED: now expect 9 parts (added shipping_charge)
-                        if (count($parts) >= 9) {
-                            $qty = (int) $parts[4];
+                        // 11 fields now
+                        if (count($parts) >= 11) {
+                            $lineId = (int) $parts[0];
+                            $itemReferenceId = $parts[1];
 
-                            $unitPrice = (float) $parts[5];
-                            $lineTotal = (float) $parts[6];
-                            $taxRate = (float) $parts[7];
-                            $shippingCharge = (float) $parts[8]; // gross / GST-inclusive
+                            $qty = (int) $parts[6];
+
+                            $unitPrice = (float) $parts[7];
+                            $lineTotal = (float) $parts[8];
+                            $taxRate = (float) $parts[9];
+                            $shippingCharge = (float) $parts[10];
 
                             $divisor = 1 + ($taxRate / 100);
 
@@ -2024,7 +2002,6 @@ class SalesReportController extends Controller
 
                             $productGst = $lineTotal - $lineTotalWithoutGst;
 
-                            // NEW: per-line shipping without GST (same logic as product)
                             $shippingWithoutGst = $divisor > 0
                                 ? $shippingCharge / $divisor
                                 : $shippingCharge;
@@ -2032,40 +2009,27 @@ class SalesReportController extends Controller
                             $shippingGst = $shippingCharge - $shippingWithoutGst;
 
                             $products[] = [
-                                'name' => $parts[0],
-                                'slug' => $parts[1],
-                                'hsn_code' => $parts[2],
-                                'product_code' => $parts[3],
+                                'order_line_id' => $lineId,
+                                'item_reference_id' => $itemReferenceId,
+
+                                'name' => $parts[2],
+                                'slug' => $parts[3],
+                                'hsn_code' => $parts[4],
+                                'product_code' => $parts[5],
 
                                 'quantity' => $qty,
 
                                 'unit_price_without_gst' => round($unitPriceWithoutGst, 2),
-
                                 'line_total_without_gst' => round($lineTotalWithoutGst, 2),
 
                                 'tax_rate' => round($taxRate, 2),
-
                                 'gst_amount' => round($productGst, 2),
 
-                                // NEW fields
                                 'shipping_charge_without_gst' => round($shippingWithoutGst, 2),
                                 'shipping_gst' => round($shippingGst, 2),
-                            ];
-                        }
-                    }
-                }
 
-                // Parse courier details
-                $lineCouriers = [];
-
-                if (!empty($row->courier_concat)) {
-                    foreach (explode('||', $row->courier_concat) as $courierStr) {
-                        $parts = explode('::', $courierStr);
-
-                        if (count($parts) >= 2) {
-                            $lineCouriers[] = [
-                                'courier_company' => $parts[0] ?: null,
-                                'courier_tracking_number' => $parts[1] ?: null,
+                                // Couriers that dispatched THIS line
+                                'line_couriers' => $couriersByLine[$lineId] ?? [],
                             ];
                         }
                     }
@@ -2074,7 +2038,6 @@ class SalesReportController extends Controller
                 $productNames = implode(', ', array_column($products, 'name'));
 
                 $paymentGatewayRaw = strtolower(trim((string) ($row->payment_gateway ?? '')));
-
                 $paymentGatewayDisplay = $gatewayDisplayMap[$paymentGatewayRaw]
                     ?? ($row->payment_gateway ?? '');
 
@@ -2088,6 +2051,10 @@ class SalesReportController extends Controller
                         ? Carbon::parse($row->invoice_date)->format('d-m-Y')
                         : '',
 
+                    // NEW: explicit order reference
+                    'order_reference' => (string) ($row->order_reference ?? ''),
+
+
                     // Customer
                     'customer_name' => $row->customer_name ?? '',
                     'account_type' => $row->account_type ?? '',
@@ -2099,18 +2066,14 @@ class SalesReportController extends Controller
                     'billing_state' => $billingState,
                     'delivery_state' => $deliveryState,
 
-                    // Products (each now carries shipping_charge_without_gst + shipping_gst)
+                    // Products (each carries item_reference_id + its own line_couriers)
                     'product_names' => $productNames,
                     'products' => $products,
 
                     // Amounts excluding GST
                     'product_subtotal' => $productSubtotal,
                     'shipping_charge_without_gst' => $shippingWithoutGst,
-
-                    'subtotal' => round(
-                        $productSubtotal + $shippingWithoutGst,
-                        2
-                    ),
+                    'subtotal' => round($productSubtotal + $shippingWithoutGst, 2),
 
                     // GST breakdown
                     'product_gst' => round((float) $row->product_gst, 2),
@@ -2130,7 +2093,6 @@ class SalesReportController extends Controller
 
                     // Order
                     'order_status' => $row->order_status,
-                    // 'delivery_status' => $row->delivery_status ?? '',
                     'total_items' => (int) $row->total_items,
 
                     // Commission
@@ -2141,47 +2103,29 @@ class SalesReportController extends Controller
                     'order_date' => $row->order_date
                         ? Carbon::parse($row->order_date)->format('d-m-Y H:i')
                         : '',
-
                     'confirmed_at' => $row->confirmed_at
                         ? Carbon::parse($row->confirmed_at)->format('d-m-Y H:i')
                         : '',
-
                     'dispatched_at' => $row->dispatched_at
                         ? Carbon::parse($row->dispatched_at)->format('d-m-Y H:i')
                         : '',
-
                     'shipping_date' => $row->shipping_date
                         ? Carbon::parse($row->shipping_date)->format('d-m-Y H:i')
                         : '',
-
                     'delivered_at' => $row->delivered_at
                         ? Carbon::parse($row->delivered_at)->format('d-m-Y H:i')
                         : '',
-
-                    // 'refunded_at' => $row->refunded_at
-                    //     ? Carbon::parse($row->refunded_at)->format('d-m-Y H:i')
-                    //     : '',
-
-                    // 'last_refund_date' => $row->last_refund_date
-                    //     ? Carbon::parse($row->last_refund_date)->format('d-m-Y H:i')
-                    //     : '',
 
                     // Payment
                     'payment_gateway' => $paymentGatewayDisplay,
                     'gateway_transaction_id' => $row->gateway_transaction_id ?? null,
 
-                    // Courier
+                    // Courier (order-level fallback)
                     'courier_company' => $row->courier_company ?? '',
                     'courier_tracking_number' => $row->courier_tracking_number ?? '',
                     'courier_delivery_date' => $row->courier_delivery_date
                         ? Carbon::parse($row->courier_delivery_date)->format('d-m-Y')
                         : '',
-                    'line_couriers' => $lineCouriers,
-
-                    // Refund
-                    // 'is_refunded' => $row->is_refunded,
-                    // 'refund_status' => $row->refund_status ?? '',
-                    // 'refunded_items' => (int) $row->refunded_items,
                 ];
             });
 
