@@ -500,7 +500,7 @@ class SalesReportController extends Controller
                     'User Account Type' => $row->account_type ?? '',
                     'Customer Mobile'   => $row->customer_mobile ?? '',
                     'Customer Email'    => $row->customer_email ?? '',
-                    'Customer GSTIN'    => $row->customer_gstin ?? '',
+                    'Customer GSTIN'    => $row->customer_gstin ?? 'URP',
 
                     // Products (each carries item_reference)
                     'Product Names'     => $productNames,
