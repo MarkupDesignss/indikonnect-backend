@@ -2130,7 +2130,7 @@ class SalesReportController extends Controller
 
                     // Order
                     'order_status' => $row->order_status,
-                    'delivery_status' => $row->delivery_status ?? '',
+                    // 'delivery_status' => $row->delivery_status ?? '',
                     'total_items' => (int) $row->total_items,
 
                     // Commission
@@ -2158,13 +2158,13 @@ class SalesReportController extends Controller
                         ? Carbon::parse($row->delivered_at)->format('d-m-Y H:i')
                         : '',
 
-                    'refunded_at' => $row->refunded_at
-                        ? Carbon::parse($row->refunded_at)->format('d-m-Y H:i')
-                        : '',
+                    // 'refunded_at' => $row->refunded_at
+                    //     ? Carbon::parse($row->refunded_at)->format('d-m-Y H:i')
+                    //     : '',
 
-                    'last_refund_date' => $row->last_refund_date
-                        ? Carbon::parse($row->last_refund_date)->format('d-m-Y H:i')
-                        : '',
+                    // 'last_refund_date' => $row->last_refund_date
+                    //     ? Carbon::parse($row->last_refund_date)->format('d-m-Y H:i')
+                    //     : '',
 
                     // Payment
                     'payment_gateway' => $paymentGatewayDisplay,
