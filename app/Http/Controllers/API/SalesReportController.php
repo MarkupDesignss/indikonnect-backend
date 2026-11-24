@@ -1132,7 +1132,7 @@ class SalesReportController extends Controller
             'data' => $data,
         ]);
     }
-
+    
     public function financeSalesReport(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -1250,7 +1250,7 @@ class SalesReportController extends Controller
                 ->selectRaw('MAX(order_lines.delivered_at) AS max_delivered_at')
                 ->selectRaw('MIN(order_lines.created_at) AS min_line_created_at')
                 ->selectRaw('MAX(delivery_addr.state) AS delivery_state')
-                ->selectRaw('MAX(billing_addr.state) AS billing_state')
+                ->selectRaw('MAX(billing_addr.billing_state) AS billing_state')
                 ->selectRaw("
                 CASE
                     WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
