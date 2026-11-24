@@ -198,7 +198,7 @@ class CreditNoteController extends Controller
                     'buyer_name' => $row->buyer_name,
                     'buyer_type' => $row->buyer_type,
                     'buyer_email' => $row->buyer_email,
-                    'buyer_gstin' => $row->buyer_gstin,
+                    'buyer_gstin' => $row->buyer_gstin ?? "URP",
                     'buyer_address' => $row->buyer_address,
                     'buyer_state' => $row->buyer_state,
 
