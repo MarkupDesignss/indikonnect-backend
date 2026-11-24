@@ -19,7 +19,7 @@ return [
     'company_address' => env('COMPANY_ADDRESS', 'punjab'),
     'seller_city' => env('SUPPLIER_CITY', 'Ludhiyana'),
     'seller_pincode' => env('SUPPLIER_PINCODE', '141001'),
-    'supplier_state' => env('SUPPLIER_STATE', ''),
+    'supplier_state' => env('SUPPLIER_STATE', 'Punjab'),
     'company_email'   => env('COMPANY_EMAIL', 'care@indiekonnect.com'),
     'company_phone'   => env('COMPANY_PHONE', '+91 98765 43210'),
     'bank_account_no' => env('BANK_ACCOUNT_NO', '1234567890123'),
