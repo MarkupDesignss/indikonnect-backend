@@ -2454,7 +2454,7 @@ class SalesReportController extends Controller
          *  11 invoice_number
          *  12 invoice_created_at
          *  13 service_charge
-         *  14 category_name (NEW)
+         *  14 category_name
          */
             $productAggSub = DB::table('order_lines')
                 ->join('products', 'products.id', '=', 'order_lines.product_id')
@@ -2613,6 +2613,9 @@ class SalesReportController extends Controller
                 'paytm' => 'Paytm',
             ];
 
+            // Supplier State from Config
+            $supplierState = strtolower(trim(config('app.supplier_state', 'Punjab')));
+
             /*
          * FORMAT RESPONSE — FLATTENED PER ITEM
          */
@@ -2621,6 +2624,7 @@ class SalesReportController extends Controller
             $paginated->getCollection()->each(function ($row) use (
                 $stateNormalize,
                 $gatewayDisplayMap,
+                $supplierState,
                 &$flatData
             ) {
                 $billingRaw = strtoupper(trim((string) ($row->billing_state ?? '')));
@@ -2628,6 +2632,9 @@ class SalesReportController extends Controller
 
                 $billingState = $stateNormalize[$billingRaw] ?? ($row->billing_state ?? '');
                 $deliveryState = $stateNormalize[$deliveryRaw] ?? ($row->delivery_state ?? '');
+
+                // Normalize delivery state for comparison
+                $deliveryStateLower = strtolower(trim($deliveryState));
 
                 // Couriers keyed by order_line_id
                 $couriersByLine = [];
@@ -2755,7 +2762,6 @@ class SalesReportController extends Controller
 
                     'order_status' => $row->order_status,
                     'item_delivery_status' => $row->item_delivery_status,
-                    // 'total_items' => (int) $row->total_items, // <-- REMOVED FROM HEADER
 
                     'cv' => round((float) $row->cv, 2),
                     'user_name' => $row->user_name ?? '',
@@ -2782,7 +2788,7 @@ class SalesReportController extends Controller
 
                 if (empty($products)) {
                     $flatData[] = array_merge($orderHeader, [
-                        'total_items' => 0, // <-- ADDED HERE
+                        'total_items' => 0,
                         'invoice_number' => '',
                         'invoice_date' => '',
                         'order_line_id' => null,
@@ -2815,15 +2821,17 @@ class SalesReportController extends Controller
                 }
 
                 foreach ($products as $p) {
-                    // Determine intra vs inter state for this item's tax breakdown
-                    $isIntraState = ($billingState === $deliveryState && !empty($billingState));
+                    // Compare Supplier State with Delivery State
+                    $isIntraState = ($supplierState === $deliveryStateLower && !empty($deliveryStateLower));
 
-                    $itemCgst = $isIntraState ? round(($p['gst_amount'] + $p['shipping_gst']) / 2, 2) : 0;
-                    $itemSgst = $isIntraState ? round(($p['gst_amount'] + $p['shipping_gst']) / 2, 2) : 0;
-                    $itemIgst = !$isIntraState ? round(($p['gst_amount'] + $p['shipping_gst']), 2) : 0;
+                    $totalItemGst = $p['gst_amount'] + $p['shipping_gst'];
+
+                    $itemCgst = $isIntraState ? round($totalItemGst / 2, 2) : 0;
+                    $itemSgst = $isIntraState ? round($totalItemGst / 2, 2) : 0;
+                    $itemIgst = !$isIntraState ? round($totalItemGst, 2) : 0;
 
                     $flatData[] = array_merge($orderHeader, [
-                        'total_items' => $p['quantity'], // <-- CHANGED TO PER ITEM QUANTITY
+                        'total_items' => $p['quantity'], // PER ITEM QUANTITY
 
                         'invoice_number' => $p['invoice_number'] ?? '',
                         'invoice_date'   => $p['invoice_date'] ?? '',
@@ -2844,7 +2852,7 @@ class SalesReportController extends Controller
 
                         'product_gst' => $p['gst_amount'],
                         'shipping_gst' => $p['shipping_gst'],
-                        'total_gst' => round($p['gst_amount'] + $p['shipping_gst'], 2),
+                        'total_gst' => round($totalItemGst, 2),
 
                         'tax_breakdown' => [
                             'cgst' => $itemCgst,
