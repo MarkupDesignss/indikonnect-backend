@@ -1132,609 +1132,7 @@ class SalesReportController extends Controller
             'data' => $data,
         ]);
     }
-
-
-
-
-
-    // public function financeSalesReport(Request $request): JsonResponse
-    // {
-    //     $validator = Validator::make($request->all(), [
-    //         'status' => 'nullable|string|in:confirmed,dispatched,shipped,delivered,partial_dispatched,partial_shipped,partial_delivered',
-    //         'from' => 'nullable|date',
-    //         'to' => 'nullable|date|after_or_equal:from',
-    //         'per_page' => 'nullable|integer|min:1|max:500',
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Validation failed.',
-    //             'errors' => $validator->errors(),
-    //         ], 422);
-    //     }
-
-    //     try {
-    //         $allowedStatuses = $request->filled('status')
-    //             ? [$request->status]
-    //             : [
-    //                 'dispatched',
-    //                 'shipped',
-    //                 'delivered',
-    //                 'undelivered',
-    //                 'partial_dispatched',
-    //                 'partial_shipped',
-    //                 'partial_delivered',
-    //             ];
-
-    //         $perPage = (int) $request->input('per_page', 100);
-
-    //         // Refund aggregate
-    //         $refundSub = DB::table('refunds')
-    //             ->select('order_id')
-    //             ->selectRaw('SUM(amount) AS total_refunded')
-    //             ->selectRaw('MAX(completed_at) AS last_refunded_at')
-    //             ->selectRaw('MAX(created_at) AS first_refund_created_at')
-    //             ->where('status', 'completed')
-    //             ->groupBy('order_id');
-
-    //         // Customer GSTIN
-    //         $gstinSub = DB::table('distributor_profiles')
-    //             ->select('user_id')
-    //             ->selectRaw('MAX(gst_in) AS gst_in')
-    //             ->whereNotNull('gst_in')
-    //             ->groupBy('user_id');
-
-    //         /*
-    //      * INVOICE AGGREGATE — KEYED BY order_line_id (per item)
-    //      */
-    //         $invoiceSub = DB::table('invoices')
-    //             ->select('order_line_id')
-    //             ->selectRaw('MIN(invoice_number) AS invoice_number')
-    //             ->selectRaw('MIN(created_at) AS invoice_created_at')
-    //             ->whereNotNull('order_line_id')
-    //             ->groupBy('order_line_id');
-
-    //         /*
-    //      * LINE AGGREGATE
-    //      * Used ONLY for Order-level totals / meta context
-    //      */
-    //         $taxRate = 'COALESCE(order_lines.gst_rate, tax_categories.rate, 0)';
-
-    //         $productTax = "
-    //         (
-    //             COALESCE(order_lines.line_total, 0)
-    //             -
-    //             (
-    //                 COALESCE(order_lines.line_total, 0)
-    //                 / (1 + ($taxRate / 100))
-    //             )
-    //         )
-    //     ";
-
-    //         $shippingTax = "
-    //         (
-    //             COALESCE(order_lines.shipping_charge, 0)
-    //             -
-    //             (
-    //                 COALESCE(order_lines.shipping_charge, 0)
-    //                 / (1 + ($taxRate / 100))
-    //             )
-    //         )
-    //     ";
-
-    //         $productWithoutTax = "
-    //         (
-    //             COALESCE(order_lines.line_total, 0)
-    //             / (1 + ($taxRate / 100))
-    //         )
-    //     ";
-
-    //         $shippingWithoutTax = "
-    //         (
-    //             COALESCE(order_lines.shipping_charge, 0)
-    //             / (1 + ($taxRate / 100))
-    //         )
-    //     ";
-
-    //         $lineAggSub = DB::table('order_lines')
-    //             ->join('products', 'products.id', '=', 'order_lines.product_id')
-    //             ->leftJoin('tax_categories', 'tax_categories.id', '=', 'products.tax_category_id')
-    //             ->join('orders', 'orders.id', '=', 'order_lines.order_id')
-    //             ->leftJoin('addresses as delivery_addr', 'delivery_addr.id', '=', 'orders.delivery_address_id')
-    //             ->leftJoin('addresses as billing_addr', 'billing_addr.id', '=', 'orders.billing_address_id')
-
-    //             ->select('order_lines.order_id')
-
-    //             ->selectRaw('SUM(order_lines.quantity) AS total_items')
-    //             ->selectRaw('SUM(order_lines.quantity * COALESCE(products.commission_value, 0)) AS total_cv')
-    //             ->selectRaw('MAX(order_lines.delivery_status) AS item_delivery_status')
-    //             ->selectRaw('MAX(order_lines.shipped_at) AS max_shipped_at')
-    //             ->selectRaw('MAX(order_lines.dispatched_at) AS max_dispatched_at')
-    //             ->selectRaw('MAX(order_lines.delivered_at) AS max_delivered_at')
-    //             ->selectRaw('MIN(order_lines.created_at) AS min_line_created_at')
-    //             ->selectRaw('MAX(delivery_addr.state) AS delivery_state')
-    //             ->selectRaw('MAX(billing_addr.state) AS billing_state')
-    //             ->selectRaw("
-    //             CASE
-    //                 WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
-    //                 WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) > 0 THEN 'partial_delivered'
-    //                 WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0
-    //                     AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) > 0
-    //                     THEN 'partial_shipped'
-    //                 WHEN SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) = 0 THEN 'shipped'
-    //                 WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0
-    //                     AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('dispatched','shipped','delivered') THEN 1 ELSE 0 END) > 0
-    //                     THEN 'partial_dispatched'
-    //                 WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
-    //                 ELSE 'confirmed'
-    //             END AS overall_delivery_status
-    //         ")
-    //             ->groupBy('order_lines.order_id');
-
-    //         /*
-    //      * PRODUCT DETAILS — joined to invoice per line.
-    //      *
-    //      * Layout (15 fields — added category_name):
-    //      *  0  order_line_id
-    //      *  1  item_reference_id
-    //      *  2  name
-    //      *  3  slug
-    //      *  4  hsn_code
-    //      *  5  product_code
-    //      *  6  quantity
-    //      *  7  unit_price
-    //      *  8  line_total
-    //      *  9  gst_rate
-    //      *  10 shipping_charge
-    //      *  11 invoice_number
-    //      *  12 invoice_created_at
-    //      *  13 service_charge
-    //      *  14 category_name
-    //      */
-    //         $productAggSub = DB::table('order_lines')
-    //             ->join('products', 'products.id', '=', 'order_lines.product_id')
-    //             ->leftJoin('tax_categories', 'tax_categories.id', '=', 'products.tax_category_id')
-    //             ->leftJoin('categories', 'categories.id', '=', 'products.category_id') // JOIN CATEGORIES
-    //             ->leftJoinSub($invoiceSub, 'invoice_data', function ($join) {
-    //                 $join->on('invoice_data.order_line_id', '=', 'order_lines.id');
-    //             })
-
-    //             ->select('order_lines.order_id')
-
-    //             ->selectRaw("
-    //             GROUP_CONCAT(
-    //                 CONCAT_WS('::',
-    //                     COALESCE(order_lines.id, 0),
-    //                     COALESCE(order_lines.item_reference_id, ''),
-    //                     COALESCE(products.name, ''),
-    //                     COALESCE(products.slug, ''),
-    //                     COALESCE(products.hsn_code, ''),
-    //                     COALESCE(products.product_code, ''),
-    //                     COALESCE(order_lines.quantity, 0),
-    //                     COALESCE(order_lines.unit_price, 0),
-    //                     COALESCE(order_lines.line_total, 0),
-    //                     COALESCE(order_lines.gst_rate, tax_categories.rate, 0),
-    //                     COALESCE(order_lines.shipping_charge, 0),
-    //                     COALESCE(invoice_data.invoice_number, ''),
-    //                     COALESCE(invoice_data.invoice_created_at, ''),
-    //                     COALESCE(products.service_charge, 0),
-    //                     COALESCE(categories.title, '')
-    //                 )
-    //                 ORDER BY products.name SEPARATOR '||'
-    //             ) AS products_concat
-    //         ")
-
-    //             ->groupBy('order_lines.order_id');
-
-    //         /*
-    //      * COURIER AGGREGATE (per line)
-    //      */
-    //         $shippingAggSub = DB::table('order_shipping_details as osd')
-    //             ->join('order_lines as ol', 'ol.id', '=', 'osd.order_line_id')
-    //             ->select('ol.order_id')
-    //             ->selectRaw("
-    //             GROUP_CONCAT(
-    //                 CONCAT_WS('::',
-    //                     COALESCE(osd.order_line_id, 0),
-    //                     COALESCE(osd.courier_company, ''),
-    //                     COALESCE(osd.courier_tracking_number, '')
-    //                 )
-    //                 ORDER BY osd.id SEPARATOR '||'
-    //             ) AS courier_concat
-    //         ")
-    //             ->groupBy('ol.order_id');
-
-    //         /*
-    //      * BASE QUERY
-    //      */
-    //         $query = Order::query()
-    //             ->join('users', 'users.id', '=', 'orders.user_id')
-
-    //             ->leftJoinSub($refundSub, 'refund_sum', function ($join) {
-    //                 $join->on('refund_sum.order_id', '=', 'orders.id');
-    //             })
-    //             ->leftJoinSub($gstinSub, 'gstin_data', function ($join) {
-    //                 $join->on('gstin_data.user_id', '=', 'users.id');
-    //             })
-    //             ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
-    //                 $join->on('line_agg.order_id', '=', 'orders.id');
-    //             })
-    //             ->leftJoinSub($productAggSub, 'product_agg', function ($join) {
-    //                 $join->on('product_agg.order_id', '=', 'orders.id');
-    //             })
-    //             ->leftJoinSub($shippingAggSub, 'shipping_agg', function ($join) {
-    //                 $join->on('shipping_agg.order_id', '=', 'orders.id');
-    //             })
-
-    //             ->whereIn('line_agg.overall_delivery_status', $allowedStatuses)
-    //             ->whereNull('orders.deleted_at');
-
-    //         if ($request->filled('from')) {
-    //             $query->where('orders.created_at', '>=', $request->from . ' 00:00:00');
-    //         }
-
-    //         if ($request->filled('to')) {
-    //             $query->where('orders.created_at', '<=', $request->to . ' 23:59:59');
-    //         }
-
-    //         /*
-    //      * SELECT — Order level fields
-    //      */
-    //         $query->select([
-    //             'orders.order_reference AS order_reference',
-    //             'orders.created_at AS order_date',
-
-    //             'users.full_name AS customer_name',
-    //             'users.account_type AS account_type',
-    //             'users.phone AS customer_mobile',
-    //             'users.email AS customer_email',
-
-    //             'orders.total_payable AS order_amount',
-
-    //             DB::raw('COALESCE(refund_sum.total_refunded, 0) AS refunded_amount'),
-    //             DB::raw('(orders.total_payable - COALESCE(refund_sum.total_refunded, 0)) AS net_order_amount'),
-
-    //             'orders.status AS order_status',
-    //             DB::raw('COALESCE(line_agg.total_items, 0) AS total_items'),
-
-    //             'orders.coupon_discount AS discount_amount',
-    //             DB::raw('COALESCE(line_agg.total_cv, 0) AS cv'),
-    //             'users.distributor_id AS user_name',
-    //             'gstin_data.gst_in AS customer_gstin',
-
-    //             'line_agg.max_shipped_at AS shipping_date',
-    //             'line_agg.item_delivery_status AS item_delivery_status',
-    //             'line_agg.min_line_created_at AS confirmed_at',
-    //             'line_agg.max_dispatched_at AS dispatched_at',
-    //             'line_agg.max_delivered_at AS delivered_at',
-
-    //             'line_agg.billing_state',
-    //             'line_agg.delivery_state',
-    //             'line_agg.overall_delivery_status AS delivery_status',
-
-    //             'orders.payment_gateway AS payment_gateway',
-    //             'orders.gateway_transaction_id AS gateway_transaction_id',
-
-    //             'product_agg.products_concat AS products_concat',
-    //             'shipping_agg.courier_concat AS courier_concat',
-    //         ]);
-
-    //         $query->orderBy('orders.created_at', 'desc');
-
-    //         $paginated = $query->paginate($perPage);
-
-    //         /*
-    //      * STATE NORMALIZATION
-    //      */
-    //         $stateNormalize = [
-    //             'RAJISTHAN' => 'Rajasthan',
-    //             'MAADHYA PRADESH' => 'Madhya Pradesh',
-    //             'HIMANCHAL PRADESH' => 'Himachal Pradesh',
-    //             'WEST BANGAL' => 'West Bengal',
-    //             'KARNATKA' => 'Karnataka',
-    //             'KARANATAKA' => 'Karnataka',
-    //             'CHHATISGRAH' => 'Chhattisgarh',
-    //             'CHHATTSGARH' => 'Chhattisgarh',
-    //             'GUJRAT' => 'Gujarat',
-    //             'HARIYANA' => 'Haryana',
-    //             'U.P' => 'Uttar Pradesh',
-    //             'UP' => 'Uttar Pradesh',
-    //         ];
-
-    //         $gatewayDisplayMap = [
-    //             'axispg' => 'Freecharge',
-    //             'razorpay' => 'Razorpay',
-    //             'payu' => 'PayU',
-    //             'paytm' => 'Paytm',
-    //         ];
-
-    //         // Supplier State from Config
-    //         $supplierState = strtolower(trim(config('app.supplier_state', 'Punjab')));
-
-    //         /*
-    //      * FORMAT RESPONSE — FLATTENED PER ITEM
-    //      */
-    //         $flatData = [];
-
-    //         $paginated->getCollection()->each(function ($row) use (
-    //             $stateNormalize,
-    //             $gatewayDisplayMap,
-    //             $supplierState,
-    //             &$flatData
-    //         ) {
-    //             $billingRaw = strtoupper(trim((string) ($row->billing_state ?? '')));
-    //             $deliveryRaw = strtoupper(trim((string) ($row->delivery_state ?? '')));
-
-    //             $billingState = $stateNormalize[$billingRaw] ?? ($row->billing_state ?? '');
-    //             $deliveryState = $stateNormalize[$deliveryRaw] ?? ($row->delivery_state ?? '');
-
-    //             // Normalize delivery state for comparison
-    //             $deliveryStateLower = strtolower(trim($deliveryState));
-
-    //             // Couriers keyed by order_line_id
-    //             $couriersByLine = [];
-
-    //             if (!empty($row->courier_concat)) {
-    //                 foreach (explode('||', $row->courier_concat) as $courierStr) {
-    //                     $parts = explode('::', $courierStr);
-
-    //                     if (count($parts) >= 3) {
-    //                         $lineId = (int) $parts[0];
-
-    //                         $couriersByLine[$lineId][] = [
-    //                             'courier_company' => $parts[1] ?: null,
-    //                             'courier_tracking_number' => $parts[2] ?: null,
-    //                         ];
-    //                     }
-    //                 }
-    //             }
-
-    //             // Products
-    //             $products = [];
-
-    //             if (!empty($row->products_concat)) {
-    //                 foreach (explode('||', $row->products_concat) as $productStr) {
-    //                     $parts = explode('::', $productStr);
-
-    //                     if (count($parts) >= 15) {
-    //                         $lineId = (int) $parts[0];
-    //                         $itemReferenceId = $parts[1];
-
-    //                         $qty = (int) $parts[6];
-
-    //                         $unitPrice = (float) $parts[7];
-    //                         $lineTotal = (float) $parts[8];
-    //                         $taxRate = (float) $parts[9];
-    //                         $shippingCharge = (float) $parts[10];
-
-    //                         $invoiceNumber = $parts[11] !== '' ? $parts[11] : null;
-    //                         $invoiceCreatedAt = $parts[12] !== '' ? $parts[12] : null;
-    //                         $serviceChargePerUnit = (float) $parts[13];
-    //                         $categoryName = $parts[14] !== '' ? $parts[14] : null;
-
-    //                         $divisor = 1 + ($taxRate / 100);
-
-    //                         // 1. GST Extraction for Product
-    //                         $lineTotalWithoutGst = $divisor > 0
-    //                             ? $lineTotal / $divisor
-    //                             : $lineTotal;
-
-    //                         $unitPriceWithoutGst = $qty > 0
-    //                             ? $lineTotalWithoutGst / $qty
-    //                             : 0;
-
-    //                         $productGst = $lineTotal - $lineTotalWithoutGst;
-
-    //                         // 2. GST Extraction for Shipping
-    //                         $shippingWithoutGst = $divisor > 0
-    //                             ? $shippingCharge / $divisor
-    //                             : $shippingCharge;
-
-    //                         $shippingGst = $shippingCharge - $shippingWithoutGst;
-
-    //                         // 3. Service Charge Calculation (per item)
-    //                         $totalServiceCharge = $serviceChargePerUnit * $qty;
-
-    //                         // 4. Total Item Amount (Base + Shipping + Service)
-    //                         $totalItemAmount = $lineTotal + $shippingCharge + $totalServiceCharge;
-
-    //                         $products[] = [
-    //                             'order_line_id' => $lineId,
-    //                             'item_reference_id' => $itemReferenceId,
-    //                             'invoice_number' => $invoiceNumber,
-    //                             'invoice_date' => $invoiceCreatedAt
-    //                                 ? Carbon::parse($invoiceCreatedAt)->format('d-m-Y')
-    //                                 : '',
-
-    //                             'name' => $parts[2],
-    //                             'slug' => $parts[3],
-    //                             'hsn_code' => $parts[4],
-    //                             'product_code' => $parts[5],
-    //                             'category_name' => $categoryName,
-
-    //                             'quantity' => $qty,
-
-    //                             // Extracted values for this specific item
-    //                             'unit_price_without_gst' => round($unitPriceWithoutGst, 2),
-    //                             'line_total_without_gst' => round($lineTotalWithoutGst, 2),
-    //                             'shipping_charge_without_gst' => round($shippingWithoutGst, 2),
-
-    //                             'service_charge_per_unit' => round($serviceChargePerUnit, 2),
-    //                             'total_service_charge' => round($totalServiceCharge, 2),
-
-    //                             'total_item_amount' => round($totalItemAmount, 2),
-
-    //                             'tax_rate' => round($taxRate, 2),
-    //                             'gst_amount' => round($productGst, 2),
-    //                             'shipping_gst' => round($shippingGst, 2),
-
-    //                             'line_couriers' => $couriersByLine[$lineId] ?? [],
-    //                         ];
-    //                     }
-    //                 }
-    //             }
-
-    //             $paymentGatewayRaw = strtolower(trim((string) ($row->payment_gateway ?? '')));
-    //             $paymentGatewayDisplay = $gatewayDisplayMap[$paymentGatewayRaw]
-    //                 ?? ($row->payment_gateway ?? '');
-
-    //             /*
-    //          * ORDER-LEVEL fields (Header)
-    //          */
-    //             $orderHeader = [
-    //                 'order_reference' => (string) ($row->order_reference ?? ''),
-
-    //                 'customer_name' => $row->customer_name ?? '',
-    //                 'account_type' => $row->account_type ?? '',
-    //                 'customer_mobile' => $row->customer_mobile ?? '',
-    //                 'customer_email' => $row->customer_email ?? '',
-    //                 'customer_gstin' => $row->customer_gstin ?? 'URP',
-
-    //                 'billing_state' => $billingState,
-    //                 'delivery_state' => $deliveryState,
-
-    //                 'discount_amount' => round((float) $row->discount_amount, 2),
-
-    //                 'order_status' => $row->order_status,
-    //                 'item_delivery_status' => $row->item_delivery_status,
-
-    //                 'cv' => round((float) $row->cv, 2),
-    //                 'user_name' => $row->user_name ?? '',
-
-    //                 'order_date' => $row->order_date
-    //                     ? Carbon::parse($row->order_date)->format('d-m-Y H:i')
-    //                     : '',
-    //                 'confirmed_at' => $row->confirmed_at
-    //                     ? Carbon::parse($row->confirmed_at)->format('d-m-Y H:i')
-    //                     : '',
-    //                 'dispatched_at' => $row->dispatched_at
-    //                     ? Carbon::parse($row->dispatched_at)->format('d-m-Y H:i')
-    //                     : '',
-    //                 'shipping_date' => $row->shipping_date
-    //                     ? Carbon::parse($row->shipping_date)->format('d-m-Y H:i')
-    //                     : '',
-    //                 'delivered_at' => $row->delivered_at
-    //                     ? Carbon::parse($row->delivered_at)->format('d-m-Y H:i')
-    //                     : '',
-
-    //                 'payment_gateway' => $paymentGatewayDisplay,
-    //                 'gateway_transaction_id' => $row->gateway_transaction_id ?? null,
-    //             ];
-
-    //             if (empty($products)) {
-    //                 $flatData[] = array_merge($orderHeader, [
-    //                     'total_items' => 0,
-    //                     'invoice_number' => '',
-    //                     'invoice_date' => '',
-    //                     'order_line_id' => null,
-    //                     'item_reference_id' => null,
-    //                     'product_name' => null,
-    //                     'product_slug' => null,
-    //                     'hsn_code' => null,
-    //                     'product_code' => null,
-    //                     'category_name' => null,
-    //                     'quantity' => 0,
-    //                     'product_subtotal' => 0,
-    //                     'shipping_charge_without_gst' => 0,
-    //                     'product_total_shipping_charge_without_gst' => 0,
-    //                     'product_gst' => 0,
-    //                     'shipping_gst' => 0,
-    //                     'total_gst' => 0,
-    //                     'tax_breakdown' => ['cgst' => 0, 'sgst' => 0, 'igst' => 0],
-    //                     'unit_price_without_gst' => 0,
-    //                     'line_total_without_gst' => 0,
-    //                     'line_shipping_charge_without_gst' => 0,
-    //                     'service_charge_per_unit' => 0,
-    //                     'total_service_charge' => 0,
-    //                     'total_item_amount' => 0,
-    //                     'line_tax_rate' => 0,
-    //                     'line_gst_amount' => 0,
-    //                     'line_shipping_gst' => 0,
-    //                     'line_couriers' => [],
-    //                 ]);
-    //                 return;
-    //             }
-
-    //             foreach ($products as $p) {
-    //                 // Compare Supplier State with Delivery State
-    //                 $isIntraState = ($supplierState === $deliveryStateLower && !empty($deliveryStateLower));
-
-    //                 $totalItemGst = $p['gst_amount'] + $p['shipping_gst'];
-
-    //                 $itemCgst = $isIntraState ? round($totalItemGst / 2, 2) : 0;
-    //                 $itemSgst = $isIntraState ? round($totalItemGst / 2, 2) : 0;
-    //                 $itemIgst = !$isIntraState ? round($totalItemGst, 2) : 0;
-
-    //                 $flatData[] = array_merge($orderHeader, [
-    //                     'total_items' => $p['quantity'], // PER ITEM QUANTITY
-
-    //                     'invoice_number' => $p['invoice_number'] ?? '',
-    //                     'invoice_date'   => $p['invoice_date'] ?? '',
-
-    //                     'order_line_id' => $p['order_line_id'],
-    //                     'item_reference_id' => $p['item_reference_id'],
-    //                     'product_name' => $p['name'],
-    //                     'product_slug' => $p['slug'],
-    //                     'hsn_code' => $p['hsn_code'],
-    //                     'product_code' => $p['product_code'],
-    //                     'category_name' => $p['category_name'],
-    //                     'quantity' => $p['quantity'],
-
-    //                     // Per-item values mapped to the original keys
-    //                     'product_subtotal' => $p['line_total_without_gst'],
-    //                     'shipping_charge_without_gst' => $p['shipping_charge_without_gst'],
-    //                     'product_total_shipping_charge_without_gst' => round($p['line_total_without_gst'] + $p['shipping_charge_without_gst'], 2),
-
-    //                     'product_gst' => $p['gst_amount'],
-    //                     'shipping_gst' => $p['shipping_gst'],
-    //                     'total_gst' => round($totalItemGst, 2),
-
-    //                     'tax_breakdown' => [
-    //                         'cgst' => $itemCgst,
-    //                         'sgst' => $itemSgst,
-    //                         'igst' => $itemIgst,
-    //                     ],
-
-    //                     // Per-item sub-values
-    //                     'unit_price_without_gst' => $p['unit_price_without_gst'],
-    //                     'line_total_without_gst' => $p['line_total_without_gst'],
-    //                     'line_shipping_charge_without_gst' => $p['shipping_charge_without_gst'],
-
-    //                     'service_charge_per_unit' => $p['service_charge_per_unit'],
-    //                     'total_service_charge' => $p['total_service_charge'],
-    //                     'total_item_amount' => $p['total_item_amount'],
-
-    //                     'line_tax_rate' => $p['tax_rate'],
-    //                     'line_gst_amount' => $p['gst_amount'],
-    //                     'line_shipping_gst' => $p['shipping_gst'],
-    //                     'line_couriers' => $p['line_couriers'],
-    //                 ]);
-    //             }
-    //         });
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'data' => $flatData,
-    //             'meta' => [
-    //                 'total' => $paginated->total(),
-    //                 'per_page' => $paginated->perPage(),
-    //                 'current_page' => $paginated->currentPage(),
-    //                 'last_page' => $paginated->lastPage(),
-    //                 'rows_returned' => count($flatData),
-    //             ],
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('Sales report failed: ' . $e->getMessage(), [
-    //             'trace' => $e->getTraceAsString(),
-    //         ]);
-
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 500);
-    //     }
-    // }
+    
     public function financeSalesReport(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -2333,4 +1731,277 @@ class SalesReportController extends Controller
             ], 500);
         }
     }
+
+    public function hsnSummaryReport(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'status' => 'nullable|string|in:confirmed,dispatched,shipped,delivered,partial_dispatched,partial_shipped,partial_delivered',
+            'from' => 'nullable|date',
+            'to' => 'nullable|date|after_or_equal:from',
+            'registration_type' => 'nullable|in:registered,unregistered,all',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $allowedStatuses = $request->filled('status')
+                ? [$request->status]
+                : [
+                    'dispatched', 'shipped', 'delivered',
+                    'partial_dispatched', 'partial_shipped', 'partial_delivered',
+                ];
+
+            /*
+            * GSTIN SUBQUERY
+            * gst_in jo NULL na ho, empty na ho, aur 'URP' na ho — sirf wahi Registered hai.
+            * Hum yahan normalized value nikalenge taaki baad mein CASE simple rahe.
+            */
+            $gstinSub = DB::table('distributor_profiles')
+                ->select('user_id')
+                ->selectRaw("
+                    MAX(
+                        CASE
+                            WHEN gst_in IS NOT NULL
+                                AND TRIM(gst_in) <> ''
+                                AND UPPER(TRIM(gst_in)) <> 'URP'
+                            THEN TRIM(gst_in)
+                            ELSE NULL
+                        END
+                    ) AS gst_in
+                ")
+                ->groupBy('user_id');
+
+            /*
+            * LINE AGG SUBQUERY (order-level status + delivery state)
+            */
+            $lineAggSub = DB::table('order_lines')
+                ->join('orders', 'orders.id', '=', 'order_lines.order_id')
+                ->leftJoin('addresses as delivery_addr', 'delivery_addr.id', '=', 'orders.delivery_address_id')
+                ->select('order_lines.order_id')
+                ->selectRaw('MAX(delivery_addr.state) AS delivery_state')
+                ->selectRaw("
+                    CASE
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) > 0 THEN 'partial_delivered'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0
+                            AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) > 0
+                            THEN 'partial_shipped'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) = 0 THEN 'shipped'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0
+                            AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('dispatched','shipped','delivered') THEN 1 ELSE 0 END) > 0
+                            THEN 'partial_dispatched'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
+                        ELSE 'confirmed'
+                    END AS overall_delivery_status
+                ")
+                ->groupBy('order_lines.order_id');
+
+            $taxRate = 'COALESCE(order_lines.gst_rate, tax_categories.rate, 0)';
+
+            /*
+            * MAIN HSN QUERY
+            * Grouping key: hsn + item_name + rate + registration_type + is_intra_state
+            * Isse CGST/SGST vs IGST ka exact split milega (multi-state orders bhi handle honge).
+            */
+            $supplierState = strtolower(trim(config('app.supplier_state', 'Punjab')));
+
+            $query = DB::table('order_lines')
+                ->join('products', 'products.id', '=', 'order_lines.product_id')
+                ->leftJoin('tax_categories', 'tax_categories.id', '=', 'products.tax_category_id')
+                ->join('orders', 'orders.id', '=', 'order_lines.order_id')
+                ->join('users', 'users.id', '=', 'orders.user_id')
+                ->leftJoinSub($gstinSub, 'gstin_data', function ($join) {
+                    $join->on('gstin_data.user_id', '=', 'users.id');
+                })
+                ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
+                    $join->on('line_agg.order_id', '=', 'orders.id');
+                })
+                ->whereIn('line_agg.overall_delivery_status', $allowedStatuses)
+                ->whereNull('orders.deleted_at');
+
+            if ($request->filled('from')) {
+                $query->where('orders.created_at', '>=', $request->from . ' 00:00:00');
+            }
+            if ($request->filled('to')) {
+                $query->where('orders.created_at', '<=', $request->to . ' 23:59:59');
+            }
+
+            // Registration type detection — URP / NULL / empty => unregistered
+            $registrationCase = "
+                CASE
+                    WHEN gstin_data.gst_in IS NOT NULL
+                        AND TRIM(gstin_data.gst_in) <> ''
+                        AND UPPER(TRIM(gstin_data.gst_in)) <> 'URP'
+                    THEN 'registered'
+                    ELSE 'unregistered'
+                END
+            ";
+
+            // Intra-state detection based on supplier vs delivery state
+            $intraCase = "
+                CASE
+                    WHEN LOWER(TRIM(COALESCE(line_agg.delivery_state, ''))) = " . DB::getPdo()->quote($supplierState) . "
+                        AND TRIM(COALESCE(line_agg.delivery_state, '')) <> ''
+                    THEN 1
+                    ELSE 0
+                END
+            ";
+
+            $registrationFilter = $request->input('registration_type', 'all');
+            if ($registrationFilter === 'registered') {
+                $query->whereRaw("$registrationCase = 'registered'");
+            } elseif ($registrationFilter === 'unregistered') {
+                $query->whereRaw("$registrationCase = 'unregistered'");
+            }
+
+            $rows = $query
+                ->select([
+                    'products.hsn_code AS hsn',
+                    'products.name AS item_name',
+                    DB::raw("$taxRate AS tax_rate"),
+                    DB::raw("$registrationCase AS registration_type"),
+                    DB::raw("$intraCase AS is_intra_state"),
+                ])
+                ->selectRaw('SUM(order_lines.quantity) AS total_quantity')
+                ->selectRaw("
+                    SUM(
+                        COALESCE(order_lines.line_total, 0)
+                        + COALESCE(order_lines.shipping_charge, 0)
+                        + (COALESCE(products.service_charge, 0) * COALESCE(order_lines.quantity, 0))
+                    ) AS total_value
+                ")
+                ->selectRaw("
+                    SUM(
+                        COALESCE(order_lines.line_total, 0) / (1 + ($taxRate / 100))
+                    ) AS taxable_product_value
+                ")
+                ->selectRaw("
+                    SUM(
+                        COALESCE(order_lines.shipping_charge, 0) / (1 + ($taxRate / 100))
+                    ) AS taxable_shipping_value
+                ")
+                ->selectRaw("
+                    SUM(
+                        COALESCE(order_lines.line_total, 0)
+                        - (COALESCE(order_lines.line_total, 0) / (1 + ($taxRate / 100)))
+                    ) AS product_gst
+                ")
+                ->selectRaw("
+                    SUM(
+                        COALESCE(order_lines.shipping_charge, 0)
+                        - (COALESCE(order_lines.shipping_charge, 0) / (1 + ($taxRate / 100)))
+                    ) AS shipping_gst
+                ")
+                ->groupByRaw("
+                    products.hsn_code,
+                    products.name,
+                    $taxRate,
+                    $registrationCase,
+                    $intraCase
+                ")
+                ->orderBy('registration_type')
+                ->orderBy('products.hsn_code')
+                ->get();
+
+            /*
+            * PHP-side merge: agar same hsn + rate + registration_type ke
+            * do rows hain (ek intra, ek inter) to unhe ek row mein merge karenge.
+            */
+            $registered = [];
+            $unregistered = [];
+
+            foreach ($rows as $row) {
+                $rate = (float) $row->tax_rate;
+                $isIntra = (int) $row->is_intra_state === 1;
+
+                $productGst = (float) $row->product_gst;
+                $shippingGst = (float) $row->shipping_gst;
+                $totalGst = $productGst + $shippingGst;
+
+                $taxableValue = (float) $row->taxable_product_value + (float) $row->taxable_shipping_value;
+
+                $igst = $isIntra ? 0 : round($totalGst, 2);
+                $cgst = $isIntra ? round($totalGst / 2, 2) : 0;
+                $sgst = $isIntra ? round($totalGst / 2, 2) : 0;
+
+                $key = $row->hsn . '|' . $rate . '|' . $row->registration_type;
+
+                $target = &$registered;
+                if ($row->registration_type === 'unregistered') {
+                    $target = &$unregistered;
+                }
+
+                if (!isset($target[$key])) {
+                    $target[$key] = [
+                        'item_name' => $row->item_name,
+                        'hsn' => $row->hsn,
+                        'uqc' => 'NOS-NUMBERS',
+                        'total_quantity' => 0,
+                        'total_value' => 0,
+                        'rate' => round($rate, 2),
+                        'taxable_value' => 0,
+                        'integrated_tax_amount' => 0,
+                        'central_tax_amount' => 0,
+                        'state_ut_tax_amount' => 0,
+                        'cess_amount' => 0,
+                        'registration_type' => $row->registration_type,
+                    ];
+                }
+
+                $target[$key]['total_quantity'] += (int) $row->total_quantity;
+                $target[$key]['total_value'] += round((float) $row->total_value, 2);
+                $target[$key]['taxable_value'] += round($taxableValue, 2);
+                $target[$key]['integrated_tax_amount'] += $igst;
+                $target[$key]['central_tax_amount'] += $cgst;
+                $target[$key]['state_ut_tax_amount'] += $sgst;
+
+                unset($target);
+            }
+
+            // Final rounding
+            foreach ([&$registered, &$unregistered] as &$bucket) {
+                foreach ($bucket as &$item) {
+                    $item['total_value'] = round($item['total_value'], 2);
+                    $item['taxable_value'] = round($item['taxable_value'], 2);
+                    $item['integrated_tax_amount'] = round($item['integrated_tax_amount'], 2);
+                    $item['central_tax_amount'] = round($item['central_tax_amount'], 2);
+                    $item['state_ut_tax_amount'] = round($item['state_ut_tax_amount'], 2);
+                    unset($item['registration_type']);
+                }
+                unset($item);
+                $bucket = array_values($bucket);
+            }
+            unset($bucket);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'registered' => $registered,
+                    'unregistered' => $unregistered,
+                ],
+                'meta' => [
+                    'from' => $request->from,
+                    'to' => $request->to,
+                    'statuses' => $allowedStatuses,
+                    'supplier_state' => config('app.supplier_state', 'Punjab'),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('HSN summary report failed: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
 }
