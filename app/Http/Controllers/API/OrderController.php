@@ -3935,7 +3935,7 @@ class OrderController extends Controller
                 "Order #%s has been delivered. Items: %d. Customer: %s",
                 $order->order_reference,
                 count($processedItems),
-                $user->name ?? 'Guest'
+                $user->full_name ?? 'Guest'
             );
 
             \App\Models\AdminNotification::create([
