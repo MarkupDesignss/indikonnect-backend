@@ -202,7 +202,7 @@ class CreditNoteController extends Controller
 
                 // Order/credit-note level header (repeated per line)
                 $header = [
-                    'id' => $row->id,
+                    // 'id' => $row->id,
                     'credit_note_number' => $row->credit_note_number,
 
                     'original_invoice_number' => $row->live_invoice_number ?? $row->original_invoice_number,
