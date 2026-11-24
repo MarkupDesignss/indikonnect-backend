@@ -3787,40 +3787,40 @@ class CheckoutService
                         }
                     }
 
-                    if (!empty($stockFailures)) {
-                        $updateData = [
-                            'status'                 => 'stock_unavailable',
-                            'payment_gateway'        => $gatewayData['gateway'] ?? $order->payment_gateway,
-                            'amount_paid'            => $order->total_payable,
-                        ];
+                    // if (!empty($stockFailures)) {
+                    //     $updateData = [
+                    //         'status'                 => 'stock_unavailable',
+                    //         'payment_gateway'        => $gatewayData['gateway'] ?? $order->payment_gateway,
+                    //         'amount_paid'            => $order->total_payable,
+                    //     ];
 
-                        if ($this->isValidTransactionId($gatewayData['transaction_id'] ?? null)) {
-                            $updateData['gateway_transaction_id'] = $gatewayData['transaction_id'];
-                        }
+                    //     if ($this->isValidTransactionId($gatewayData['transaction_id'] ?? null)) {
+                    //         $updateData['gateway_transaction_id'] = $gatewayData['transaction_id'];
+                    //     }
 
-                        // ---- NEW: log the write ----
-                        Log::warning('confirmOrder: marking stock_unavailable', [
-                            'order_id'                => $order->id,
-                            'order_reference'         => $order->order_reference,
-                            'incoming_transaction_id' => $gatewayData['transaction_id'] ?? null,
-                            'will_write_transaction_id' => isset($updateData['gateway_transaction_id']),
-                            'update_data'             => $updateData,
-                        ]);
-                        // ---- END NEW ----
+                    //     // ---- NEW: log the write ----
+                    //     Log::warning('confirmOrder: marking stock_unavailable', [
+                    //         'order_id'                => $order->id,
+                    //         'order_reference'         => $order->order_reference,
+                    //         'incoming_transaction_id' => $gatewayData['transaction_id'] ?? null,
+                    //         'will_write_transaction_id' => isset($updateData['gateway_transaction_id']),
+                    //         'update_data'             => $updateData,
+                    //     ]);
+                    //     // ---- END NEW ----
 
-                        $order->update($updateData);
+                    //     $order->update($updateData);
 
-                        $this->logAudit(
-                            'order_confirm_failed_no_stock',
-                            'orders',
-                            ['order_reference' => $order->order_reference, 'status' => $oldStatus],
-                            ['failures' => $stockFailures, 'gateway' => $gatewayData],
-                            null,
-                            $this->getClientIp()
-                        );
+                    //     $this->logAudit(
+                    //         'order_confirm_failed_no_stock',
+                    //         'orders',
+                    //         ['order_reference' => $order->order_reference, 'status' => $oldStatus],
+                    //         ['failures' => $stockFailures, 'gateway' => $gatewayData],
+                    //         null,
+                    //         $this->getClientIp()
+                    //     );
 
-                        continue; // refund/manual handle
-                    }
+                    //     continue;
+                    // }
 
                     // No reservation, but stock available → decrement directly
                     foreach ($order->lines as $line) {
