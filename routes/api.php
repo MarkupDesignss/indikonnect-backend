@@ -1078,6 +1078,7 @@ Route::get('/delivery-report', [SalesReportController::class, 'deliveryeportsr']
 Route::get('/returns-report', [SalesReportController::class, 'returnreports']);
 Route::get('/returns-article-report', [SalesReportController::class, 'returnArticlereport']);
 Route::get('/finance-report', [SalesReportController::class, 'financeSalesReport']);
+Route::get('/hsn-report', [SalesReportController::class, 'hsnSummaryReport']);
 
 // ============================
 // INDIA POST ORDER LINE ROUTES
