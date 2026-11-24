@@ -3932,10 +3932,10 @@ class OrderController extends Controller
             $user = $order->user;
 
             $message = sprintf(
-                "Order #%s has been delivered. Items: %d. Customer: %s",
+                "Order #%s has been delivered. Items: %d. User: %s",
                 $order->order_reference,
                 count($processedItems),
-                $user->name ?? 'Guest'
+                $user->full_name ?? 'Guest'
             );
 
             \App\Models\AdminNotification::create([
