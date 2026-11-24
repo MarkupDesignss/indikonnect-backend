@@ -1132,7 +1132,7 @@ class SalesReportController extends Controller
             'data' => $data,
         ]);
     }
-    
+
     public function financeSalesReport(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -1733,275 +1733,262 @@ class SalesReportController extends Controller
     }
 
     public function hsnSummaryReport(Request $request): JsonResponse
-    {
-        $validator = Validator::make($request->all(), [
-            'status' => 'nullable|string|in:confirmed,dispatched,shipped,delivered,partial_dispatched,partial_shipped,partial_delivered',
-            'from' => 'nullable|date',
-            'to' => 'nullable|date|after_or_equal:from',
-            'registration_type' => 'nullable|in:registered,unregistered,all',
+{
+    $validator = Validator::make($request->all(), [
+        'status' => 'nullable|string|in:confirmed,dispatched,shipped,delivered,partial_dispatched,partial_shipped,partial_delivered',
+        'from' => 'nullable|date',
+        'to' => 'nullable|date|after_or_equal:from',
+        'registration_type' => 'nullable|in:registered,unregistered,all',
+    ]);
+
+    if ($validator->fails()) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Validation failed.',
+            'errors' => $validator->errors(),
+        ], 422);
+    }
+
+    try {
+        $allowedStatuses = $request->filled('status')
+            ? [$request->status]
+            : [
+                'dispatched', 'shipped', 'delivered',
+                'partial_dispatched', 'partial_shipped', 'partial_delivered',
+            ];
+
+        /*
+        * GSTIN SUBQUERY
+        * gst_in jo NULL na ho, empty na ho, aur 'URP' na ho — sirf wahi Registered hai.
+        * Hum yahan normalized value nikalenge taaki baad mein CASE simple rahe.
+        */
+        $gstinSub = DB::table('distributor_profiles')
+            ->select('user_id')
+            ->selectRaw("
+                MAX(
+                    CASE
+                        WHEN gst_in IS NOT NULL
+                            AND TRIM(gst_in) <> ''
+                            AND UPPER(TRIM(gst_in)) <> 'URP'
+                        THEN TRIM(gst_in)
+                        ELSE NULL
+                    END
+                ) AS gst_in
+            ")
+            ->groupBy('user_id');
+
+        /*
+        * LINE AGG SUBQUERY (order-level status + delivery state)
+        */
+        $lineAggSub = DB::table('order_lines')
+            ->join('orders', 'orders.id', '=', 'order_lines.order_id')
+            ->leftJoin('addresses as delivery_addr', 'delivery_addr.id', '=', 'orders.delivery_address_id')
+            ->select('order_lines.order_id')
+            ->selectRaw('MAX(delivery_addr.state) AS delivery_state')
+            ->selectRaw("
+                CASE
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) > 0 THEN 'partial_delivered'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0
+                        AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) > 0
+                        THEN 'partial_shipped'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) = 0 THEN 'shipped'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0
+                        AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('dispatched','shipped','delivered') THEN 1 ELSE 0 END) > 0
+                        THEN 'partial_dispatched'
+                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
+                    ELSE 'confirmed'
+                END AS overall_delivery_status
+            ")
+            ->groupBy('order_lines.order_id');
+
+        $taxRate = 'COALESCE(order_lines.gst_rate, tax_categories.rate, 0)';
+
+        /*
+        * MAIN HSN QUERY
+        * Grouping key: hsn + item_name + rate + registration_type + is_intra_state
+        * Isse CGST/SGST vs IGST ka exact split milega (multi-state orders bhi handle honge).
+        */
+        $supplierState = strtolower(trim(config('app.supplier_state', 'Punjab')));
+
+        $query = DB::table('order_lines')
+            ->join('products', 'products.id', '=', 'order_lines.product_id')
+            ->leftJoin('tax_categories', 'tax_categories.id', '=', 'products.tax_category_id')
+            ->join('orders', 'orders.id', '=', 'order_lines.order_id')
+            ->join('users', 'users.id', '=', 'orders.user_id')
+            ->leftJoinSub($gstinSub, 'gstin_data', function ($join) {
+                $join->on('gstin_data.user_id', '=', 'users.id');
+            })
+            ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
+                $join->on('line_agg.order_id', '=', 'orders.id');
+            })
+            ->whereIn('line_agg.overall_delivery_status', $allowedStatuses)
+            ->whereNull('orders.deleted_at');
+
+        if ($request->filled('from')) {
+            $query->where('orders.created_at', '>=', $request->from . ' 00:00:00');
+        }
+        if ($request->filled('to')) {
+            $query->where('orders.created_at', '<=', $request->to . ' 23:59:59');
+        }
+
+        // Registration type detection — URP / NULL / empty => unregistered
+        $registrationCase = "
+            CASE
+                WHEN gstin_data.gst_in IS NOT NULL
+                    AND TRIM(gstin_data.gst_in) <> ''
+                    AND UPPER(TRIM(gstin_data.gst_in)) <> 'URP'
+                THEN 'registered'
+                ELSE 'unregistered'
+            END
+        ";
+
+        // Intra-state detection based on supplier vs delivery state
+        $intraCase = "
+            CASE
+                WHEN LOWER(TRIM(COALESCE(line_agg.delivery_state, ''))) = " . DB::getPdo()->quote($supplierState) . "
+                    AND TRIM(COALESCE(line_agg.delivery_state, '')) <> ''
+                THEN 1
+                ELSE 0
+            END
+        ";
+
+        $registrationFilter = $request->input('registration_type', 'all');
+        if ($registrationFilter === 'registered') {
+            $query->whereRaw("$registrationCase = 'registered'");
+        } elseif ($registrationFilter === 'unregistered') {
+            $query->whereRaw("$registrationCase = 'unregistered'");
+        }
+
+        /*
+        * RAW ROW-LEVEL QUERY
+        * No aggregation here — this avoids MySQL ONLY_FULL_GROUP_BY issues entirely.
+        * All expressions are pre-computed as plain columns.
+        */
+        $rawLines = $query
+            ->select([
+                'products.hsn_code AS hsn',
+                'products.name AS item_name',
+                DB::raw("$taxRate AS tax_rate"),
+                DB::raw("$registrationCase AS registration_type"),
+                DB::raw("$intraCase AS is_intra_state"),
+                DB::raw('order_lines.quantity AS quantity'),
+                DB::raw('COALESCE(order_lines.line_total, 0) AS line_total'),
+                DB::raw('COALESCE(order_lines.shipping_charge, 0) AS shipping_charge'),
+                DB::raw('COALESCE(products.service_charge, 0) AS service_charge'),
+            ]);
+
+        /*
+        * OUTER AGGREGATION QUERY
+        * Group by simple aliases — MySQL allows this cleanly even with ONLY_FULL_GROUP_BY.
+        */
+        $rows = DB::query()
+            ->fromSub($rawLines, 'raw_lines')
+            ->select('hsn', 'item_name', 'tax_rate', 'registration_type', 'is_intra_state')
+            ->selectRaw('SUM(quantity) AS total_quantity')
+            ->selectRaw('SUM(line_total + shipping_charge + (service_charge * quantity)) AS total_value')
+            ->selectRaw('SUM(line_total / (1 + (tax_rate / 100))) AS taxable_product_value')
+            ->selectRaw('SUM(shipping_charge / (1 + (tax_rate / 100))) AS taxable_shipping_value')
+            ->selectRaw('SUM(line_total - (line_total / (1 + (tax_rate / 100)))) AS product_gst')
+            ->selectRaw('SUM(shipping_charge - (shipping_charge / (1 + (tax_rate / 100)))) AS shipping_gst')
+            ->groupBy('hsn', 'item_name', 'tax_rate', 'registration_type', 'is_intra_state')
+            ->orderBy('registration_type')
+            ->orderBy('hsn')
+            ->get();
+
+        /*
+        * PHP-side merge: agar same hsn + rate + registration_type ke
+        * do rows hain (ek intra, ek inter) to unhe ek row mein merge karenge.
+        */
+        $registered = [];
+        $unregistered = [];
+
+        foreach ($rows as $row) {
+            $rate = (float) $row->tax_rate;
+            $isIntra = (int) $row->is_intra_state === 1;
+
+            $productGst = (float) $row->product_gst;
+            $shippingGst = (float) $row->shipping_gst;
+            $totalGst = $productGst + $shippingGst;
+
+            $taxableValue = (float) $row->taxable_product_value + (float) $row->taxable_shipping_value;
+
+            $igst = $isIntra ? 0 : round($totalGst, 2);
+            $cgst = $isIntra ? round($totalGst / 2, 2) : 0;
+            $sgst = $isIntra ? round($totalGst / 2, 2) : 0;
+
+            $key = $row->hsn . '|' . $rate . '|' . $row->registration_type;
+
+            $target = &$registered;
+            if ($row->registration_type === 'unregistered') {
+                $target = &$unregistered;
+            }
+
+            if (!isset($target[$key])) {
+                $target[$key] = [
+                    'item_name' => $row->item_name,
+                    'hsn' => $row->hsn,
+                    'uqc' => 'NOS-NUMBERS',
+                    'total_quantity' => 0,
+                    'total_value' => 0,
+                    'rate' => round($rate, 2),
+                    'taxable_value' => 0,
+                    'integrated_tax_amount' => 0,
+                    'central_tax_amount' => 0,
+                    'state_ut_tax_amount' => 0,
+                    'cess_amount' => 0,
+                    'registration_type' => $row->registration_type,
+                ];
+            }
+
+            $target[$key]['total_quantity'] += (int) $row->total_quantity;
+            $target[$key]['total_value'] += round((float) $row->total_value, 2);
+            $target[$key]['taxable_value'] += round($taxableValue, 2);
+            $target[$key]['integrated_tax_amount'] += $igst;
+            $target[$key]['central_tax_amount'] += $cgst;
+            $target[$key]['state_ut_tax_amount'] += $sgst;
+
+            unset($target);
+        }
+
+        // Final rounding
+        foreach ([&$registered, &$unregistered] as &$bucket) {
+            foreach ($bucket as &$item) {
+                $item['total_value'] = round($item['total_value'], 2);
+                $item['taxable_value'] = round($item['taxable_value'], 2);
+                $item['integrated_tax_amount'] = round($item['integrated_tax_amount'], 2);
+                $item['central_tax_amount'] = round($item['central_tax_amount'], 2);
+                $item['state_ut_tax_amount'] = round($item['state_ut_tax_amount'], 2);
+                unset($item['registration_type']);
+            }
+            unset($item);
+            $bucket = array_values($bucket);
+        }
+        unset($bucket);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'registered' => $registered,
+                'unregistered' => $unregistered,
+            ],
+            'meta' => [
+                'from' => $request->from,
+                'to' => $request->to,
+                'statuses' => $allowedStatuses,
+                'supplier_state' => config('app.supplier_state', 'Punjab'),
+            ],
+        ]);
+    } catch (\Exception $e) {
+        Log::error('HSN summary report failed: ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString(),
         ]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed.',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        try {
-            $allowedStatuses = $request->filled('status')
-                ? [$request->status]
-                : [
-                    'dispatched', 'shipped', 'delivered',
-                    'partial_dispatched', 'partial_shipped', 'partial_delivered',
-                ];
-
-            /*
-            * GSTIN SUBQUERY
-            * gst_in jo NULL na ho, empty na ho, aur 'URP' na ho — sirf wahi Registered hai.
-            * Hum yahan normalized value nikalenge taaki baad mein CASE simple rahe.
-            */
-            $gstinSub = DB::table('distributor_profiles')
-                ->select('user_id')
-                ->selectRaw("
-                    MAX(
-                        CASE
-                            WHEN gst_in IS NOT NULL
-                                AND TRIM(gst_in) <> ''
-                                AND UPPER(TRIM(gst_in)) <> 'URP'
-                            THEN TRIM(gst_in)
-                            ELSE NULL
-                        END
-                    ) AS gst_in
-                ")
-                ->groupBy('user_id');
-
-            /*
-            * LINE AGG SUBQUERY (order-level status + delivery state)
-            */
-            $lineAggSub = DB::table('order_lines')
-                ->join('orders', 'orders.id', '=', 'order_lines.order_id')
-                ->leftJoin('addresses as delivery_addr', 'delivery_addr.id', '=', 'orders.delivery_address_id')
-                ->select('order_lines.order_id')
-                ->selectRaw('MAX(delivery_addr.state) AS delivery_state')
-                ->selectRaw("
-                    CASE
-                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
-                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) > 0 THEN 'partial_delivered'
-                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0
-                            AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) > 0
-                            THEN 'partial_shipped'
-                        WHEN SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) = 0 THEN 'shipped'
-                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0
-                            AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('dispatched','shipped','delivered') THEN 1 ELSE 0 END) > 0
-                            THEN 'partial_dispatched'
-                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
-                        ELSE 'confirmed'
-                    END AS overall_delivery_status
-                ")
-                ->groupBy('order_lines.order_id');
-
-            $taxRate = 'COALESCE(order_lines.gst_rate, tax_categories.rate, 0)';
-
-            /*
-            * MAIN HSN QUERY
-            * Grouping key: hsn + item_name + rate + registration_type + is_intra_state
-            * Isse CGST/SGST vs IGST ka exact split milega (multi-state orders bhi handle honge).
-            */
-            $supplierState = strtolower(trim(config('app.supplier_state', 'Punjab')));
-
-            $query = DB::table('order_lines')
-                ->join('products', 'products.id', '=', 'order_lines.product_id')
-                ->leftJoin('tax_categories', 'tax_categories.id', '=', 'products.tax_category_id')
-                ->join('orders', 'orders.id', '=', 'order_lines.order_id')
-                ->join('users', 'users.id', '=', 'orders.user_id')
-                ->leftJoinSub($gstinSub, 'gstin_data', function ($join) {
-                    $join->on('gstin_data.user_id', '=', 'users.id');
-                })
-                ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
-                    $join->on('line_agg.order_id', '=', 'orders.id');
-                })
-                ->whereIn('line_agg.overall_delivery_status', $allowedStatuses)
-                ->whereNull('orders.deleted_at');
-
-            if ($request->filled('from')) {
-                $query->where('orders.created_at', '>=', $request->from . ' 00:00:00');
-            }
-            if ($request->filled('to')) {
-                $query->where('orders.created_at', '<=', $request->to . ' 23:59:59');
-            }
-
-            // Registration type detection — URP / NULL / empty => unregistered
-            $registrationCase = "
-                CASE
-                    WHEN gstin_data.gst_in IS NOT NULL
-                        AND TRIM(gstin_data.gst_in) <> ''
-                        AND UPPER(TRIM(gstin_data.gst_in)) <> 'URP'
-                    THEN 'registered'
-                    ELSE 'unregistered'
-                END
-            ";
-
-            // Intra-state detection based on supplier vs delivery state
-            $intraCase = "
-                CASE
-                    WHEN LOWER(TRIM(COALESCE(line_agg.delivery_state, ''))) = " . DB::getPdo()->quote($supplierState) . "
-                        AND TRIM(COALESCE(line_agg.delivery_state, '')) <> ''
-                    THEN 1
-                    ELSE 0
-                END
-            ";
-
-            $registrationFilter = $request->input('registration_type', 'all');
-            if ($registrationFilter === 'registered') {
-                $query->whereRaw("$registrationCase = 'registered'");
-            } elseif ($registrationFilter === 'unregistered') {
-                $query->whereRaw("$registrationCase = 'unregistered'");
-            }
-
-            $rows = $query
-                ->select([
-                    'products.hsn_code AS hsn',
-                    'products.name AS item_name',
-                    DB::raw("$taxRate AS tax_rate"),
-                    DB::raw("$registrationCase AS registration_type"),
-                    DB::raw("$intraCase AS is_intra_state"),
-                ])
-                ->selectRaw('SUM(order_lines.quantity) AS total_quantity')
-                ->selectRaw("
-                    SUM(
-                        COALESCE(order_lines.line_total, 0)
-                        + COALESCE(order_lines.shipping_charge, 0)
-                        + (COALESCE(products.service_charge, 0) * COALESCE(order_lines.quantity, 0))
-                    ) AS total_value
-                ")
-                ->selectRaw("
-                    SUM(
-                        COALESCE(order_lines.line_total, 0) / (1 + ($taxRate / 100))
-                    ) AS taxable_product_value
-                ")
-                ->selectRaw("
-                    SUM(
-                        COALESCE(order_lines.shipping_charge, 0) / (1 + ($taxRate / 100))
-                    ) AS taxable_shipping_value
-                ")
-                ->selectRaw("
-                    SUM(
-                        COALESCE(order_lines.line_total, 0)
-                        - (COALESCE(order_lines.line_total, 0) / (1 + ($taxRate / 100)))
-                    ) AS product_gst
-                ")
-                ->selectRaw("
-                    SUM(
-                        COALESCE(order_lines.shipping_charge, 0)
-                        - (COALESCE(order_lines.shipping_charge, 0) / (1 + ($taxRate / 100)))
-                    ) AS shipping_gst
-                ")
-                ->groupByRaw("
-                    products.hsn_code,
-                    products.name,
-                    $taxRate,
-                    $registrationCase,
-                    $intraCase
-                ")
-                ->orderBy('registration_type')
-                ->orderBy('products.hsn_code')
-                ->get();
-
-            /*
-            * PHP-side merge: agar same hsn + rate + registration_type ke
-            * do rows hain (ek intra, ek inter) to unhe ek row mein merge karenge.
-            */
-            $registered = [];
-            $unregistered = [];
-
-            foreach ($rows as $row) {
-                $rate = (float) $row->tax_rate;
-                $isIntra = (int) $row->is_intra_state === 1;
-
-                $productGst = (float) $row->product_gst;
-                $shippingGst = (float) $row->shipping_gst;
-                $totalGst = $productGst + $shippingGst;
-
-                $taxableValue = (float) $row->taxable_product_value + (float) $row->taxable_shipping_value;
-
-                $igst = $isIntra ? 0 : round($totalGst, 2);
-                $cgst = $isIntra ? round($totalGst / 2, 2) : 0;
-                $sgst = $isIntra ? round($totalGst / 2, 2) : 0;
-
-                $key = $row->hsn . '|' . $rate . '|' . $row->registration_type;
-
-                $target = &$registered;
-                if ($row->registration_type === 'unregistered') {
-                    $target = &$unregistered;
-                }
-
-                if (!isset($target[$key])) {
-                    $target[$key] = [
-                        'item_name' => $row->item_name,
-                        'hsn' => $row->hsn,
-                        'uqc' => 'NOS-NUMBERS',
-                        'total_quantity' => 0,
-                        'total_value' => 0,
-                        'rate' => round($rate, 2),
-                        'taxable_value' => 0,
-                        'integrated_tax_amount' => 0,
-                        'central_tax_amount' => 0,
-                        'state_ut_tax_amount' => 0,
-                        'cess_amount' => 0,
-                        'registration_type' => $row->registration_type,
-                    ];
-                }
-
-                $target[$key]['total_quantity'] += (int) $row->total_quantity;
-                $target[$key]['total_value'] += round((float) $row->total_value, 2);
-                $target[$key]['taxable_value'] += round($taxableValue, 2);
-                $target[$key]['integrated_tax_amount'] += $igst;
-                $target[$key]['central_tax_amount'] += $cgst;
-                $target[$key]['state_ut_tax_amount'] += $sgst;
-
-                unset($target);
-            }
-
-            // Final rounding
-            foreach ([&$registered, &$unregistered] as &$bucket) {
-                foreach ($bucket as &$item) {
-                    $item['total_value'] = round($item['total_value'], 2);
-                    $item['taxable_value'] = round($item['taxable_value'], 2);
-                    $item['integrated_tax_amount'] = round($item['integrated_tax_amount'], 2);
-                    $item['central_tax_amount'] = round($item['central_tax_amount'], 2);
-                    $item['state_ut_tax_amount'] = round($item['state_ut_tax_amount'], 2);
-                    unset($item['registration_type']);
-                }
-                unset($item);
-                $bucket = array_values($bucket);
-            }
-            unset($bucket);
-
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'registered' => $registered,
-                    'unregistered' => $unregistered,
-                ],
-                'meta' => [
-                    'from' => $request->from,
-                    'to' => $request->to,
-                    'statuses' => $allowedStatuses,
-                    'supplier_state' => config('app.supplier_state', 'Punjab'),
-                ],
-            ]);
-        } catch (\Exception $e) {
-            Log::error('HSN summary report failed: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ], 500);
-        }
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage(),
+        ], 500);
     }
+}
 
 }
