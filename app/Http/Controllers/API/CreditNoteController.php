@@ -27,39 +27,50 @@ class CreditNoteController extends Controller
                 ->select('order_lines.order_id')
                 ->selectRaw('SUM(order_lines.quantity) as total_qty')
                 ->selectRaw('
-            SUM(
-                order_lines.line_total +
-                order_lines.shipping_charge +
-                (COALESCE(products.service_charge, 0) * order_lines.quantity)
-            ) as total_item_amount
-        ')
+        SUM(
+            order_lines.line_total +
+            order_lines.shipping_charge +
+            (COALESCE(products.service_charge, 0) * order_lines.quantity)
+        ) as total_item_amount
+    ')
                 ->selectRaw("
-            CASE
-                WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
-                WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) > 0 THEN 'partial_delivered'
-                WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0
-                    AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) > 0 THEN 'partial_shipped'
-                WHEN SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) = 0 THEN 'shipped'
-                WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0
-                    AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('dispatched','shipped','delivered') THEN 1 ELSE 0 END) > 0 THEN 'partial_dispatched'
-                WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
-                ELSE 'confirmed'
-            END AS delivery_status
-        ")
+        CASE
+            WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
+            WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) > 0 THEN 'partial_delivered'
+            WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0
+                AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) > 0 THEN 'partial_shipped'
+            WHEN SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) = 0 THEN 'shipped'
+            WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0
+                AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('dispatched','shipped','delivered') THEN 1 ELSE 0 END) > 0 THEN 'partial_dispatched'
+            WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
+            ELSE 'confirmed'
+        END AS delivery_status
+    ")
                 ->selectRaw("
-            CASE
-                WHEN SUM(CASE WHEN order_lines.return_status = 'completed' THEN 1 ELSE 0 END) = COUNT(*) THEN 'completed'
-                WHEN SUM(CASE WHEN order_lines.return_status IN ('requested', 'approved', 'completed') THEN 1 ELSE 0 END) > 0 THEN 'partial_return'
-                ELSE 'none'
-            END AS return_status
-        ")
+        CASE
+            WHEN SUM(CASE WHEN order_lines.return_status = 'completed' THEN 1 ELSE 0 END) = COUNT(*) THEN 'completed'
+            WHEN SUM(CASE WHEN order_lines.return_status IN ('requested', 'approved', 'completed') THEN 1 ELSE 0 END) > 0 THEN 'partial_return'
+            ELSE 'none'
+        END AS return_status
+    ")
                 ->groupBy('order_lines.order_id');
+
+            // ✅ 1b. Invoice aggregate — ONE invoice_number + date PER order_line_id
+            $invoiceSub = DB::table('invoices')
+                ->select('order_line_id')
+                ->selectRaw('MIN(invoice_number) as invoice_number')
+                ->selectRaw('MIN(created_at) as invoice_created_at')
+                ->whereNotNull('order_line_id')
+                ->groupBy('order_line_id');
 
             // 2. Main Query
             $query = CreditNote::query()
                 ->leftJoin('orders', 'orders.id', '=', 'credit_notes.order_id')
                 ->leftJoin('refunds', 'refunds.id', '=', 'credit_notes.refund_id')
-                ->leftJoin('invoices', 'invoices.order_line_id', '=', 'credit_notes.order_line_id')
+                // ✅ join aggregated invoice per order_line_id (no duplicate rows)
+                ->leftJoinSub($invoiceSub, 'invoices', function ($join) {
+                    $join->on('invoices.order_line_id', '=', 'credit_notes.order_line_id');
+                })
                 ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
                     $join->on('line_agg.order_id', '=', 'orders.id');
                 })
@@ -89,8 +100,9 @@ class CreditNoteController extends Controller
                     'credit_notes.igst_amount',
                     'credit_notes.total_gst',
 
+                    // ✅ per credit-note line (order_line_id) invoice
                     'invoices.invoice_number as live_invoice_number',
-                    'invoices.created_at as invoice_created_at',
+                    'invoices.invoice_created_at as invoice_created_at',
 
                     'orders.order_reference',
                     'orders.order_type',
@@ -148,7 +160,7 @@ class CreditNoteController extends Controller
             $query->orderBy('credit_notes.issued_at', 'desc');
             $creditNotes = $query->paginate(20);
 
-            // 5. Fetch ALL order lines (with product, tax, invoice) for every order that has a credit note
+            // 5. Fetch ALL order lines (with product, tax, INVOICE) for every order that has a credit note
             $orderIds = $creditNotes->getCollection()->pluck('order_id')->filter()->unique()->values()->all();
 
             $orderLines = collect();
@@ -156,7 +168,10 @@ class CreditNoteController extends Controller
                 $orderLines = DB::table('order_lines')
                     ->join('products', 'products.id', '=', 'order_lines.product_id')
                     ->leftJoin('tax_categories', 'tax_categories.id', '=', 'products.tax_category_id')
-                    ->leftJoin('invoices', 'invoices.order_line_id', '=', 'order_lines.id')
+                    // ✅ invoice per order_line_id (aggregated — no row duplication)
+                    ->leftJoinSub($invoiceSub, 'inv', function ($join) {
+                        $join->on('inv.order_line_id', '=', 'order_lines.id');
+                    })
                     ->whereIn('order_lines.order_id', $orderIds)
                     ->orderBy('order_lines.id', 'asc')
                     ->select([
@@ -176,7 +191,9 @@ class CreditNoteController extends Controller
                         // Product prices (resolved per buyer_type in PHP)
                         'products.retail_price',
                         'products.distributor_price',
-                        'invoices.invoice_number as invoice_number',
+                        // ✅ per-line invoice number + date
+                        'inv.invoice_number as invoice_number',
+                        'inv.invoice_created_at as invoice_created_at',
                     ])
                     ->get()
                     ->groupBy('order_id');
@@ -202,9 +219,9 @@ class CreditNoteController extends Controller
 
                 // Order/credit-note level header (repeated per line)
                 $header = [
-                    // 'id' => $row->id,
                     'credit_note_number' => $row->credit_note_number,
 
+                    // fallback — will be overridden per line below
                     'original_invoice_number' => $row->live_invoice_number ?? $row->original_invoice_number,
                     'invoice_date' => $row->invoice_created_at
                         ? \Carbon\Carbon::parse($row->invoice_created_at)->format('d-m-Y')
@@ -231,37 +248,23 @@ class CreditNoteController extends Controller
                     'payment_gateway' => $row->payment_gateway,
                     'gateway_transaction_id' => $row->gateway_transaction_id,
 
-                    // 'subtotal' => (float) $row->subtotal,
-                    // 'shipping_charge' => (float) $row->order_shipping_charge,
-                    // 'total_payable' => (float) $row->total_payable,
-                    // 'amount_paid' => (float) $row->amount_paid,
-
                     'credit_note_amount' => (float) $row->amount,
-                    // 'taxable_value' => round((float) $row->taxable_value, 2),
-                    // 'total_gst' => round((float) $row->total_gst, 2),
 
-                    // 'gst_breakdown' => [
-                    //     'cgst' => round((float) $row->cgst_amount, 2),
-                    //     'sgst' => round((float) $row->sgst_amount, 2),
-                    //     'igst' => round((float) $row->igst_amount, 2),
-                    // ],
-
-                    // 'refund_amount' => (float) ($row->refund_amount ?? 0),
                     'refund_method' => $row->refund_method,
                     'refund_status' => $row->refund_status,
                     'gateway_reference' => $row->gateway_reference,
                     'refund_completed_at' => $row->refund_completed_at,
-
-                    // 'item_count' => (int) ($row->item_count ?? 0),
-                    // 'total_item_amount' => round((float) ($row->total_item_amount ?? 0), 2),
                 ];
 
                 $lines = $orderLines->get($row->order_id, collect());
 
-                // No lines? Emit one zeroed row (with gst_rate present)
+                // No lines? Emit one zeroed row (no per-line invoice available)
                 if ($lines->isEmpty()) {
                     $flatData[] = array_merge($header, [
-                        // 's_no' => count($flatData) + 1,
+                        // ✅ no line → no per-line invoice
+                        'original_invoice_number' => null,
+                        'invoice_date' => null,
+
                         'order_line_id' => $row->order_line_id,
                         'item_count' => 0,
                         'product_name' => null,
@@ -292,7 +295,7 @@ class CreditNoteController extends Controller
                     return;
                 }
 
-                // One flat row per order line — every line has its own gst_rate + GST split
+                // One flat row per order line — every line has its own invoice + gst_rate + GST split
                 foreach ($lines as $line) {
                     $qty = (float) ($line->quantity ?? 0);
                     $unitPrice = (float) ($line->unit_price ?? 0);
@@ -331,11 +334,25 @@ class CreditNoteController extends Controller
 
                     $itemTotal = $lineTotal + $shippingCharge + $totalServiceCharge;
 
+                    // ✅ per-line invoice (fallback to credit-note level if missing)
+                    $lineInvoiceNumber = $line->invoice_number
+                        ?? ($row->live_invoice_number ?? $row->original_invoice_number);
+
+                    $lineInvoiceDate = $line->invoice_created_at
+                        ? \Carbon\Carbon::parse($line->invoice_created_at)->format('d-m-Y')
+                        : ($row->invoice_created_at
+                            ? \Carbon\Carbon::parse($row->invoice_created_at)->format('d-m-Y')
+                            : null);
+
                     $flatData[] = array_merge($header, [
                         's_no' => count($flatData) + 1,
 
                         'order_line_id' => $line->order_line_id,
-                        // item_count = this order line's own quantity from order_lines
+
+                        // ✅ PER-LINE invoice — overrides the header's order-wide value
+                        'original_invoice_number' => $lineInvoiceNumber,
+                        'invoice_date' => $lineInvoiceDate,
+
                         'item_count' => (int) ($line->quantity ?? 0),
                         'product_name' => $line->product_name,
                         'product_slug' => $line->product_slug,
@@ -358,7 +375,7 @@ class CreditNoteController extends Controller
                         'item_igst' => $itemIgst,
                         'item_total_gst' => round($itemTotalGst, 2),
 
-                        // gst_breakdown is now PER ITEM (line-level split), not credit-note level
+                        // gst_breakdown is PER ITEM (line-level split), not credit-note level
                         'gst_breakdown' => [
                             'cgst' => $itemCgst,
                             'sgst' => $itemSgst,
