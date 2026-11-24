@@ -1994,4 +1994,268 @@ class SalesReportController extends Controller
             ], 500);
         }
     }
+
+      public function stateWiseSummaryReport(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'status' => 'nullable|string|in:confirmed,dispatched,shipped,delivered,partial_dispatched,partial_shipped,partial_delivered',
+            'from' => 'nullable|date',
+            'to' => 'nullable|date|after_or_equal:from',
+            'registration_type' => 'nullable|in:registered,unregistered,all',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $allowedStatuses = $request->filled('status')
+                ? [$request->status]
+                : [
+                    'dispatched', 'shipped', 'delivered',
+                    'partial_dispatched', 'partial_shipped', 'partial_delivered',
+                ];
+
+            // GSTIN subquery (same as HSN report)
+            $gstinSub = DB::table('distributor_profiles')
+                ->select('user_id')
+                ->selectRaw("
+                    MAX(
+                        CASE
+                            WHEN gst_in IS NOT NULL
+                                AND TRIM(gst_in) <> ''
+                                AND UPPER(TRIM(gst_in)) <> 'URP'
+                            THEN TRIM(gst_in)
+                            ELSE NULL
+                        END
+                    ) AS gst_in
+                ")
+                ->groupBy('user_id');
+
+            // Order-level status + delivery state
+            $lineAggSub = DB::table('order_lines')
+                ->join('orders', 'orders.id', '=', 'order_lines.order_id')
+                ->leftJoin('addresses as delivery_addr', 'delivery_addr.id', '=', 'orders.delivery_address_id')
+                ->select('order_lines.order_id')
+                ->selectRaw('MAX(delivery_addr.state) AS delivery_state')
+                ->selectRaw("
+                    CASE
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) > 0 THEN 'partial_delivered'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0
+                            AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) > 0
+                            THEN 'partial_shipped'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) = 0 THEN 'shipped'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0
+                            AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('dispatched','shipped','delivered') THEN 1 ELSE 0 END) > 0
+                            THEN 'partial_dispatched'
+                        WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
+                        ELSE 'confirmed'
+                    END AS overall_delivery_status
+                ")
+                ->groupBy('order_lines.order_id');
+
+            $taxRate = 'COALESCE(order_lines.gst_rate, tax_categories.rate, 0)';
+            $supplierState = strtolower(trim(config('app.supplier_state', 'Punjab')));
+
+            $query = DB::table('order_lines')
+                ->join('products', 'products.id', '=', 'order_lines.product_id')
+                ->leftJoin('tax_categories', 'tax_categories.id', '=', 'products.tax_category_id')
+                ->leftJoin('categories', 'categories.id', '=', 'products.category_id')
+                ->join('orders', 'orders.id', '=', 'order_lines.order_id')
+                ->join('users', 'users.id', '=', 'orders.user_id')
+                ->leftJoinSub($gstinSub, 'gstin_data', function ($join) {
+                    $join->on('gstin_data.user_id', '=', 'users.id');
+                })
+                ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
+                    $join->on('line_agg.order_id', '=', 'orders.id');
+                })
+                ->whereIn('line_agg.overall_delivery_status', $allowedStatuses)
+                ->whereNull('orders.deleted_at');
+
+            if ($request->filled('from')) {
+                $query->where('orders.created_at', '>=', $request->from . ' 00:00:00');
+            }
+            if ($request->filled('to')) {
+                $query->where('orders.created_at', '<=', $request->to . ' 23:59:59');
+            }
+
+            // Registration filter (optional)
+            $registrationCase = "
+                CASE
+                    WHEN gstin_data.gst_in IS NOT NULL
+                        AND TRIM(gstin_data.gst_in) <> ''
+                        AND UPPER(TRIM(gstin_data.gst_in)) <> 'URP'
+                    THEN 'registered'
+                    ELSE 'unregistered'
+                END
+            ";
+
+            $registrationFilter = $request->input('registration_type', 'all');
+            if ($registrationFilter === 'registered') {
+                $query->whereRaw("$registrationCase = 'registered'");
+            } elseif ($registrationFilter === 'unregistered') {
+                $query->whereRaw("$registrationCase = 'unregistered'");
+            }
+
+            // Intra-state detection (supplier vs delivery state)
+            $intraCase = "
+                CASE
+                    WHEN LOWER(TRIM(COALESCE(line_agg.delivery_state, ''))) = " . DB::getPdo()->quote($supplierState) . "
+                        AND TRIM(COALESCE(line_agg.delivery_state, '')) <> ''
+                    THEN 1
+                    ELSE 0
+                END
+            ";
+
+            /*
+            * RAW ROW-LEVEL QUERY
+            * State + rate + category level pe pre-compute values
+            */
+            $rawLines = $query
+                ->select([
+                    DB::raw("COALESCE(line_agg.delivery_state, 'Unknown') AS customer_state"),
+                    DB::raw("$taxRate AS tax_rate"),
+                    DB::raw("COALESCE(categories.title, 'Uncategorized') AS product_head"),
+                    DB::raw("$intraCase AS is_intra_state"),
+                    DB::raw('order_lines.quantity AS quantity'),
+                    DB::raw('COALESCE(order_lines.line_total, 0) AS line_total'),
+                    DB::raw('COALESCE(order_lines.shipping_charge, 0) AS shipping_charge'),
+                    DB::raw('COALESCE(products.service_charge, 0) AS service_charge'),
+                ]);
+
+            /*
+            * OUTER AGGREGATION
+            * Group by state + rate + category + is_intra_state
+            */
+            $rows = DB::query()
+                ->fromSub($rawLines, 'raw_lines')
+                ->select('customer_state', 'tax_rate', 'product_head', 'is_intra_state')
+                ->selectRaw('SUM(quantity) AS total_quantity')
+                ->selectRaw('SUM(line_total) AS sum_list_price')
+                ->selectRaw('SUM(shipping_charge) AS sum_shipping_charges')
+                ->selectRaw('SUM(line_total / (1 + (tax_rate / 100))) AS taxable_product_value')
+                ->selectRaw('SUM(shipping_charge / (1 + (tax_rate / 100))) AS shipping_without_gst')
+                ->selectRaw('SUM(line_total - (line_total / (1 + (tax_rate / 100)))) AS product_gst')
+                ->selectRaw('SUM(shipping_charge - (shipping_charge / (1 + (tax_rate / 100)))) AS shipping_gst')
+                ->groupBy('customer_state', 'tax_rate', 'product_head', 'is_intra_state')
+                ->orderBy('customer_state')
+                ->orderBy('tax_rate')
+                ->orderBy('product_head')
+                ->get();
+
+            /*
+            * PHP-side merge — same state + rate + product_head ke intra/inter rows merge
+            */
+            $merged = [];
+
+            foreach ($rows as $row) {
+                $rate = (float) $row->tax_rate;
+                $isIntra = (int) $row->is_intra_state === 1;
+
+                $productGst = (float) $row->product_gst;
+                $shippingGst = (float) $row->shipping_gst;
+                $totalGst = $productGst + $shippingGst;
+
+                $taxableProduct = (float) $row->taxable_product_value;
+                $shippingWithoutGst = (float) $row->shipping_without_gst;
+
+                $cgst = $isIntra ? round($totalGst / 2, 2) : 0;
+                $sgst = $isIntra ? round($totalGst / 2, 2) : 0;
+                $igst = $isIntra ? 0 : round($totalGst, 2);
+
+                $key = $row->customer_state . '|' . $rate . '|' . $row->product_head;
+
+                if (!isset($merged[$key])) {
+                    $merged[$key] = [
+                        'customer_state' => $row->customer_state,
+                        'tax_percentage' => round($rate, 2),
+                        'product_head' => $row->product_head,
+                        'total_quantity' => 0,
+                        'taxable_value' => 0,
+                        'shipping_without_gst' => 0,
+                        'cgst' => 0,
+                        'sgst' => 0,
+                        'igst' => 0,
+                        'sum_list_price' => 0,
+                        'sum_shipping_charges' => 0,
+                    ];
+                }
+
+                $merged[$key]['total_quantity'] += (int) $row->total_quantity;
+                $merged[$key]['taxable_value'] += round($taxableProduct + $shippingWithoutGst, 2);
+                $merged[$key]['shipping_without_gst'] += round($shippingWithoutGst, 2);
+                $merged[$key]['cgst'] += $cgst;
+                $merged[$key]['sgst'] += $sgst;
+                $merged[$key]['igst'] += $igst;
+                $merged[$key]['sum_list_price'] += round((float) $row->sum_list_price, 2);
+                $merged[$key]['sum_shipping_charges'] += round((float) $row->sum_shipping_charges, 2);
+            }
+
+            // Grand totals accumulate
+            $grandTotal = [
+                'total_quantity' => 0,
+                'taxable_value' => 0,
+                'shipping_without_gst' => 0,
+                'cgst' => 0,
+                'sgst' => 0,
+                'igst' => 0,
+                'sum_list_price' => 0,
+                'sum_shipping_charges' => 0,
+            ];
+
+            $data = [];
+            foreach ($merged as $item) {
+                // Final rounding
+                $item['taxable_value'] = round($item['taxable_value'], 2);
+                $item['shipping_without_gst'] = round($item['shipping_without_gst'], 2);
+                $item['cgst'] = round($item['cgst'], 2);
+                $item['sgst'] = round($item['sgst'], 2);
+                $item['igst'] = round($item['igst'], 2);
+                $item['sum_list_price'] = round($item['sum_list_price'], 2);
+                $item['sum_shipping_charges'] = round($item['sum_shipping_charges'], 2);
+
+                $data[] = $item;
+
+                $grandTotal['total_quantity'] += $item['total_quantity'];
+                $grandTotal['taxable_value'] += $item['taxable_value'];
+                $grandTotal['shipping_without_gst'] += $item['shipping_without_gst'];
+                $grandTotal['cgst'] += $item['cgst'];
+                $grandTotal['sgst'] += $item['sgst'];
+                $grandTotal['igst'] += $item['igst'];
+                $grandTotal['sum_list_price'] += $item['sum_list_price'];
+                $grandTotal['sum_shipping_charges'] += $item['sum_shipping_charges'];
+            }
+
+            foreach ($grandTotal as $k => $v) {
+                $grandTotal[$k] = round($v, 2);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $data,
+                'grand_total' => $grandTotal,
+                'meta' => [
+                    'from' => $request->from,
+                    'to' => $request->to,
+                    'statuses' => $allowedStatuses,
+                    'supplier_state' => config('app.supplier_state', 'Punjab'),
+                    'registration_type' => $registrationFilter,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('State-wise summary report failed: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
 }
