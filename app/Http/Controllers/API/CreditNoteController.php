@@ -21,53 +21,50 @@ class CreditNoteController extends Controller
     {
         try {
             // 1. Subquery: Aggregate order-level item data & statuses
-            $taxRate = 'COALESCE(order_lines.gst_rate, tax_categories.rate, 0)';
-
             $lineAggSub = DB::table('order_lines')
                 ->join('products', 'products.id', '=', 'order_lines.product_id')
                 ->leftJoin('tax_categories', 'tax_categories.id', '=', 'products.tax_category_id')
                 ->select('order_lines.order_id')
                 ->selectRaw('SUM(order_lines.quantity) as total_qty')
                 ->selectRaw('
-                SUM(
-                    order_lines.line_total +
-                    order_lines.shipping_charge +
-                    (COALESCE(products.service_charge, 0) * order_lines.quantity)
-                ) as total_item_amount
-            ')
+            SUM(
+                order_lines.line_total +
+                order_lines.shipping_charge +
+                (COALESCE(products.service_charge, 0) * order_lines.quantity)
+            ) as total_item_amount
+        ')
                 ->selectRaw("
-                CASE
-                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
-                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) > 0 THEN 'partial_delivered'
-                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0
-                        AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) > 0 THEN 'partial_shipped'
-                    WHEN SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) = 0 THEN 'shipped'
-                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0
-                        AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('dispatched','shipped','delivered') THEN 1 ELSE 0 END) > 0 THEN 'partial_dispatched'
-                    WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
-                    ELSE 'confirmed'
-                END AS delivery_status
-            ")
+            CASE
+                WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) = COUNT(*) THEN 'delivered'
+                WHEN SUM(CASE WHEN order_lines.delivery_status = 'delivered' THEN 1 ELSE 0 END) > 0 THEN 'partial_delivered'
+                WHEN SUM(CASE WHEN order_lines.delivery_status = 'shipped' THEN 1 ELSE 0 END) > 0
+                    AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) > 0 THEN 'partial_shipped'
+                WHEN SUM(CASE WHEN order_lines.delivery_status NOT IN ('shipped','delivered') THEN 1 ELSE 0 END) = 0 THEN 'shipped'
+                WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0
+                    AND SUM(CASE WHEN order_lines.delivery_status NOT IN ('dispatched','shipped','delivered') THEN 1 ELSE 0 END) > 0 THEN 'partial_dispatched'
+                WHEN SUM(CASE WHEN order_lines.delivery_status = 'dispatched' THEN 1 ELSE 0 END) > 0 THEN 'dispatched'
+                ELSE 'confirmed'
+            END AS delivery_status
+        ")
                 ->selectRaw("
-                CASE
-                    WHEN SUM(CASE WHEN order_lines.return_status = 'completed' THEN 1 ELSE 0 END) = COUNT(*) THEN 'completed'
-                    WHEN SUM(CASE WHEN order_lines.return_status IN ('requested', 'approved', 'completed') THEN 1 ELSE 0 END) > 0 THEN 'partial_return'
-                    ELSE 'none'
-                END AS return_status
-            ")
+            CASE
+                WHEN SUM(CASE WHEN order_lines.return_status = 'completed' THEN 1 ELSE 0 END) = COUNT(*) THEN 'completed'
+                WHEN SUM(CASE WHEN order_lines.return_status IN ('requested', 'approved', 'completed') THEN 1 ELSE 0 END) > 0 THEN 'partial_return'
+                ELSE 'none'
+            END AS return_status
+        ")
                 ->groupBy('order_lines.order_id');
 
             // 2. Main Query
             $query = CreditNote::query()
                 ->leftJoin('orders', 'orders.id', '=', 'credit_notes.order_id')
                 ->leftJoin('refunds', 'refunds.id', '=', 'credit_notes.refund_id')
-                ->leftJoin('invoices', 'invoices.order_line_id', '=', 'credit_notes.order_line_id') // NEW: Join invoice per line
+                ->leftJoin('invoices', 'invoices.order_line_id', '=', 'credit_notes.order_line_id')
                 ->leftJoinSub($lineAggSub, 'line_agg', function ($join) {
                     $join->on('line_agg.order_id', '=', 'orders.id');
                 })
                 ->distinct()
                 ->select([
-                    // Credit Note Details
                     'credit_notes.id',
                     'credit_notes.credit_note_number',
                     'credit_notes.original_invoice_number',
@@ -75,7 +72,6 @@ class CreditNoteController extends Controller
                     'credit_notes.order_line_id',
                     'credit_notes.refund_id',
 
-                    // Buyer Details
                     'credit_notes.buyer_name',
                     'credit_notes.buyer_email',
                     'credit_notes.buyer_address',
@@ -83,11 +79,9 @@ class CreditNoteController extends Controller
                     'credit_notes.buyer_gstin',
                     'credit_notes.buyer_type',
 
-                    // Reason & Dates
                     'credit_notes.reason',
                     'credit_notes.issued_at',
 
-                    // Financials (from credit_notes table)
                     'credit_notes.amount',
                     'credit_notes.taxable_value',
                     'credit_notes.cgst_amount',
@@ -95,14 +89,9 @@ class CreditNoteController extends Controller
                     'credit_notes.igst_amount',
                     'credit_notes.total_gst',
 
-                    // Raw Items JSON
-                    'credit_notes.items',
-
-                    // Invoice Data (Live from invoices table)
                     'invoices.invoice_number as live_invoice_number',
                     'invoices.created_at as invoice_created_at',
 
-                    // Order Details
                     'orders.order_reference',
                     'orders.order_type',
                     'orders.status as order_status',
@@ -113,14 +102,12 @@ class CreditNoteController extends Controller
                     'orders.total_payable',
                     'orders.amount_paid',
 
-                    // Refund Details
                     'refunds.amount as refund_amount',
                     'refunds.refund_method',
                     'refunds.status as refund_status',
                     'refunds.gateway_reference',
                     'refunds.completed_at as refund_completed_at',
 
-                    // Aggregated Data
                     'line_agg.total_qty as item_count',
                     'line_agg.total_item_amount',
                     'line_agg.delivery_status',
@@ -150,7 +137,7 @@ class CreditNoteController extends Controller
                 $query->where(function ($q) use ($search) {
                     $q->where('credit_notes.credit_note_number', 'LIKE', "%{$search}%")
                         ->orWhere('credit_notes.original_invoice_number', 'LIKE', "%{$search}%")
-                        ->orWhere('invoices.invoice_number', 'LIKE', "%{$search}%") // Search live invoice too
+                        ->orWhere('invoices.invoice_number', 'LIKE', "%{$search}%")
                         ->orWhere('credit_notes.buyer_name', 'LIKE', "%{$search}%")
                         ->orWhere('credit_notes.buyer_email', 'LIKE', "%{$search}%")
                         ->orWhere('orders.order_reference', 'LIKE', "%{$search}%");
@@ -161,31 +148,67 @@ class CreditNoteController extends Controller
             $query->orderBy('credit_notes.issued_at', 'desc');
             $creditNotes = $query->paginate(20);
 
-            // 5. Format Response
-            $creditNotes->getCollection()->transform(function ($row, $index) use ($creditNotes) {
-                // Parse the items JSON if it exists
-                $itemsParsed = [];
-                if (!empty($row->items)) {
-                    try {
-                        $itemsParsed = is_string($row->items) ? json_decode($row->items, true) : $row->items;
-                    } catch (\Exception $e) {
-                        $itemsParsed = [];
-                    }
-                }
+            // 5. Fetch ALL order lines (with product, tax, invoice) for every order that has a credit note
+            $orderIds = $creditNotes->getCollection()->pluck('order_id')->filter()->unique()->values()->all();
 
-                // Calculate S.No based on pagination
-                $sno = ($creditNotes->currentPage() - 1) * $creditNotes->perPage() + $index + 1;
+            $orderLines = collect();
+            if (!empty($orderIds)) {
+                $orderLines = DB::table('order_lines')
+                    ->join('products', 'products.id', '=', 'order_lines.product_id')
+                    ->leftJoin('tax_categories', 'tax_categories.id', '=', 'products.tax_category_id')
+                    ->leftJoin('invoices', 'invoices.order_line_id', '=', 'order_lines.id')
+                    ->whereIn('order_lines.order_id', $orderIds)
+                    ->orderBy('order_lines.id', 'asc')
+                    ->select([
+                        'order_lines.order_id',
+                        'order_lines.id as order_line_id',
+                        'order_lines.quantity',
+                        'order_lines.unit_price',
+                        'order_lines.line_total',
+                        // GST rate: prefer line-level, fall back to tax category
+                        DB::raw('COALESCE(order_lines.gst_rate, tax_categories.rate, 0) as gst_rate'),
+                        'order_lines.shipping_charge',
+                        'products.name as product_name',
+                        'products.slug as product_slug',
+                        'products.hsn_code',
+                        'products.product_code',
+                        'products.service_charge',
+                        // Product prices (resolved per buyer_type in PHP)
+                        'products.retail_price',
+                        'products.distributor_price',
+                        'invoices.invoice_number as invoice_number',
+                    ])
+                    ->get()
+                    ->groupBy('order_id');
+            }
 
-                return [
-                    's_no' => $sno,
+            // Supplier state (for intra/inter state GST split)
+            $supplierState = strtolower(trim(config('app.supplier_state', 'Punjab')));
 
-                    // Credit Note Details
+            // 6. Format Response — FLATTENED PER ORDER LINE
+            $flatData = [];
+
+            $creditNotes->getCollection()->each(function ($row) use (
+                $orderLines,
+                $supplierState,
+                &$flatData
+            ) {
+                // Resolve buyer/delivery state for GST split
+                $buyerStateLower = strtolower(trim((string) ($row->buyer_state ?? '')));
+                $isIntraState = ($supplierState === $buyerStateLower && !empty($buyerStateLower));
+
+                // Buyer type (for product price selection)
+                $buyerType = strtolower(trim((string) ($row->buyer_type ?? '')));
+
+                // Order/credit-note level header (repeated per line)
+                $header = [
                     'id' => $row->id,
                     'credit_note_number' => $row->credit_note_number,
 
-                    // Pulled from the invoices table if it exists, otherwise fallback to the snapshot value
                     'original_invoice_number' => $row->live_invoice_number ?? $row->original_invoice_number,
-                    'invoice_date' => $row->invoice_created_at ? \Carbon\Carbon::parse($row->invoice_created_at)->format('d-m-Y') : null,
+                    'invoice_date' => $row->invoice_created_at
+                        ? \Carbon\Carbon::parse($row->invoice_created_at)->format('d-m-Y')
+                        : null,
 
                     'order_reference' => $row->order_reference,
                     'order_id' => $row->order_id,
@@ -194,7 +217,6 @@ class CreditNoteController extends Controller
                     'issued_at' => $row->issued_at,
                     'reason' => $row->reason,
 
-                    // Buyer Details
                     'buyer_name' => $row->buyer_name,
                     'buyer_type' => $row->buyer_type,
                     'buyer_email' => $row->buyer_email,
@@ -202,51 +224,163 @@ class CreditNoteController extends Controller
                     'buyer_address' => $row->buyer_address,
                     'buyer_state' => $row->buyer_state,
 
-                    // Order Details
                     'order_type' => $row->order_type,
                     'order_status' => $row->order_status,
-                    'delivery_status' => $row->delivery_status ?? 'confirmed',
-                    'return_status' => $row->return_status ?? 'none',
+                    'delivery_status' => 'refunded',
+                    'return_status' => 'refunded',
                     'payment_gateway' => $row->payment_gateway,
                     'gateway_transaction_id' => $row->gateway_transaction_id,
 
-                    // Order Financials
-                    'subtotal' => (float) $row->subtotal,
-                    'shipping_charge' => (float) $row->order_shipping_charge,
-                    'total_payable' => (float) $row->total_payable,
-                    'amount_paid' => (float) $row->amount_paid,
+                    // 'subtotal' => (float) $row->subtotal,
+                    // 'shipping_charge' => (float) $row->order_shipping_charge,
+                    // 'total_payable' => (float) $row->total_payable,
+                    // 'amount_paid' => (float) $row->amount_paid,
 
-                    // Actual Credit Note Financials
                     'credit_note_amount' => (float) $row->amount,
-                    'taxable_value' => round((float) $row->taxable_value, 2),
-                    'total_gst' => round((float) $row->total_gst, 2),
+                    // 'taxable_value' => round((float) $row->taxable_value, 2),
+                    // 'total_gst' => round((float) $row->total_gst, 2),
 
-                    // GST Breakdown
-                    'gst_breakdown' => [
-                        'cgst' => round((float) $row->cgst_amount, 2),
-                        'sgst' => round((float) $row->sgst_amount, 2),
-                        'igst' => round((float) $row->igst_amount, 2),
-                    ],
+                    // 'gst_breakdown' => [
+                    //     'cgst' => round((float) $row->cgst_amount, 2),
+                    //     'sgst' => round((float) $row->sgst_amount, 2),
+                    //     'igst' => round((float) $row->igst_amount, 2),
+                    // ],
 
-                    // Refund Details
-                    'refund_amount' => (float) ($row->refund_amount ?? 0),
+                    // 'refund_amount' => (float) ($row->refund_amount ?? 0),
                     'refund_method' => $row->refund_method,
                     'refund_status' => $row->refund_status,
                     'gateway_reference' => $row->gateway_reference,
                     'refund_completed_at' => $row->refund_completed_at,
 
-                    // Order Items Info
-                    'item_count' => (int) ($row->item_count ?? 0),
-                    'total_item_amount' => round((float) ($row->total_item_amount ?? 0), 2),
-
-                    // Raw Items JSON array
-                    'items' => $itemsParsed,
+                    // 'item_count' => (int) ($row->item_count ?? 0),
+                    // 'total_item_amount' => round((float) ($row->total_item_amount ?? 0), 2),
                 ];
+
+                $lines = $orderLines->get($row->order_id, collect());
+
+                // No lines? Emit one zeroed row (with gst_rate present)
+                if ($lines->isEmpty()) {
+                    $flatData[] = array_merge($header, [
+                        // 's_no' => count($flatData) + 1,
+                        'order_line_id' => $row->order_line_id,
+                        'item_count' => 0,
+                        'product_name' => null,
+                        'product_slug' => null,
+                        'hsn_code' => null,
+                        'product_code' => null,
+                        'product_price' => 0,
+                        'quantity' => 0,
+                        'unit_price' => 0,
+                        'line_total' => 0,
+                        'gst_rate' => 0,
+                        'shipping_charge_line' => 0,
+                        'service_charge' => 0,
+                        'item_taxable_value' => 0,
+                        'item_product_gst' => 0,
+                        'item_shipping_gst' => 0,
+                        'item_cgst' => 0,
+                        'item_sgst' => 0,
+                        'item_igst' => 0,
+                        'item_total_gst' => 0,
+                        'gst_breakdown' => [
+                            'cgst' => 0,
+                            'sgst' => 0,
+                            'igst' => 0,
+                        ],
+                        'item_total' => 0,
+                    ]);
+                    return;
+                }
+
+                // One flat row per order line — every line has its own gst_rate + GST split
+                foreach ($lines as $line) {
+                    $qty = (float) ($line->quantity ?? 0);
+                    $unitPrice = (float) ($line->unit_price ?? 0);
+                    $lineTotal = (float) ($line->line_total ?? 0);
+                    $gstRate = (float) ($line->gst_rate ?? 0);   // COALESCE(line.gst_rate, tax_categories.rate, 0)
+                    $shippingCharge = (float) ($line->shipping_charge ?? 0);
+                    $serviceChargePerUnit = (float) ($line->service_charge ?? 0);
+
+                    // Product price based on buyer_type
+                    $productPrice = ($buyerType === 'distributor')
+                        ? (float) ($line->distributor_price ?? 0)
+                        : (float) ($line->retail_price ?? 0);
+
+                    $divisor = 1 + ($gstRate / 100);
+
+                    // GST extraction (inclusive prices) — per line, independent
+                    $productGst = $divisor > 0 ? ($lineTotal - ($lineTotal / $divisor)) : 0;
+                    $shippingGst = $divisor > 0 ? ($shippingCharge - ($shippingCharge / $divisor)) : 0;
+
+                    $totalServiceCharge = $serviceChargePerUnit * $qty;
+
+                    $itemTaxableValue = $divisor > 0 ? ($lineTotal / $divisor) : $lineTotal;
+
+                    $itemTotalGst = $productGst + $shippingGst;
+
+                    // CGST/SGST/IGST split per line
+                    if ($isIntraState) {
+                        $itemCgst = round($itemTotalGst / 2, 2);
+                        $itemSgst = round($itemTotalGst / 2, 2);
+                        $itemIgst = 0;
+                    } else {
+                        $itemCgst = 0;
+                        $itemSgst = 0;
+                        $itemIgst = round($itemTotalGst, 2);
+                    }
+
+                    $itemTotal = $lineTotal + $shippingCharge + $totalServiceCharge;
+
+                    $flatData[] = array_merge($header, [
+                        's_no' => count($flatData) + 1,
+
+                        'order_line_id' => $line->order_line_id,
+                        // item_count = this order line's own quantity from order_lines
+                        'item_count' => (int) ($line->quantity ?? 0),
+                        'product_name' => $line->product_name,
+                        'product_slug' => $line->product_slug,
+                        'hsn_code' => $line->hsn_code,
+                        'product_code' => $line->product_code,
+                        // product_price resolved by buyer_type (distributor_price / retail_price)
+                        'product_price' => round($productPrice, 2),
+                        'quantity' => $qty,
+                        'unit_price' => round($unitPrice, 2),
+                        'line_total' => round($lineTotal, 2),
+                        'gst_rate' => round($gstRate, 2),
+                        'shipping_charge_line' => round($shippingCharge, 2),
+                        'service_charge' => round($serviceChargePerUnit, 2),
+
+                        'item_taxable_value' => round($itemTaxableValue, 2),
+                        'item_product_gst' => round($productGst, 2),
+                        'item_shipping_gst' => round($shippingGst, 2),
+                        'item_cgst' => $itemCgst,
+                        'item_sgst' => $itemSgst,
+                        'item_igst' => $itemIgst,
+                        'item_total_gst' => round($itemTotalGst, 2),
+
+                        // gst_breakdown is now PER ITEM (line-level split), not credit-note level
+                        'gst_breakdown' => [
+                            'cgst' => $itemCgst,
+                            'sgst' => $itemSgst,
+                            'igst' => $itemIgst,
+                        ],
+
+                        'item_total' => round($itemTotal, 2),
+                    ]);
+                }
             });
 
             return response()->json([
                 'success' => true,
-                'data' => $creditNotes,
+                'data' => [
+                    'data' => $flatData,
+                    'current_page' => $creditNotes->currentPage(),
+                    'per_page' => $creditNotes->perPage(),
+                    'total' => $creditNotes->total(),
+                    'last_page' => $creditNotes->lastPage(),
+                    'from' => $creditNotes->firstItem(),
+                    'to' => $creditNotes->lastItem(),
+                ],
             ]);
         } catch (Exception $e) {
             Log::error('Admin credit notes list error', [
@@ -260,7 +394,6 @@ class CreditNoteController extends Controller
             ], 500);
         }
     }
-
     /**
      * Admin: Get single credit note details
      * GET /api/admin/credit-notes/{id}
