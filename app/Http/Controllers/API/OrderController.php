@@ -3932,7 +3932,7 @@ class OrderController extends Controller
             $user = $order->user;
 
             $message = sprintf(
-                "Order #%s has been delivered. Items: %d. Customer: %s",
+                "Order #%s has been delivered. Items: %d. User: %s",
                 $order->order_reference,
                 count($processedItems),
                 $user->full_name ?? 'Guest'
