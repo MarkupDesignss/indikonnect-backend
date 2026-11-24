@@ -648,6 +648,7 @@ class CreditNoteController extends Controller
                 'name' => env('APP_NAME', 'IndieKonnect'),
                 'gstin' => env('COMPANY_GSTIN', '22XXXXX'),
                 'address' => env('COMPANY_ADDRESS', 'Punjab, India'),
+
                 'state' => env('SUPPLIER_STATE', 'Punjab'),
             ],
         ];
