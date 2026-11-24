@@ -1773,6 +1773,9 @@ class ReturnService
          * Recalculate order-level return status.
          */
             $this->updateOrderReturnStatus($order);
+            $order->update([
+                'status' => 'delivered',
+            ]);
             // $this->updateOrderMainStatus($order);
 
             /*
