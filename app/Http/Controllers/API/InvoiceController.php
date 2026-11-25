@@ -302,63 +302,201 @@ class InvoiceController extends Controller
         return (float) ($maxRate ?? 0);
     }
 
+    // protected function buildInvoiceLineBreakdown(OrderLine $orderLine): array
+    // {
+    //     $product = $orderLine->product;
+    //     $qty     = (int) $orderLine->quantity;
+
+    //     // ------------------------------------------
+    //     // Tax rate (from saved gst_rate on line, fallback tax category)
+    //     // ------------------------------------------
+    //     $gstRate = (float) ($orderLine->gst_rate ?? 0);
+
+    //     if ($gstRate === 0 && $product) {
+    //         $gstRate = (float) ($product->taxCategory?->rate ?? 0);
+
+    //         // Combo fallback — highest tax rate among children
+    //         if ($gstRate === 0 && ($product->product_type ?? 'single') === 'combo') {
+    //             $gstRate = (float) $this->resolveComboTaxRateForInvoice($product);
+    //         }
+    //     }
+
+    //     $gstFactor = 1 + ($gstRate / 100); // divisor for inclusive prices
+
+    //     // ------------------------------------------
+    //     // Product pricing (admin prices are GST-inclusive)
+    //     // ------------------------------------------
+    //     $priceInclGst = (float) $orderLine->unit_price; // GST-inclusive
+
+    //     $priceExclGst = $gstFactor > 0
+    //         ? round($priceInclGst / $gstFactor, 2)
+    //         : $priceInclGst;
+
+    //     $gstAmountPerUnit = round($priceInclGst - $priceExclGst, 2);
+
+    //     $linePriceIncl = round($priceInclGst * $qty, 2);
+    //     $linePriceExcl = round($priceExclGst * $qty, 2);
+    //     $lineGstAmount = round($linePriceIncl - $linePriceExcl, 2);
+
+    //     // ------------------------------------------
+    //     // Shipping (also GST-inclusive)
+    //     // ------------------------------------------
+    //     $shippingPerUnitIncl = (float) ($orderLine->shipping_charge ?? 0);
+    //     $shippingLineIncl    = round($shippingPerUnitIncl * $qty, 2);
+
+    //     $shippingPerUnitExcl = $gstFactor > 0
+    //         ? round($shippingPerUnitIncl / $gstFactor, 2)
+    //         : $shippingPerUnitIncl;
+
+    //     $shippingLineExcl = round($shippingPerUnitExcl * $qty, 2);
+    //     $shippingGstAmt   = round($shippingLineIncl - $shippingLineExcl, 2);
+    //     $serviceLineCharge = round($product->service_charge * $qty, 2);
+
+    //     // ------------------------------------------
+    //     // Line totals (product + shipping)
+    //     // ------------------------------------------
+    //     $lineTotalInclGst = round($linePriceIncl + $shippingLineIncl + $serviceLineCharge, 2);
+    //     $lineTotalExclGst = round($linePriceExcl + $shippingLineExcl, 2);
+    //     $lineTotalGst     = round($lineTotalInclGst - $lineTotalExclGst, 2);
+
+    //     // ------------------------------------------
+    //     // CGST / SGST / IGST split
+    //     // (from saved order line columns — set at checkout based on supplier vs delivery state)
+    //     // ------------------------------------------
+    //     $cgstAmount = (float) ($orderLine->cgst_amount ?? 0);
+    //     $sgstAmount = (float) ($orderLine->sgst_amount ?? 0);
+    //     $igstAmount = (float) ($orderLine->igst_amount ?? 0);
+
+    //     // If not saved (legacy rows), recompute from total GST
+    //     if (($cgstAmount + $sgstAmount + $igstAmount) === 0.0 && $lineGstAmount > 0) {
+    //         // We don't know intra/inter from line alone here — leave blank, caller can decide
+    //         $igstAmount = $lineGstAmount;
+    //     }
+    //     $user = auth()->user();
+
+    //     $frontendUrl = $user?->account_type === 'distributor'
+    //         ? env('DISTRIBUTOR_FRONTEND_URL')
+    //         : env('CUSTOMER_FRONTEND_URL');
+    //     $user = auth()->user();
+
+    //     $redirectUrl = $user?->account_type === 'distributor'
+    //         ? rtrim(env('DISTRIBUTOR_FRONTEND_URL'), '/') . '/distributor/order-history'
+    //         : rtrim(env('CUSTOMER_FRONTEND_URL'), '/') . '/profile/?tab=orders';
+    //     $termfOfUse = $user?->account_type === 'distributor'
+    //         ? rtrim(env('DISTRIBUTOR_FRONTEND_URL'), '/') . '/footer-policy/terms-of-use/'
+    //         : rtrim(env('CUSTOMER_FRONTEND_URL'), '/') . '/footer-policy/terms-of-use/';
+    //     // $productSlug = $product?->slug ?? 'No slug';
+
+    //     $adminOrdersUrl = rtrim(config('services.admin_url.key'), '/') . '/orders';
+
+
+    //     // $productUrl = rtrim($frontendUrl, '/') . '/product/' . $productSlug;
+    //     return [
+    //         'order_line_id'         => $orderLine->id,
+    //         'product_id'            => $orderLine->product_id,
+    //         'variant_id'            => $orderLine->variant_id,
+    //         'product_name'          => $product?->name ?? 'Unknown',
+    //         // 'product_slug'          => $productSlug,
+    //         'product_url'          => $redirectUrl,
+    //         // 'product_service_charge'          => $product?->service_charge * $qty ?? '',
+    //         'product_service_charge' => ($product?->service_charge * $qty) > 0
+    //             ? $product->service_charge * $qty
+    //             : null,
+    //         'admin_orders'    => $adminOrdersUrl,
+    //         'terms_condition' => $termfOfUse,
+    //         'product_code'          => $product?->product_code,
+    //         'hsn_code'              => $product?->hsn_code,
+    //         'uom'                   => $product?->uom,
+    //         'quantity'              => $qty,
+
+    //         // ---------- Tax rate ----------
+    //         'gst_rate_percent'      => $gstRate,
+    //         'tax_category_name'     => $product?->taxCategory?->name ?? 'No Tax',
+
+    //         // ---------- Product pricing ----------
+    //         'price_incl_gst'        => round($priceInclGst, 2),
+    //         'price_excl_gst'        => $priceExclGst,
+    //         'gst_amount_per_unit'   => $gstAmountPerUnit,
+    //         'line_price_incl_gst'   => $linePriceIncl,
+    //         'line_price_excl_gst'   => $linePriceExcl,
+    //         'line_gst_amount'       => $lineGstAmount,
+
+    //         // ---------- Shipping ----------
+    //         'shipping_per_unit_incl_gst' => round($shippingPerUnitIncl, 2),
+    //         'shipping_per_unit_excl_gst' => $shippingPerUnitExcl,
+    //         'shipping_incl_gst'     => $shippingLineIncl,
+    //         'shipping_excl_gst'     => $shippingLineExcl,
+    //         'shipping_gst_amount'   => $shippingGstAmt,
+
+    //         // ---------- Line totals (product + shipping) ----------
+    //         'line_total_incl_gst'   => $lineTotalInclGst,
+    //         'line_total_excl_gst'   => $lineTotalExclGst,
+    //         'line_total_gst_amount' => $lineTotalGst,
+
+    //         // ---------- CGST/SGST/IGST (from DB) ----------
+    //         'cgst_amount'           => round($cgstAmount, 2),
+    //         'sgst_amount'           => round($sgstAmount, 2),
+    //         'igst_amount'           => round($igstAmount, 2),
+    //     ];
+    // }
+    
     protected function buildInvoiceLineBreakdown(OrderLine $orderLine): array
     {
         $product = $orderLine->product;
         $qty     = (int) $orderLine->quantity;
-
+    
         // ------------------------------------------
         // Tax rate (from saved gst_rate on line, fallback tax category)
         // ------------------------------------------
         $gstRate = (float) ($orderLine->gst_rate ?? 0);
-
+    
         if ($gstRate === 0 && $product) {
             $gstRate = (float) ($product->taxCategory?->rate ?? 0);
-
+    
             // Combo fallback — highest tax rate among children
             if ($gstRate === 0 && ($product->product_type ?? 'single') === 'combo') {
                 $gstRate = (float) $this->resolveComboTaxRateForInvoice($product);
             }
         }
-
+    
         $gstFactor = 1 + ($gstRate / 100); // divisor for inclusive prices
-
+    
         // ------------------------------------------
         // Product pricing (admin prices are GST-inclusive)
         // ------------------------------------------
         $priceInclGst = (float) $orderLine->unit_price; // GST-inclusive
-
+    
         $priceExclGst = $gstFactor > 0
             ? round($priceInclGst / $gstFactor, 2)
             : $priceInclGst;
-
+    
         $gstAmountPerUnit = round($priceInclGst - $priceExclGst, 2);
-
+    
         $linePriceIncl = round($priceInclGst * $qty, 2);
         $linePriceExcl = round($priceExclGst * $qty, 2);
         $lineGstAmount = round($linePriceIncl - $linePriceExcl, 2);
-
+    
         // ------------------------------------------
         // Shipping (also GST-inclusive)
         // ------------------------------------------
         $shippingPerUnitIncl = (float) ($orderLine->shipping_charge ?? 0);
         $shippingLineIncl    = round($shippingPerUnitIncl * $qty, 2);
-
+    
         $shippingPerUnitExcl = $gstFactor > 0
             ? round($shippingPerUnitIncl / $gstFactor, 2)
             : $shippingPerUnitIncl;
-
+    
         $shippingLineExcl = round($shippingPerUnitExcl * $qty, 2);
         $shippingGstAmt   = round($shippingLineIncl - $shippingLineExcl, 2);
         $serviceLineCharge = round($product->service_charge * $qty, 2);
-
+    
         // ------------------------------------------
         // Line totals (product + shipping)
         // ------------------------------------------
         $lineTotalInclGst = round($linePriceIncl + $shippingLineIncl + $serviceLineCharge, 2);
         $lineTotalExclGst = round($linePriceExcl + $shippingLineExcl, 2);
         $lineTotalGst     = round($lineTotalInclGst - $lineTotalExclGst, 2);
-
+    
         // ------------------------------------------
         // CGST / SGST / IGST split
         // (from saved order line columns — set at checkout based on supplier vs delivery state)
@@ -366,39 +504,57 @@ class InvoiceController extends Controller
         $cgstAmount = (float) ($orderLine->cgst_amount ?? 0);
         $sgstAmount = (float) ($orderLine->sgst_amount ?? 0);
         $igstAmount = (float) ($orderLine->igst_amount ?? 0);
-
-        // If not saved (legacy rows), recompute from total GST
+    
+        // If not saved (legacy rows), recompute based on place of supply
         if (($cgstAmount + $sgstAmount + $igstAmount) === 0.0 && $lineGstAmount > 0) {
-            // We don't know intra/inter from line alone here — leave blank, caller can decide
-            $igstAmount = $lineGstAmount;
+    
+            $invoice = $orderLine->order?->invoice;
+    
+            // Seller abhi static Punjab (jab tak multi-state seller nahi)
+            $sellerState = 'punjab';
+    
+            // Buyer/delivery state — invoice.delivery_state pehle, fallback order address
+            $buyerState = strtolower(trim((string) (
+                $invoice?->delivery_state
+                ?? $orderLine->order?->deliveryAddress?->state
+                ?? ''
+            )));
+    
+            if ($buyerState !== '' && $sellerState === $buyerState) {
+                // Intra-state → CGST + SGST (50/50)
+                $cgstAmount = round($lineGstAmount / 2, 2);
+                $sgstAmount = round($lineGstAmount - $cgstAmount, 2);
+                $igstAmount = 0.0;
+            } else {
+                // Inter-state → IGST
+                $igstAmount = $lineGstAmount;
+                $cgstAmount = 0.0;
+                $sgstAmount = 0.0;
+            }
         }
+    
         $user = auth()->user();
-
+    
         $frontendUrl = $user?->account_type === 'distributor'
             ? env('DISTRIBUTOR_FRONTEND_URL')
             : env('CUSTOMER_FRONTEND_URL');
-        $user = auth()->user();
-
+    
         $redirectUrl = $user?->account_type === 'distributor'
             ? rtrim(env('DISTRIBUTOR_FRONTEND_URL'), '/') . '/distributor/order-history'
             : rtrim(env('CUSTOMER_FRONTEND_URL'), '/') . '/profile/?tab=orders';
+    
         $termfOfUse = $user?->account_type === 'distributor'
             ? rtrim(env('DISTRIBUTOR_FRONTEND_URL'), '/') . '/footer-policy/terms-of-use/'
             : rtrim(env('CUSTOMER_FRONTEND_URL'), '/') . '/footer-policy/terms-of-use/';
-        // $productSlug = $product?->slug ?? 'No slug';
-
+    
         $adminOrdersUrl = rtrim(config('services.admin_url.key'), '/') . '/orders';
-
-
-        // $productUrl = rtrim($frontendUrl, '/') . '/product/' . $productSlug;
+    
         return [
             'order_line_id'         => $orderLine->id,
             'product_id'            => $orderLine->product_id,
             'variant_id'            => $orderLine->variant_id,
             'product_name'          => $product?->name ?? 'Unknown',
-            // 'product_slug'          => $productSlug,
             'product_url'          => $redirectUrl,
-            // 'product_service_charge'          => $product?->service_charge * $qty ?? '',
             'product_service_charge' => ($product?->service_charge * $qty) > 0
                 ? $product->service_charge * $qty
                 : null,
@@ -408,11 +564,11 @@ class InvoiceController extends Controller
             'hsn_code'              => $product?->hsn_code,
             'uom'                   => $product?->uom,
             'quantity'              => $qty,
-
+    
             // ---------- Tax rate ----------
             'gst_rate_percent'      => $gstRate,
             'tax_category_name'     => $product?->taxCategory?->name ?? 'No Tax',
-
+    
             // ---------- Product pricing ----------
             'price_incl_gst'        => round($priceInclGst, 2),
             'price_excl_gst'        => $priceExclGst,
@@ -420,20 +576,20 @@ class InvoiceController extends Controller
             'line_price_incl_gst'   => $linePriceIncl,
             'line_price_excl_gst'   => $linePriceExcl,
             'line_gst_amount'       => $lineGstAmount,
-
+    
             // ---------- Shipping ----------
             'shipping_per_unit_incl_gst' => round($shippingPerUnitIncl, 2),
             'shipping_per_unit_excl_gst' => $shippingPerUnitExcl,
             'shipping_incl_gst'     => $shippingLineIncl,
             'shipping_excl_gst'     => $shippingLineExcl,
             'shipping_gst_amount'   => $shippingGstAmt,
-
+    
             // ---------- Line totals (product + shipping) ----------
             'line_total_incl_gst'   => $lineTotalInclGst,
             'line_total_excl_gst'   => $lineTotalExclGst,
             'line_total_gst_amount' => $lineTotalGst,
-
-            // ---------- CGST/SGST/IGST (from DB) ----------
+    
+            // ---------- CGST/SGST/IGST ----------
             'cgst_amount'           => round($cgstAmount, 2),
             'sgst_amount'           => round($sgstAmount, 2),
             'igst_amount'           => round($igstAmount, 2),
