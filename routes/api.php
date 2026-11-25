@@ -935,8 +935,8 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('testimonials')->group(func
 Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get('/cancellation-requests', [CancellationApprovalController::class, 'getPendingRequests']);
     Route::get('/cancellation-requests/{orderLineId}', [CancellationApprovalController::class, 'getRequestDetails']);
-    Route::post('/cancellation-requests/{orderLineId}/approve', [CancellationApprovalController::class, 'approve']);
-    Route::post('/cancellation-requests/{orderLineId}/reject', [CancellationApprovalController::class, 'reject']);
+    Route::post('/cancellation-requests/{orderReference}/approve', [CancellationApprovalController::class, 'approve']);
+    Route::post('/cancellation-requests/{orderReference}/reject', [CancellationApprovalController::class, 'reject']);
 });
 
 // ============================
