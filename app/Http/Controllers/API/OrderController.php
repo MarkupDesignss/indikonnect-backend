@@ -2982,13 +2982,13 @@ class OrderController extends Controller
                     ],
 
                     // User Info
-                    'user' => [
-                        'name'           => $order->user->full_name,
-                        'email'          => $order->user->email,
-                        'phone'          => $order->user->phone ?? null,
-                        'ba_id'          => $order->user->distributor_id ?? null,
-                        'is_distributor' => $order->user->isDistributor(),
-                    ],
+                    'user' => $order->user ? [
+                    'name'           => $order->user->full_name,
+                    'email'          => $order->user->email,
+                    'phone'          => $order->user->phone ?? null,
+                    'ba_id'          => $order->user->distributor_id ?? null,
+                    'is_distributor' => $order->user->isDistributor(),
+                     ] : null,
 
                     // Shipping Address (order-level)
                     'shipping_address' => $order->deliveryAddress ? [
@@ -3025,6 +3025,7 @@ class OrderController extends Controller
             ], 500);
         }
     }
+
     public function getOrderDetails(int $id)
     {
         try {
