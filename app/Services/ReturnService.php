@@ -289,8 +289,7 @@ class ReturnService
             /*
              * Refund calculation — SIMPLE
              * Customer ne is line ke liye jo pay kiya (stored line_total)
-            */
-            // Product amount + line shipping
+             */
             $unitPrice      = (float) $orderLine->unit_price;
             $lineAmountPaid = round((float) $orderLine->line_total, 2);
             $lineShipping   = round((float) ($orderLine->shipping_charge ?? 0) * $quantity, 2);
@@ -302,14 +301,13 @@ class ReturnService
                 'quantity'      => $quantity,
                 'unit_price'    => $unitPrice,
                 'amount_paid'   => $lineAmountPaid,
-                'shipping_paid' => $lineShipping,   // NEW
+                'shipping_paid' => $lineShipping, 
                 'reason'        => $returnReason,
                 'image_paths'   => [],
                 'return_status' => 'pending',
             ];
 
             $orderPaidAmount += $lineAmountPaid + $lineShipping;
-           
         }
 
         // Non-returnable items → block whole order

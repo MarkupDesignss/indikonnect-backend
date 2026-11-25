@@ -824,58 +824,8 @@ class ReturnController extends Controller
     /**
      * Admin: Complete return
      * POST /api/admin/returns/{id}/complete
-     */
-    // public function adminComplete(Request $request, int $returnId): JsonResponse
-    // {
-    //     try {
-    //         $validated = $request->validate([
-    //             'resolution'    => 'required|in:refund,replacement',
-    //             'refund_amount' => 'nullable|numeric|min:0',
-    //             'admin_notes'   => 'nullable|string|max:500',
-    //         ]);
-
-    //         $refundAmount = $request->filled('refund_amount')
-    //             ? (float) $request->refund_amount
-    //             : null;
-
-    //         // Pre-validate refund amount ONLY when resolution = refund
-    //         if ($validated['resolution'] === 'refund' && $refundAmount !== null) {
-    //             $returnOrder = OrderReturn::with('order')->findOrFail($returnId);
-    //             $order = $returnOrder->order;
-
-    //             if ($order) {
-    //                 $refundable = $this->returnService->getRefundableAmount($order);
-
-    //                 if ($refundAmount > $refundable) {
-    //                     return response()->json([
-    //                         'success' => false,
-    //                         'message' => "Refund amount ({$refundAmount}) cannot exceed the refundable amount ({$refundable}).",
-    //                     ], 422);
-    //                 }
-    //             }
-    //         }
-
-    //         $result = $this->returnService->completeReturn(
-    //             $returnId,
-    //             $validated['resolution'],
-    //             $refundAmount,
-    //             $validated['admin_notes'] ?? null,
-    //             auth()->id(),
-    //         );
-
-    //         return response()->json($result, 200);
-    //     } catch (\Throwable $e) {
-    //         Log::error('Admin complete return failed', [
-    //             'return_id' => $returnId,
-    //             'error'     => $e->getMessage(),
-    //         ]);
-
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 400);
-    //     }
-    // }
+    */
+   
     public function adminComplete(Request $request, int $returnId): JsonResponse
     {
         try {
