@@ -249,6 +249,7 @@ class CreditNoteController extends Controller
                     'gateway_transaction_id' => $row->gateway_transaction_id,
 
                     'credit_note_amount' => (float) $row->amount,
+                    'refund_amount' => (float) $row->amount,
 
                     'refund_method' => $row->refund_method,
                     'refund_status' => $row->refund_status,
