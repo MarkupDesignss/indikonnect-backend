@@ -385,6 +385,7 @@ class WarehouseStockController extends Controller
                 ] : null,
 
                 'tax_category_id' => $product->tax_category_id,
+                'hsn_code' => $product->hsn_code,
                 'tax_category'    => $product->taxCategory ? [
                     'id'   => $product->taxCategory->id,
                     'name' => $product->taxCategory->name,

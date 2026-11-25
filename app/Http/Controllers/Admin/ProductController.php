@@ -827,6 +827,500 @@ class ProductController extends Controller
     //     ]);
     // }
     
+    // public function index(Request $request)
+    // {
+    //     // ============================================================
+    //     // DETECT LOGGED-IN USER / ACCOUNT TYPE
+    //     // ============================================================
+    
+    //     $user = $request->user();
+    
+    //     $isDistributor = $user && $user->account_type === 'distributor';
+    
+    //     $priceColumn = $isDistributor
+    //         ? 'distributor_price'
+    //         : 'retail_price';
+    
+    
+    //     // ============================================================
+    //     // BASE QUERY
+    //     // ============================================================
+    
+    //     $query = Product::with([
+    //         'category',
+    //         'subcategory',
+    //         'taxCategory',
+    //         'images',
+    //         'variants.images',
+    //         'variants.product.images',
+    //         'brand',
+    //     ])->whereHas('brand', function ($q) {
+    //         $q->where('status', true);
+    //     });
+    
+    
+    //     // ============================================================
+    //     // CATEGORY FILTER
+    //     // ============================================================
+    
+    //     if ($request->has('category_ids') && $request->category_ids) {
+    
+    //         $categoryIds = is_array($request->category_ids)
+    //             ? $request->category_ids
+    //             : explode(',', $request->category_ids);
+    
+    //         $categoryIds = array_filter($categoryIds);
+    
+    //         if (!empty($categoryIds)) {
+    //             $query->whereIn('category_id', $categoryIds);
+    //         }
+    //     }
+    
+    
+    //     // ============================================================
+    //     // SUBCATEGORY FILTER
+    //     // ============================================================
+    
+    //     if ($request->has('subcategory_ids') && $request->subcategory_ids) {
+    
+    //         $subcategoryIds = is_array($request->subcategory_ids)
+    //             ? $request->subcategory_ids
+    //             : explode(',', $request->subcategory_ids);
+    
+    //         $subcategoryIds = array_filter($subcategoryIds);
+    
+    //         if (!empty($subcategoryIds)) {
+    //             $query->whereIn('subcategory_id', $subcategoryIds);
+    //         }
+    //     }
+    
+    
+    //     // ============================================================
+    //     // SINGLE CATEGORY FILTER (Backward compatibility)
+    //     // ============================================================
+    
+    //     if (
+    //         $request->has('category_id') &&
+    //         $request->category_id &&
+    //         !$request->has('category_ids')
+    //     ) {
+    //         $query->where('category_id', $request->category_id);
+    //     }
+    
+    
+    //     // ============================================================
+    //     // BRAND FILTER
+    //     // ============================================================
+    
+    //     if ($request->has('brand_ids') && $request->brand_ids) {
+    
+    //         $brandIds = is_array($request->brand_ids)
+    //             ? $request->brand_ids
+    //             : explode(',', $request->brand_ids);
+    
+    //         $brandIds = array_filter($brandIds);
+    
+    //         if (!empty($brandIds)) {
+    //             $query->whereIn('brand_id', $brandIds);
+    //         }
+    //     }
+    
+    
+    //     // ============================================================
+    //     // PRICE FILTER
+    //     // ============================================================
+    
+    //     if (
+    //         $request->has('min_price') &&
+    //         $request->min_price !== null &&
+    //         $request->min_price !== '' &&
+    //         is_numeric($request->min_price)
+    //     ) {
+    //         $query->where($priceColumn, '>=', $request->min_price);
+    //     }
+    
+    //     if (
+    //         $request->has('max_price') &&
+    //         $request->max_price !== null &&
+    //         $request->max_price !== '' &&
+    //         is_numeric($request->max_price)
+    //     ) {
+    //         $query->where($priceColumn, '<=', $request->max_price);
+    //     }
+    
+    
+    //     // ============================================================
+    //     // PUBLISHED STATUS FILTER
+    //     // ============================================================
+    
+    //     if ($request->has('is_published')) {
+    //         $query->where('is_published', $request->boolean('is_published'));
+    //     }
+    
+    
+    //     // ============================================================
+    //     // STOCK STATUS FILTER
+    //     // ============================================================
+    
+    //     if ($request->has('stock_status') && $request->stock_status) {
+    
+    //         $stockStatus = $request->stock_status;
+    
+    //         if (is_array($stockStatus)) {
+    
+    //             $query->where(function ($q) use ($stockStatus) {
+    
+    //                 if (in_array('in_stock', $stockStatus)) {
+    //                     $q->orWhereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //                 }
+    
+    //                 if (in_array('low_stock', $stockStatus)) {
+    //                     $q->orWhere(function ($subQuery) {
+    //                         $subQuery
+    //                             ->where('stock_quantity', '>', 0)
+    //                             ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //                     });
+    //                 }
+    
+    //                 if (in_array('out_of_stock', $stockStatus)) {
+    //                     $q->orWhere('stock_quantity', '=', 0);
+    //                 }
+    //             });
+    //         } else {
+    
+    //             switch ($stockStatus) {
+    
+    //                 case 'in_stock':
+    //                     $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //                     break;
+    
+    //                 case 'low_stock':
+    //                     $query->where('stock_quantity', '>', 0)
+    //                         ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //                     break;
+    
+    //                 case 'out_of_stock':
+    //                     $query->where('stock_quantity', '=', 0);
+    //                     break;
+    //             }
+    //         }
+    //     }
+    
+    
+    //     // ============================================================
+    //     // LEGACY STOCK FILTERS
+    //     // ============================================================
+    
+    //     if ($request->has('in_stock') && $request->boolean('in_stock')) {
+    //         $query->whereColumn('stock_quantity', '>', 'low_stock_threshold');
+    //     }
+    
+    //     if ($request->has('low_stock') && $request->boolean('low_stock')) {
+    //         $query->where('stock_quantity', '>', 0)
+    //             ->whereColumn('stock_quantity', '<=', 'low_stock_threshold');
+    //     }
+    
+    
+    //     // ============================================================
+    //     // NEW ARRIVALS
+    //     // ============================================================
+    
+    //     if ($request->has('new-arrivals')) {
+    //         $query->where('created_at', '>=', now()->subDays(30));
+    //     }
+    
+    //     if (
+    //         $request->has('new_arrival_days') &&
+    //         is_numeric($request->new_arrival_days)
+    //     ) {
+    //         $days = (int) $request->new_arrival_days;
+    
+    //         if ($days > 0) {
+    //             $query->where('created_at', '>=', now()->subDays($days));
+    //         }
+    //     }
+    
+    
+    //     // ============================================================
+    //     // SEARCH (3-LAYER FALLBACK: Fuzzy -> Prefix Fallback -> Single Letter)
+    //     // ============================================================
+    
+    //     $searchActive = $request->has('search') && trim((string) $request->search) !== '';
+    //     $search = $searchActive ? trim((string) $request->search) : null;
+    
+    //     if ($searchActive) {
+    
+    //         $len = mb_strlen($search);
+    
+    //         // Generous fuzzy threshold to catch typos like "ames" -> "amelia" (dist 3)
+    //         $maxDistance = match (true) {
+    //             $len === 1 => 0, // Single letter: only prefix search, no fuzzy
+    //             $len <= 3  => 1, // 2-3 letters: 1 typo allowed
+    //             $len <= 6  => 3, // 4-6 letters: 3 typos allowed
+    //             default    => 4, // 7+ letters
+    //         };
+    
+    //         // Closure to apply search logic so we can reuse it for fallback testing
+    //         $applyStrictSearch = function ($q, $term, $distance) {
+    //             $q->where(function ($subQ) use ($term, $distance) {
+    
+    //                 // 1) Exact / Prefix / Contains matches
+    //                 $subQ->where('name', 'LIKE', "{$term}%")
+    //                     ->orWhere('product_code', 'LIKE', "{$term}%")
+    //                     ->orWhere('slug', 'LIKE', "{$term}%")
+    //                     ->orWhere('name', 'LIKE', "%{$term}%")
+    //                     ->orWhere('product_code', 'LIKE', "%{$term}%")
+    //                     ->orWhereHas('variants', function ($vq) use ($term) {
+    //                         $vq->where('sku', 'LIKE', "%{$term}%");
+    //                     });
+    
+    //                 // 2) Fuzzy fallback via LEVENSHTEIN
+    //                 if ($distance > 0) {
+    //                     $subQ->orWhereRaw('LEVENSHTEIN(LOWER(name), LOWER(?)) <= ?', [$term, $distance])
+    //                         ->orWhereRaw('LEVENSHTEIN(LOWER(product_code), LOWER(?)) <= ?', [$term, $distance]);
+    //                 }
+    
+    //                 // 3) Soundex fallback (skip on single letter to avoid noise)
+    //                 if (mb_strlen($term) > 1) {
+    //                     $subQ->orWhereRaw('SOUNDEX(name) = SOUNDEX(?)', [$term])
+    //                         ->orWhereRaw('SOUNDEX(product_code) = SOUNDEX(?)', [$term]);
+    //                 }
+    //             });
+    //         };
+    
+    //         // Generate attempts from longest to shortest (e.g., "az" -> "az", "a")
+    //         $attempts = [];
+    //         for ($i = $len; $i >= 1; $i--) {
+    //             $attempts[] = mb_substr($search, 0, $i);
+    //         }
+    
+    //         $chosenTerm = null;
+    
+    //         // Loop through attempts: if full term fails, try shorter prefixes
+    //         foreach ($attempts as $attempt) {
+    //             $testQuery = clone $query;
+    
+    //             // Only apply fuzzy on the exact full search term
+    //             $currentDistance = ($attempt === $search) ? $maxDistance : 0;
+    
+    //             $testQuery->where(function ($q) use ($applyStrictSearch, $attempt, $currentDistance) {
+    //                 $applyStrictSearch($q, $attempt, $currentDistance);
+    //             });
+    
+    //             if ($testQuery->exists()) {
+    //                 $chosenTerm = $attempt;
+    //                 break; // Stop at the longest prefix that yields results
+    //             }
+    //         }
+    
+    //         // Apply the winning search term to the main query
+    //         if ($chosenTerm !== null) {
+    //             $finalDistance = ($chosenTerm === $search) ? $maxDistance : 0;
+    
+    //             $query->where(function ($q) use ($applyStrictSearch, $chosenTerm, $finalDistance) {
+    //                 $applyStrictSearch($q, $chosenTerm, $finalDistance);
+    //             });
+    
+    //             // Relevance Ranking (Best matches first)
+    //             $query->orderByRaw("
+    //         CASE
+    //             WHEN name = ?              THEN 0
+    //             WHEN name LIKE ?           THEN 1
+    //             WHEN product_code LIKE ?   THEN 1
+    //             WHEN slug LIKE ?           THEN 1
+    //             WHEN name LIKE ?           THEN 2
+    //             WHEN product_code LIKE ?   THEN 2
+    //             ELSE 3
+    //         END ASC
+    //     ", [
+    //                 $chosenTerm,
+    //                 $chosenTerm . '%',
+    //                 $chosenTerm . '%',
+    //                 $chosenTerm . '%',
+    //                 '%' . $chosenTerm . '%',
+    //                 '%' . $chosenTerm . '%',
+    //             ]);
+    
+    //             // ✅ Tie-breaker for stable relevance-ordered pagination
+    //             $query->orderBy('id', 'desc');
+    //         } else {
+    //             // Nothing matched, not even the first letter
+    //             $query->whereRaw('1 = 0');
+    //         }
+    //     }
+    
+    
+    //     // ============================================================
+    //     // SORT  (with deterministic tie-breaker on `id`)
+    //     // ============================================================
+    
+    //     $sortParam = $request->get('sort');
+    
+    //     if ($sortParam === 'price-low') {
+    
+    //         $query->orderBy($priceColumn, 'asc')
+    //             ->orderBy('id', 'asc');           // ✅ tie-breaker
+    
+    //     } elseif ($sortParam === 'price-high') {
+    
+    //         $query->orderBy($priceColumn, 'desc')
+    //             ->orderBy('id', 'desc');          // ✅ tie-breaker
+    
+    //     } else {
+    
+    //         $sortField = $request->get('sort_by', 'created_at');
+    //         $sortDirection = strtolower($request->get('sort_direction', 'desc'));
+    
+    //         $allowedSortFields = [
+    //             'id',
+    //             'name',
+    //             'product_code',
+    //             'retail_price',
+    //             'distributor_price',
+    //             'stock_quantity',
+    //             'created_at',
+    //             'updated_at',
+    //         ];
+    
+    //         if (!in_array($sortField, $allowedSortFields)) {
+    //             $sortField = 'created_at';
+    //         }
+    
+    //         if (!in_array($sortDirection, ['asc', 'desc'])) {
+    //             $sortDirection = 'desc';
+    //         }
+    
+    //         // If search is active and no explicit sort is requested, keep relevance order
+    //         // (relevance + id tie-breaker already applied in the search block above)
+    //         if ($searchActive && !$request->has('sort_by') && !$request->has('sort_direction')) {
+    //             // no-op
+    //         } else {
+    //             $query->orderBy($sortField, $sortDirection);
+    
+    //             // ✅ Tie-breaker: guarantees stable, deterministic pagination
+    //             if ($sortField !== 'id') {
+    //                 $query->orderBy('id', $sortDirection === 'asc' ? 'asc' : 'desc');
+    //             }
+    //         }
+    //     }
+    
+    
+    //     // ============================================================
+    //     // PAGINATION (conditional — sirf tab jab page/per_page pass ho)
+    //     // ============================================================
+    
+    //     $shouldPaginate = $request->has('page') || $request->has('per_page');
+    
+    //     if ($shouldPaginate) {
+    
+    //         $perPage = (int) $request->get('per_page', 12);
+    
+    //         if ($perPage < 1) {
+    //             $perPage = 25;
+    //         }
+    
+    //         if ($perPage > 100) {
+    //             $perPage = 100;
+    //         }
+    
+    //         $products = $query->paginate($perPage);
+    
+    //     } else {
+    
+    //         // ❗ No page/per_page → saare products laao (no pagination)
+    //         $products = $query->get();
+    //     }
+    
+    
+    //     // ============================================================
+    //     // PRICE RANGE
+    //     // ============================================================
+    
+    //     $priceRange = $this->getPriceRange($priceColumn);
+    
+    
+    //     // ============================================================
+    //     // WISHLIST
+    //     // ============================================================
+    
+    //     $wishlistIds = $this->getUserWishlistIds();
+    
+    
+    //     // ============================================================
+    //     // STOCK MOVEMENT BREAKDOWN
+    //     // ============================================================
+    
+    //     $productIds = $products->pluck('id')->toArray();
+    
+    //     $stockMovement = $this->buildStockMovementBreakdown($productIds);
+    
+    
+    //     // ============================================================
+    //     // PAGINATION META (dynamic — handles both Paginator & Collection)
+    //     // ============================================================
+    
+    //     if ($shouldPaginate) {
+    //         $pagination = [
+    //             'total'        => $products->total(),
+    //             'per_page'     => $products->perPage(),
+    //             'current_page' => $products->currentPage(),
+    //             'last_page'    => $products->lastPage(),
+    //             'from'         => $products->firstItem(),
+    //             'to'           => $products->lastItem(),
+    //         ];
+    //     } else {
+    //         $pagination = [
+    //             'total'        => $products->count(),
+    //             'per_page'     => null,
+    //             'current_page' => null,
+    //             'last_page'    => null,
+    //             'from'         => $products->count() > 0 ? 1 : null,
+    //             'to'           => $products->count() > 0 ? $products->count() : null,
+    //         ];
+    //     }
+    
+    
+    //     // ============================================================
+    //     // RESPONSE
+    //     // ============================================================
+    
+    //     $comboChildren = $this->buildComboChildrenMap($products);
+    
+    //     return response()->json([
+    
+    //         'data' => $this->formatProductCollection(
+    //             $products,
+    //             $wishlistIds,
+    //             $isDistributor,
+    //             $stockMovement,
+    //             $comboChildren
+    //         ),
+    
+    //         'pagination' => $pagination,
+    
+    //         'filters' => [
+    
+    //             'price_range' => $priceRange,
+    //         ],
+    
+    //         'meta' => [
+    
+    //             'account_type' => $isDistributor
+    //                 ? 'distributor'
+    //                 : 'retail',
+    
+    //             'price_column' => $priceColumn,
+    
+    //             'sort' => $sortParam,
+    
+    //             'search' => $search,
+    
+    //             'paginated' => $shouldPaginate,
+    //         ],
+    //     ]);
+    // }
+    
+    
     public function index(Request $request)
     {
         // ============================================================
@@ -896,7 +1390,7 @@ class ProductController extends Controller
     
     
         // ============================================================
-        // SINGLE CATEGORY FILTER (Backward compatibility)
+        // SINGLE CATEGORY FILTER (Backward Compatibility)
         // ============================================================
     
         if (
@@ -986,6 +1480,7 @@ class ProductController extends Controller
                         $q->orWhere('stock_quantity', '=', 0);
                     }
                 });
+    
             } else {
     
                 switch ($stockStatus) {
@@ -1042,7 +1537,7 @@ class ProductController extends Controller
     
     
         // ============================================================
-        // SEARCH (3-LAYER FALLBACK: Fuzzy -> Prefix Fallback -> Single Letter)
+        // SEARCH (3-LAYER FALLBACK)
         // ============================================================
     
         $searchActive = $request->has('search') && trim((string) $request->search) !== '';
@@ -1052,19 +1547,17 @@ class ProductController extends Controller
     
             $len = mb_strlen($search);
     
-            // Generous fuzzy threshold to catch typos like "ames" -> "amelia" (dist 3)
             $maxDistance = match (true) {
-                $len === 1 => 0, // Single letter: only prefix search, no fuzzy
-                $len <= 3  => 1, // 2-3 letters: 1 typo allowed
-                $len <= 6  => 3, // 4-6 letters: 3 typos allowed
-                default    => 4, // 7+ letters
+                $len === 1 => 0,
+                $len <= 3  => 1,
+                $len <= 6  => 3,
+                default    => 4,
             };
     
-            // Closure to apply search logic so we can reuse it for fallback testing
             $applyStrictSearch = function ($q, $term, $distance) {
+    
                 $q->where(function ($subQ) use ($term, $distance) {
     
-                    // 1) Exact / Prefix / Contains matches
                     $subQ->where('name', 'LIKE', "{$term}%")
                         ->orWhere('product_code', 'LIKE', "{$term}%")
                         ->orWhere('slug', 'LIKE', "{$term}%")
@@ -1074,13 +1567,16 @@ class ProductController extends Controller
                             $vq->where('sku', 'LIKE', "%{$term}%");
                         });
     
-                    // 2) Fuzzy fallback via LEVENSHTEIN
                     if ($distance > 0) {
-                        $subQ->orWhereRaw('LEVENSHTEIN(LOWER(name), LOWER(?)) <= ?', [$term, $distance])
-                            ->orWhereRaw('LEVENSHTEIN(LOWER(product_code), LOWER(?)) <= ?', [$term, $distance]);
+                        $subQ->orWhereRaw(
+                            'LEVENSHTEIN(LOWER(name), LOWER(?)) <= ?',
+                            [$term, $distance]
+                        )->orWhereRaw(
+                            'LEVENSHTEIN(LOWER(product_code), LOWER(?)) <= ?',
+                            [$term, $distance]
+                        );
                     }
     
-                    // 3) Soundex fallback (skip on single letter to avoid noise)
                     if (mb_strlen($term) > 1) {
                         $subQ->orWhereRaw('SOUNDEX(name) = SOUNDEX(?)', [$term])
                             ->orWhereRaw('SOUNDEX(product_code) = SOUNDEX(?)', [$term]);
@@ -1088,19 +1584,18 @@ class ProductController extends Controller
                 });
             };
     
-            // Generate attempts from longest to shortest (e.g., "az" -> "az", "a")
             $attempts = [];
+    
             for ($i = $len; $i >= 1; $i--) {
                 $attempts[] = mb_substr($search, 0, $i);
             }
     
             $chosenTerm = null;
     
-            // Loop through attempts: if full term fails, try shorter prefixes
             foreach ($attempts as $attempt) {
+    
                 $testQuery = clone $query;
     
-                // Only apply fuzzy on the exact full search term
                 $currentDistance = ($attempt === $search) ? $maxDistance : 0;
     
                 $testQuery->where(function ($q) use ($applyStrictSearch, $attempt, $currentDistance) {
@@ -1109,30 +1604,29 @@ class ProductController extends Controller
     
                 if ($testQuery->exists()) {
                     $chosenTerm = $attempt;
-                    break; // Stop at the longest prefix that yields results
+                    break;
                 }
             }
     
-            // Apply the winning search term to the main query
             if ($chosenTerm !== null) {
+    
                 $finalDistance = ($chosenTerm === $search) ? $maxDistance : 0;
     
                 $query->where(function ($q) use ($applyStrictSearch, $chosenTerm, $finalDistance) {
                     $applyStrictSearch($q, $chosenTerm, $finalDistance);
                 });
     
-                // Relevance Ranking (Best matches first)
                 $query->orderByRaw("
-            CASE
-                WHEN name = ?              THEN 0
-                WHEN name LIKE ?           THEN 1
-                WHEN product_code LIKE ?   THEN 1
-                WHEN slug LIKE ?           THEN 1
-                WHEN name LIKE ?           THEN 2
-                WHEN product_code LIKE ?   THEN 2
-                ELSE 3
-            END ASC
-        ", [
+                    CASE
+                        WHEN name = ? THEN 0
+                        WHEN name LIKE ? THEN 1
+                        WHEN product_code LIKE ? THEN 1
+                        WHEN slug LIKE ? THEN 1
+                        WHEN name LIKE ? THEN 2
+                        WHEN product_code LIKE ? THEN 2
+                        ELSE 3
+                    END ASC
+                ", [
                     $chosenTerm,
                     $chosenTerm . '%',
                     $chosenTerm . '%',
@@ -1141,30 +1635,38 @@ class ProductController extends Controller
                     '%' . $chosenTerm . '%',
                 ]);
     
-                // ✅ Tie-breaker for stable relevance-ordered pagination
                 $query->orderBy('id', 'desc');
+    
             } else {
-                // Nothing matched, not even the first letter
+    
                 $query->whereRaw('1 = 0');
             }
         }
     
     
         // ============================================================
-        // SORT  (with deterministic tie-breaker on `id`)
+        // SORT: SINGLE FIRST, COMBO LAST
         // ============================================================
+    
+        $query->orderByRaw("
+            CASE
+                WHEN product_type = 'single' THEN 1
+                WHEN product_type = 'combo' THEN 2
+                ELSE 3
+            END ASC
+        ");
     
         $sortParam = $request->get('sort');
     
         if ($sortParam === 'price-low') {
     
             $query->orderBy($priceColumn, 'asc')
-                ->orderBy('id', 'asc');           // ✅ tie-breaker
+                ->orderBy('id', 'asc');
     
         } elseif ($sortParam === 'price-high') {
     
             $query->orderBy($priceColumn, 'desc')
-                ->orderBy('id', 'desc');          // ✅ tie-breaker
+                ->orderBy('id', 'desc');
     
         } else {
     
@@ -1190,14 +1692,12 @@ class ProductController extends Controller
                 $sortDirection = 'desc';
             }
     
-            // If search is active and no explicit sort is requested, keep relevance order
-            // (relevance + id tie-breaker already applied in the search block above)
             if ($searchActive && !$request->has('sort_by') && !$request->has('sort_direction')) {
-                // no-op
+                // Keep existing relevance ordering
             } else {
+    
                 $query->orderBy($sortField, $sortDirection);
     
-                // ✅ Tie-breaker: guarantees stable, deterministic pagination
                 if ($sortField !== 'id') {
                     $query->orderBy('id', $sortDirection === 'asc' ? 'asc' : 'desc');
                 }
@@ -1206,7 +1706,7 @@ class ProductController extends Controller
     
     
         // ============================================================
-        // PAGINATION (conditional — sirf tab jab page/per_page pass ho)
+        // PAGINATION
         // ============================================================
     
         $shouldPaginate = $request->has('page') || $request->has('per_page');
@@ -1227,7 +1727,6 @@ class ProductController extends Controller
     
         } else {
     
-            // ❗ No page/per_page → saare products laao (no pagination)
             $products = $query->get();
         }
     
@@ -1256,10 +1755,11 @@ class ProductController extends Controller
     
     
         // ============================================================
-        // PAGINATION META (dynamic — handles both Paginator & Collection)
+        // PAGINATION META
         // ============================================================
     
         if ($shouldPaginate) {
+    
             $pagination = [
                 'total'        => $products->total(),
                 'per_page'     => $products->perPage(),
@@ -1268,7 +1768,9 @@ class ProductController extends Controller
                 'from'         => $products->firstItem(),
                 'to'           => $products->lastItem(),
             ];
+    
         } else {
+    
             $pagination = [
                 'total'        => $products->count(),
                 'per_page'     => null,
@@ -1299,26 +1801,19 @@ class ProductController extends Controller
             'pagination' => $pagination,
     
             'filters' => [
-    
                 'price_range' => $priceRange,
             ],
     
             'meta' => [
-    
-                'account_type' => $isDistributor
-                    ? 'distributor'
-                    : 'retail',
-    
+                'account_type' => $isDistributor ? 'distributor' : 'retail',
                 'price_column' => $priceColumn,
-    
                 'sort' => $sortParam,
-    
                 'search' => $search,
-    
                 'paginated' => $shouldPaginate,
             ],
         ]);
     }
+
 
     protected function formatProductCollection($products, $wishlistIds = [], $isDistributor = false, $stockMovement = [], $comboChildren = [])
     {
@@ -1369,6 +1864,7 @@ class ProductController extends Controller
                 'green_coin' => $product->green_coin ?? 0,
                 'blue_coin' => $product->blue_coin ?? 0,
                 'product_code' => $product->product_code,
+                'hsn_code' => $product->hsn_code,
                 'allowed_purchsed' => $product->allowed_purchsed,
                 'service_charge' => $product->service_charge,
                 'shipping_charge' => $product->shipping_charge,
