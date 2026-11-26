@@ -190,87 +190,87 @@ class CheckoutController extends Controller
     // }
 
     public function summary(Request $request)
-{
-    try {
-        $validated = $request->validate([
-            'address_id'     => 'nullable|exists:addresses,id,user_id,' . auth()->id(),
-            'coupon_code'    => 'nullable|string|max:50',
-            'redemption_id'  => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id(),
-            'product_id'     => 'nullable|exists:products,id',
-            'variant_id'     => 'nullable|exists:product_variants,id',
-            'quantity'       => 'nullable|integer|min:1',
-        ]);
+    {
+        try {
+            $validated = $request->validate([
+                'address_id'     => 'nullable|exists:addresses,id,user_id,' . auth()->id(),
+                'coupon_code'    => 'nullable|string|max:50',
+                'redemption_id'  => 'nullable|exists:coin_redemptions,id,user_id,' . auth()->id(),
+                'product_id'     => 'nullable|exists:products,id',
+                'variant_id'     => 'nullable|exists:product_variants,id',
+                'quantity'       => 'nullable|integer|min:1',
+            ]);
 
-        $hasProduct  = isset($validated['product_id']);
-        $hasVariant  = isset($validated['variant_id']);
-        $hasQuantity = isset($validated['quantity']);
+            $hasProduct  = isset($validated['product_id']);
+            $hasVariant  = isset($validated['variant_id']);
+            $hasQuantity = isset($validated['quantity']);
 
-        if (($hasProduct || $hasVariant) && !$hasQuantity) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Quantity is required for Buy Now.',
-            ], 422);
-        }
-
-        if ($hasProduct && $hasVariant) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You cannot provide both product_id and variant_id.',
-            ], 422);
-        }
-
-        $isBuyNow = $hasProduct || $hasVariant;
-
-        $summary = $this->checkoutService->calculateSummary(
-            auth()->id(),
-            isset($validated['address_id'])    ? (int) $validated['address_id']    : null,
-            $validated['coupon_code']   ?? null,
-            null,
-            isset($validated['redemption_id']) ? (int) $validated['redemption_id'] : null,
-            isset($validated['product_id'])    ? (int) $validated['product_id']    : null,
-            isset($validated['variant_id'])    ? (int) $validated['variant_id']    : null,
-            isset($validated['quantity'])      ? (int) $validated['quantity']      : null
-        );
-
-        // ── Ignite CV preview (distributor only) ──
-        $cvPreview = null;
-        if (auth()->user()->account_type === 'distributor') {
-            try {
-                $cvPreview = $this->checkoutService->previewIgniteCvAllocation(
-                    auth()->id(),
-                    isset($validated['product_id']) ? (int) $validated['product_id'] : null,
-                    isset($validated['variant_id']) ? (int) $validated['variant_id'] : null,
-                    isset($validated['quantity'])   ? (int) $validated['quantity']   : null
-                );
-            } catch (\Throwable $e) {
-                \Log::warning('Ignite CV preview failed in summary', [
-                    'user_id' => auth()->id(),
-                    'error'   => $e->getMessage(),
-                ]);
-                $cvPreview = null;
+            if (($hasProduct || $hasVariant) && !$hasQuantity) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Quantity is required for Buy Now.',
+                ], 422);
             }
-        }
 
-        return response()->json([
-            'success' => true,
-            'data' => array_merge($summary, [
-                'checkout_type'     => $isBuyNow ? 'buy_now' : 'cart',
-                'ignite_cv_preview' => $cvPreview,
-            ]),
-        ]);
-    } catch (ValidationException $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Invalid parameters provided',
-            'errors'  => $e->errors(),
-        ], 422);
-    } catch (Exception $e) {
-        return response()->json([
-            'success' => false,
-            'message' => $e->getMessage(),
-        ], 400);
+            if ($hasProduct && $hasVariant) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You cannot provide both product_id and variant_id.',
+                ], 422);
+            }
+
+            $isBuyNow = $hasProduct || $hasVariant;
+
+            $summary = $this->checkoutService->calculateSummary(
+                auth()->id(),
+                isset($validated['address_id'])    ? (int) $validated['address_id']    : null,
+                $validated['coupon_code']   ?? null,
+                null,
+                isset($validated['redemption_id']) ? (int) $validated['redemption_id'] : null,
+                isset($validated['product_id'])    ? (int) $validated['product_id']    : null,
+                isset($validated['variant_id'])    ? (int) $validated['variant_id']    : null,
+                isset($validated['quantity'])      ? (int) $validated['quantity']      : null
+            );
+
+            // ── Ignite CV preview (distributor only) ──
+            $cvPreview = null;
+            if (auth()->user()->account_type === 'distributor') {
+                try {
+                    $cvPreview = $this->checkoutService->previewIgniteCvAllocation(
+                        auth()->id(),
+                        isset($validated['product_id']) ? (int) $validated['product_id'] : null,
+                        isset($validated['variant_id']) ? (int) $validated['variant_id'] : null,
+                        isset($validated['quantity'])   ? (int) $validated['quantity']   : null
+                    );
+                } catch (\Throwable $e) {
+                    \Log::warning('Ignite CV preview failed in summary', [
+                        'user_id' => auth()->id(),
+                        'error'   => $e->getMessage(),
+                    ]);
+                    $cvPreview = null;
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => array_merge($summary, [
+                    'checkout_type'     => $isBuyNow ? 'buy_now' : 'cart',
+                    'ignite_cv_preview' => $cvPreview,
+                ]),
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid parameters provided',
+                'errors'  => $e->errors(),
+            ], 422);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        }
     }
-}
 
     /**
      * Apply coupon to cart
