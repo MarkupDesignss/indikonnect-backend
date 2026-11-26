@@ -675,23 +675,23 @@ class CreditNoteController extends Controller
     /**
      * Flattened, paginated credit notes list for the HQ team (no auth token required).
      *
+     * Route: GET {{indi_connect}}/hq/credit-notes
      * Expands each credit note into one row per order line, including per-line
      * invoice details, GST breakdown (CGST/SGST for intra-state, IGST otherwise),
-     * refund info, and buyer details. Prices resolved by buyer type
-     * (distributor_price vs retail_price).
+     * refund info, buyer details, and distributor (user) details. Prices resolved
+     * by buyer type (distributor_price vs retail_price).
      *
-     * @param  Request  $request  Optional filters: order_id, date_from, date_to, buyer_type, search.
+     * @param  Request  $request  Optional filters: order_id, date_from, date_to, buyer_type, distributor_id, search.
      * @return JsonResponse       { success, data: { data[], current_page, per_page, total, last_page, from, to } }
      *
      * @throws Exception          Logged and returned as HTTP 500 with { success: false }.
      *
      * @internal Public endpoint — protect via IP allowlist or shared-secret header.
      */
-
     public function hqCreditNotes(Request $request): JsonResponse
     {
         try {
-            // 1. Order-level line aggregation (delivery/return status + totals)
+            // 1. Order-level line aggregation
             $lineAggSub = DB::table('order_lines')
                 ->join('products', 'products.id', '=', 'order_lines.product_id')
                 ->select('order_lines.order_id')
@@ -725,7 +725,7 @@ class CreditNoteController extends Controller
                 ")
                 ->groupBy('order_lines.order_id');
 
-            // 2. Invoice aggregate — one invoice per order_line_id
+            // 2. Invoice aggregate
             $invoiceSub = DB::table('invoices')
                 ->select('order_line_id')
                 ->selectRaw('MIN(invoice_number) as invoice_number')
@@ -737,6 +737,8 @@ class CreditNoteController extends Controller
             $query = CreditNote::query()
                 ->leftJoin('orders', 'orders.id', '=', 'credit_notes.order_id')
                 ->leftJoin('refunds', 'refunds.id', '=', 'credit_notes.refund_id')
+                // orders.user_id → users.id
+                ->leftJoin('users', 'users.id', '=', 'orders.user_id')
                 ->leftJoinSub($invoiceSub, 'invoices', function ($join) {
                     $join->on('invoices.order_line_id', '=', 'credit_notes.order_line_id');
                 })
@@ -767,7 +769,10 @@ class CreditNoteController extends Controller
                     'credit_notes.buyer_gstin',
                     'credit_notes.buyer_type',
 
-                    // Live invoice (per line)
+                    // Distributor (users table)
+                    'users.distributor_id as distributor_id',
+
+                    // Live invoice
                     'invoices.invoice_number as live_invoice_number',
                     'invoices.invoice_created_at as invoice_created_at',
 
@@ -807,6 +812,10 @@ class CreditNoteController extends Controller
             if ($request->filled('buyer_type')) {
                 $query->where('credit_notes.buyer_type', $request->buyer_type);
             }
+            // distributor_id filter (users.distributor_id)
+            if ($request->filled('distributor_id')) {
+                $query->where('users.distributor_id', $request->distributor_id);
+            }
             if ($request->filled('search')) {
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
@@ -815,7 +824,9 @@ class CreditNoteController extends Controller
                         ->orWhere('invoices.invoice_number', 'LIKE', "%{$search}%")
                         ->orWhere('credit_notes.buyer_name', 'LIKE', "%{$search}%")
                         ->orWhere('credit_notes.buyer_email', 'LIKE', "%{$search}%")
-                        ->orWhere('orders.order_reference', 'LIKE', "%{$search}%");
+                        ->orWhere('orders.order_reference', 'LIKE', "%{$search}%")
+                        ->orWhere('users.name', 'LIKE', "%{$search}%")
+                        ->orWhere('users.email', 'LIKE', "%{$search}%");
                 });
             }
 
@@ -823,7 +834,7 @@ class CreditNoteController extends Controller
             $query->orderBy('credit_notes.issued_at', 'desc');
             $creditNotes = $query->paginate(20);
 
-            // 6. Fetch order lines for all orders in this page
+            // 6. Fetch order lines
             $orderIds = $creditNotes->getCollection()->pluck('order_id')->filter()->unique()->values()->all();
 
             $orderLines = collect();
@@ -868,7 +879,6 @@ class CreditNoteController extends Controller
 
                 $lines = $orderLines->get($row->order_id, collect());
 
-                // Base (header) data — only HQ-relevant fields
                 $base = [
                     'credit_note_number' => $row->credit_note_number,
                     'credit_note_date' => $row->issued_at
@@ -877,6 +887,15 @@ class CreditNoteController extends Controller
                     'reason' => $row->reason,
                     'order_reference' => $row->order_reference,
                     'order_type' => $row->order_type,
+
+                    // Distributor details
+                    'distributor' => [
+                        'user_id'        => $row->user_id,
+                        'distributor_id' => $row->distributor_id,
+                        'name'           => $row->distributor_name,
+                        'email'          => $row->distributor_email,
+                        'phone'          => $row->distributor_phone,
+                    ],
 
                     'buyer' => [
                         'name' => $row->buyer_name,
@@ -906,7 +925,6 @@ class CreditNoteController extends Controller
                     'return_status' => 'refunded',
                 ];
 
-                // No lines → single zero row
                 if ($lines->isEmpty()) {
                     $flatData[] = array_merge($base, [
                         's_no' => count($flatData) + 1,
@@ -919,7 +937,6 @@ class CreditNoteController extends Controller
                     return;
                 }
 
-                // One row per order line
                 foreach ($lines as $line) {
                     $qty = (float) ($line->quantity ?? 0);
                     $unitPrice = (float) ($line->unit_price ?? 0);
