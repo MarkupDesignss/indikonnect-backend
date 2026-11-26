@@ -32,7 +32,6 @@ class CvAllocationPlanner
 
     /**
      * Plan from cart/buy-now lines (used by checkout summary preview).
-     * $lines: array of objects { product_id, quantity, product, ignite_catalog_item_id? }
      */
     public function planFromLines(User $user, string $mainBaId, array $lines, ?\DateTimeInterface $orderedAt = null): array
     {
@@ -52,14 +51,14 @@ class CvAllocationPlanner
             throw new \Exception("catalog() refused: " . ($catalogRes['msg'] ?? 'unknown'));
         }
 
-        $items            = collect($catalogRes['data']['items'] ?? []);
-        $byRef            = $items->whereNotNull('partner_product_ref')->groupBy('partner_product_ref');
-        $byProduct        = $items->groupBy('product_id');
-        $byCatalogId      = $items->keyBy('catalog_item_id');
+        $items       = collect($catalogRes['data']['items'] ?? []);
+        $byRef       = $items->whereNotNull('partner_product_ref')->groupBy('partner_product_ref');
+        $byProduct   = $items->groupBy('product_id');
+        $byCatalogId = $items->keyBy('catalog_item_id');
 
         // ── 2. map lines ──
-        $mapped       = [];
-        $totalCv      = 0.0;
+        $mapped        = [];
+        $totalCv       = 0.0;
         $lineBreakdown = [];
         $skippedLines  = [];
 
@@ -131,19 +130,15 @@ class CvAllocationPlanner
             $totalCv += $lineCv;
         }
 
+        // ── Early return: no mapped lines ──
         if (empty($mapped) || $totalCv <= 0) {
-            return [
-                'main_ba_id'    => $mainBaId,
-                'total_cv'      => 0,
-                'lines'         => $mapped,
-                'line_breakdown'=> $lineBreakdown,
-                'skipped_lines' => $skippedLines,
-                'allocations'   => [],
-                'extra_tcs'     => [],
-                'leftover'      => 0,
-                'validations'   => ['no_mapped_lines' => true],
-                'blocking'      => ['No mapped products or zero CV.'],
-            ];
+            return $this->emptyPlan(
+                $mainBaId,
+                $mapped,
+                $lineBreakdown,
+                $skippedLines,
+                'No mapped products or zero CV.'
+            );
         }
 
         // ── 3. plan + member + tree ──
@@ -172,6 +167,7 @@ class CvAllocationPlanner
         $ba002    = $child002['ba_id'] ?? null;
         $ba003    = $child003['ba_id'] ?? null;
 
+        // ── Early return: not placed ──
         if (!$ba002 || !$ba003) {
             return [
                 'main_ba_id'    => $mainBaId,
@@ -181,7 +177,13 @@ class CvAllocationPlanner
                 'skipped_lines' => $skippedLines,
                 'allocations'   => [],
                 'extra_tcs'     => [],
-                'leftover'      => round($totalCv, 4),
+                'leftover'      => $this->fmt($totalCv),
+                'summary'       => $this->summaryBlock(
+                    $qualifyCv, $baseProductCv, $totalCv, $totalCv, 0, $totalCv,
+                    $mainBaId, 0, $member,
+                    null, 0, [],
+                    null, 0, []
+                ),
                 'validations'   => ['placed' => false],
                 'blocking'      => ['Member has no -002/-003 (not placed).'],
             ];
@@ -219,52 +221,58 @@ class CvAllocationPlanner
         $allocations = [];
         if ($cv001 > 0.0001) {
             $allocations[] = [
-                'target'      => '001',
-                'ba_id'       => $mainBaId,
-                'cv'          => $this->fmt($cv001),
-                'reason'      => '001_qualify',
-                'before'      => $this->fmt($cv001Have),
-                'after'       => $this->fmt($cv001Have + $cv001),
-                'qualify_cv'  => $this->fmt($qualifyCv),
+                'target'            => '001',
+                'ba_id'             => $mainBaId,
+                'cv'                => $this->fmt($cv001),
+                'reason'            => '001_qualify',
+                'before'            => $this->fmt($cv001Have),
+                'after'             => $this->fmt($cv001Have + $cv001),
+                'qualify_cv'        => $this->fmt($qualifyCv),
                 'already_qualified' => false,
             ];
         }
         if ($cv002 > 0.0001) {
             $allocations[] = [
-                'target'      => '002',
-                'ba_id'       => $ba002,
-                'cv'          => $this->fmt($cv002),
-                'reason'      => '002_qualify',
-                'before'      => $this->fmt($cv002Have),
-                'after'       => $this->fmt($cv002Have + $cv002),
-                'qualify_cv'  => $this->fmt($qualifyCv),
+                'target'            => '002',
+                'ba_id'             => $ba002,
+                'cv'                => $this->fmt($cv002),
+                'reason'            => '002_qualify',
+                'before'            => $this->fmt($cv002Have),
+                'after'             => $this->fmt($cv002Have + $cv002),
+                'qualify_cv'        => $this->fmt($qualifyCv),
                 'already_qualified' => !empty($mem002['qualified_at']),
             ];
         }
         if ($cv003 > 0.0001) {
             $allocations[] = [
-                'target'      => '003',
-                'ba_id'       => $ba003,
-                'cv'          => $this->fmt($cv003),
-                'reason'      => '003_qualify',
-                'before'      => $this->fmt($cv003Have),
-                'after'       => $this->fmt($cv003Have + $cv003),
-                'qualify_cv'  => $this->fmt($qualifyCv),
+                'target'            => '003',
+                'ba_id'             => $ba003,
+                'cv'                => $this->fmt($cv003),
+                'reason'            => '003_qualify',
+                'before'            => $this->fmt($cv003Have),
+                'after'             => $this->fmt($cv003Have + $cv003),
+                'qualify_cv'        => $this->fmt($qualifyCv),
                 'already_qualified' => !empty($mem003['qualified_at']),
             ];
         }
 
         // ── 5. extra TCs + leftover ──
-        $extraTcs     = [];
-        $freeSlots    = [];
+        $extraTcs  = [];
+        $freeSlots = [];
         foreach ($treeRows as $row) {
             if (empty($row['far_left_id'])) {
-                $freeSlots[] = ['placement_member_id' => (int) $row['member_id'], 'side' => 1,
-                                'placement_ba_id' => $row['ba_id'] ?? null];
+                $freeSlots[] = [
+                    'placement_member_id' => (int) $row['member_id'],
+                    'side'                => 1,
+                    'placement_ba_id'     => $row['ba_id'] ?? null,
+                ];
             }
             if (empty($row['far_right_id'])) {
-                $freeSlots[] = ['placement_member_id' => (int) $row['member_id'], 'side' => 2,
-                                'placement_ba_id' => $row['ba_id'] ?? null];
+                $freeSlots[] = [
+                    'placement_member_id' => (int) $row['member_id'],
+                    'side'                => 2,
+                    'placement_ba_id'     => $row['ba_id'] ?? null,
+                ];
             }
         }
 
@@ -276,6 +284,7 @@ class CvAllocationPlanner
             $extraTcCv    = round($extraTcCount * $baseProductCv, 4);
             $leftover     = round($remaining - $extraTcCv, 4);
 
+            // ── Early return: not enough free slots ──
             if ($extraTcCount > count($freeSlots)) {
                 return [
                     'main_ba_id'    => $mainBaId,
@@ -285,14 +294,20 @@ class CvAllocationPlanner
                     'skipped_lines' => $skippedLines,
                     'allocations'   => $allocations,
                     'extra_tcs'     => [],
-                    'leftover'      => $leftover,
+                    'leftover'      => $this->fmt($leftover),
+                    'summary'       => $this->summaryBlock(
+                        $qualifyCv, $baseProductCv, $totalCv, $remaining, $extraTcCount, $leftover,
+                        $mainBaId, $cv001Have, $member,
+                        $ba002, $cv002Have, $mem002,
+                        $ba003, $cv003Have, $mem003
+                    ),
                     'validations'   => ['free_slots_enough' => false],
                     'blocking'      => ["Only " . count($freeSlots) . " free slots for {$extraTcCount} TCs."],
                 ];
             }
 
             for ($i = 0; $i < $extraTcCount; $i++) {
-                $slot = $freeSlots[$i];
+                $slot       = $freeSlots[$i];
                 $extraTcs[] = [
                     'index'               => $i,
                     'placement_member_id' => $slot['placement_member_id'],
@@ -312,15 +327,24 @@ class CvAllocationPlanner
         if ($leftover > 0.0001) {
             $placed = false;
             if ($cv002Have + $cv002 + $leftover <= $qualifyCv + 0.0001) {
-                $allocations[] = ['target' => '002_leftover', 'ba_id' => $ba002,
-                                  'cv' => $this->fmt($leftover), 'reason' => 'leftover_002'];
+                $allocations[] = [
+                    'target' => '002_leftover',
+                    'ba_id'  => $ba002,
+                    'cv'     => $this->fmt($leftover),
+                    'reason' => 'leftover_002',
+                ];
                 $placed = true;
             } elseif ($cv003Have + $cv003 + $leftover <= $qualifyCv + 0.0001) {
-                $allocations[] = ['target' => '003_leftover', 'ba_id' => $ba003,
-                                  'cv' => $this->fmt($leftover), 'reason' => 'leftover_003'];
+                $allocations[] = [
+                    'target' => '003_leftover',
+                    'ba_id'  => $ba003,
+                    'cv'     => $this->fmt($leftover),
+                    'reason' => 'leftover_003',
+                ];
                 $placed = true;
             }
 
+            // ── Early return: leftover cannot be allocated ──
             if (!$placed) {
                 return [
                     'main_ba_id'    => $mainBaId,
@@ -330,7 +354,13 @@ class CvAllocationPlanner
                     'skipped_lines' => $skippedLines,
                     'allocations'   => $allocations,
                     'extra_tcs'     => $extraTcs,
-                    'leftover'      => $leftover,
+                    'leftover'      => $this->fmt($leftover),
+                    'summary'       => $this->summaryBlock(
+                        $qualifyCv, $baseProductCv, $totalCv, $remaining, $extraTcCount, $leftover,
+                        $mainBaId, $cv001Have, $member,
+                        $ba002, $cv002Have, $mem002,
+                        $ba003, $cv003Have, $mem003
+                    ),
                     'validations'   => ['leftover_allocatable' => false],
                     'blocking'      => ["Leftover CV {$leftover} cannot be allocated."],
                 ];
@@ -346,9 +376,10 @@ class CvAllocationPlanner
         $salesWeekOk = $this->validateSalesWeek($this->ignite, $orderedAt);
 
         $blocking = [];
-        if (!$sumMatch)  $blocking[] = "Allocation sum {$allocSum} != total CV {$totalCv}.";
+        if (!$sumMatch)    $blocking[] = "Allocation sum {$allocSum} != total CV {$totalCv}.";
         if (!$salesWeekOk) $blocking[] = 'ordered_at falls in no sales week.';
 
+        // ── 7. Final return ──
         return [
             'main_ba_id'    => $mainBaId,
             'total_cv'      => round($totalCv, 4),
@@ -357,18 +388,118 @@ class CvAllocationPlanner
             'skipped_lines' => $skippedLines,
             'allocations'   => $allocations,
             'extra_tcs'     => $extraTcs,
-            'leftover'      => round($leftover, 4),
+            'leftover'      => $this->fmt($leftover),
+            'summary'       => $this->summaryBlock(
+                $qualifyCv, $baseProductCv, $totalCv, $remaining, $extraTcCount, $leftover,
+                $mainBaId, $cv001Have, $member,
+                $ba002, $cv002Have, $mem002,
+                $ba003, $cv003Have, $mem003
+            ),
             'validations'   => [
-                'sum_match'        => $sumMatch,
-                'free_slots_enough'=> true,
-                'placed'           => true,
-                'sales_week_ok'    => $salesWeekOk,
+                'sum_match'         => $sumMatch,
+                'free_slots_enough' => true,
+                'placed'            => true,
+                'sales_week_ok'     => $salesWeekOk,
             ],
             'blocking'      => $blocking,
         ];
     }
 
-    private function fmt(float $v): string { return number_format($v, 4, '.', ''); }
+    /**
+     * Empty plan (no mapped lines / zero CV).
+     */
+    private function emptyPlan(
+        string $mainBaId,
+        array $mapped,
+        array $lineBreakdown,
+        array $skippedLines,
+        string $reason
+    ): array {
+        return [
+            'main_ba_id'    => $mainBaId,
+            'total_cv'      => 0,
+            'lines'         => $mapped,
+            'line_breakdown'=> $lineBreakdown,
+            'skipped_lines' => $skippedLines,
+            'allocations'   => [],
+            'extra_tcs'     => [],
+            'leftover'      => '0.0000',
+            'summary'       => $this->summaryBlock(
+                0, 0, 0, 0, 0, 0,
+                $mainBaId, 0, [],
+                null, 0, [],
+                null, 0, []
+            ),
+            'validations'   => ['no_mapped_lines' => true],
+            'blocking'      => [$reason],
+        ];
+    }
+
+    /**
+     * Build the `summary` block for the response.
+     */
+    private function summaryBlock(
+        float $qualifyCv,
+        float $baseProductCv,
+        float $totalCv,
+        float $remaining,
+        int $extraTcCount,
+        float $leftover,
+        string $mainBaId,
+        float $cv001Have,
+        array $member,
+        ?string $ba002,
+        float $cv002Have,
+        array $mem002,
+        ?string $ba003,
+        float $cv003Have,
+        array $mem003
+    ): array {
+        $nodes = [];
+
+        if ($mainBaId) {
+            $nodes['001'] = [
+                'ba_id'             => $mainBaId,
+                'cv_allocated'      => $this->fmt($cv001Have),
+                'qualified_at'      => $member['qualified_at'] ?? null,
+                'already_qualified' => !empty($member['qualified_at']),
+                'needs_cv'          => $this->fmt(max(0, $qualifyCv - $cv001Have)),
+            ];
+        }
+        if ($ba002) {
+            $nodes['002'] = [
+                'ba_id'             => $ba002,
+                'cv_allocated'      => $this->fmt($cv002Have),
+                'qualified_at'      => $mem002['qualified_at'] ?? null,
+                'already_qualified' => !empty($mem002['qualified_at']),
+                'needs_cv'          => $this->fmt(max(0, $qualifyCv - $cv002Have)),
+            ];
+        }
+        if ($ba003) {
+            $nodes['003'] = [
+                'ba_id'             => $ba003,
+                'cv_allocated'      => $this->fmt($cv003Have),
+                'qualified_at'      => $mem003['qualified_at'] ?? null,
+                'already_qualified' => !empty($mem003['qualified_at']),
+                'needs_cv'          => $this->fmt(max(0, $qualifyCv - $cv003Have)),
+            ];
+        }
+
+        return [
+            'qualify_cv'      => $this->fmt($qualifyCv),
+            'base_product_cv' => $this->fmt($baseProductCv),
+            'total_cv'        => $this->fmt($totalCv),
+            'remaining_cv'    => $this->fmt($remaining),
+            'extra_tc_count'  => $extraTcCount,
+            'leftover_cv'     => $this->fmt($leftover),
+            'nodes'           => $nodes,
+        ];
+    }
+
+    private function fmt(float $v): string
+    {
+        return number_format($v, 4, '.', '');
+    }
 
     private function validateSalesWeek(IgniteClient $ignite, \DateTimeInterface $orderedAt): bool
     {
