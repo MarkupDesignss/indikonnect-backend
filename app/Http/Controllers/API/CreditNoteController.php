@@ -731,11 +731,7 @@ public function hqCreditNotes(Request $request): JsonResponse
                 'credit_notes.buyer_type',
 
                 // Distributor (users)
-                'users.id as user_id',
                 'users.distributor_id as distributor_id',
-                'users.name as distributor_name',
-                'users.email as distributor_email',
-                'users.phone as distributor_phone',
 
                 // Live invoice (per line)
                 'invoices.invoice_number as live_invoice_number',
