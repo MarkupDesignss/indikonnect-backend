@@ -5411,4 +5411,68 @@ class CheckoutService
             'amount' => $amount,
         ];
     }
+
+    // app/Services/CheckoutService.php
+
+public function previewIgniteCvAllocation(int $userId, ?int $productId, ?int $variantId, ?int $quantity, ?Order $order = null): ?array
+{
+    $user = User::find($userId);
+    if (!$user || $user->account_type !== 'distributor' || empty($user->distributor_id)) {
+        return null;
+    }
+
+    $mainBaId = preg_replace('/-(002|003)$/', '-001', $user->distributor_id);
+
+    // Build lines
+    $lines = [];
+    if ($productId || $variantId) {
+        $product = Product::find($productId);
+        if ($product) {
+            $lines[] = (object) ['product_id' => $product->id, 'quantity' => $quantity ?? 1,
+                                 'product' => $product, 'ignite_catalog_item_id' => null];
+        }
+    } else {
+        $cart = Cart::where('user_id', $userId)->with(['items.product'])->first();
+        if ($cart) {
+            foreach ($cart->items as $item) {
+                $lines[] = (object) ['product_id' => $item->product_id, 'quantity' => $item->quantity,
+                                     'product' => $item->product,
+                                     'ignite_catalog_item_id' => $item->ignite_catalog_item_id ?? null];
+            }
+        }
+    }
+
+    if (empty($lines)) return null;
+
+    $lock = Cache::lock("ignite:alloc:{$mainBaId}", 60);
+    if (!$lock->get()) return ['error' => 'Another allocation in progress.'];
+
+    try {
+        $planner = app(\App\Services\Ignite\CvAllocationPlanner::class);
+        $plan    = $planner->planFromLines($user, $mainBaId, $lines, now());
+
+        // If order exists, SAVE snapshot
+        if ($order && empty($plan['blocking'])) {
+            $order->update([
+                'ignite_cv_allocations' => [
+                    'main_ba_id'  => $plan['main_ba_id'],
+                    'total_cv'    => $plan['total_cv'],
+                    'allocations' => $plan['allocations'],
+                    'leftover'    => $plan['leftover'],
+                    'lines'       => $plan['lines'],
+                    'snapshot_at' => now()->toIso8601String(),
+                ],
+                'ignite_extra_tcs' => $plan['extra_tcs'],
+            ]);
+        }
+
+        return $plan;
+    } catch (\Throwable $e) {
+        Log::warning('Ignite CV preview failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        return ['error' => 'Preview unavailable: ' . $e->getMessage()];
+    } finally {
+        $lock->release();
+    }
+}
+
 }
