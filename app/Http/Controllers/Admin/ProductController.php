@@ -7216,8 +7216,10 @@ class ProductController extends Controller
 
                 //  FIX: Trust the DB prices directly (no double-discounting)
                 if ($userType === 'distributor') {
-                    $originalPrice = (float) ($product->distributor_mrp ?? $product->retail_mrp ?? 0);
-                    $basePrice = (float) ($product->distributor_price ?? $product->retail_price ?? 0);
+                    // $originalPrice = (float) ($product->distributor_mrp ?? $product->retail_mrp ?? 0);
+                    // $basePrice = (float) ($product->distributor_price ?? $product->retail_price ?? 0);
+                       $originalPrice = (float) ($product->retail_price ?? $product->retail_price ?? 0);
+                       $basePrice = (float) ($product->distributor_price ?? $product->distributor_price ?? 0);
                 } else {
                     $originalPrice = (float) ($product->retail_mrp ?? 0);
                     $basePrice = (float) ($product->retail_price ?? 0);
