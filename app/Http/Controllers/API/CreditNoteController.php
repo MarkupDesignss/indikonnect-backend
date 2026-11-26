@@ -890,11 +890,7 @@ class CreditNoteController extends Controller
 
                     // Distributor details
                     'distributor' => [
-                        'user_id'        => $row->user_id,
                         'distributor_id' => $row->distributor_id,
-                        'name'           => $row->distributor_name,
-                        'email'          => $row->distributor_email,
-                        'phone'          => $row->distributor_phone,
                     ],
 
                     'buyer' => [
