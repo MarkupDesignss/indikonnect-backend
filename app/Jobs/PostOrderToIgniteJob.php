@@ -401,6 +401,32 @@ class PostOrderToIgniteJob implements ShouldQueue
                 return;
             }
 
+            $allocations = $order->ignite_cv_allocations;
+            $extraTcs = $order->ignite_extra_tcs ?? [];
+
+            $cvService = app(\App\Services\Ignite\CvAllocationService::class);
+
+            if (empty($allocations)) {
+                // Backward compatibility for orders created before CV allocation was introduced.
+                $snapshot = $cvService->getSnapshot($mainBaId);
+
+                $defaultAllocation = $cvService->buildDefaultAllocation(
+                    $totalCv,
+                    $snapshot
+                );
+
+                $allocations = $defaultAllocation['allocations'];
+                $extraTcs = $defaultAllocation['extra_tcs'];
+            }
+
+            // Revalidate against current Ignite member status before submitting.
+            $cvService->validateSelection(
+                $mainBaId,
+                $totalCv,
+                $allocations,
+                $extraTcs
+            );
+
             // ── 6. Create Order ──
             $response = $ignite->createOrder(
                 baId:            $mainBaId,
