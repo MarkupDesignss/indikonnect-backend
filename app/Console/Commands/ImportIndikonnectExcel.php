@@ -208,7 +208,9 @@ class ImportIndikonnectExcel extends Command
                     'country' => 'India',
                     'date_of_birth' => $this->dateValue(
                         $this->value($row, 'dob')
-                    ),
+                    ) ? Carbon::parse($this->dateValue(
+                        $this->value($row, 'dob')
+                    ))->format('Y-m-d') : null,
                     'account_type' => $accountType,
                     'phone_verified' => (int) $this->value($row, 'mobile_verified_flag', 0),
                     'email_verified_at' => (int) $this->value($row, 'email_verified_flag', 0)

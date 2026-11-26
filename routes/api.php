@@ -802,6 +802,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
     Route::post('/users', [AdminUserController::class, 'store']);
 });
 
+// Public (no auth) — HQ team
+Route::get('/hq/credit-notes', [CreditNoteController::class, 'hqCreditNotes']);
+
 // ============================
 // ORDER STATUSES (ADMIN)
 // ============================
