@@ -28,6 +28,8 @@ class Order extends Model
         // ── JSON columns ─────────────────────────────────────────
         'tax_breakdown'          => 'array',
         'summary_data'           => 'array',
+        'ignite_cv_allocations' => 'array',
+        'ignite_extra_tcs' => 'array',
 
         // ── Timestamps ───────────────────────────────────────────
         'confirmed_at'           => 'datetime',
