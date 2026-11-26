@@ -296,6 +296,7 @@ Route::get('/product/{slug}', [ProductController::class, 'getProductBySlug']);
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/product-sections', [ProductController::class, 'getProductSections']);
 });
+
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::post('/products-deal-of-the-day/{id}', [ProductController::class, 'markAsDealOfTheDay']);
     Route::delete('/products-deal-of-the-day/{id}', [ProductController::class, 'removeDealOfTheDay']);
@@ -414,6 +415,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/checkout/apply-coupon', [CheckoutController::class, 'applyCoupon']);
     Route::post('/checkout/apply-shipping', [CheckoutController::class, 'applyShipping']);
     Route::post('/checkout/remove-coupon', [CheckoutController::class, 'removeCoupon']);
+
+    Route::post('/checkout/{orderId}/cv-allocation/preview',[CheckoutController::class, 'previewCvAllocation']);
+
+    Route::post('/checkout/{orderId}/cv-allocation/save', [CheckoutController::class, 'saveCvAllocation']);
+
+    Route::get('/checkout/{orderId}/cv-allocation', [CheckoutController::class, 'getCvAllocation']);
 
     Route::get('/orders/{orderReference}/credit-notes', [CreditNoteController::class, 'getByOrder']);
     Route::get('/credit-notes/{id}', [CreditNoteController::class, 'userShow']);
