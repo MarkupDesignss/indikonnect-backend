@@ -190,4 +190,18 @@ return [
         'transporter_id' => env('INDIA_POST_TRANSFORMER_ID'),
     ],
 
+    'airtel_sms' => [
+        'base_url' => env('AIRTEL_SMS_BASE_URL', 'https://iqsms.airtel.in'),
+        'customer_id' => env('AIRTEL_SMS_CUSTOMER_ID'),
+        'username' => env('AIRTEL_SMS_USERNAME'),
+        'password' => env('AIRTEL_SMS_PASSWORD'),
+        'auth_scheme' => env('AIRTEL_SMS_AUTH_SCHEME', 'basic'),
+        'auth_token' => env('AIRTEL_SMS_AUTH_TOKEN'),
+        'source_address' => env('AIRTEL_SMS_SOURCE_ADDRESS'),
+        'entity_id' => env('AIRTEL_SMS_ENTITY_ID'),
+        'otp_template_id' => env('AIRTEL_SMS_OTP_TEMPLATE_ID'),
+        'welcome_template_id' => env('AIRTEL_SMS_WELCOME_TEMPLATE_ID'),
+        'message_type' => env('AIRTEL_SMS_MESSAGE_TYPE', 'TEXT'),
+    ],
+
 ];

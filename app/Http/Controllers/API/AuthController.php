@@ -27,7 +27,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Password;
-use App\Services\TwilioService;
+use App\Services\AirtelSmsService;
 use App\Services\NotificationService;
 use App\Services\KycVerificationService;
 use App\Sdks\Partner\IgniteClient;
@@ -35,18 +35,18 @@ use App\Sdks\Partner\ResultCode;
 
 class AuthController extends Controller
 {
-    protected $twilioService;
+    protected AirtelSmsService $airtelSmsService;
     protected NotificationService $notificationService;
     protected KycVerificationService $kyc;
     protected IgniteClient $ignite;
 
     public function __construct(
-        TwilioService $twilioService,
+        AirtelSmsService $airtelSmsService,
         NotificationService $notificationService,
         KycVerificationService $kyc,
         IgniteClient $ignite
     ) {
-        $this->twilioService = $twilioService;
+        $this->airtelSmsService = $airtelSmsService;
         $this->notificationService = $notificationService;
         $this->kyc = $kyc;
         $this->ignite = $ignite;
@@ -204,9 +204,6 @@ class AuthController extends Controller
 
     // ============ COMMON APIs (Both Customer & Distributor) ============
 
-    /**
-     * STEP 1: Send OTP
-     */
     // public function sendOtp(Request $request)
     // {
     //     try {
@@ -223,42 +220,158 @@ class AuthController extends Controller
 
     //         $user = User::where('phone', $request->phone)->first();
 
+    //         // Check if user exists and is a registered distributor
+    //         if ($user && $user->is_registered == 1 && $user->account_type == 'distributor') {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'This phone number is already registered as a distributor. Please login from the distributor app/screen.',
+    //                 'account_type' => 'distributor',
+    //                 'is_registered' => true,
+    //                 'phone' => $request->phone
+    //             ], 403);
+    //         }
 
-    //         // Generate 6 digit OTP
-    //         $otp = rand(100000, 999999);
+    //         // ========== STATIC OTP MAPPING ==========
+    //         $staticOtps = [
+    //             '+919980980980' => '111111',   // Customer
+    //             '+918800880088' => '222222',   // Distributor (phone)
+    //         ];
+
+    //         // Generate OTP: static if in mapping, else random
+    //         if (array_key_exists($request->phone, $staticOtps)) {
+    //             $otp = $staticOtps[$request->phone];
+    //         } else {
+    //             $otp = rand(100000, 999999);
+    //         }
+    //         // ========================================
 
     //         if ($user) {
-    //             // Existing user
+    //             // Existing user (customer or unregistered distributor)
     //             $user->update([
     //                 'otp' => $otp,
-    //                 'otp_expires_at' => now()->addMinutes(10),
+    //                 'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
     //             ]);
+
+    //             $message = $user->account_type == 'distributor'
+    //                 ? 'OTP sent successfully. Please complete your distributor registration.'
+    //                 : 'OTP sent successfully. Please verify to login.';
     //         } else {
     //             // New user
     //             $user = User::create([
     //                 'phone' => $request->phone,
     //                 'otp' => $otp,
-    //                 'otp_expires_at' => now()->addMinutes(10),
+    //                 'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
     //                 'is_registered' => 0,
     //                 'account_type' => 'customer',
     //             ]);
+
+    //             $message = 'OTP sent successfully. Please verify to complete registration.';
     //         }
 
     //         return response()->json([
     //             'status' => true,
-    //             'message' => 'OTP sent successfully',
+    //             'message' => $message,
     //             'phone' => $request->phone,
-
+    //             'is_registered' => $user->is_registered,
+    //             'account_type' => $user->account_type,
     //             // Remove this in production
     //             'otp' => $otp,
     //         ]);
     //     } catch (\Exception $e) {
-
     //         Log::error('Send OTP error: ' . $e->getMessage());
 
     //         return response()->json([
     //             'status' => false,
-    //             'message' => 'Something went wrong'
+    //             'message' => 'Something went wrong. Please try again later.'
+    //         ], 500);
+    //     }
+    // }
+
+    // public function sendOtp(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone' => 'required|min:10|max:15'
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $user = User::where('phone', $request->phone)->first();
+
+    //         if ($user && $user->is_registered == 1 && $user->account_type == 'distributor') {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'This phone number is already registered as a distributor. Please login from the distributor app/screen.',
+    //                 'account_type' => 'distributor',
+    //                 'is_registered' => true,
+    //                 'phone' => $request->phone
+    //             ], 403);
+    //         }
+
+    //         // ========== STATIC OTP MAPPING ==========
+    //         $staticOtps = [
+    //             '+919980980980' => '111111',   // Customer
+    //             '+918800880088' => '222222',   // Distributor (phone)
+    //         ];
+
+    //         if (array_key_exists($request->phone, $staticOtps)) {
+    //             $otp = $staticOtps[$request->phone];
+    //         } else {
+    //             $otp = (string) rand(100000, 999999);
+    //         }
+    //         // ========================================
+
+    //         if ($user) {
+    //             $user->update([
+    //                 'otp' => $otp,
+    //                 'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
+    //             ]);
+
+    //             $message = $user->account_type == 'distributor'
+    //                 ? 'OTP sent successfully. Please complete your distributor registration.'
+    //                 : 'OTP sent successfully. Please verify to login.';
+    //         } else {
+    //             $user = User::create([
+    //                 'phone' => $request->phone,
+    //                 'otp' => $otp,
+    //                 'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
+    //                 'is_registered' => 0,
+    //                 'account_type' => 'customer',
+    //             ]);
+
+    //             $message = 'OTP sent successfully. Please verify to complete registration.';
+    //         }
+
+    //         if (!array_key_exists($request->phone, $staticOtps)) {
+    //             $sent = $this->airtelSmsService->sendOtp($request->phone, (string) $otp);
+
+    //             if (!$sent) {
+    //                 Log::warning('OTP saved in DB, but Airtel SMS delivery failed', [
+    //                     'phone' => $request->phone,
+    //                 ]);
+    //             }
+    //         }
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => $message,
+    //             'phone' => $request->phone,
+    //             'is_registered' => $user->is_registered,
+    //             'account_type' => $user->account_type,
+    //             // Remove this in production
+    //             'otp' => $otp,
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Send OTP error: ' . $e->getMessage());
+
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => 'Something went wrong. Please try again later.'
     //         ], 500);
     //     }
     // }
@@ -279,7 +392,6 @@ class AuthController extends Controller
 
             $user = User::where('phone', $request->phone)->first();
 
-            // Check if user exists and is a registered distributor
             if ($user && $user->is_registered == 1 && $user->account_type == 'distributor') {
                 return response()->json([
                     'status' => false,
@@ -296,16 +408,14 @@ class AuthController extends Controller
                 '+918800880088' => '222222',   // Distributor (phone)
             ];
 
-            // Generate OTP: static if in mapping, else random
             if (array_key_exists($request->phone, $staticOtps)) {
                 $otp = $staticOtps[$request->phone];
             } else {
-                $otp = rand(100000, 999999);
+                $otp = (string) rand(100000, 999999);
             }
             // ========================================
 
             if ($user) {
-                // Existing user (customer or unregistered distributor)
                 $user->update([
                     'otp' => $otp,
                     'otp_expires_at' => now()->addMinutes((int) setting('otp_expiry_minutes', 5)),
@@ -315,7 +425,6 @@ class AuthController extends Controller
                     ? 'OTP sent successfully. Please complete your distributor registration.'
                     : 'OTP sent successfully. Please verify to login.';
             } else {
-                // New user
                 $user = User::create([
                     'phone' => $request->phone,
                     'otp' => $otp,
@@ -325,6 +434,16 @@ class AuthController extends Controller
                 ]);
 
                 $message = 'OTP sent successfully. Please verify to complete registration.';
+            }
+
+            if (!array_key_exists($request->phone, $staticOtps)) {
+                $sent = $this->airtelSmsService->sendOtp($request->phone, (string) $otp);
+
+                if (!$sent) {
+                    Log::warning('OTP saved in DB, but Airtel SMS delivery failed', [
+                        'phone' => $request->phone,
+                    ]);
+                }
             }
 
             return response()->json([
@@ -348,7 +467,8 @@ class AuthController extends Controller
 
     /**
      * STEP 2: Verify OTP
-     */
+    */
+    
     // public function verifyOtp(Request $request)
     // {
     //     try {
@@ -370,6 +490,13 @@ class AuthController extends Controller
     //             return response()->json([
     //                 'status' => false,
     //                 'message' => 'User not found. Please request OTP first.'
+    //             ], 422);
+    //         }
+
+    //         if ($user->is_active == 0) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Your account is blocked by admin. Please contact support.'
     //             ], 422);
     //         }
 
@@ -397,10 +524,10 @@ class AuthController extends Controller
     //         ]);
 
     //         /*
-    //         |--------------------------------------------------------------------------
-    //         | EXISTING REGISTERED CUSTOMER
-    //         |--------------------------------------------------------------------------
-    //         */
+    //     |--------------------------------------------------------------------------
+    //     | EXISTING REGISTERED CUSTOMER
+    //     |--------------------------------------------------------------------------
+    //     */
     //         if (
     //             $user->is_registered == 1 &&
     //             $user->account_type === 'customer'
@@ -408,10 +535,23 @@ class AuthController extends Controller
     //             // Generate login token
     //             $token = $user->createToken('customer-login')->plainTextToken;
 
+    //             // Generate refresh token
+    //             $refreshToken = Str::random(100);
+
+    //             // Store refresh token
+    //             RefreshToken::create([
+    //                 'user_id' => $user->id,
+    //                 'token' => hash('sha256', $refreshToken),
+    //                 'expires_at' => now()->addDays(7),
+    //                 'last_used_at' => now()
+    //             ]);
+
     //             return response()->json([
     //                 'status' => true,
     //                 'message' => 'Login successful',
     //                 'token' => $token,
+    //                 'expires_in' => 3600,
+    //                 'refresh_token' => $refreshToken,
     //                 'user' => $user,
     //                 'is_registered' => true,
     //                 'requires_registration' => false,
@@ -419,10 +559,10 @@ class AuthController extends Controller
     //         }
 
     //         /*
-    //         |--------------------------------------------------------------------------
-    //         | NEW / NOT REGISTERED USER
-    //         |--------------------------------------------------------------------------
-    //         */
+    //     |--------------------------------------------------------------------------
+    //     | NEW / NOT REGISTERED USER
+    //     |--------------------------------------------------------------------------
+    //     */
 
     //         $tempToken = Str::random(60);
 
@@ -449,6 +589,7 @@ class AuthController extends Controller
     //         ], 500);
     //     }
     // }
+
     public function verifyOtp(Request $request)
     {
         try {
@@ -480,7 +621,6 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Check OTP
             if ($user->otp != $request->otp) {
                 return response()->json([
                     'status' => false,
@@ -488,7 +628,6 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Check OTP expiry
             if (!$user->otp_expires_at || now()->gt($user->otp_expires_at)) {
                 return response()->json([
                     'status' => false,
@@ -496,29 +635,19 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Clear OTP after successful verification
             $user->update([
                 'otp' => null,
                 'otp_expires_at' => null,
                 'phone_verified' => 1,
             ]);
 
-            /*
-        |--------------------------------------------------------------------------
-        | EXISTING REGISTERED CUSTOMER
-        |--------------------------------------------------------------------------
-        */
             if (
                 $user->is_registered == 1 &&
                 $user->account_type === 'customer'
             ) {
-                // Generate login token
                 $token = $user->createToken('customer-login')->plainTextToken;
-
-                // Generate refresh token
                 $refreshToken = Str::random(100);
 
-                // Store refresh token
                 RefreshToken::create([
                     'user_id' => $user->id,
                     'token' => hash('sha256', $refreshToken),
@@ -538,12 +667,6 @@ class AuthController extends Controller
                 ]);
             }
 
-            /*
-        |--------------------------------------------------------------------------
-        | NEW / NOT REGISTERED USER
-        |--------------------------------------------------------------------------
-        */
-
             $tempToken = Str::random(60);
 
             $user->update([
@@ -560,7 +683,6 @@ class AuthController extends Controller
                 'requires_registration' => true,
             ]);
         } catch (\Exception $e) {
-
             Log::error('Verify OTP error: ' . $e->getMessage());
 
             return response()->json([
@@ -570,12 +692,165 @@ class AuthController extends Controller
         }
     }
 
-
     // ============ CUSTOMER REGISTRATION ============
 
     /**
      * CUSTOMER: Complete Registration - Single step
      */
+
+    // public function completeCustomerRegistration(Request $request)
+    // {
+    //     try {
+    //         $validator = Validator::make($request->all(), [
+    //             'phone' => 'required|min:10|max:15',
+    //             'temp_token' => 'required|string',
+    //             'full_name' => 'required|string|max:255',
+    //             // 'email' => [
+    //             //     'required',
+    //             //     'email',
+    //             //     Rule::unique('users', 'email')->where(function ($query) {
+    //             //         return $query->where('is_registered', 1);
+    //             //     })
+    //             // ],
+    //             'email' => 'required|email',
+    //             'country' => 'nullable|string|max:255',
+    //             'password' => 'nullable|string|min:8',
+    //             'terms_condition' => 'required|in:0,1',
+    //         ]);
+
+    //         if ($validator->fails()) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'errors' => $validator->errors()
+    //             ], 422);
+    //         }
+
+    //         $user = User::where('phone', $request->phone)->first();
+
+    //         if (!$user) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'User not found. Please request OTP first.'
+    //             ], 422);
+    //         }
+
+    //         $emailExists = User::where('email', $request->email)
+    //             ->where('is_registered', 1)
+    //             ->when($user->id, function ($query) use ($user) {
+    //                 return $query->where('id', '!=', $user->id);
+    //             })
+    //             ->exists();
+
+    //         if ($emailExists) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Email is already registered. Please use a different email.'
+    //             ], 422);
+    //         }
+
+    //         if ($user->is_registered == 1) {
+    //             return $this->generateTokenForExistingUser($user);
+    //         }
+
+    //         // Verify temp token
+    //         if (!$this->verifyTempToken($user, $request->temp_token, $request->phone)) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'Invalid verification token. Please verify OTP again.'
+    //             ], 422);
+    //         }
+
+    //         // Complete registration
+    //         $user->update([
+    //             'full_name' => $request->full_name,
+    //             'email' => $request->email,
+    //             'country' => $request->country,
+    //             'account_type' => 'customer',
+    //             'terms_condition' => $request->terms_condition,
+    //             'phone_verified_at' => now(),
+    //             'otp' => null,
+    //             'otp_expires_at' => null,
+    //             'temp_verification_token' => null,
+    //             'otp_verified_at' => null,
+    //             'is_registered' => 1,
+    //             'distributor_status' => 'active',
+    //             'password' => $request->filled('password') ? Hash::make($request->password) : null
+    //         ]);
+
+    //         $user->refresh();
+
+    //         // Clear cache
+    //         \Illuminate\Support\Facades\Cache::forget('registration_token_' . $request->phone);
+
+    //         UserNotificationSetting::updateOrCreate(
+    //             ['user_id' => $user->id],
+    //             [
+    //                 'email_notifications' => true,
+    //                 'order_updates' => true,
+    //                 'payment_alerts' => true,
+    //                 'promotional_emails' => true,
+    //                 'security_alerts' => true,
+    //             ]
+    //         );
+
+    //         // Assign role
+    //         $this->assignRoleToUser($user);
+
+    //         // Generate tokens
+    //         $token = $user->createToken('auth_token')->plainTextToken;
+    //         $refreshToken = Str::random(100);
+
+    //         RefreshToken::create([
+    //             'user_id' => $user->id,
+    //             'token' => hash('sha256', $refreshToken),
+    //             'expires_at' => now()->addDays(7),
+    //             'last_used_at' => now()
+    //         ]);
+
+    //         $role = $this->getUserRole($user);
+
+    //         /* =============================================
+    //             | SEND WELCOME SMS (TWILIO)
+    //             ============================================= */
+    //         $phone = $user->phone;
+
+    //         if ($phone) {
+    //             $message = "Hi {$user->full_name}! Welcome to " . config('app.name') . ". "
+    //                 . "Your customer account has been created successfully. "
+    //                 . "Start shopping now!";
+
+    //             try {
+    //                 app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+    //             } catch (\Throwable $e) {
+    //                 Log::error('Customer registration SMS failed', [
+    //                     'user_id' => $user->id,
+    //                     'error'   => $e->getMessage(),
+    //                 ]);
+    //             }
+    //         }
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Customer account created successfully',
+    //             'token' => $token,
+    //             'expires_in' => 3600,
+    //             'refresh_token' => $refreshToken,
+    //             'user' => $user,
+    //             'role' => $role ? [
+    //                 'id' => $role->id,
+    //                 'name' => $role->name,
+    //                 'slug' => $role->slug
+    //             ] : null
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Customer registration error: ' . $e->getMessage());
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function completeCustomerRegistration(Request $request)
     {
         try {
@@ -583,13 +858,6 @@ class AuthController extends Controller
                 'phone' => 'required|min:10|max:15',
                 'temp_token' => 'required|string',
                 'full_name' => 'required|string|max:255',
-                // 'email' => [
-                //     'required',
-                //     'email',
-                //     Rule::unique('users', 'email')->where(function ($query) {
-                //         return $query->where('is_registered', 1);
-                //     })
-                // ],
                 'email' => 'required|email',
                 'country' => 'nullable|string|max:255',
                 'password' => 'nullable|string|min:8',
@@ -630,7 +898,6 @@ class AuthController extends Controller
                 return $this->generateTokenForExistingUser($user);
             }
 
-            // Verify temp token
             if (!$this->verifyTempToken($user, $request->temp_token, $request->phone)) {
                 return response()->json([
                     'status' => false,
@@ -638,7 +905,6 @@ class AuthController extends Controller
                 ], 422);
             }
 
-            // Complete registration
             $user->update([
                 'full_name' => $request->full_name,
                 'email' => $request->email,
@@ -657,8 +923,7 @@ class AuthController extends Controller
 
             $user->refresh();
 
-            // Clear cache
-            \Illuminate\Support\Facades\Cache::forget('registration_token_' . $request->phone);
+            Cache::forget('registration_token_' . $request->phone);
 
             UserNotificationSetting::updateOrCreate(
                 ['user_id' => $user->id],
@@ -671,10 +936,8 @@ class AuthController extends Controller
                 ]
             );
 
-            // Assign role
             $this->assignRoleToUser($user);
 
-            // Generate tokens
             $token = $user->createToken('auth_token')->plainTextToken;
             $refreshToken = Str::random(100);
 
@@ -687,18 +950,9 @@ class AuthController extends Controller
 
             $role = $this->getUserRole($user);
 
-            /* =============================================
-                | SEND WELCOME SMS (TWILIO)
-                ============================================= */
-            $phone = $user->phone;
-
-            if ($phone) {
-                $message = "Hi {$user->full_name}! Welcome to " . config('app.name') . ". "
-                    . "Your customer account has been created successfully. "
-                    . "Start shopping now!";
-
+            if ($user->phone) {
                 try {
-                    app(\App\Services\TwilioSmsService::class)->send($phone, $message);
+                    $this->airtelSmsService->sendWelcomeSms($user->phone, (string) $user->full_name);
                 } catch (\Throwable $e) {
                     Log::error('Customer registration SMS failed', [
                         'user_id' => $user->id,
@@ -729,229 +983,6 @@ class AuthController extends Controller
         }
     }
 
-    // ============ DISTRIBUTOR REGISTRATION (Multi-step) ============
-    /**
-     * Check user status and get current step
-     */
-    // public function checkUserStatus(Request $request)
-    // {
-    //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'phone' => 'nullable|min:10|max:15',
-    //             'email' => 'nullable|email',
-    //         ]);
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'errors' => $validator->errors()
-    //             ], 422);
-    //         }
-
-    //         // At least one identifier is required
-    //         if (empty($request->phone) && empty($request->email)) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Please provide either phone or email.'
-    //             ], 422);
-    //         }
-
-    //         // Find user
-    //         $user = User::where(function ($query) use ($request) {
-    //             if ($request->phone) {
-    //                 $query->orWhere('phone', $request->phone);
-    //             }
-    //             if ($request->email) {
-    //                 $query->orWhere('email', $request->email);
-    //             }
-    //         })->first();
-
-    //         // If user doesn't exist, return new user flow
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => true,
-    //                 'exists' => false,
-    //                 'message' => 'New user. Proceed with registration.',
-    //                 'current_step' => 1,
-    //                 'next_step' => 1,
-    //                 'user_data' => null
-    //             ]);
-    //         }
-
-    //         // Check if user is registered with customer role
-    //         if ($user->account_type !== 'customer' && $user->is_registered == 1) {
-    //             $roleName = ucfirst($user->account_type ?? 'Unknown');
-
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'exists' => true,
-    //                 'message' => "This email address is already registered with a {$roleName} account. Please use a different email address to register.",
-    //                 'role' => $user->role
-    //             ], 403);
-    //         }
-
-    //         // Get distributor profile
-    //         $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
-
-    //         // Check if user is already fully registered
-    //         if ($user->is_registered == 1) {
-    //             return response()->json([
-    //                 'status' => true,
-    //                 'exists' => true,
-    //                 'is_registered' => true,
-    //                 'message' => 'User already registered.',
-    //                 'current_step' => 7,
-    //                 'user_data' => $this->getUserStepData($user, $distributorProfile, 7)
-    //             ]);
-    //         }
-
-    //         // Get current step data
-    //         $currentStep = $user->registration_step ?? 1;
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'exists' => true,
-    //             'is_registered' => false,
-    //             'message' => 'User found. Continuing registration.',
-    //             'current_step' => $currentStep,
-    //             'next_step' => $currentStep + 1,
-    //             'user_data' => $this->getUserStepData($user, $distributorProfile, $currentStep)
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('Check user status error: ' . $e->getMessage());
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
-    // public function checkUserStatus(Request $request)
-    // {
-    //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'phone' => 'nullable|min:10|max:15',
-    //             'email' => 'nullable|email',
-    //         ]);
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'errors' => $validator->errors()
-    //             ], 422);
-    //         }
-
-    //         // At least one identifier is required
-    //         if (empty($request->phone) && empty($request->email)) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Please provide either phone or email.'
-    //             ], 422);
-    //         }
-
-    //         // Find user
-    //         $user = User::where(function ($query) use ($request) {
-    //             if ($request->phone) {
-    //                 $query->orWhere('phone', $request->phone);
-    //             }
-
-    //             if ($request->email) {
-    //                 $query->orWhere('email', $request->email);
-    //             }
-    //         })->first();
-
-    //         // If user doesn't exist, return new distributor registration flow
-    //         if (!$user) {
-    //             return response()->json([
-    //                 'status' => true,
-    //                 'exists' => false,
-    //                 'message' => 'New user. Proceed with distributor registration.',
-    //                 'current_step' => 1,
-    //                 'next_step' => 1,
-    //                 'user_data' => null
-    //             ]);
-    //         }
-
-    //         /*
-    //         |--------------------------------------------------------------------------
-    //         | Customer account protection
-    //         |--------------------------------------------------------------------------
-    //         | If email/phone belongs to an already registered customer,
-    //         | do NOT allow it to continue in distributor registration.
-    //         |--------------------------------------------------------------------------
-    //         */
-    //         if ($user->account_type === 'customer' && $user->is_registered == 1) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'exists' => true,
-    //                 'is_registered' => true,
-    //                 'message' => 'This email address is already registered with a Customer account. Please use a different email address.',
-    //                 'role' => $user->role
-    //             ], 403);
-    //         }
-
-    //         /*
-    //         |--------------------------------------------------------------------------
-    //         | Other already registered non-distributor accounts
-    //         |--------------------------------------------------------------------------
-    //         | Only distributor accounts should be allowed in this flow.
-    //         |--------------------------------------------------------------------------
-    //         */
-    //         if ($user->account_type !== 'distributor' && $user->is_registered == 1) {
-    //             $roleName = ucfirst($user->account_type ?? 'Unknown');
-
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'exists' => true,
-    //                 'is_registered' => true,
-    //                 'message' => "This account is already registered as {$roleName}. Please use a different email address.",
-    //                 'role' => $user->role
-    //             ], 403);
-    //         }
-
-    //         // Get distributor profile
-    //         $distributorProfile = DistributorProfile::where('user_id', $user->id)->first();
-
-    //         // Check if distributor is already fully registered
-    //         if ($user->account_type === 'distributor' && $user->is_registered == 1) {
-    //             return response()->json([
-    //                 'status' => true,
-    //                 'exists' => true,
-    //                 'is_registered' => true,
-    //                 'message' => 'Distributor already registered.',
-    //                 'current_step' => 7,
-    //                 'user_data' => $this->getUserStepData(
-    //                     $user,
-    //                     $distributorProfile,
-    //                     7
-    //                 )
-    //             ]);
-    //         }
-
-    //         // Get current registration step
-    //         $currentStep = $user->registration_step ?? 1;
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'exists' => true,
-    //             'is_registered' => false,
-    //             'message' => 'User found. Continuing distributor registration.',
-    //             'current_step' => $currentStep,
-    //             'next_step' => $currentStep + 1,
-    //             'user_data' => $this->getUserStepData(
-    //                 $user,
-    //                 $distributorProfile,
-    //                 $currentStep
-    //             )
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('Check user status error: ' . $e->getMessage());
-
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
     public function checkUserStatus(Request $request)
     {
         try {
@@ -1601,131 +1632,57 @@ class AuthController extends Controller
         }
     }
 
-    // public function sendVerificationOtp(Request $request)
+    // public function resendOtp(Request $request)
     // {
     //     try {
-    //         $validator = Validator::make($request->all(), [
-    //             'type'  => 'required|in:phone,email',
-    //             'phone' => 'required_if:type,phone|min:10|max:15',
-    //             'email' => 'required_if:type,email|email',
+    //         $request->validate([
+    //             'phone' => 'required|min:10|max:15'
     //         ]);
 
-    //         if ($validator->fails()) {
+    //         $user = User::where('phone', $request->phone)->first();
+
+    //         if (!$user) {
     //             return response()->json([
     //                 'status' => false,
-    //                 'errors' => $validator->errors()
+    //                 'message' => 'User not found'
+    //             ], 422);
+    //         }
+
+    //         if ($user->is_registered == 1) {
+    //             return response()->json([
+    //                 'status' => false,
+    //                 'message' => 'User is already registered. Please login.'
     //             ], 422);
     //         }
 
     //         // ========== STATIC OTP MAPPING ==========
     //         $staticOtps = [
-    //             '+919980980980'        => '111111',
-    //             '+918800880088'        => '222222',
-    //             'qatest02md@gmail.com' => '333333',
+    //             '+919980980980' => '111111',   // Customer
+    //             '+918800880088' => '222222',   // Distributor (phone)
     //         ];
+
+    //         if (array_key_exists($request->phone, $staticOtps)) {
+    //             $otp = $staticOtps[$request->phone];
+    //         } else {
+    //             $otp = rand(100000, 999999);
+    //         }
     //         // ========================================
 
-    //         $expiryMinutes = (int) setting('otp_expiry_minutes', 5);
+    //         $user->update([
+    //             'otp' => $otp,
+    //             'otp_expires_at' => now()->addMinutes(10),
+    //             'temp_verification_token' => null,
+    //             'otp_verified_at' => null
+    //         ]);
 
-    //         // ================= PHONE OTP =================
-    //         if ($request->type === 'phone') {
-    //             //  Sirf REGISTERED users ko block karo (partial users nahi)
-    //             $registeredUser = User::where('phone', $request->phone)
-    //                 ->where('is_registered', 1)
-    //                 ->first();
+    //         $this->twilioService->sendOtp($request->phone, $otp);
 
-    //             if ($registeredUser) {
-    //                 return response()->json([
-    //                     'status' => false,
-    //                     'message' => 'This phone number is already registered.'
-    //                 ], 422);
-    //             }
-
-    //             //  Verified flag check — agar flag hai to matlab abhi kisi flow mein use ho raha hai
-    //             // TTL 3 min hai, isliye stale nahi rahega
-    //             $verifiedKey = 'phone_verified_' . $request->phone;
-    //             if (Cache::has($verifiedKey)) {
-    //                 // Agar verified flag abhi bhi hai, matlab user ne OTP verify kiya
-    //                 // lekin step1 complete nahi kiya. User ko allow karo dobara OTP lene ka
-    //                 // (kyunki ho sakta hai usne step1 fail kiya ho)
-    //                 Cache::forget($verifiedKey);
-    //             }
-
-    //             //  Purana OTP cache clear karo (re-send allow)
-    //             $otpKey = 'otp_phone_' . $request->phone;
-    //             Cache::forget($otpKey);
-
-    //             // Generate OTP
-    //             $otp = array_key_exists($request->phone, $staticOtps)
-    //                 ? $staticOtps[$request->phone]
-    //                 : rand(100000, 999999);
-
-    //             // Store OTP in cache (NO DB entry)
-    //             Cache::put($otpKey, [
-    //                 'otp'        => $otp,
-    //                 'expires_at' => now()->addMinutes($expiryMinutes),
-    //             ], now()->addMinutes($expiryMinutes));
-
-    //             // Send SMS OTP
-    //             // $this->twilioService->sendOtp($request->phone, $otp);
-
-    //             return response()->json([
-    //                 'status'     => true,
-    //                 'message'    => 'Phone OTP sent successfully',
-    //                 'phone'      => $request->phone,
-    //                 'otp'        => $otp, // Remove in production
-    //                 'expires_in' => $expiryMinutes,
-    //             ]);
-    //         }
-
-    //         // ================= EMAIL OTP =================
-    //         else {
-    //             //  Sirf REGISTERED users ko block karo
-    //             $registeredUser = User::where('email', $request->email)
-    //                 ->where('is_registered', 1)
-    //                 ->first();
-
-    //             if ($registeredUser) {
-    //                 return response()->json([
-    //                     'status' => false,
-    //                     'message' => 'This email is already registered.'
-    //                 ], 422);
-    //             }
-
-    //             //  Verified flag clear (stale na rahe)
-    //             $verifiedKey = 'email_verified_' . $request->email;
-    //             if (Cache::has($verifiedKey)) {
-    //                 Cache::forget($verifiedKey);
-    //             }
-
-    //             //  Purana OTP cache clear karo
-    //             $otpKey = 'otp_email_' . $request->email;
-    //             Cache::forget($otpKey);
-
-    //             // Generate OTP
-    //             $otp = array_key_exists($request->email, $staticOtps)
-    //                 ? $staticOtps[$request->email]
-    //                 : rand(100000, 999999);
-
-    //             // Store OTP in cache
-    //             Cache::put($otpKey, [
-    //                 'otp'        => $otp,
-    //                 'expires_at' => now()->addMinutes($expiryMinutes),
-    //             ], now()->addMinutes($expiryMinutes));
-
-    //             // Send email OTP
-    //             // Mail::to($request->email)->send(new EmailVerificationMail($otp));
-
-    //             return response()->json([
-    //                 'status'     => true,
-    //                 'message'    => 'Email OTP sent successfully',
-    //                 'email'      => $request->email,
-    //                 'otp'        => $otp, // Remove in production
-    //                 'expires_in' => $expiryMinutes,
-    //             ]);
-    //         }
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'OTP resent successfully',
+    //             'otp' => $otp // Remove in production
+    //         ]);
     //     } catch (\Exception $e) {
-    //         Log::error('Send verification OTP error: ' . $e->getMessage());
     //         return response()->json([
     //             'status' => false,
     //             'message' => $e->getMessage()
@@ -1765,7 +1722,7 @@ class AuthController extends Controller
             if (array_key_exists($request->phone, $staticOtps)) {
                 $otp = $staticOtps[$request->phone];
             } else {
-                $otp = rand(100000, 999999);
+                $otp = (string) rand(100000, 999999);
             }
             // ========================================
 
@@ -1776,7 +1733,15 @@ class AuthController extends Controller
                 'otp_verified_at' => null
             ]);
 
-            $this->twilioService->sendOtp($request->phone, $otp);
+            if (!array_key_exists($request->phone, $staticOtps)) {
+                $sent = $this->airtelSmsService->sendOtp($request->phone, (string) $otp);
+
+                if (!$sent) {
+                    Log::warning('Resend OTP saved in DB, but Airtel SMS delivery failed', [
+                        'phone' => $request->phone,
+                    ]);
+                }
+            }
 
             return response()->json([
                 'status' => true,
