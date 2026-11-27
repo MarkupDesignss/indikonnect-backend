@@ -416,11 +416,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/checkout/apply-shipping', [CheckoutController::class, 'applyShipping']);
     Route::post('/checkout/remove-coupon', [CheckoutController::class, 'removeCoupon']);
 
-    Route::post('/checkout/{orderId}/cv-allocation/preview',[CheckoutController::class, 'previewCvAllocation']);
-
-    Route::post('/checkout/{orderId}/cv-allocation/save', [CheckoutController::class, 'saveCvAllocation']);
-
-    Route::get('/checkout/{orderId}/cv-allocation', [CheckoutController::class, 'getCvAllocation']);
+    Route::post('/checkout/update-cv-allocation', [CheckoutController::class, 'updateCvAllocation']);
 
     Route::get('/orders/{orderReference}/credit-notes', [CreditNoteController::class, 'getByOrder']);
     Route::get('/credit-notes/{id}', [CreditNoteController::class, 'userShow']);

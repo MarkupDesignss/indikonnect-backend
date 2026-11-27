@@ -374,36 +374,6 @@ class CheckoutController extends Controller
     /**
      * FR-CO-004: Apply coin redemption (distributor only)
      */
-    // public function applyCoins(Request $request): JsonResponse
-    // {
-    //     if (!auth()->user()->isDistributor()) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Only distributors can redeem coins.',
-    //         ], 403);
-    //     }
-
-    //     $validated = $request->validate([
-    //         'coins' => 'required|integer|min:1',
-    //     ]);
-
-    //     try {
-    //         $result = $this->checkoutService->applyCoins(
-    //             auth()->id(),
-    //             $validated['coins']
-    //         );
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'data' => $result,
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 400);
-    //     }
-    // }
 
     public function applyCoins(Request $request): JsonResponse
     {
@@ -532,146 +502,7 @@ class CheckoutController extends Controller
             ], 400);
         }
     }
-
-    // public function repayOrder(Request $request, string $orderReference): JsonResponse
-    // {
-    //     // ----------------------------------------------------------
-    //     // 0. Validate request (inline, no FormRequest needed)
-    //     // ----------------------------------------------------------
-    //     $validated = $request->validate([
-    //         'payment_gateway' => 'required|in:razorpay,hdfc_sg,hdfc_ie',
-    //     ]);
-
-    //     $gateway = $validated['payment_gateway'];
-
-    //     $order = Order::where('order_reference', $orderReference)
-    //         ->where('user_id', auth()->id())
-    //         ->with(['lines', 'user', 'deliveryAddress'])
-    //         ->firstOrFail();
-
-    //     // ----------------------------------------------------------
-    //     // 1. Basic guards
-    //     // ----------------------------------------------------------
-    //     if ((float) $order->amount_paid > 0 || $order->status === 'confirmed') {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Order is already paid.',
-    //         ], 422);
-    //     }
-
-    //     if (!in_array($order->status, ['pending', 'failed'], true)) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => "Order cannot be repaid in status: {$order->status}",
-    //         ], 422);
-    //     }
-
-    //     // ----------------------------------------------------------
-    //     // 2. 30-min window check (created_at + 30 min)
-    //     // ----------------------------------------------------------
-    //     $deadline = $order->created_at?->copy()->addMinutes(30);
-
-    //     if (!$deadline || now()->greaterThanOrEqualTo($deadline)) {
-    //         // Auto mark failed agar abhi pending hai
-    //         if ($order->status === 'pending') {
-    //             DB::transaction(function () use ($order) {
-    //                 $order->update(['status' => 'failed']);
-    //                 $order->lines()->update(['delivery_status' => 'failed']);
-    //             });
-    //         }
-
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Repayment window has expired. Please place a new order.',
-    //         ], 410);
-    //     }
-
-    //     try {
-    //         // ------------------------------------------------------
-    //         // 3. Re-create gateway session (same shape as placeOrder)
-    //         // ------------------------------------------------------
-    //         $gatewayPayload = [];
-
-    //         if ($gateway === 'razorpay') {
-    //             $razorpayService = app(\App\Services\PaymentGateway\RazorpayService::class);
-    //             $razorpayOrder   = $razorpayService->createOrder($order);
-    //             $gatewayPayload  = [
-    //                 'razorpay_order_id' => $razorpayOrder['id'],
-    //                 'razorpay_key'      => config('services.razorpay.key_id'),
-    //             ];
-    //         } elseif (in_array($gateway, ['hdfc_sg', 'hdfc_ie'], true)) {
-    //             $configKey = $gateway === 'hdfc_sg' ? 'sg' : 'ie';
-    //             $config    = config("services.hdfc.{$configKey}");
-
-    //             if (!$config || empty($config['api_key'])) {
-    //                 throw new \Exception("HDFC merchant [{$gateway}] is not configured.");
-    //             }
-
-    //             $hdfcService = new \App\Services\PaymentGateway\HdfcService($config, $gateway);
-    //             $hdfcOrder   = $hdfcService->createOrder($order);
-
-    //             $gatewayPayload = [
-    //                 'hdfc_order_id'     => $hdfcOrder['id'],
-    //                 'hdfc_payment_link' => $hdfcOrder['payment_link'],
-    //                 'hdfc_sdk_payload'  => $hdfcOrder['sdk_payload'],
-    //                 'hdfc_merchant_id'  => $config['merchant_id'],
-    //                 'hdfc_gateway_key'  => $gateway,
-    //             ];
-    //         }
-
-    //         // ------------------------------------------------------
-    //         // 4. Re-open order + lines AND update gateway
-    //         //    (gateway update zaroori hai — kyunki webhook isi
-    //         //    gateway se aayega, aur confirmOrder consistency
-    //         //    ke liye order->payment_gateway bhi match karna
-    //         //    chahiye.)
-    //         // ------------------------------------------------------
-    //         DB::transaction(function () use ($order, $gateway) {
-    //             $order->update([
-    //                 'status'          => 'pending',
-    //                 'payment_gateway' => $gateway,
-    //             ]);
-    //             $order->lines()->update(['delivery_status' => 'pending']);
-    //         });
-
-    //         // ------------------------------------------------------
-    //         // 5. Same response shape as placeOrder()
-    //         // ------------------------------------------------------
-    //         return response()->json([
-    //             'success' => true,
-    //             'message' => 'Repayment session created.',
-    //             'data'    => array_merge([
-    //                 'order_id'           => $order->id,
-    //                 'order_reference'    => $order->order_reference,
-    //                 'total_items'        => $order->lines()->count(),
-    //                 'total_amount'       => (float) $order->total_payable,
-    //                 'status'             => 'pending',
-    //                 'checkout_type'      => $order->checkout_type ?? 'cart',
-    //                 'gateway'            => $gateway,
-    //                 'payment_expires_at' => $deadline->toDateTimeString(),
-    //                 'tax_split'          => [
-    //                     'delivery_state' => strtolower(optional($order->deliveryAddress)->state ?? ''),
-    //                     'supplier_state' => strtolower(config('app.supplier_state', 'Maharashtra')),
-    //                     'total_cgst'     => (float) $order->total_cgst,
-    //                     'total_sgst'     => (float) $order->total_sgst,
-    //                     'total_igst'     => (float) $order->total_igst,
-    //                 ],
-    //             ], $gatewayPayload),
-    //         ]);
-    //     } catch (\Exception $e) {
-    //         Log::error('repayOrder failed', [
-    //             'order_reference' => $orderReference,
-    //             'gateway'         => $gateway,
-    //             'error'           => $e->getMessage(),
-    //             'trace'           => $e->getTraceAsString(),
-    //         ]);
-
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => $e->getMessage(),
-    //         ], 400);
-    //     }
-    // }
+    
     public function repayOrder(Request $request, string $orderReference): JsonResponse
     {
         // ----------------------------------------------------------
@@ -904,4 +735,32 @@ class CheckoutController extends Controller
             ], 400);
         }
     }
+
+    public function updateCvAllocation(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'order_id'    => 'required|exists:orders,id',
+            'allocations' => 'required|array',
+            'extra_tcs'   => 'present|array',
+        ]);
+
+        $order = Order::where('id', $validated['order_id'])
+                    ->where('user_id', auth()->id())
+                    ->where('status', 'pending')
+                    ->first();
+
+        if (!$order) {
+            return response()->json(['success' => false, 'message' => 'Order not found or not pending.'], 404);
+        }
+
+        // Service ko call karke DB me save karwao
+        $this->checkoutService->saveManualCvAllocation(
+            $order->id,
+            $validated['allocations'],
+            $validated['extra_tcs']
+        );
+
+        return response()->json(['success' => true, 'message' => 'Allocation updated.']);
+    }
+
 }
