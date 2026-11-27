@@ -2958,6 +2958,32 @@ class CheckoutService
                 'checkout_type'        => $isBuyNow ? 'buy_now' : 'cart',
             ]);
 
+            // ============ CV Allocations ============
+
+            if ($order->order_type === 'distributor') {
+            $manualAlloc = \Illuminate\Support\Facades\Cache::pull("ignite_manual_alloc:{$order->user_id}");
+
+            if ($manualAlloc && !empty($manualAlloc['allocations'])) {
+                $order->update([
+                    'ignite_cv_allocations' => [
+                        'main_ba_id'  => $user->distributor_id,
+                        'allocations' => $manualAlloc['allocations'],
+                        'snapshot_at' => now()->toIso8601String(),
+                        'is_manual'   => true,
+                    ],
+                    'ignite_extra_tcs' => $manualAlloc['extra_tcs'] ?? [],
+                ]);
+            } else {
+                $this->previewIgniteCvAllocation(
+                    $order->user_id,
+                    $isBuyNow ? $cartItems[0]->product_id : null,
+                    $isBuyNow ? ($cartItems[0]->variant_id ?? null) : null,
+                    $isBuyNow ? $cartItems[0]->quantity : null,
+                    $order
+                );
+            }
+        }
+
             // ============ CREATE ORDER LINES ============
             // NOTE: service_charge is NOT written to DB — calculation only.
             foreach ($itemsWithTaxSplit as $row) {

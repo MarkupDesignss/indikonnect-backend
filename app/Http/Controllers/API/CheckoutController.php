@@ -739,26 +739,20 @@ class CheckoutController extends Controller
     public function updateCvAllocation(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'order_id'    => 'required|exists:orders,id',
             'allocations' => 'required|array',
             'extra_tcs'   => 'present|array',
         ]);
 
-        $order = Order::where('id', $validated['order_id'])
-                    ->where('user_id', auth()->id())
-                    ->where('status', 'pending')
-                    ->first();
-
-        if (!$order) {
-            return response()->json(['success' => false, 'message' => 'Order not found or not pending.'], 404);
+        $user = auth()->user();
+        if ($user->account_type !== 'distributor' || empty($user->distributor_id)) {
+            return response()->json(['success' => false, 'message' => 'Not a distributor.'], 403);
         }
 
-        // Service ko call karke DB me save karwao
-        $this->checkoutService->saveManualCvAllocation(
-            $order->id,
-            $validated['allocations'],
-            $validated['extra_tcs']
-        );
+        // Cache me save kar rahe hain, taaki placeOrder ke time use ho sake
+        \Illuminate\Support\Facades\Cache::put("ignite_manual_alloc:{$user->id}", [
+            'allocations' => $validated['allocations'],
+            'extra_tcs'   => $validated['extra_tcs'],
+        ], now()->addMinutes(30));
 
         return response()->json(['success' => true, 'message' => 'Allocation updated.']);
     }
