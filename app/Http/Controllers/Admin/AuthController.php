@@ -1474,49 +1474,71 @@ class AuthController extends Controller
     //                     $user->profile_picture = asset('storage/' . $user->profile_picture);
     //                 }
 
+    //                 // Ignite payout summary (only for distributors on Ignite)
+    //                 $user->setAttribute(
+    //                     'ignite_payout_summary',
+    //                     $this->buildIgnitePayoutSummary($user)
+    //                 );
+
     //                 return $user;
     //             });
 
     //         return response()->json([
     //             'success' => true,
     //             'message' => 'Registered users fetched successfully.',
-    //             'data' => $users
+    //             'data'    => $users
     //         ], 200);
     //     } catch (\Exception $e) {
     //         return response()->json([
     //             'success' => false,
     //             'message' => 'Failed to fetch registered users.',
-    //             'error' => $e->getMessage()
+    //             'error'   => $e->getMessage()
     //         ], 500);
     //     }
     // }
-
-    public function getRegisteredUsers()
+    public function getRegisteredUsers(Request $request)
     {
         try {
+            $perPage = min(
+                max((int) $request->input('per_page', 20), 1),
+                100
+            );
+
             $users = User::with('role', 'distributorProfile')
                 ->where('is_registered', true)
                 ->orderBy('id', 'desc')
-                ->get()
-                ->map(function ($user) {
-                    if ($user->profile_picture) {
-                        $user->profile_picture = asset('storage/' . $user->profile_picture);
-                    }
+                ->paginate($perPage);
 
-                    // Ignite payout summary (only for distributors on Ignite)
-                    $user->setAttribute(
-                        'ignite_payout_summary',
-                        $this->buildIgnitePayoutSummary($user)
+            $users->getCollection()->transform(function ($user) {
+                if ($user->profile_picture) {
+                    $user->profile_picture = asset(
+                        'storage/' . $user->profile_picture
                     );
+                }
 
-                    return $user;
-                });
+                // Ignite payout summary (only for distributors on Ignite)
+                $user->setAttribute(
+                    'ignite_payout_summary',
+                    $this->buildIgnitePayoutSummary($user)
+                );
+
+                return $user;
+            });
 
             return response()->json([
                 'success' => true,
                 'message' => 'Registered users fetched successfully.',
-                'data'    => $users
+                'data' => $users->items(),
+                'pagination' => [
+                    'current_page' => $users->currentPage(),
+                    'per_page'     => $users->perPage(),
+                    'total'        => $users->total(),
+                    'last_page'    => $users->lastPage(),
+                    'next_page'    => $users->nextPageUrl(),
+                    'prev_page'    => $users->previousPageUrl(),
+                ]
             ], 200);
+
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
