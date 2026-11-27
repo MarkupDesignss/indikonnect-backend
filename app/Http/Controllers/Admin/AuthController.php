@@ -1505,7 +1505,7 @@ class AuthController extends Controller
             );
 
             $users = User::with('role', 'distributorProfile')
-                ->where('is_registered', true)
+                //->where('is_registered', true)
                 ->orderBy('id', 'desc')
                 ->paginate($perPage);
 
