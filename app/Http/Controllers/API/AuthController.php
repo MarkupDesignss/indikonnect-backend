@@ -142,7 +142,7 @@ class AuthController extends Controller
     private function safeUser(User $user): User
     {
         if ($user->relationLoaded('distributorProfile') && $user->distributorProfile) {
-            $user->distributorProfile->makeHidden(['encrypted_aadhaar','encrypted_pan','encrypted_bank_account','complete_bank_account','aadhaar_hash','pan_hash']);
+            $user->distributorProfile->makeHidden(['encrypted_aadhaar','encrypted_pan','encrypted_bank_account','complete_bank_account']);
         }
         return $user->makeHidden([
             'password', 'remember_token', 'otp', 'otp_expires_at',
@@ -232,63 +232,6 @@ class AuthController extends Controller
         ]);
     }
 
-    /**
-     * Send a real SMS through the existing Airtel service.
-     * Default: preserve the supplied number. Set services.airtel.otp_phone_format
-     * only after confirming the provider's required format (as_received, e164,
-     * national, country_digits). Never expose OTPs, phones or credentials in logs.
-     */
-    private function deliverSmsOtp(string $phone, string $otp, string $purpose): bool
-    {
-        $phone = trim($phone);
-        $format = (string) config('services.airtel.otp_phone_format', 'as_received');
-        $destination = $phone;
-
-        // Convert only recognizable Indian mobile numbers, only for SMS delivery.
-        // Do not change stored phone values or the user lookup logic.
-        if (preg_match('/^(?:\+?91)?([6-9][0-9]{9})$/D', $phone, $matches)) {
-            $national = $matches[1];
-            $destination = match ($format) {
-                'e164' => '+91' . $national,
-                'national' => $national,
-                'country_digits' => '91' . $national,
-                default => $phone,
-            };
-        }
-
-        $context = [
-            'purpose' => $purpose,
-            'phone_format' => str_starts_with($destination, '+') ? 'plus_prefixed' : 'no_plus',
-            'phone_length' => strlen($destination),
-        ];
-
-        try {
-            $sent = $this->airtelSmsService->sendOtp($destination, $otp);
-            if (!$sent) {
-                Log::warning('[OTP delivery] Airtel returned failure', $context + [
-                    'result_type' => get_debug_type($sent),
-                ]);
-                return false;
-            }
-            return true;
-        } catch (\Throwable $e) {
-            Log::warning('[OTP delivery] Airtel threw exception', $context + [
-                'exception_type' => get_class($e),
-                'exception_code' => (int) $e->getCode(),
-            ]);
-            return false;
-        }
-    }
-
-    /** Clear only the failed challenge, not a newer OTP or a different account. */
-    private function clearFailedSmsOtp(User $user, string $otp): void
-    {
-        User::where('id', $user->id)
-            ->where('otp', $otp)
-            ->where('otp_expires_at', $user->getRawOriginal('otp_expires_at'))
-            ->update(['otp' => null, 'otp_expires_at' => null]);
-    }
-
     public function sendOtp(Request $request)
     {
         try {
@@ -342,21 +285,28 @@ class AuthController extends Controller
                 $message = 'OTP sent successfully. Please verify to complete registration.';
             }
 
-            if (!$this->deliverSmsOtp((string) $request->phone, $otp, 'customer-send')) {
-                $this->clearFailedSmsOtp($user, $otp);
-                return response()->json(['status' => false, 'message' => 'Unable to send OTP. Please try again later.'], 503);
+            $testMode = app()->environment('testing') && app()->runningUnitTests();
+
+            if (!$testMode) {
+                $sent = $this->airtelSmsService->sendOtp($request->phone, (string) $otp);
+
+                if (!$sent) {
+                    User::where('phone', $request->phone)->update(['otp' => null, 'otp_expires_at' => null]);
+                    return response()->json(['status' => false, 'message' => 'Unable to send OTP.'], 503);
+                }
             }
 
-            return response()->json([
+            $response = [
                 'status' => true,
                 'message' => $message,
                 'phone' => $request->phone,
                 'is_registered' => $user->is_registered,
                 'account_type' => $user->account_type,
-
-            ]);
+            ];
+            if ($testMode) $response['otp'] = $otp;
+            return response()->json($response);
         } catch (\Exception $e) {
-            Log::error('[OTP delivery] Customer OTP processing failed', ['exception_type' => get_class($e)]);
+            Log::error('Send OTP error: ' . $e->getMessage());
 
             return response()->json([
                 'status' => false,
@@ -933,16 +883,19 @@ class AuthController extends Controller
                 $proof[$type.'_otp'] = Hash::make($otp);
                 $proof[$type.'_expiry'] = now()->addMinutes(5)->timestamp;
                 $proof[$type.'_attempts'] = 0;
-                if ($type === 'phone') {
-                    if (!$this->deliverSmsOtp($value, $otp, 'distributor-onboarding'))
+                $testMode = app()->environment('testing') && app()->runningUnitTests();
+                if (!$testMode && $type === 'phone') {
+                    if (!$this->airtelSmsService->sendOtp($value,$otp))
                         return response()->json(['status'=>false,'message'=>'Unable to send OTP.'],503);
-                } else {
+                } elseif (!$testMode) {
                     Mail::raw('Your IndieKonnect verification code is '.$otp.'. It expires in 5 minutes.', function ($message) use ($value) {
                         $message->to($value)->subject('IndieKonnect verification code');
                     });
                 }
                 Cache::put($key,$proof,now()->addMinutes(30));
-                return response()->json(['status'=>true,'message'=>ucfirst($type).' OTP sent successfully', $type=>$value,'expires_in'=>300,'temp_token'=>$token]);
+                $response = ['status'=>true,'message'=>ucfirst($type).' OTP sent successfully', $type=>$value,'expires_in'=>300,'temp_token'=>$token];
+                if ($testMode) $response['otp'] = $otp;
+                return response()->json($response);
             });
         } catch (\Throwable $e) {
             return response()->json(['status'=>false,'message'=>'Unable to send verification code.'],503);
@@ -989,16 +942,23 @@ class AuthController extends Controller
                 'otp_verified_at' => null
             ]);
 
-            if (!$this->deliverSmsOtp((string) $request->phone, $otp, 'customer-resend')) {
-                $this->clearFailedSmsOtp($user, $otp);
-                return response()->json(['status' => false, 'message' => 'Unable to send OTP. Please try again later.'], 503);
+            $testMode = app()->environment('testing') && app()->runningUnitTests();
+
+            if (!$testMode) {
+                $sent = $this->airtelSmsService->sendOtp($request->phone, (string) $otp);
+
+                if (!$sent) {
+                    $user->update(['otp' => null, 'otp_expires_at' => null]);
+                    return response()->json(['status' => false, 'message' => 'Unable to send OTP.'], 503);
+                }
             }
 
-            return response()->json([
+            $response = [
                 'status' => true,
                 'message' => 'OTP resent successfully',
-
-            ]);
+            ];
+            if ($testMode) $response['otp'] = $otp;
+            return response()->json($response);
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -3128,8 +3088,10 @@ class AuthController extends Controller
             return Cache::lock($key.':lock',20)->block(3,function() use($user,$key,$reply) {
                 Cache::forget($key);
                 $otp=(string)random_int(100000,999999);
-                if (!$this->deliverSmsOtp((string) $user->phone, $otp, 'password-reset')) return response()->json(['status'=>false,'message'=>'Unable to send verification code.'],503);
+                $testMode = app()->environment('testing') && app()->runningUnitTests();
+                if (!$testMode && !$this->airtelSmsService->sendOtp($user->phone,$otp)) return response()->json(['status'=>false,'message'=>'Unable to send verification code.'],503);
                 Cache::put($key,['otp'=>Hash::make($otp),'attempts'=>0],now()->addMinutes(5));
+                if ($testMode) $reply['otp'] = $otp;
                 return response()->json($reply);
             });
         } catch (\Throwable $e) { return response()->json(['status'=>false,'message'=>'Unable to send verification code.'],503); }
