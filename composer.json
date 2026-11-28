@@ -18,7 +18,8 @@
         "laravel/tinker": "^2.10.1",
         "phpoffice/phpspreadsheet": "^5.12",
         "razorpay/razorpay": "^2.9",
-        "twilio/sdk": "^8.11"
+        "twilio/sdk": "^8.11",
+        "web-token/jwt-framework": "^4.2"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
