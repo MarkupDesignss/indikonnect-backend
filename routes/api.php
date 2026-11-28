@@ -323,6 +323,7 @@ Route::prefix('distributor')->group(function () {
     Route::post('verify-email-otp', [APIAuthController::class, 'verifyEmailOtp']);
     Route::post('step1-personal', [APIAuthController::class, 'distributorStep1Personal']);
     Route::post('/check-distributor', [APIAuthController::class, 'checkDistributorAndGenerateSponsor']);
+    Route::post('/verify-placement', [APIAuthController::class,'verifyPlacementDistributor']);
     Route::post('step2-sponsor', [APIAuthController::class, 'distributorStep2Sponsor']);
     Route::post('step3-aadhaar', [APIAuthController::class, 'distributorStep3Aadhaar']);
     Route::post('step4-pan', [APIAuthController::class, 'distributorStep4Pan']);

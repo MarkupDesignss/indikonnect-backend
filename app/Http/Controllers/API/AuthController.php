@@ -1229,7 +1229,9 @@ class AuthController extends Controller
                 'phone'         => 'required|min:10|max:15',
                 'ba_id'         => 'nullable|string|max:50',
                 'sponsor_id'    => 'required|string|max:50',
-                'placement_leg' => 'nullable|in:left,right',
+                'preferred_placement_ba_id' => 'required_without:ba_id|nullable|string|max:50',
+                'placement_tracking_centre' => 'required_without:ba_id|nullable|in:001,002,003',
+                'placement_leg' => 'required_without:ba_id|nullable|in:left,right',
             ]);
 
             if ($validator->fails()) {
@@ -1291,10 +1293,55 @@ class AuthController extends Controller
 
             $sponsorData = $response['data'] ?? [];
 
-            $updateData = [
-                'sponsor_id'        => $sponsorId,
-                'placement_leg'     => $request->placement_leg,
-                'registration_step' => max($user->registration_step ?? 0, 2),
+            $preferredId = null;
+            $trackingCentre = null;
+
+            if (!$request->filled('ba_id')) {
+
+                $preferredId = $this->placementMainBaId(
+                    $request->preferred_placement_ba_id
+                );
+
+                $trackingCentre = $request->placement_tracking_centre;
+
+                try {
+                    $options = $this->getRegistrationPlacementOptions(
+                        $sponsorId,
+                        $preferredId
+                    );
+
+                    $selectedTc = collect($options['tracking_centres'])
+                        ->firstWhere('value', $trackingCentre);
+
+                    $selectedSide = collect(
+                        $selectedTc['placement_sides'] ?? []
+                    )->firstWhere('value', $request->placement_leg);
+
+                    if (!$selectedTc || !$selectedSide) {
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'Invalid placement selection.',
+                        ], 422);
+                    }
+
+                } catch (\Illuminate\Validation\ValidationException $e) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => $e->getMessage(),
+                        'errors' => $e->errors(),
+                    ], 422);
+                }
+            }
+
+           $updateData = [
+                'sponsor_id' => $sponsorId,
+                'preferred_placement_ba_id' => $preferredId,
+                'placement_tracking_centre' => $trackingCentre,
+                'placement_leg' => $request->placement_leg,
+                'registration_step' => max(
+                    $user->registration_step ?? 0,
+                    2
+                ),
             ];
 
             if ($request->filled('ba_id')) {
@@ -1976,13 +2023,58 @@ class AuthController extends Controller
 
             /* ============ IGNITE: Register Member ============ */
             if (empty($user->distributor_id)) {
-                $partnerRef = 'IDK-' . $user->id . '-' . time();
+                //$partnerRef = 'IDK-' . $user->id . '-' . time();
+                $partnerRef = 'IDK-' . $user->id;
 
                 try {
+                    if (
+                        empty($user->preferred_placement_ba_id) ||
+                        empty($user->placement_tracking_centre) ||
+                        !in_array($user->placement_leg, ['left', 'right'], true)
+                    ) {
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'Please complete placement details in Step 2.',
+                        ], 422);
+                    }
+
+                    try {
+                        $options = $this->getRegistrationPlacementOptions(
+                            $user->sponsor_id,
+                            $user->preferred_placement_ba_id
+                        );
+                    } catch (\Illuminate\Validation\ValidationException $e) {
+                        return response()->json([
+                            'status' => false,
+                            'message' => $e->getMessage(),
+                            'errors' => $e->errors(),
+                        ], 422);
+                    }
+
+                    $selectedTc = collect($options['tracking_centres'])
+                        ->firstWhere('value', $user->placement_tracking_centre);
+
+                    $selectedSide = collect(
+                        $selectedTc['placement_sides'] ?? []
+                    )->firstWhere('value', $user->placement_leg);
+
+                    if (
+                        !$selectedTc ||
+                        !$selectedSide ||
+                        empty($selectedSide['placement_member_id'])
+                    ) {
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'Selected placement is no longer available.',
+                        ], 422);
+                    }
+
                     $igniteResponse = $this->ignite->registerMember(
                         partnerMemberRef: $partnerRef,
                         sponsorBaId: $user->sponsor_id,
                         fullname: $user->full_name,
+                        placementParent: (int) $selectedSide['placement_member_id'],
+                        side: (int) $selectedSide['side'],
                     );
                 } catch (\Exception $e) {
                     Log::error('[Step7-Submit] Ignite call failed', [
@@ -1996,9 +2088,9 @@ class AuthController extends Controller
                     ], 503);
                 }
 
-                if ($igniteResponse['code'] === ResultCode::ORDER_DUPLICATE->value) {
-                    $igniteResponse = $this->ignite->getOrder($partnerRef);
-                }
+                // if ($igniteResponse['code'] === ResultCode::ORDER_DUPLICATE->value) {
+                //     $igniteResponse = $this->ignite->getOrder($partnerRef);
+                // }
 
                 if ($igniteResponse['code'] !== ResultCode::OK->value) {
                     Log::error('[Step7-Submit] Ignite error', [
@@ -2430,6 +2522,8 @@ class AuthController extends Controller
                 'phone_verified_at' => $user->phone_verified_at,
                 'email_verified_at' => $user->email_verified_at,
                 'sponsor_id' => $user->sponsor_id,
+                'preferred_placement_ba_id' => $user->preferred_placement_ba_id,
+                'placement_tracking_centre' => $user->placement_tracking_centre,
                 'placement_leg' => $user->placement_leg,
                 'location_consent_given' => $user->location_consent_given,
                 'aadhaar_last4' => $user->aadhaar_last4 ? '****' . $user->aadhaar_last4 : null,
@@ -2471,7 +2565,13 @@ class AuthController extends Controller
     {
         return [
             'step_1_personal_info' => !empty($user->full_name) && !empty($user->email) && $user->phone_verified == 1 && !empty($user->email_verified_at),
-            'step_2_sponsor' => !empty($user->placement_leg),
+            'step_2_sponsor' => !empty($user->sponsor_id) && (
+                !empty($user->distributor_id) || (
+                    !empty($user->preferred_placement_ba_id) &&
+                    !empty($user->placement_tracking_centre) &&
+                    in_array($user->placement_leg, ['left', 'right'], true)
+                )
+            ),
             'step_3_aadhaar' => $distributorProfile && $distributorProfile->aadhaar_verified == 1,
             'step_4_pan' => $distributorProfile && $distributorProfile->pan_verified == 1,
             'step_5_bank' => $distributorProfile && !empty($distributorProfile->encrypted_bank_account),
@@ -3106,4 +3206,183 @@ class AuthController extends Controller
 
         return response()->json($response);
     }
+
+    public function verifyPlacementDistributor(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'phone' => 'required|min:10|max:15',
+            'sponsor_id' => 'required|string|max:50',
+            'preferred_placement_ba_id' => 'nullable|string|max:50',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $user = User::where('phone', $request->phone)->first();
+
+        if (
+            !$user ||
+            $user->account_type !== 'distributor' ||
+            !$this->registrationAccess($request, $user)
+        ) {
+            return $this->registrationDenied();
+        }
+
+        try {
+            $sponsorId = $this->placementMainBaId(
+                $request->sponsor_id
+            );
+
+            $preferredId = $this->placementMainBaId(
+                $request->preferred_placement_ba_id ?: $sponsorId
+            );
+
+            $data = $this->getRegistrationPlacementOptions(
+                $sponsorId,
+                $preferredId
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Distributor verified successfully.',
+                'data' => $data,
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (\Throwable $e) {
+            Log::error('[Verify Placement] ' . $e->getMessage());
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to verify placement right now.',
+            ], 503);
+        }
+    }
+
+    private function placementMainBaId(string $baId): string
+    {
+        $baId = strtoupper(trim($baId));
+
+        return preg_replace('/(?:-\d{3,})+$/', '', $baId) . '-001';
+    }
+
+    private function getRegistrationPlacementOptions(
+    string $sponsorId,
+    string $preferredId
+    ): array {
+        $sponsorResponse = $this->ignite->validateSponsor($sponsorId);
+
+        if (($sponsorResponse['code'] ?? null) !== ResultCode::OK->value) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'sponsor_id' => 'Unable to validate sponsor ID.',
+            ]);
+        }
+
+        $preferredResponse = $this->ignite->memberDetails($preferredId);
+
+        if (($preferredResponse['code'] ?? null) !== ResultCode::OK->value) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'preferred_placement_ba_id' =>
+                    'Unable to verify preferred distributor.',
+            ]);
+        }
+
+        $preferredMember = $preferredResponse['data'] ?? [];
+
+        // Verify preferred distributor within sponsor's binary tree.
+        if ($preferredId !== $sponsorId) {
+            $treeResponse = $this->ignite->binaryTree($sponsorId, 5);
+
+            if (($treeResponse['code'] ?? null) !== ResultCode::OK->value) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'sponsor_id' => 'Unable to verify sponsor network.',
+                ]);
+            }
+
+            $isEligible = collect(
+                $treeResponse['data']['rows'] ?? []
+            )->contains(function ($row) use ($preferredMember) {
+                return !empty($preferredMember['member_id'])
+                    && (int) ($row['member_id'] ?? 0)
+                        === (int) $preferredMember['member_id'];
+            });
+
+            if (!$isEligible) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'preferred_placement_ba_id' =>
+                        'Distributor could not be verified within the sponsor network.',
+                ]);
+            }
+        }
+
+        $baseBaId = preg_replace('/-001$/', '', $preferredId);
+
+        $trackingCentres = [];
+
+        foreach (['001', '002', '003'] as $tc) {
+            $tcBaId = $baseBaId . '-' . $tc;
+
+            $response = $tc === '001'
+                ? $preferredResponse
+                : $this->ignite->memberDetails($tcBaId);
+
+            if (($response['code'] ?? null) !== ResultCode::OK->value) {
+                continue;
+            }
+
+            $member = $response['data'] ?? [];
+
+            if (empty($member['member_id'])) {
+                continue;
+            }
+
+            $trackingCentres[] = [
+                'label' => 'TC-' . $tc,
+                'value' => $tc,
+                'ba_id' => $tcBaId,
+
+                'placement_sides' => [
+                    [
+                        'label' => 'Left',
+                        'value' => 'left',
+                        'side' => 1,
+                        'placement_member_id' =>
+                            (int) ($member['far_left_id']
+                                ?? $member['member_id']),
+                    ],
+                    [
+                        'label' => 'Right',
+                        'value' => 'right',
+                        'side' => 2,
+                        'placement_member_id' =>
+                            (int) ($member['far_right_id']
+                                ?? $member['member_id']),
+                    ],
+                ],
+            ];
+        }
+
+        $distributor = User::where(
+            'distributor_id',
+            $preferredId
+        )->first();
+
+        return [
+            'sponsor_id' => $sponsorId,
+            'preferred_placement_ba_id' => $preferredId,
+            'distributor_name' => $distributor?->full_name,
+            'tracking_centres' => $trackingCentres,
+        ];
+    }
+
 }

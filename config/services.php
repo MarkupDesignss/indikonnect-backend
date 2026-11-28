@@ -117,12 +117,25 @@ return [
         'api_key' => env('INDIAPOST_NODE_API_KEY'),
     ],
 
-    'axispg' => [
-        'merchant_id'  => env('AXISPG_MERCHANT_ID'),
-        'merchant_key' => env('AXISPG_MERCHANT_KEY'),
-        'base_url'     => env('AXISPG_BASE_URL', 'https://sandbox-axispg.freecharge.in'),
-        'callback_url' => env('AXISPG_CALLBACK_URL'),
-    ],
+   
+'axispg' => [
+    'merchant_id'  => env('AXISPG_MERCHANT_ID'),
+    'merchant_key' => env('AXISPG_MERCHANT_KEY'),
+    'base_url'     => env('AXISPG_BASE_URL', 'https://sandbox-axispg.freecharge.in'),
+    'callback_url' => env('AXISPG_CALLBACK_URL'),
+
+    'freecharge_public_key' => str_replace(
+        '\\n',
+        "\n",
+        env('AXIS_PG_FREECHARGE_PUBLIC_KEY')
+    ),
+
+    'merchant_private_key' => str_replace(
+        '\\n',
+        "\n",
+        env('AXIS_PG_MERCHANT_PRIVATE_KEY')
+    ),
+],
 
     'kyc' => [
         'base_url'    => env('KYC_BASE_URL', 'https://test-api.sandbox.co.in'),
