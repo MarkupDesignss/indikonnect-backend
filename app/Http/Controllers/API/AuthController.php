@@ -285,7 +285,7 @@ class AuthController extends Controller
                 $message = 'OTP sent successfully. Please verify to complete registration.';
             }
 
-            $testMode = app()->environment('testing') && app()->runningUnitTests();
+            $testMode = app()->environment('testing');
 
             if (!$testMode) {
                 $sent = $this->airtelSmsService->sendOtp($request->phone, (string) $otp);
@@ -883,7 +883,7 @@ class AuthController extends Controller
                 $proof[$type.'_otp'] = Hash::make($otp);
                 $proof[$type.'_expiry'] = now()->addMinutes(5)->timestamp;
                 $proof[$type.'_attempts'] = 0;
-                $testMode = app()->environment('testing') && app()->runningUnitTests();
+                $testMode = app()->environment('testing');
                 if (!$testMode && $type === 'phone') {
                     if (!$this->airtelSmsService->sendOtp($value,$otp))
                         return response()->json(['status'=>false,'message'=>'Unable to send OTP.'],503);
@@ -942,7 +942,7 @@ class AuthController extends Controller
                 'otp_verified_at' => null
             ]);
 
-            $testMode = app()->environment('testing') && app()->runningUnitTests();
+            $testMode = app()->environment('testing');
 
             if (!$testMode) {
                 $sent = $this->airtelSmsService->sendOtp($request->phone, (string) $otp);
@@ -3088,7 +3088,7 @@ class AuthController extends Controller
             return Cache::lock($key.':lock',20)->block(3,function() use($user,$key,$reply) {
                 Cache::forget($key);
                 $otp=(string)random_int(100000,999999);
-                $testMode = app()->environment('testing') && app()->runningUnitTests();
+                $testMode = app()->environment('testing');
                 if (!$testMode && !$this->airtelSmsService->sendOtp($user->phone,$otp)) return response()->json(['status'=>false,'message'=>'Unable to send verification code.'],503);
                 Cache::put($key,['otp'=>Hash::make($otp),'attempts'=>0],now()->addMinutes(5));
                 if ($testMode) $reply['otp'] = $otp;
