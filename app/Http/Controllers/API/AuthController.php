@@ -285,7 +285,9 @@ class AuthController extends Controller
                 $message = 'OTP sent successfully. Please verify to complete registration.';
             }
 
-            {
+            $testMode = app()->environment('testing') && app()->runningUnitTests();
+
+            if (!$testMode) {
                 $sent = $this->airtelSmsService->sendOtp($request->phone, (string) $otp);
 
                 if (!$sent) {
@@ -294,14 +296,15 @@ class AuthController extends Controller
                 }
             }
 
-            return response()->json([
+            $response = [
                 'status' => true,
                 'message' => $message,
                 'phone' => $request->phone,
                 'is_registered' => $user->is_registered,
                 'account_type' => $user->account_type,
-
-            ]);
+            ];
+            if ($testMode) $response['otp'] = $otp;
+            return response()->json($response);
         } catch (\Exception $e) {
             Log::error('Send OTP error: ' . $e->getMessage());
 
@@ -880,16 +883,19 @@ class AuthController extends Controller
                 $proof[$type.'_otp'] = Hash::make($otp);
                 $proof[$type.'_expiry'] = now()->addMinutes(5)->timestamp;
                 $proof[$type.'_attempts'] = 0;
-                if ($type === 'phone') {
+                $testMode = app()->environment('testing') && app()->runningUnitTests();
+                if (!$testMode && $type === 'phone') {
                     if (!$this->airtelSmsService->sendOtp($value,$otp))
                         return response()->json(['status'=>false,'message'=>'Unable to send OTP.'],503);
-                } else {
+                } elseif (!$testMode) {
                     Mail::raw('Your IndieKonnect verification code is '.$otp.'. It expires in 5 minutes.', function ($message) use ($value) {
                         $message->to($value)->subject('IndieKonnect verification code');
                     });
                 }
                 Cache::put($key,$proof,now()->addMinutes(30));
-                return response()->json(['status'=>true,'message'=>ucfirst($type).' OTP sent successfully', $type=>$value,'expires_in'=>300,'temp_token'=>$token]);
+                $response = ['status'=>true,'message'=>ucfirst($type).' OTP sent successfully', $type=>$value,'expires_in'=>300,'temp_token'=>$token];
+                if ($testMode) $response['otp'] = $otp;
+                return response()->json($response);
             });
         } catch (\Throwable $e) {
             return response()->json(['status'=>false,'message'=>'Unable to send verification code.'],503);
@@ -936,7 +942,9 @@ class AuthController extends Controller
                 'otp_verified_at' => null
             ]);
 
-            {
+            $testMode = app()->environment('testing') && app()->runningUnitTests();
+
+            if (!$testMode) {
                 $sent = $this->airtelSmsService->sendOtp($request->phone, (string) $otp);
 
                 if (!$sent) {
@@ -945,11 +953,12 @@ class AuthController extends Controller
                 }
             }
 
-            return response()->json([
+            $response = [
                 'status' => true,
                 'message' => 'OTP resent successfully',
-
-            ]);
+            ];
+            if ($testMode) $response['otp'] = $otp;
+            return response()->json($response);
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -3079,8 +3088,10 @@ class AuthController extends Controller
             return Cache::lock($key.':lock',20)->block(3,function() use($user,$key,$reply) {
                 Cache::forget($key);
                 $otp=(string)random_int(100000,999999);
-                if (!$this->airtelSmsService->sendOtp($user->phone,$otp)) return response()->json(['status'=>false,'message'=>'Unable to send verification code.'],503);
+                $testMode = app()->environment('testing') && app()->runningUnitTests();
+                if (!$testMode && !$this->airtelSmsService->sendOtp($user->phone,$otp)) return response()->json(['status'=>false,'message'=>'Unable to send verification code.'],503);
                 Cache::put($key,['otp'=>Hash::make($otp),'attempts'=>0],now()->addMinutes(5));
+                if ($testMode) $reply['otp'] = $otp;
                 return response()->json($reply);
             });
         } catch (\Throwable $e) { return response()->json(['status'=>false,'message'=>'Unable to send verification code.'],503); }
